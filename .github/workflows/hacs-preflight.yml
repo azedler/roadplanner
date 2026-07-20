@@ -1,0 +1,36 @@
+name: HACS preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-preflight:
+    name: Roadplanner repository preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Roadplanner HACS preflight
+        run: python tools/hacs_preflight.py
+
+  hacs-validation:
+    name: Official HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration repository
+        uses: hacs/action@main
+        with:
+          category: integration
+          # A custom repository can ship root brand assets before the domain is
+          # accepted into home-assistant/brands. Remove this ignore before a
+          # future submission to the default HACS repository list.
+          ignore: brands
