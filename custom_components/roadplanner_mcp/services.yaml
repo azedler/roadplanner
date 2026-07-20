@@ -1,0 +1,537 @@
+get_trip_summary: {}
+
+get_days:
+  fields:
+    offset:
+      default: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    limit:
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 60
+          mode: box
+    include_stops:
+      default: false
+      selector:
+        boolean:
+
+get_day:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    stop_offset:
+      default: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    stop_limit:
+      default: 50
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+
+search_stops:
+  fields:
+    query:
+      selector:
+        text:
+    stop_type:
+      selector:
+        text:
+    day_id:
+      selector:
+        text:
+    day_date:
+      selector:
+        date:
+    limit:
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+
+list_trips: {}
+
+set_active_trip:
+  fields:
+    trip_id:
+      required: true
+      selector:
+        text:
+    expected_active_trip:
+      selector:
+        text:
+
+update_trip:
+  fields:
+    patch:
+      required: true
+      selector:
+        object:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+
+add_day:
+  fields:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    day_date:
+      selector:
+        date:
+    title:
+      selector:
+        text:
+    start:
+      selector:
+        text:
+    end:
+      selector:
+        text:
+    distance_km:
+      selector:
+        number:
+          min: 0
+          step: 0.1
+          mode: box
+    drive_minutes:
+      selector:
+        number:
+          min: 0
+          mode: box
+    status:
+      default: planned
+      selector:
+        text:
+    notes:
+      selector:
+        text:
+          multiline: true
+    details:
+      selector:
+        object:
+    position:
+      selector:
+        number:
+          min: 1
+          mode: box
+
+update_day:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    patch:
+      required: true
+      selector:
+        object:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    position:
+      selector:
+        number:
+          min: 1
+          mode: box
+
+remove_day:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    remove_stops:
+      default: false
+      selector:
+        boolean:
+
+add_stop:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    name:
+      required: true
+      selector:
+        text:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    stop_type:
+      default: waypoint
+      selector:
+        text:
+    arrival_time:
+      selector:
+        time:
+    departure_time:
+      selector:
+        time:
+    location:
+      selector:
+        object:
+    notes:
+      selector:
+        text:
+          multiline: true
+    details:
+      selector:
+        object:
+    position:
+      selector:
+        number:
+          min: 1
+          mode: box
+
+update_stop:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    stop_id:
+      required: true
+      selector:
+        text:
+    patch:
+      required: true
+      selector:
+        object:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    position:
+      selector:
+        number:
+          min: 1
+          mode: box
+
+remove_stop:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    stop_id:
+      required: true
+      selector:
+        text:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+
+export_trip: {}
+
+create_backup:
+  fields:
+    reason:
+      default: manual
+      selector:
+        text:
+
+adopt_external_changes:
+  fields:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+
+reload: {}
+
+list_handoffs:
+  fields:
+    limit:
+      default: 50
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+
+get_handoff:
+  fields:
+    handoff_id:
+      required: true
+      selector:
+        text:
+
+ingest_handoff:
+  fields:
+    content:
+      required: true
+      selector:
+        text:
+          multiline: true
+    title:
+      selector:
+        text:
+    source:
+      default: service
+      selector:
+        text:
+    content_type:
+      default: text/markdown
+      selector:
+        text:
+    external_id:
+      selector:
+        text:
+    trip_id:
+      selector:
+        text:
+    base_revision:
+      selector:
+        number:
+          min: 0
+          mode: box
+    metadata:
+      selector:
+        object:
+
+archive_handoff:
+  fields:
+    handoff_id:
+      required: true
+      selector:
+        text:
+    resolution:
+      default: rejected
+      selector:
+        text:
+    note:
+      selector:
+        text:
+          multiline: true
+
+scan_handoffs: {}
+
+get_handoff_endpoint: {}
+
+rotate_handoff_secret: {}
+
+export_context: {}
+
+ingest_changeset:
+  fields:
+    changeset:
+      required: true
+      selector:
+        object:
+    title:
+      selector:
+        text:
+    source:
+      default: service
+      selector:
+        text:
+    external_id:
+      selector:
+        text:
+    metadata:
+      selector:
+        object:
+
+preview_handoff:
+  fields:
+    handoff_id:
+      required: true
+      selector:
+        text:
+
+apply_handoff:
+  fields:
+    handoff_id:
+      required: true
+      selector:
+        text:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    confirm_destructive:
+      default: false
+      selector:
+        boolean:
+
+get_handoff_folders: {}
+
+calculate_day_route:
+  fields:
+    day_id:
+      required: true
+      selector:
+        text:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    trip_id:
+      selector:
+        text:
+    force:
+      default: false
+      selector:
+        boolean:
+
+calculate_trip_routes:
+  fields:
+    expected_revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    trip_id:
+      selector:
+        text:
+    force:
+      default: false
+      selector:
+        boolean:
+
+create_expense:
+  fields:
+    amount:
+      required: true
+      selector:
+        number:
+          min: 0
+          step: 0.01
+          mode: box
+    merchant:
+      selector:
+        text:
+    category:
+      default: other
+      selector:
+        select:
+          options:
+            - fuel
+            - charging
+            - campsite
+            - motorhome_site
+            - parking
+            - restaurant
+            - snack
+            - groceries
+            - ferry
+            - transport
+            - other
+    currency:
+      default: EUR
+      selector:
+        text:
+    date:
+      selector:
+        date:
+    status:
+      default: paid
+      selector:
+        select:
+          options:
+            - planned
+            - paid
+            - refundable
+            - refunded
+            - cancelled
+            - unknown
+    payment_method:
+      selector:
+        text:
+    notes:
+      selector:
+        text:
+          multiline: true
+    trip_id:
+      selector:
+        text:
+    day_id:
+      selector:
+        text:
+    stop_id:
+      selector:
+        text:
+
+create_todo:
+  fields:
+    title:
+      required: true
+      selector:
+        text:
+    due_at:
+      selector:
+        text:
+    priority:
+      default: normal
+      selector:
+        select:
+          options:
+            - low
+            - normal
+            - high
+    status:
+      default: open
+      selector:
+        select:
+          options:
+            - open
+            - done
+            - dismissed
+    notes:
+      selector:
+        text:
+          multiline: true
+    trip_id:
+      selector:
+        text:
+    day_id:
+      selector:
+        text:
+    stop_id:
+      selector:
+        text:

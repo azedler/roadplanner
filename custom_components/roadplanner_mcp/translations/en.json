@@ -1,0 +1,709 @@
+{
+  "title": "Roadplanner",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Roadplanner",
+        "description": "Uses the existing Roadbook and review inbox. The optional native assistant reads current trip data directly from Home Assistant and never applies changes automatically.",
+        "data": {
+          "roadbook_path": "Roadbook directory",
+          "backup_path": "Private backup directory",
+          "handoff_path": "Private handoff directory",
+          "backup_count": "Backups to retain",
+          "refresh_interval": "Refresh interval",
+          "enable_handoff_webhook": "Enable external handoff bridge",
+          "auto_scan_handoffs": "Automatically scan handoff folder",
+          "auto_apply_changesets": "Automatically apply approved ChangeSets",
+          "allow_destructive_auto_apply": "Allow automatic deletions",
+          "non_admin_role": "Default role for authenticated non-admin users",
+          "assistant_provider": "Assistant provider",
+          "gemini_api_key": "Gemini API key",
+          "gemini_model": "Gemini model",
+          "assistant_enable_research": "Enable web research",
+          "assistant_max_history": "Conversation messages per trip and user",
+          "geocoding_enabled": "Verify stop coordinates with geocoding",
+          "geocoding_url": "Geocoding search endpoint",
+          "gemini_fallback_model": "Gemini fallback model",
+          "assistant_request_timeout": "Assistant request timeout (seconds)",
+          "assistant_retry_attempts": "Retries for transient assistant errors",
+          "assistant_min_request_interval": "Minimum interval between Gemini requests (seconds)",
+          "assistant_max_queue": "Maximum assistant request queue",
+          "assistant_autonomy_level": "Assistant autonomy level",
+          "assistant_copilot_enabled": "Enable optional copilot briefing",
+          "assistant_copilot_auto_briefing": "Automatically create one daily briefing",
+          "assistant_debug_enabled": "Enable admin assistant diagnostics",
+          "routing_enabled": "Enable street routing",
+          "routing_provider": "Routing provider",
+          "routing_url": "OSRM-compatible routing server",
+          "routing_profile": "Routing profile",
+          "routing_request_timeout": "Routing request timeout (seconds)",
+          "routing_min_request_interval": "Minimum interval between routing requests (seconds)",
+          "archive_path": "Private document and expense archive",
+          "document_max_upload_mb": "Maximum document upload size (MB)",
+          "document_analysis_enabled": "Enable AI document analysis",
+          "default_currency": "Default currency",
+          "onedrive_enabled": "Enable OneDrive Personal photo albums",
+          "onedrive_client_id": "Public Application (client) ID of a Microsoft Entra app for personal Microsoft accounts and device-code sign-in. This is not an API key and no client secret is used. It can also be entered later under Roadplanner → Photos → Set up OneDrive.",
+          "onedrive_photo_folder": "OneDrive camera photo folder",
+          "onedrive_auto_sync": "Automatically synchronize OneDrive photos",
+          "onedrive_sync_interval": "OneDrive synchronization interval (minutes)",
+          "onedrive_auto_assign": "Automatically assign photos by date and GPS",
+          "onedrive_recursive": "Scan subfolders recursively",
+          "onedrive_date_buffer_days": "Buffer before and after the trip (days)",
+          "onedrive_max_items_per_run": "Maximum OneDrive entries per run"
+        },
+        "data_description": {
+          "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
+          "backup_path": "Private snapshot path outside www.",
+          "handoff_path": "Private folder outside www containing inbox, pending, processed, failed, archive, applied, and outbox directories.",
+          "backup_count": "Maximum number of private trip snapshots.",
+          "refresh_interval": "Seconds between checks for external edits. Reads never change route data.",
+          "enable_handoff_webhook": "Enables the token-protected read-only context webhook and the fixed review-only POST endpoint /api/roadplanner/drive-import.",
+          "auto_scan_handoffs": "Scan the private inbox folder at the refresh interval and import valid ChangeSet files automatically.",
+          "auto_apply_changesets": "Apply ChangeSets only when they explicitly request automatic mode, contain no open questions, and match the active trip revision.",
+          "allow_destructive_auto_apply": "Also permit remove_day and remove_stop during automatic application. Keep disabled until the workflow is proven.",
+          "non_admin_role": "Controls Roadplanner panel access for all authenticated non-admin users: viewer can only read, editor can also edit routes, and approver can additionally process handoffs.",
+          "assistant_provider": "Provider used by the native Roadplanner assistant. This release supports Gemini.",
+          "gemini_api_key": "Stored in the Home Assistant config entry and used only by the backend. It is never sent to the browser. Leave blank in options to keep the existing key.",
+          "gemini_model": "Model ID used for conversation and structured planning. Default: gemini-3.5-flash.",
+          "assistant_enable_research": "Allows the assistant to use Gemini Google Search grounding for current recommendations. Search requests can be billable and send the relevant question and bounded trip context to Google.",
+          "assistant_max_history": "Maximum number of recent volatile chat messages retained verbatim for each Home Assistant user and trip. Older messages are compacted into a local rolling summary instead of being silently dropped. The session is cleared on integration reload or Home Assistant restart.",
+          "geocoding_enabled": "When Changes review is pressed, concrete new stops are resolved through OpenStreetMap Nominatim. Only place queries are sent; ambiguous results remain open questions.",
+          "geocoding_url": "HTTPS URL of a Nominatim-compatible search endpoint. Default: the public OpenStreetMap Nominatim service. The provider can be changed without a software update.",
+          "gemini_fallback_model": "Optional model used after the primary model remains unavailable following transient-error retries. Leave blank to disable fallback. Default: gemini-2.5-flash.",
+          "assistant_request_timeout": "Overall time budget for one Gemini request including retries and fallback. Range: 20 to 180 seconds.",
+          "assistant_retry_attempts": "Number of bounded retries for network errors, rate limits, timeouts, and Gemini 5xx responses before an optional fallback model is tried.",
+          "assistant_min_request_interval": "Prevents API bursts by spacing Gemini requests on the server. Range: 0.5 to 15 seconds. Recommended: 2 seconds.",
+          "assistant_max_queue": "Limits assistant requests waiting at the same time. Excess requests are rejected clearly instead of being sent to Gemini in parallel. Range: 1 to 50. Recommended: 8.",
+          "assistant_autonomy_level": "answers only replies to questions; suggestions may proactively recommend options; change_basket additionally records clear user decisions for later review. No level can apply route changes automatically.",
+          "assistant_copilot_enabled": "Adds a manual daily briefing button that summarizes today, tomorrow, risks, and useful next steps from the current Roadbook.",
+          "assistant_copilot_auto_briefing": "When enabled, the assistant creates at most one briefing per local day when the assistant tab is opened. It never creates or applies route changes.",
+          "assistant_debug_enabled": "Shows an admin-only diagnostics view with request IDs, sanitized provider health, durations, context scope, memory compaction, and plugin status. Prompts, trip content, and API keys are excluded.",
+          "routing_enabled": "Enables manual road-distance and drive-time calculation. Routes are never recalculated on page load and are stored as derived data in the Roadbook.",
+          "routing_provider": "Provider abstraction used for street routing. This release supports OSRM-compatible servers.",
+          "routing_url": "HTTPS server root or path prefix. Roadplanner appends /route/v1/<profile>. No credentials, query, or fragment are allowed.",
+          "routing_profile": "OSRM profile name such as driving or car, depending on the configured server.",
+          "routing_request_timeout": "Time budget for one routing request. Range: 10 to 180 seconds.",
+          "routing_min_request_interval": "Server-side spacing between route requests. Keep at least 1 second for public community servers.",
+          "archive_path": "Private path inside /config and outside www. Stores original documents, confirmed expenses, and travel todos.",
+          "document_max_upload_mb": "Maximum size of one upload. Range: 1 to 100 MB. Files larger than 10 MB can be stored but are not sent inline to Gemini for analysis.",
+          "document_analysis_enabled": "Allows uploaded PDFs, images, and text files to be analyzed by the configured Gemini provider. Extracted data always requires user confirmation before it is stored.",
+          "default_currency": "Three-letter ISO currency code such as EUR, PLN, or SEK. Exchange rates are never guessed automatically.",
+          "onedrive_enabled": "Enables the read-only OneDrive Personal media plugin. Original photos remain in OneDrive.",
+          "onedrive_client_id": "Public Application (client) ID of a Microsoft Entra app for personal Microsoft accounts and device-code sign-in. This is not an API key and no client secret is used. It can also be entered later under Roadplanner → Photos → Set up OneDrive.",
+          "onedrive_photo_folder": "Path below the OneDrive root, for example Pictures/Camera Roll. Roadplanner only reads this folder.",
+          "onedrive_auto_sync": "Checks the selected folder periodically for new and changed photos.",
+          "onedrive_sync_interval": "Minutes between background delta checks. Range: 5 to 1440.",
+          "onedrive_auto_assign": "Uses photo capture time and GPS metadata to suggest or automatically create stop/day album assignments.",
+          "onedrive_recursive": "Traverses subfolders. Year folders outside the trip window and hidden thumbnail folders are skipped.",
+          "onedrive_date_buffer_days": "Roadplanner includes photos this many days before the trip starts and after it ends. Range: 0 to 30 days.",
+          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000."
+        }
+      }
+    },
+    "error": {
+      "invalid_path": "At least one path is invalid. Paths must remain inside /config; private paths must not be below www.",
+      "invalid_geocoding_url": "The geocoding URL must be a valid HTTPS endpoint without credentials, query, or fragment.",
+      "invalid_routing_url": "The routing URL or profile is invalid. Use an HTTPS endpoint without credentials, query, or fragment.",
+      "invalid_currency": "The default currency must be a three-letter ISO code such as EUR.",
+      "missing_onedrive_client_id": "A public Microsoft application ID is required for OneDrive sign-in. You can also enter it later under Roadplanner → Photos → Set up OneDrive."
+    },
+    "abort": {
+      "already_configured": "Roadplanner is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Roadplanner options",
+        "description": "Changes reload the integration. Assistant chat is volatile; approved Roadbook data remains the only persistent memory.",
+        "data": {
+          "roadbook_path": "Roadbook directory",
+          "backup_path": "Private backup directory",
+          "handoff_path": "Private handoff directory",
+          "backup_count": "Backups to retain",
+          "refresh_interval": "Refresh interval",
+          "enable_handoff_webhook": "Enable external handoff bridge",
+          "auto_scan_handoffs": "Automatically scan handoff folder",
+          "auto_apply_changesets": "Automatically apply approved ChangeSets",
+          "allow_destructive_auto_apply": "Allow automatic deletions",
+          "non_admin_role": "Default role for authenticated non-admin users",
+          "assistant_provider": "Assistant provider",
+          "gemini_api_key": "Gemini API key",
+          "gemini_model": "Gemini model",
+          "assistant_enable_research": "Enable web research",
+          "assistant_max_history": "Conversation messages per trip and user",
+          "geocoding_enabled": "Verify stop coordinates with geocoding",
+          "geocoding_url": "Geocoding search endpoint",
+          "gemini_fallback_model": "Gemini fallback model",
+          "assistant_request_timeout": "Assistant request timeout (seconds)",
+          "assistant_retry_attempts": "Retries for transient assistant errors",
+          "assistant_min_request_interval": "Minimum interval between Gemini requests (seconds)",
+          "assistant_max_queue": "Maximum assistant request queue",
+          "assistant_autonomy_level": "Assistant autonomy level",
+          "assistant_copilot_enabled": "Enable optional copilot briefing",
+          "assistant_copilot_auto_briefing": "Automatically create one daily briefing",
+          "assistant_debug_enabled": "Enable admin assistant diagnostics",
+          "routing_enabled": "Enable street routing",
+          "routing_provider": "Routing provider",
+          "routing_url": "OSRM-compatible routing server",
+          "routing_profile": "Routing profile",
+          "routing_request_timeout": "Routing request timeout (seconds)",
+          "routing_min_request_interval": "Minimum interval between routing requests (seconds)",
+          "archive_path": "Private document and expense archive",
+          "document_max_upload_mb": "Maximum document upload size (MB)",
+          "document_analysis_enabled": "Enable AI document analysis",
+          "default_currency": "Default currency",
+          "onedrive_enabled": "Enable OneDrive Personal photo albums",
+          "onedrive_client_id": "Public Application (client) ID of a Microsoft Entra app for personal Microsoft accounts and device-code sign-in. This is not an API key and no client secret is used. It can also be entered later under Roadplanner → Photos → Set up OneDrive.",
+          "onedrive_photo_folder": "OneDrive camera photo folder",
+          "onedrive_auto_sync": "Automatically synchronize OneDrive photos",
+          "onedrive_sync_interval": "OneDrive synchronization interval (minutes)",
+          "onedrive_auto_assign": "Automatically assign photos by date and GPS",
+          "onedrive_recursive": "Scan subfolders recursively",
+          "onedrive_date_buffer_days": "Buffer before and after the trip (days)",
+          "onedrive_max_items_per_run": "Maximum OneDrive entries per run"
+        },
+        "data_description": {
+          "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
+          "backup_path": "Private snapshot path outside www.",
+          "handoff_path": "Private folder outside www containing inbox, pending, processed, failed, archive, applied, and outbox directories.",
+          "backup_count": "Maximum number of private trip snapshots.",
+          "refresh_interval": "Seconds between checks for external edits. Reads never change route data.",
+          "enable_handoff_webhook": "Enables the token-protected read-only context webhook and the fixed review-only POST endpoint /api/roadplanner/drive-import.",
+          "auto_scan_handoffs": "Scan the private inbox folder at the refresh interval and import valid ChangeSet files automatically.",
+          "auto_apply_changesets": "Apply ChangeSets only when they explicitly request automatic mode, contain no open questions, and match the active trip revision.",
+          "allow_destructive_auto_apply": "Also permit remove_day and remove_stop during automatic application. Keep disabled until the workflow is proven.",
+          "non_admin_role": "Controls Roadplanner panel access for all authenticated non-admin users: viewer can only read, editor can also edit routes, and approver can additionally process handoffs.",
+          "assistant_provider": "Provider used by the native Roadplanner assistant. This release supports Gemini.",
+          "gemini_api_key": "Stored in the Home Assistant config entry and used only by the backend. It is never sent to the browser. Leave blank in options to keep the existing key.",
+          "gemini_model": "Model ID used for conversation and structured planning. Default: gemini-3.5-flash.",
+          "assistant_enable_research": "Allows the assistant to use Gemini Google Search grounding for current recommendations. Search requests can be billable and send the relevant question and bounded trip context to Google.",
+          "assistant_max_history": "Maximum number of recent volatile chat messages retained verbatim for each Home Assistant user and trip. Older messages are compacted into a local rolling summary instead of being silently dropped. The session is cleared on integration reload or Home Assistant restart.",
+          "geocoding_enabled": "When Changes review is pressed, concrete new stops are resolved through OpenStreetMap Nominatim. Only place queries are sent; ambiguous results remain open questions.",
+          "geocoding_url": "HTTPS URL of a Nominatim-compatible search endpoint. Default: the public OpenStreetMap Nominatim service. The provider can be changed without a software update.",
+          "gemini_fallback_model": "Optional model used after the primary model remains unavailable following transient-error retries. Leave blank to disable fallback. Default: gemini-2.5-flash.",
+          "assistant_request_timeout": "Overall time budget for one Gemini request including retries and fallback. Range: 20 to 180 seconds.",
+          "assistant_retry_attempts": "Number of bounded retries for network errors, rate limits, timeouts, and Gemini 5xx responses before an optional fallback model is tried.",
+          "assistant_min_request_interval": "Prevents API bursts by spacing Gemini requests on the server. Range: 0.5 to 15 seconds. Recommended: 2 seconds.",
+          "assistant_max_queue": "Limits assistant requests waiting at the same time. Excess requests are rejected clearly instead of being sent to Gemini in parallel. Range: 1 to 50. Recommended: 8.",
+          "assistant_autonomy_level": "answers only replies to questions; suggestions may proactively recommend options; change_basket additionally records clear user decisions for later review. No level can apply route changes automatically.",
+          "assistant_copilot_enabled": "Adds a manual daily briefing button that summarizes today, tomorrow, risks, and useful next steps from the current Roadbook.",
+          "assistant_copilot_auto_briefing": "When enabled, the assistant creates at most one briefing per local day when the assistant tab is opened. It never creates or applies route changes.",
+          "assistant_debug_enabled": "Shows an admin-only diagnostics view with request IDs, sanitized provider health, durations, context scope, memory compaction, and plugin status. Prompts, trip content, and API keys are excluded.",
+          "routing_enabled": "Enables manual road-distance and drive-time calculation. Routes are never recalculated on page load and are stored as derived data in the Roadbook.",
+          "routing_provider": "Provider abstraction used for street routing. This release supports OSRM-compatible servers.",
+          "routing_url": "HTTPS server root or path prefix. Roadplanner appends /route/v1/<profile>. No credentials, query, or fragment are allowed.",
+          "routing_profile": "OSRM profile name such as driving or car, depending on the configured server.",
+          "routing_request_timeout": "Time budget for one routing request. Range: 10 to 180 seconds.",
+          "routing_min_request_interval": "Server-side spacing between route requests. Keep at least 1 second for public community servers.",
+          "archive_path": "Private path inside /config and outside www. Stores original documents, confirmed expenses, and travel todos.",
+          "document_max_upload_mb": "Maximum size of one upload. Range: 1 to 100 MB. Files larger than 10 MB can be stored but are not sent inline to Gemini for analysis.",
+          "document_analysis_enabled": "Allows uploaded PDFs, images, and text files to be analyzed by the configured Gemini provider. Extracted data always requires user confirmation before it is stored.",
+          "default_currency": "Three-letter ISO currency code such as EUR, PLN, or SEK. Exchange rates are never guessed automatically.",
+          "onedrive_enabled": "Enables the read-only OneDrive Personal media plugin. Original photos remain in OneDrive.",
+          "onedrive_client_id": "Public Application (client) ID of a Microsoft Entra app for personal Microsoft accounts and device-code sign-in. This is not an API key and no client secret is used. It can also be entered later under Roadplanner → Photos → Set up OneDrive.",
+          "onedrive_photo_folder": "Path below the OneDrive root, for example Pictures/Camera Roll. Roadplanner only reads this folder.",
+          "onedrive_auto_sync": "Checks the selected folder periodically for new and changed photos.",
+          "onedrive_sync_interval": "Minutes between background delta checks. Range: 5 to 1440.",
+          "onedrive_auto_assign": "Uses photo capture time and GPS metadata to suggest or automatically create stop/day album assignments.",
+          "onedrive_recursive": "Traverses subfolders. Year folders outside the trip window and hidden thumbnail folders are skipped.",
+          "onedrive_date_buffer_days": "Roadplanner includes photos this many days before the trip starts and after it ends. Range: 0 to 30 days.",
+          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000."
+        }
+      }
+    },
+    "error": {
+      "invalid_path": "At least one path is invalid.",
+      "invalid_geocoding_url": "The geocoding URL must be a valid HTTPS endpoint without credentials, query, or fragment.",
+      "invalid_routing_url": "The routing URL or profile is invalid. Use an HTTPS endpoint without credentials, query, or fragment.",
+      "invalid_currency": "The default currency must be a three-letter ISO code such as EUR.",
+      "missing_onedrive_client_id": "A public Microsoft application ID is required for OneDrive sign-in. You can also enter it later under Roadplanner → Photos → Set up OneDrive."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "trip": {
+        "name": "Trip"
+      },
+      "days": {
+        "name": "Travel days"
+      },
+      "stops": {
+        "name": "Stops"
+      },
+      "next_stop": {
+        "name": "Next stop"
+      },
+      "revision": {
+        "name": "Revision"
+      },
+      "route": {
+        "name": "Route"
+      },
+      "handoffs": {
+        "name": "Pending handoffs"
+      }
+    }
+  },
+  "services": {
+    "get_trip_summary": {
+      "name": "Get trip summary",
+      "description": "Return a compact summary and current revision."
+    },
+    "get_days": {
+      "name": "Get travel days",
+      "description": "Return a paginated list of travel days.",
+      "fields": {
+        "offset": {
+          "name": "Offset",
+          "description": "Zero-based result offset."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of results."
+        },
+        "include_stops": {
+          "name": "Include stops",
+          "description": "Include compact stops in each returned day."
+        }
+      }
+    },
+    "get_day": {
+      "name": "Get travel day",
+      "description": "Return one day and paginated stops by day ID.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "stop_offset": {
+          "name": "Stop offset",
+          "description": "Zero-based stop offset."
+        },
+        "stop_limit": {
+          "name": "Stop limit",
+          "description": "Maximum stops returned."
+        }
+      }
+    },
+    "search_stops": {
+      "name": "Search stops",
+      "description": "Search stops and return stable day and stop IDs.",
+      "fields": {
+        "query": {
+          "name": "Query",
+          "description": "Text searched in stop content."
+        },
+        "stop_type": {
+          "name": "Stop type",
+          "description": "Optional stop type filter or new type."
+        },
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "day_date": {
+          "name": "Day date",
+          "description": "ISO date in YYYY-MM-DD format."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of results."
+        }
+      }
+    },
+    "list_trips": {
+      "name": "List trips",
+      "description": "List trip directories known to Roadplanner."
+    },
+    "set_active_trip": {
+      "name": "Set active trip",
+      "description": "Validate a trip and switch the active pointer.",
+      "fields": {
+        "trip_id": {
+          "name": "Trip ID",
+          "description": "Stable trip directory identifier."
+        },
+        "expected_active_trip": {
+          "name": "Expected active trip",
+          "description": "Optional guard against concurrent pointer changes."
+        }
+      }
+    },
+    "update_trip": {
+      "name": "Update trip",
+      "description": "Update selected trip fields with revision protection.",
+      "fields": {
+        "patch": {
+          "name": "Patch",
+          "description": "Object containing only fields to change."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        }
+      }
+    },
+    "add_day": {
+      "name": "Add travel day",
+      "description": "Add one travel day with revision protection.",
+      "fields": {
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        },
+        "day_date": {
+          "name": "Day date",
+          "description": "ISO date in YYYY-MM-DD format."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Human-readable title."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Start location or free-form start text."
+        },
+        "end": {
+          "name": "End",
+          "description": "End location or free-form destination text."
+        },
+        "distance_km": {
+          "name": "Distance (km)",
+          "description": "Planned distance in kilometres."
+        },
+        "drive_minutes": {
+          "name": "Driving time (minutes)",
+          "description": "Planned driving time in minutes."
+        },
+        "status": {
+          "name": "Status",
+          "description": "Planning or execution status."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "Free-form notes."
+        },
+        "details": {
+          "name": "Details",
+          "description": "Structured JSON object for extension data."
+        },
+        "position": {
+          "name": "Position",
+          "description": "Optional one-based order position."
+        }
+      }
+    },
+    "update_day": {
+      "name": "Update travel day",
+      "description": "Update or reorder one day.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "patch": {
+          "name": "Patch",
+          "description": "Object containing only fields to change."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        },
+        "position": {
+          "name": "Position",
+          "description": "Optional one-based order position."
+        }
+      }
+    },
+    "remove_day": {
+      "name": "Remove travel day",
+      "description": "Remove one day, optionally including its stops.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        },
+        "remove_stops": {
+          "name": "Remove stops",
+          "description": "Explicitly allow deleting stops with the day."
+        }
+      }
+    },
+    "add_stop": {
+      "name": "Add stop",
+      "description": "Add one stop to an existing travel day.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Stop name."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        },
+        "stop_type": {
+          "name": "Stop type",
+          "description": "Optional stop type filter or new type."
+        },
+        "arrival_time": {
+          "name": "Arrival time",
+          "description": "Local arrival time."
+        },
+        "departure_time": {
+          "name": "Departure time",
+          "description": "Local departure time."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Structured location object."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "Free-form notes."
+        },
+        "details": {
+          "name": "Details",
+          "description": "Structured JSON object for extension data."
+        },
+        "position": {
+          "name": "Position",
+          "description": "Optional one-based order position."
+        }
+      }
+    },
+    "update_stop": {
+      "name": "Update stop",
+      "description": "Update or reorder one stop.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "stop_id": {
+          "name": "Stop ID",
+          "description": "Stable Roadplanner stop ID."
+        },
+        "patch": {
+          "name": "Patch",
+          "description": "Object containing only fields to change."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        },
+        "position": {
+          "name": "Position",
+          "description": "Optional one-based order position."
+        }
+      }
+    },
+    "remove_stop": {
+      "name": "Remove stop",
+      "description": "Remove one stop from a travel day.",
+      "fields": {
+        "day_id": {
+          "name": "Day ID",
+          "description": "Stable Roadplanner day ID."
+        },
+        "stop_id": {
+          "name": "Stop ID",
+          "description": "Stable Roadplanner stop ID."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        }
+      }
+    },
+    "export_trip": {
+      "name": "Export trip",
+      "description": "Return a combined read-only JSON export."
+    },
+    "create_backup": {
+      "name": "Create backup",
+      "description": "Create a private snapshot of the active trip.",
+      "fields": {
+        "reason": {
+          "name": "Reason",
+          "description": "Short reason stored in the backup manifest."
+        }
+      }
+    },
+    "adopt_external_changes": {
+      "name": "Adopt external changes",
+      "description": "Validate and adopt intentional file edits.",
+      "fields": {
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Current revision read immediately before this write."
+        }
+      }
+    },
+    "reload": {
+      "name": "Reload Roadplanner",
+      "description": "Reload the Roadplanner config entry."
+    },
+    "list_handoffs": {
+      "name": "List handoffs",
+      "description": "List pending, conflicting, and review-required ChangeSets.",
+      "fields": {
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of results."
+        }
+      }
+    },
+    "get_handoff": {
+      "name": "Get handoff",
+      "description": "Read a pending, applied, or archived ChangeSet handoff.",
+      "fields": {
+        "handoff_id": {
+          "name": "Handoff ID",
+          "description": "Stable pending or archived handoff ID."
+        }
+      }
+    },
+    "ingest_handoff": {
+      "name": "Ingest handoff",
+      "description": "Place JSON or text containing a valid ChangeSet in the inbox.",
+      "fields": {
+        "content": {
+          "name": "Content",
+          "description": "ChangeSet JSON, optionally inside a Markdown JSON code block."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Human-readable title."
+        },
+        "source": {
+          "name": "Source",
+          "description": "Source identifier such as google-drive."
+        },
+        "content_type": {
+          "name": "Content type",
+          "description": "MIME type of the handoff content."
+        },
+        "external_id": {
+          "name": "External ID",
+          "description": "Idempotency key supplied by the external bridge."
+        },
+        "trip_id": {
+          "name": "Trip ID",
+          "description": "Stable trip directory identifier."
+        },
+        "base_revision": {
+          "name": "Base revision",
+          "description": "Route revision used when the proposal was created."
+        },
+        "metadata": {
+          "name": "Metadata",
+          "description": "JSON object with non-canonical source metadata."
+        }
+      }
+    },
+    "archive_handoff": {
+      "name": "Archive handoff",
+      "description": "Reject or defer a handoff that was not applied.",
+      "fields": {
+        "handoff_id": {
+          "name": "Handoff ID",
+          "description": "Stable pending or archived handoff ID."
+        },
+        "resolution": {
+          "name": "Resolution",
+          "description": "For example rejected or deferred."
+        },
+        "note": {
+          "name": "Resolution note",
+          "description": "Optional archive note."
+        }
+      }
+    },
+    "scan_handoffs": {
+      "name": "Scan handoff folder",
+      "description": "Import valid ChangeSet files from the private inbox folder."
+    },
+    "get_handoff_endpoint": {
+      "name": "Get handoff bridge credentials",
+      "description": "Returns the secret URL and header token for the external ChangeSet bridge."
+    },
+    "export_context": {
+      "name": "Export route context",
+      "description": "Refresh bounded JSON and Markdown context files."
+    },
+    "ingest_changeset": {
+      "name": "Ingest ChangeSet",
+      "description": "Validate a structured ChangeSet and place it in the inbox.",
+      "fields": {
+        "changeset": {
+          "name": "ChangeSet",
+          "description": "Roadplanner ChangeSet JSON object."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Optional transport title."
+        },
+        "source": {
+          "name": "Source",
+          "description": "Source identifier such as google-drive."
+        },
+        "external_id": {
+          "name": "External ID",
+          "description": "Idempotency key supplied by the source."
+        },
+        "metadata": {
+          "name": "Metadata",
+          "description": "Non-canonical source metadata."
+        }
+      }
+    },
+    "preview_handoff": {
+      "name": "Preview handoff",
+      "description": "Validate one ChangeSet against the current trip without writing.",
+      "fields": {
+        "handoff_id": {
+          "name": "Handoff ID",
+          "description": "Pending handoff identifier."
+        }
+      }
+    },
+    "apply_handoff": {
+      "name": "Apply handoff",
+      "description": "Apply all ChangeSet operations atomically in one revision.",
+      "fields": {
+        "handoff_id": {
+          "name": "Handoff ID",
+          "description": "Pending handoff identifier."
+        },
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "Must equal the current and base revision."
+        },
+        "confirm_destructive": {
+          "name": "Confirm deletions",
+          "description": "Required for ChangeSets with remove operations."
+        }
+      }
+    },
+    "get_handoff_folders": {
+      "name": "Get handoff folders",
+      "description": "Return the private inbox, processed, pending, applied, and failed paths.",
+      "fields": {}
+    },
+    "rotate_handoff_secret": {
+      "name": "Rotate external bridge secret",
+      "description": "Invalidate the previous shared secret and return a new administrator-only secret.",
+      "fields": {}
+    }
+  }
+}

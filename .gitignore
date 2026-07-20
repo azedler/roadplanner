@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.yaml
+
+# Home Assistant runtime and private Roadplanner data
+config/
+.storage/
+custom_components/roadplanner_mcp/.storage/
+roadbook/
+.roadplanner_handoffs/
+.roadplanner_archive/
+www/roadbook/
+
+# User content and generated media
+*.gpx
+*.ics
+*.heic
+*.heif
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.pdf
+*.zip
+!custom_components/roadplanner_mcp/brand/*.png
+!assets/*.png
+
+# Build output
+build/
+dist/
+release/
+*.egg-info/
+Roadplanner_MCP_*.zip
+*_VALIDATION.log
+*_SHA256SUMS.txt

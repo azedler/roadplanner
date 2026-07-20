@@ -1,0 +1,128 @@
+{
+  "entity": {
+    "sensor": {
+      "trip": {
+        "default": "mdi:map-marker-path"
+      },
+      "days": {
+        "default": "mdi:calendar-range"
+      },
+      "stops": {
+        "default": "mdi:map-marker-multiple"
+      },
+      "next_stop": {
+        "default": "mdi:map-marker-distance"
+      },
+      "revision": {
+        "default": "mdi:file-document-refresh"
+      },
+      "route": {
+        "default": "mdi:routes"
+      },
+      "handoffs": {
+        "default": "mdi:inbox-arrow-down"
+      }
+    }
+  },
+  "services": {
+    "get_trip_summary": {
+      "service": "mdi:map-search"
+    },
+    "get_days": {
+      "service": "mdi:calendar-multiselect"
+    },
+    "get_day": {
+      "service": "mdi:calendar-search"
+    },
+    "search_stops": {
+      "service": "mdi:map-search-outline"
+    },
+    "list_trips": {
+      "service": "mdi:map-multiple"
+    },
+    "set_active_trip": {
+      "service": "mdi:map-check"
+    },
+    "update_trip": {
+      "service": "mdi:file-document-edit"
+    },
+    "add_day": {
+      "service": "mdi:calendar-plus"
+    },
+    "update_day": {
+      "service": "mdi:calendar-edit"
+    },
+    "remove_day": {
+      "service": "mdi:calendar-remove"
+    },
+    "add_stop": {
+      "service": "mdi:map-marker-plus"
+    },
+    "update_stop": {
+      "service": "mdi:map-marker-radius"
+    },
+    "remove_stop": {
+      "service": "mdi:map-marker-remove"
+    },
+    "export_trip": {
+      "service": "mdi:export"
+    },
+    "create_backup": {
+      "service": "mdi:backup-restore"
+    },
+    "adopt_external_changes": {
+      "service": "mdi:file-sync"
+    },
+    "reload": {
+      "service": "mdi:reload"
+    },
+    "list_handoffs": {
+      "service": "mdi:inbox-arrow-down"
+    },
+    "get_handoff": {
+      "service": "mdi:email-open-outline"
+    },
+    "ingest_handoff": {
+      "service": "mdi:inbox-arrow-down-outline"
+    },
+    "archive_handoff": {
+      "service": "mdi:archive-arrow-down"
+    },
+    "scan_handoffs": {
+      "service": "mdi:folder-sync"
+    },
+    "get_handoff_endpoint": {
+      "service": "mdi:webhook"
+    },
+    "export_context": {
+      "service": "mdi:cloud-upload-outline"
+    },
+    "ingest_changeset": {
+      "service": "mdi:file-import-outline"
+    },
+    "preview_handoff": {
+      "service": "mdi:file-eye-outline"
+    },
+    "apply_handoff": {
+      "service": "mdi:file-check-outline"
+    },
+    "get_handoff_folders": {
+      "service": "mdi:folder-information-outline"
+    },
+    "rotate_handoff_secret": {
+      "service": "mdi:key-change"
+    },
+    "calculate_day_route": {
+      "service": "mdi:routes"
+    },
+    "calculate_trip_routes": {
+      "service": "mdi:map-marker-path"
+    },
+    "create_expense": {
+      "service": "mdi:cash-plus"
+    },
+    "create_todo": {
+      "service": "mdi:checkbox-marked-circle-plus-outline"
+    }
+  }
+}
