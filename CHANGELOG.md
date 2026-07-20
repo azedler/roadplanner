@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased] — Roadplanner 3.0
 
+### Changed
+
+- Added the Roadplanner repository governance and development handbook.
+- Added a single documented specification/patch/validation/merge workflow.
+- Added Definition of Done, test strategy, repository structure, commit conventions, release checklist, and publication checklist.
+- Strengthened repository validation and release packaging contracts.
+- Added a standard pull-request template.
+- Licensed Roadplanner under Apache-2.0.
+- Added the AI-to-Git patch workflow for iPad and Codespaces.
+- Removed the requirement for a repository-specific devcontainer during the initial 3.0 phase.
+
 ### Planned
 
 - GitHub and HACS delivery foundation.

@@ -2,6 +2,12 @@
 
 ## Title
 
+## Baseline
+
+- Branch: `develop`
+- Base commit:
+- Current integration version:
+
 ## User problem
 
 ## Objective
@@ -12,6 +18,10 @@
 
 ## Architecture constraints
 
+- Relevant ADRs:
+- Canonical data owner:
+- Write path:
+
 ## Files/modules expected to change
 
 ## Files/modules that must not change
@@ -19,6 +29,8 @@
 ## Data migration and rollback
 
 ## Security and privacy impact
+
+## Provider/network impact
 
 ## Mobile UX impact
 
@@ -28,13 +40,19 @@
 
 ## Validation
 
-- [ ] Python compilation
-- [ ] JavaScript syntax
-- [ ] JSON/YAML validation
+- [ ] `git diff --check`
+- [ ] `python tools/validate_repository.py`
 - [ ] Relevant regression tests
-- [ ] Mobile layout check
-- [ ] Secret/package scan
+- [ ] Home Assistant runtime test
+- [ ] Mobile layout check when applicable
+- [ ] Secret, package, and provenance review
 
-## Delivery evidence
+## Delivery package
+
+- [ ] Specification
+- [ ] Patch
+- [ ] Apply instructions
+- [ ] Validation evidence
+- [ ] Changelog/migration notes
 
 ## Open questions

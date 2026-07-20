@@ -1,38 +1,70 @@
 # Backlog
 
-## P0 — correctness
+## Completed foundation
 
-- Canonical stop ordering based on planned/temporal day progression.
-- Rebuild day timeline and route from the same ordered stop list.
-- Prevent insertion order from controlling numbering.
+- GitHub/HACS-compatible repository baseline.
+- `main` and `develop` branch model.
+- Apache-2.0 licensing.
+- AI-to-Git patch workflow.
+- Architecture Decision Records.
+- Repository governance, Definition of Done, test strategy, and release process.
+
+## Next — correctness
+
+### RP-303: Canonical stop ordering
+
+- One backend ordering service using canonical `position`.
+- Deterministic legacy fallback.
+- Numbering, map, timeline, routing, navigation, and assistant use the same order.
 - Regression coverage for inherited overnight start plus explicit stops.
 
-## P1 — Roadplanner 3.0 UX
+### RP-304: Derived day route consistency
 
-- Phase-aware overview and planning-completion metrics.
-- Estimated trip distance before detailed GPS stops exist.
-- Assistant conversation shrinking and attachment pruning.
-- Mobile-first visual cleanup and calmer information hierarchy.
+- Build the schematic day flow from effective ordered route elements only.
+- Remove legacy start/end duplication from derived views.
+- Share route elements between panel, routing, and exports.
 
-## P1 — Media Intelligence
+## Next — planning UX
 
-- Local duplicate detection.
+### RP-305: Phase-aware overview and planning distance
+
+- Estimated full-trip distance before detailed GPS stops exist.
+- Separate estimated and calculated distance.
+- Planning completeness, open decisions, due tasks, and document readiness.
+
+### RP-306: Assistant conversation compaction
+
+- Summarize old text context.
+- Prune obsolete attachments and image context.
+- Preserve current Roadbook facts and recent conversation.
+
+## Next — expenses
+
+### RP-307: EUR reference conversion
+
+- Preserve original amount and currency.
+- Store EUR reference amount with rate source, date, and policy.
+- Show original and EUR totals without silent currency mixing.
+
+## Next — Media Intelligence
+
+### RP-308: Local media deduplication and quality selection
+
+- File/perceptual-hash duplicate groups.
 - Burst grouping.
 - Technical quality scoring.
+- Representative image and manual override.
+
+### RP-309: Optional AI highlight curation
+
+- Analyze only locally reduced candidates.
 - Top images per stop/day.
-- Optional AI highlight and title-image selection.
+- Story-oriented title-image and caption proposals.
 
-## P2 — repository and delivery
+## Later — architecture and delivery
 
-- Select public license.
-- Public-source privacy audit.
-- Create `develop` branch.
-- First GitHub release from imported baseline.
-- Add public repository to HACS as custom integration.
-
-## P2 — architecture
-
-- Roadbook schema v1 documentation.
+- Public-source and third-party license audit.
+- First stable GitHub release and HACS installation test.
 - Provider interfaces v1.
-- Incremental separation of domain, Home Assistant adapter and UI.
-- Persistent migrations and rollback test harness.
+- Roadbook schema v1 and migration harness.
+- Incremental separation of domain, Home Assistant adapter, and UI.

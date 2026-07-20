@@ -2,7 +2,7 @@
 
 ## Repository requirements
 
-Roadplanner keeps this layout at the repository root:
+Roadplanner keeps the integration directly at the repository root:
 
 ```text
 custom_components/roadplanner_mcp/
@@ -10,14 +10,13 @@ README.md
 hacs.json
 ```
 
-Only one integration exists under `custom_components/`.
+Exactly one integration exists under `custom_components/`.
 
 The integration manifest includes:
 
 - domain,
-- name,
-- version,
-- documentation,
+- name and version,
+- documentation URL,
 - issue tracker,
 - code owners.
 
@@ -27,9 +26,16 @@ Brand assets live under:
 custom_components/roadplanner_mcp/brand/
 ```
 
+## Branch and release source
+
+- `main` is the only HACS/release source.
+- `develop` is not a production installation source.
+- Stable GitHub releases use tags such as `v3.0.0`.
+- The version in the tag must match `manifest.json` and `const.py`.
+
 ## Public repository requirement
 
-HACS does not support private GitHub repositories. The repository must be made public before adding it to HACS.
+HACS custom repositories require a public GitHub repository. Keep Roadplanner private until the [publication checklist](PUBLICATION_CHECKLIST.md) is complete.
 
 ## Custom repository installation
 
@@ -44,4 +50,15 @@ HACS
 → Add
 ```
 
-GitHub releases are recommended but not required. If no release exists, HACS uses the default branch. For stable operation, Roadplanner will use full GitHub releases and keep `main` releasable.
+Then download Roadplanner, restart Home Assistant, and add or reload the integration.
+
+## Update verification
+
+For every stable release:
+
+1. confirm the GitHub release is created from `main`,
+2. verify HACS detects the new version,
+3. install/update on a controlled Home Assistant instance,
+4. restart Home Assistant,
+5. confirm the reported version and core workflows,
+6. keep the previous tag available for rollback.
