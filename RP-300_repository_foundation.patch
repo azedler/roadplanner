@@ -1,0 +1,653 @@
+diff --git a/.devcontainer/devcontainer.json b/.devcontainer/devcontainer.json
+deleted file mode 100644
+index d519242c02a12348162c03ba32fcf570cde88cdb..0000000000000000000000000000000000000000
+--- a/.devcontainer/devcontainer.json
++++ /dev/null
+@@ -1,19 +0,0 @@
+-{
+-  "name": "Roadplanner",
+-  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm",
+-  "customizations": {
+-    "vscode": {
+-      "extensions": [
+-        "ms-python.python",
+-        "charliermarsh.ruff",
+-        "yzhang.markdown-all-in-one"
+-      ],
+-      "settings": {
+-        "editor.formatOnSave": false,
+-        "files.trimTrailingWhitespace": true
+-      }
+-    }
+-  },
+-  "postCreateCommand": "python tools/validate_repository.py --quick",
+-  "remoteUser": "vscode"
+-}
+diff --git a/AI_DEVELOPMENT_CONTRACT.md b/AI_DEVELOPMENT_CONTRACT.md
+index 40963f24bb65504ed76dbd97fcb05e391c8cb2a5..201cfe4f5ae1df3e637f2e8eefb7bc19d58558b6 100644
+--- a/AI_DEVELOPMENT_CONTRACT.md
++++ b/AI_DEVELOPMENT_CONTRACT.md
+@@ -145,3 +145,22 @@ replaceable providers
+ ```
+ 
+ Do not perform a big-bang rewrite. Preserve working behavior and extract boundaries incrementally.
++
++
++## 16. Licensing and provenance
++
++- Roadplanner source code is licensed under the Apache License 2.0.
++- Do not introduce code, media, documentation, datasets, fonts, or generated assets with unclear provenance.
++- Preserve required third-party copyright, license, and NOTICE information.
++- New dependencies must have a license compatible with Roadplanner distribution and must be documented when attribution or redistribution conditions apply.
++- AI-generated code is untrusted input: review it for provenance, copied passages, incompatible dependencies, private data, secrets, and license obligations before committing.
++- Release artifacts must include the root `LICENSE` file and the root `NOTICE` file.
++
++## 17. Patch delivery contract
++
++- GitHub is the source of truth for code.
++- An AI implementation must be delivered as a scoped specification and a Git patch based on the current `develop` commit.
++- Never assume direct repository access, credentials, or the ability to push.
++- A patch must pass `git apply --check`, repository validation, and the task-specific acceptance tests.
++- Do not bundle unrelated features into the same patch.
++- Do not create release artifacts in chat when the repository release process is available.
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 198e46406361af90fde8fd964d60da7c1efb8b0a..3ced7e71091e4ae8c870a00ad0a826df36583272 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -24,12 +24,20 @@
+ 
+ ## P2 — repository and delivery
+ 
+-- Select public license.
++- Complete Apache-2.0 source and third-party license audit.
+ - Public-source privacy audit.
++- Use scoped Git patches as the default AI-to-repository handoff.
+ - Create `develop` branch.
+ - First GitHub release from imported baseline.
+ - Add public repository to HACS as custom integration.
+ 
++## P1 — expenses and currency
++
++- Preserve original currency and amount.
++- Convert expenses to EUR using a recorded exchange-rate policy.
++- Store rate source and effective date.
++- Show original and EUR totals without silently mixing currencies.
++
+ ## P2 — architecture
+ 
+ - Roadbook schema v1 documentation.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 30e384f32b27ab893b86ea6e6b819dae60d9d5a6..16b59a9cd53b120089009f23cd97b292483636af 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
+ 
+ ## [Unreleased] — Roadplanner 3.0
+ 
++### Changed
++
++- Licensed Roadplanner under Apache-2.0.
++- Added the AI-to-Git patch workflow for iPad and Codespaces.
++- Removed the requirement for a repository-specific devcontainer during the initial 3.0 phase.
++
+ ### Planned
+ 
+ - GitHub and HACS delivery foundation.
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 4c114ea4fb841a50ba9c92306f0036dde64d0a2b..365573bcb42a68f29143322d8e04429aa53ff4fe 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -42,3 +42,14 @@ A pull request must state:
+ - migration impact,
+ - validation performed,
+ - screenshots for visible UI changes.
++
++
++## Contribution license
++
++By submitting a contribution to Roadplanner, you certify that you have the right to submit it and agree that the contribution is licensed under the Apache License 2.0. No separate contributor license agreement is currently required.
++
++Contributions must not include code, media, documentation, or data that cannot legally be redistributed under the project license or under a clearly documented compatible third-party license.
++
++## AI-assisted changes
++
++AI-generated code and documentation must be reviewed like any other untrusted contribution. The pull request must identify material AI assistance and confirm that provenance, licensing, secrets, privacy, migration impact, and relevant tests were reviewed.
+diff --git a/LICENSE b/LICENSE
+index 96cb57219c1f1f8438f9ef445d2b891097b68137..d645695673349e3947e8e5ae42332d0ac3164cd7 100644
+--- a/LICENSE
++++ b/LICENSE
+@@ -1,5 +1,202 @@
+-Copyright (c) 2026 Aron Zedler. All rights reserved.
+ 
+-No public software license has been selected yet.
++                                 Apache License
++                           Version 2.0, January 2004
++                        http://www.apache.org/licenses/
+ 
+-This repository is currently intended for private development and evaluation by the copyright holder. Before the repository is made public for HACS distribution, an explicit software license must be selected and this file replaced.
++   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
++
++   1. Definitions.
++
++      "License" shall mean the terms and conditions for use, reproduction,
++      and distribution as defined by Sections 1 through 9 of this document.
++
++      "Licensor" shall mean the copyright owner or entity authorized by
++      the copyright owner that is granting the License.
++
++      "Legal Entity" shall mean the union of the acting entity and all
++      other entities that control, are controlled by, or are under common
++      control with that entity. For the purposes of this definition,
++      "control" means (i) the power, direct or indirect, to cause the
++      direction or management of such entity, whether by contract or
++      otherwise, or (ii) ownership of fifty percent (50%) or more of the
++      outstanding shares, or (iii) beneficial ownership of such entity.
++
++      "You" (or "Your") shall mean an individual or Legal Entity
++      exercising permissions granted by this License.
++
++      "Source" form shall mean the preferred form for making modifications,
++      including but not limited to software source code, documentation
++      source, and configuration files.
++
++      "Object" form shall mean any form resulting from mechanical
++      transformation or translation of a Source form, including but
++      not limited to compiled object code, generated documentation,
++      and conversions to other media types.
++
++      "Work" shall mean the work of authorship, whether in Source or
++      Object form, made available under the License, as indicated by a
++      copyright notice that is included in or attached to the work
++      (an example is provided in the Appendix below).
++
++      "Derivative Works" shall mean any work, whether in Source or Object
++      form, that is based on (or derived from) the Work and for which the
++      editorial revisions, annotations, elaborations, or other modifications
++      represent, as a whole, an original work of authorship. For the purposes
++      of this License, Derivative Works shall not include works that remain
++      separable from, or merely link (or bind by name) to the interfaces of,
++      the Work and Derivative Works thereof.
++
++      "Contribution" shall mean any work of authorship, including
++      the original version of the Work and any modifications or additions
++      to that Work or Derivative Works thereof, that is intentionally
++      submitted to Licensor for inclusion in the Work by the copyright owner
++      or by an individual or Legal Entity authorized to submit on behalf of
++      the copyright owner. For the purposes of this definition, "submitted"
++      means any form of electronic, verbal, or written communication sent
++      to the Licensor or its representatives, including but not limited to
++      communication on electronic mailing lists, source code control systems,
++      and issue tracking systems that are managed by, or on behalf of, the
++      Licensor for the purpose of discussing and improving the Work, but
++      excluding communication that is conspicuously marked or otherwise
++      designated in writing by the copyright owner as "Not a Contribution."
++
++      "Contributor" shall mean Licensor and any individual or Legal Entity
++      on behalf of whom a Contribution has been received by Licensor and
++      subsequently incorporated within the Work.
++
++   2. Grant of Copyright License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      copyright license to reproduce, prepare Derivative Works of,
++      publicly display, publicly perform, sublicense, and distribute the
++      Work and such Derivative Works in Source or Object form.
++
++   3. Grant of Patent License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      (except as stated in this section) patent license to make, have made,
++      use, offer to sell, sell, import, and otherwise transfer the Work,
++      where such license applies only to those patent claims licensable
++      by such Contributor that are necessarily infringed by their
++      Contribution(s) alone or by combination of their Contribution(s)
++      with the Work to which such Contribution(s) was submitted. If You
++      institute patent litigation against any entity (including a
++      cross-claim or counterclaim in a lawsuit) alleging that the Work
++      or a Contribution incorporated within the Work constitutes direct
++      or contributory patent infringement, then any patent licenses
++      granted to You under this License for that Work shall terminate
++      as of the date such litigation is filed.
++
++   4. Redistribution. You may reproduce and distribute copies of the
++      Work or Derivative Works thereof in any medium, with or without
++      modifications, and in Source or Object form, provided that You
++      meet the following conditions:
++
++      (a) You must give any other recipients of the Work or
++          Derivative Works a copy of this License; and
++
++      (b) You must cause any modified files to carry prominent notices
++          stating that You changed the files; and
++
++      (c) You must retain, in the Source form of any Derivative Works
++          that You distribute, all copyright, patent, trademark, and
++          attribution notices from the Source form of the Work,
++          excluding those notices that do not pertain to any part of
++          the Derivative Works; and
++
++      (d) If the Work includes a "NOTICE" text file as part of its
++          distribution, then any Derivative Works that You distribute must
++          include a readable copy of the attribution notices contained
++          within such NOTICE file, excluding those notices that do not
++          pertain to any part of the Derivative Works, in at least one
++          of the following places: within a NOTICE text file distributed
++          as part of the Derivative Works; within the Source form or
++          documentation, if provided along with the Derivative Works; or,
++          within a display generated by the Derivative Works, if and
++          wherever such third-party notices normally appear. The contents
++          of the NOTICE file are for informational purposes only and
++          do not modify the License. You may add Your own attribution
++          notices within Derivative Works that You distribute, alongside
++          or as an addendum to the NOTICE text from the Work, provided
++          that such additional attribution notices cannot be construed
++          as modifying the License.
++
++      You may add Your own copyright statement to Your modifications and
++      may provide additional or different license terms and conditions
++      for use, reproduction, or distribution of Your modifications, or
++      for any such Derivative Works as a whole, provided Your use,
++      reproduction, and distribution of the Work otherwise complies with
++      the conditions stated in this License.
++
++   5. Submission of Contributions. Unless You explicitly state otherwise,
++      any Contribution intentionally submitted for inclusion in the Work
++      by You to the Licensor shall be under the terms and conditions of
++      this License, without any additional terms or conditions.
++      Notwithstanding the above, nothing herein shall supersede or modify
++      the terms of any separate license agreement you may have executed
++      with Licensor regarding such Contributions.
++
++   6. Trademarks. This License does not grant permission to use the trade
++      names, trademarks, service marks, or product names of the Licensor,
++      except as required for reasonable and customary use in describing the
++      origin of the Work and reproducing the content of the NOTICE file.
++
++   7. Disclaimer of Warranty. Unless required by applicable law or
++      agreed to in writing, Licensor provides the Work (and each
++      Contributor provides its Contributions) on an "AS IS" BASIS,
++      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++      implied, including, without limitation, any warranties or conditions
++      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
++      PARTICULAR PURPOSE. You are solely responsible for determining the
++      appropriateness of using or redistributing the Work and assume any
++      risks associated with Your exercise of permissions under this License.
++
++   8. Limitation of Liability. In no event and under no legal theory,
++      whether in tort (including negligence), contract, or otherwise,
++      unless required by applicable law (such as deliberate and grossly
++      negligent acts) or agreed to in writing, shall any Contributor be
++      liable to You for damages, including any direct, indirect, special,
++      incidental, or consequential damages of any character arising as a
++      result of this License or out of the use or inability to use the
++      Work (including but not limited to damages for loss of goodwill,
++      work stoppage, computer failure or malfunction, or any and all
++      other commercial damages or losses), even if such Contributor
++      has been advised of the possibility of such damages.
++
++   9. Accepting Warranty or Additional Liability. While redistributing
++      the Work or Derivative Works thereof, You may choose to offer,
++      and charge a fee for, acceptance of support, warranty, indemnity,
++      or other liability obligations and/or rights consistent with this
++      License. However, in accepting such obligations, You may act only
++      on Your own behalf and on Your sole responsibility, not on behalf
++      of any other Contributor, and only if You agree to indemnify,
++      defend, and hold each Contributor harmless for any liability
++      incurred by, or claims asserted against, such Contributor by reason
++      of your accepting any such warranty or additional liability.
++
++   END OF TERMS AND CONDITIONS
++
++   APPENDIX: How to apply the Apache License to your work.
++
++      To apply the Apache License to your work, attach the following
++      boilerplate notice, with the fields enclosed by brackets "[]"
++      replaced with your own identifying information. (Don't include
++      the brackets!)  The text should be enclosed in the appropriate
++      comment syntax for the file format. We also recommend that a
++      file or class name and description of purpose be included on the
++      same "printed page" as the copyright notice for easier
++      identification within third-party archives.
++
++   Copyright [yyyy] [name of copyright owner]
++
++   Licensed under the Apache License, Version 2.0 (the "License");
++   you may not use this file except in compliance with the License.
++   You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
+diff --git a/NOTICE b/NOTICE
+new file mode 100644
+index 0000000000000000000000000000000000000000..7cf1d0657eaa64a09fedc52e6734c8f86ff5ac2f
+--- /dev/null
++++ b/NOTICE
+@@ -0,0 +1,4 @@
++Roadplanner
++Copyright 2026 Aron Zedler
++
++This product includes software developed for the Roadplanner project.
+diff --git a/README.md b/README.md
+index 0f1fcc07626fec5a58269b31f720fb6ece6de69d..b8d7301b77000e55cd53a7fdf16da6dfe5ee5fa4 100644
+--- a/README.md
++++ b/README.md
+@@ -48,7 +48,7 @@ The integration stays at the repository root under `custom_components/` because
+ 
+ ### HACS custom repository
+ 
+-HACS only supports **public GitHub repositories**. After this repository has been reviewed for secrets and a license has been selected:
++HACS only supports **public GitHub repositories**. After this repository has been reviewed for secrets and personal data:
+ 
+ 1. Make the repository public.
+ 2. Add `https://github.com/azedler/roadplanner` to HACS as a custom repository of type **Integration**.
+@@ -84,6 +84,7 @@ Start here:
+ - [Contributing](CONTRIBUTING.md)
+ - [iPad and Codespaces workflow](docs/development/IPAD_CODESPACES_WORKFLOW.md)
+ - [Release process](docs/development/RELEASE_PROCESS.md)
++- [AI patch workflow](docs/development/PATCH_WORKFLOW.md)
+ 
+ Run the repository checks with:
+ 
+@@ -107,4 +108,4 @@ See [SECURITY.md](SECURITY.md).
+ 
+ ## License
+ 
+-A public distribution license has not yet been selected. Until that decision is made, all rights are reserved. Keep the repository private until the license decision and public-source review are complete.
++Roadplanner is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) and the [license policy](docs/development/LICENSE_POLICY.md) for attribution and contribution guidance.
+diff --git a/ROADMAP.md b/ROADMAP.md
+index 042806e5c08e96518b7ee1892682d0195a4e03b0..fff97644876b87f3ed64b7423b6b137e572f56e4 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -14,7 +14,8 @@
+ - HACS-compatible repository layout.
+ - Browser/Codespaces workflow for iPad-only development.
+ - Clear release, rollback and migration process.
+-- Public-repository and license decision before HACS rollout.
++- Apache-2.0 licensing and public-source audit before HACS rollout.
++- Patch-based AI development workflow without repository credentials.
+ 
+ ### Domain consistency
+ 
+@@ -35,6 +36,15 @@
+   - estimated/detailed distance,
+   - document readiness.
+ 
++
++### Currency normalization
++
++- Preserve every expense in its original amount and currency.
++- Add a configurable EUR reference amount without overwriting the original.
++- Support daily rate, trip-start rate, and manual fixed-rate policies.
++- Store rate source, effective date, and conversion status for auditability.
++- Aggregate trip totals in EUR while retaining per-currency totals.
++
+ ### Assistant lifecycle
+ 
+ - Session conversation per user and trip.
+diff --git a/docs/development/IPAD_CODESPACES_WORKFLOW.md b/docs/development/IPAD_CODESPACES_WORKFLOW.md
+index 7b93d15e66018f8b6f07c5c7293a44451bb6f814..0ed6a1eb98424afe983ec784e335ba3400d5daf7 100644
+--- a/docs/development/IPAD_CODESPACES_WORKFLOW.md
++++ b/docs/development/IPAD_CODESPACES_WORKFLOW.md
+@@ -1,48 +1,59 @@
+ # iPad-only GitHub and Codespaces workflow
+ 
+-No PC is required for the normal Roadplanner development and deployment workflow.
++No PC is required for the normal Roadplanner development and HACS deployment workflow.
+ 
+-## One-time bootstrap of the empty repository
++## Environments
+ 
+-1. In the empty GitHub repository, choose **uploading an existing file**.
+-2. Upload the provided Roadplanner bootstrap ZIP and commit it to `main`.
+-3. Open **Code → Codespaces → Create codespace on main**.
+-4. In the Codespaces terminal run:
++Use the lightest tool that fits the task:
++
++- GitHub web UI for releases, pull requests, settings, and small file edits.
++- `github.dev` for small Markdown or configuration edits.
++- GitHub Codespaces for patches, Python validation, larger edits, and release preparation.
++
++Roadplanner uses the default Codespaces environment during the initial 3.0 phase. The repository must not contain a custom `.devcontainer` unless a later, tested task deliberately adds one.
++
++## Normal development
++
++1. Open a Codespace on `develop`.
++2. Confirm the branch and working tree:
+ 
+ ```bash
+-unzip Roadplanner_GitHub_Bootstrap_2.6.5_to_3.0.zip -d /tmp/roadplanner-bootstrap
+-cp -a /tmp/roadplanner-bootstrap/. .
+-rm Roadplanner_GitHub_Bootstrap_2.6.5_to_3.0.zip
+-python tools/validate_repository.py
+-git add .
+-git commit -m "chore: import Roadplanner 2.6.5 baseline and 3.0 foundation"
+-git push
++git branch --show-current
++git status --short
+ ```
+ 
+-5. Stop the Codespace when finished.
+-
+-## Normal editing
++3. Apply the task patch using [PATCH_WORKFLOW.md](PATCH_WORKFLOW.md).
++4. Run:
+ 
+-For small Markdown or configuration changes, use the free `github.dev` browser editor:
++```bash
++python tools/validate_repository.py
++```
+ 
+-- open the repository,
+-- replace `github.com` with `github.dev`, or press `.` with a keyboard,
+-- edit and commit.
++5. Commit and push to `develop`.
++6. Test the relevant workflow in Home Assistant.
++7. Merge a reviewed pull request into `main` only when the change is releasable.
++8. Stop the Codespace when finished to avoid unnecessary usage.
+ 
+-For code changes, tests, ZIP extraction or release building, use a Codespace.
++## Recovery mode
+ 
+-## Branches
++If Codespaces opens in recovery mode because of an old container configuration:
+ 
+-- `main`: tested and releasable.
+-- `develop`: active Roadplanner 3.x development.
+-- optional short feature branches only for larger changes.
++```bash
++rm -rf .devcontainer
++git add -A
++git commit -m "chore: remove broken devcontainer configuration"
++git push origin develop
++```
+ 
+-Create `develop` after the baseline is imported.
++Then create a fresh Codespace from `develop` or use **Codespaces: Rebuild Container**.
+ 
+ ## HACS deployment
+ 
+-HACS requires the GitHub repository to be public. Keep the repository private while importing and auditing it. After selecting a license and verifying that no personal data or secrets are present:
++HACS requires a public GitHub repository for custom repositories. Keep the repository private until licensing, secret scanning, personal-data review, and the first release are complete.
++
++After publication:
+ 
+-1. switch the repository to public,
+-2. create a GitHub release,
+-3. add the repository URL to HACS as a custom repository of type **Integration**.
++1. Create a release tag such as `v3.0.0`.
++2. Add `https://github.com/azedler/roadplanner` to HACS as a custom repository of type **Integration**.
++3. Install or update Roadplanner through HACS.
++4. Restart Home Assistant when the integration release requires it.
+diff --git a/docs/development/LICENSE_OPTIONS.md b/docs/development/LICENSE_OPTIONS.md
+deleted file mode 100644
+index 9812a70df6d4f6fef3787e789039c67e3b7a5bea..0000000000000000000000000000000000000000
+--- a/docs/development/LICENSE_OPTIONS.md
++++ /dev/null
+@@ -1,12 +0,0 @@
+-# License decision before public HACS distribution
+-
+-HACS cannot install from a private GitHub repository. Before switching the repository to public, choose an explicit license.
+-
+-Common options:
+-
+-- **MIT:** simple, permissive, allows commercial reuse and forks.
+-- **Apache-2.0:** permissive with an explicit patent grant.
+-- **GPL-3.0:** derivatives distributed to others must remain under GPL.
+-- **Source-available/custom commercial license:** requires legal drafting and is not an open-source license.
+-
+-Until the decision is made, the repository should remain private and the root `LICENSE` file states that all rights are reserved.
+diff --git a/docs/development/LICENSE_POLICY.md b/docs/development/LICENSE_POLICY.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e31baaf83a556e5417ae749513370f85d621c59
+--- /dev/null
++++ b/docs/development/LICENSE_POLICY.md
+@@ -0,0 +1,29 @@
++# License policy
++
++Roadplanner is licensed under the Apache License, Version 2.0.
++
++## Project files
++
++- The full license text is stored in the repository root as `LICENSE`.
++- Project attribution is stored in `NOTICE`.
++- Release artifacts must include both files.
++- Contributions are accepted under Apache-2.0 unless explicitly marked otherwise before submission.
++
++## Third-party material
++
++Do not add code, media, documentation, fonts, datasets, screenshots, generated assets, or dependencies with unclear provenance.
++
++For every third-party dependency or bundled asset, verify:
++
++- its license permits the intended use and redistribution,
++- required copyright and attribution notices are retained,
++- NOTICE obligations are documented,
++- source-offer or copyleft obligations are understood before inclusion.
++
++## AI-generated contributions
++
++AI-generated output is untrusted input. Review it for copied material, incompatible dependencies, license obligations, private data, secrets, and unexpected provenance before committing it.
++
++## Trademarks and branding
++
++Apache-2.0 does not grant trademark rights. The Roadplanner name, logos, and product identity remain subject to their applicable rights and policies.
+diff --git a/docs/development/PATCH_WORKFLOW.md b/docs/development/PATCH_WORKFLOW.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..95b3a655dbc4a9bed367dd686a9750fb1dac134d
+--- /dev/null
++++ b/docs/development/PATCH_WORKFLOW.md
+@@ -0,0 +1,74 @@
++# AI patch workflow for iPad and GitHub Codespaces
++
++GitHub is the source of truth for Roadplanner code. AI tools provide reviewed task specifications and Git patches; they do not require direct repository credentials.
++
++## Patch package
++
++A development task should provide:
++
++- a task identifier and specification,
++- one `.patch` file based on the current `develop` branch,
++- acceptance criteria,
++- validation instructions,
++- changelog and migration notes when relevant.
++
++## Apply a patch in Codespaces
++
++1. Open a Codespace on `develop`.
++2. Confirm a clean working tree:
++
++```bash
++git branch --show-current
++git status --short
++```
++
++3. Upload the patch into the repository root.
++4. Check whether it applies:
++
++```bash
++git apply --check RP-XXX.patch
++```
++
++5. Apply it:
++
++```bash
++git apply RP-XXX.patch
++rm RP-XXX.patch
++```
++
++6. Review and validate:
++
++```bash
++git diff --check
++python tools/validate_repository.py
++git status --short
++```
++
++7. Commit and push:
++
++```bash
++git add .
++git commit -m "type: concise description"
++git push origin develop
++```
++
++8. Create a pull request from `develop` to `main` only after Home Assistant and mobile validation are complete.
++
++## Patch failure
++
++Do not force a patch that fails `git apply --check`. First confirm:
++
++- the branch is `develop`,
++- the repository is up to date,
++- the working tree is clean,
++- the patch was generated from the same baseline.
++
++Then request a rebased patch and provide the current commit:
++
++```bash
++git rev-parse --short HEAD
++```
++
++## No custom devcontainer in the initial 3.0 phase
++
++Roadplanner intentionally uses the default Codespaces environment. A repository-specific `.devcontainer` is not required for normal development and must not be reintroduced without a tested need and an explicit migration task.
+diff --git a/tools/validate_repository.py b/tools/validate_repository.py
+index d5f8090567d90504b2ef1cb2a2bba5b14a5ea995..2fb03ac2cc7679fdcb0b804d3998a8df458253a3 100755
+--- a/tools/validate_repository.py
++++ b/tools/validate_repository.py
+@@ -37,7 +37,7 @@ def fail(message: str) -> None:
+ def validate_json_files() -> int:
+     count = 0
+     for path in ROOT.rglob("*.json"):
+-        if any(part.startswith(".") and part != ".devcontainer" for part in path.parts):
++        if any(part.startswith(".") for part in path.parts):
+             continue
+         try:
+             json.loads(path.read_text(encoding="utf-8"))
+@@ -67,9 +67,20 @@ def validate_layout() -> None:
+     integrations = [p for p in custom_components.iterdir() if p.is_dir()]
+     if integrations != [INTEGRATION]:
+         fail("HACS repository must contain exactly custom_components/roadplanner_mcp")
+-    for required in (ROOT / "README.md", ROOT / "hacs.json", INTEGRATION / "__init__.py"):
++    for required in (
++        ROOT / "README.md",
++        ROOT / "LICENSE",
++        ROOT / "NOTICE",
++        ROOT / "hacs.json",
++        INTEGRATION / "__init__.py",
++    ):
+         if not required.exists():
+             fail(f"Missing required file: {required.relative_to(ROOT)}")
++    license_text = (ROOT / "LICENSE").read_text(encoding="utf-8", errors="ignore")
++    if "Apache License" not in license_text or "Version 2.0" not in license_text:
++        fail("LICENSE must contain the Apache License 2.0 text")
++    if (ROOT / ".devcontainer").exists():
++        fail("Remove .devcontainer during the initial Roadplanner 3.0 Codespaces phase")
+ 
+ 
+ def scan_secrets() -> int:
