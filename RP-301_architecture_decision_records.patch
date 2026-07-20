@@ -1,0 +1,335 @@
+diff --git a/docs/architecture/adr/ADR-001-domain-authority-boundaries.md b/docs/architecture/adr/ADR-001-domain-authority-boundaries.md
+new file mode 100644
+index 0000000..add8d22
+--- /dev/null
++++ b/docs/architecture/adr/ADR-001-domain-authority-boundaries.md
+@@ -0,0 +1,38 @@
++# ADR-001: Domain authority boundaries
++
++- **Status:** Accepted
++- **Date:** 2026-07-20
++
++## Context
++
++Roadplanner contains canonical travel planning data and several related domains such as documents, expenses, tasks, decisions and media. Earlier iterations occasionally treated caches, assistant output or UI state as if they were authoritative, which creates contradictions and duplicate data sources.
++
++## Decision
++
++Roadplanner uses one authoritative store per domain:
++
++- **Canonical Roadbook:** trip, day and stop identity, ownership, order and planning state.
++- **Document store:** uploaded originals and confirmed extracted booking metadata.
++- **Expense store:** confirmed monetary transactions.
++- **Todo store:** confirmed tasks and completion state.
++- **Decision store:** decision drafts, options and selected outcomes until they become a reviewed Roadbook proposal.
++- **Media index:** provider references, metadata, assignments and curation state.
++- **Handoff store:** review artifacts and import/export lifecycle.
++
++Assistant conversations, provider caches, thumbnails, routing responses and UI state are never authoritative.
++
++Cross-domain objects reference stable canonical IDs. They do not silently create or mutate trip, day or stop entities.
++
++## Consequences
++
++- Every field has a clearly identified owner.
++- Sync and provider failures cannot redefine the trip.
++- Deleting a cache does not delete confirmed business data.
++- Domain migrations can be versioned independently while preserving references.
++- Services must avoid copying authoritative fields into unrelated stores unless the copy is explicitly marked as a snapshot.
++
++## Rejected alternatives
++
++- One monolithic JSON document for all domains.
++- Assistant conversation history as long-term memory.
++- Provider-specific records as canonical Roadbook entities.
+diff --git a/docs/architecture/adr/ADR-002-review-only-write-path.md b/docs/architecture/adr/ADR-002-review-only-write-path.md
+new file mode 100644
+index 0000000..ef72400
+--- /dev/null
++++ b/docs/architecture/adr/ADR-002-review-only-write-path.md
+@@ -0,0 +1,45 @@
++# ADR-002: Review-only mutation pipeline
++
++- **Status:** Accepted
++- **Date:** 2026-07-20
++
++## Context
++
++Roadplanner accepts changes from direct UI actions, assistants, importers and external providers. Applying these changes through separate code paths risks partial writes, stale revisions and assistant prose that claims a change happened when it did not.
++
++## Decision
++
++Every canonical Roadbook mutation follows one pipeline:
++
++```text
++intent
++→ normalized operation
++→ complete validation
++→ review preview
++→ explicit user approval
++→ atomic apply
++→ revision increment exactly once
++```
++
++Rules:
++
++- Assistants and importers produce proposals only.
++- The server supplies canonical trip ID, base revision, timestamps and change-set metadata.
++- Existing object IDs come from the current Roadbook.
++- A failed, rejected, stale or no-op proposal does not increment the revision.
++- UI text may confirm a queued or applied change only after the server confirms that state.
++
++Direct manual editing may use a streamlined preview, but it still uses the same domain validation and atomic write engine.
++
++## Consequences
++
++- One validation contract protects all write sources.
++- Revision conflicts are explicit.
++- Regression tests can target one mutation pipeline.
++- New providers cannot bypass business rules.
++
++## Rejected alternatives
++
++- Direct writes from assistant or importer modules.
++- Separate mutation engines for UI and AI.
++- Best-effort partial application of multi-operation changes.
+diff --git a/docs/architecture/adr/ADR-003-media-originals-and-references.md b/docs/architecture/adr/ADR-003-media-originals-and-references.md
+new file mode 100644
+index 0000000..9fcfb32
+--- /dev/null
++++ b/docs/architecture/adr/ADR-003-media-originals-and-references.md
+@@ -0,0 +1,41 @@
++# ADR-003: Media originals and references
++
++- **Status:** Accepted
++- **Date:** 2026-07-20
++
++## Context
++
++Travel photos can be numerous and already live in systems such as OneDrive or Apple Photos. Copying all originals into Home Assistant would duplicate storage, increase backup size and create unclear ownership.
++
++## Decision
++
++Roadplanner stores media references and curation metadata, not provider-hosted originals.
++
++The media index may contain:
++
++- provider and provider item ID,
++- capture time and location,
++- stable assignment to trip/day/stop,
++- duplicate-group and quality metadata,
++- highlight and title-image state,
++- attribution and source metadata.
++
++Provider access URLs and thumbnails are short-lived derived data and must be refreshed as needed.
++
++Exceptions:
++
++- A user may explicitly upload an original to the private Roadplanner archive.
++- A device may keep a best-effort offline cache, but that cache is not authoritative.
++
++## Consequences
++
++- OneDrive or another provider remains the owner of its originals.
++- Roadplanner backups stay bounded.
++- Provider disconnection may temporarily prevent full-size viewing, while assignments and metadata remain.
++- Media providers must expose a stable reference contract.
++
++## Rejected alternatives
++
++- Copy every synchronized photo into Home Assistant.
++- Store expiring provider URLs as permanent media identifiers.
++- Treat browser cache as durable storage.
+diff --git a/docs/architecture/adr/ADR-004-canonical-stop-ordering.md b/docs/architecture/adr/ADR-004-canonical-stop-ordering.md
+new file mode 100644
+index 0000000..19c0da5
+--- /dev/null
++++ b/docs/architecture/adr/ADR-004-canonical-stop-ordering.md
+@@ -0,0 +1,45 @@
++# ADR-004: Canonical stop ordering
++
++- **Status:** Accepted
++- **Date:** 2026-07-20
++
++## Context
++
++Stop numbering, map markers, day timeline and route calculation can diverge when they use insertion order or independent sorting rules. This was visible when cards and map markers did not match the temporal day progression.
++
++## Decision
++
++Every day has one canonical ordered-stop service.
++
++The service determines order using:
++
++1. explicit canonical stop position,
++2. confirmed arrival/departure chronology when legacy position is missing,
++3. deterministic legacy fallback only for incomplete data.
++
++The explicit schema field remains `position` in Roadbook v1 for compatibility. UI labels may call it order or sequence, but they must not create a second persisted ordering field.
++
++The inherited overnight start is a referenced effective route element. It is included once in derived day order and is not duplicated as a canonical stop.
++
++The following consumers must use the shared ordered-stop service:
++
++- stop numbering,
++- day cards and schematic timeline,
++- map marker numbering,
++- routing and distance calculation,
++- Google Maps export,
++- assistant context,
++- day summaries and exports.
++
++## Consequences
++
++- Insertion order no longer controls user-visible planning order.
++- Reordering one stop updates every derived view consistently.
++- Legacy trips require deterministic migration or fallback behavior.
++- Independent sorting logic in UI and provider modules must be removed incrementally.
++
++## Rejected alternatives
++
++- A new `sequence` field alongside `position`.
++- Sorting separately in each UI view.
++- Using stop IDs or file order as route order.
+diff --git a/docs/architecture/adr/ADR-005-derived-views-use-domain-services.md b/docs/architecture/adr/ADR-005-derived-views-use-domain-services.md
+new file mode 100644
+index 0000000..0463521
+--- /dev/null
++++ b/docs/architecture/adr/ADR-005-derived-views-use-domain-services.md
+@@ -0,0 +1,42 @@
++# ADR-005: Derived views use shared domain services
++
++- **Status:** Accepted
++- **Date:** 2026-07-20
++
++## Context
++
++Maps, dashboards, timelines, assistant context and exports are derived representations. When each representation reimplements business logic, they drift and expose contradictory results.
++
++## Decision
++
++Derived views consume shared domain services and do not reconstruct domain rules independently.
++
++Examples:
++
++- day timeline consumes canonical ordered stops,
++- trip distance consumes planning anchors or calculated route metrics,
++- dashboard completion consumes a documented planning-completeness service,
++- task badges consume due-state classification,
++- media galleries consume deduplicated and curated media results.
++
++Derived data must include provenance and state where relevant, for example:
++
++- `estimated` versus `calculated` distance,
++- provider and calculation timestamp,
++- complete versus partial route coverage,
++- automatic versus manually confirmed media assignment.
++
++A derived result may be cached, but the cache is invalidated when its authoritative inputs change.
++
++## Consequences
++
++- UI components become simpler and more consistent.
++- Backend services become testable contracts.
++- Cached results can be safely rebuilt.
++- New clients can reuse the same domain behavior.
++
++## Rejected alternatives
++
++- Business logic embedded in individual cards or panels.
++- Persisting every UI representation as a separate source of truth.
++- Showing derived values without provenance or completeness state.
+diff --git a/docs/architecture/adr/ADR-006-money-preserves-original-currency.md b/docs/architecture/adr/ADR-006-money-preserves-original-currency.md
+new file mode 100644
+index 0000000..8f92da5
+--- /dev/null
++++ b/docs/architecture/adr/ADR-006-money-preserves-original-currency.md
+@@ -0,0 +1,48 @@
++# ADR-006: Money preserves original currency and adds EUR reference values
++
++- **Status:** Accepted; implementation pending
++- **Date:** 2026-07-20
++
++## Context
++
++Road trips cross currency zones. Summing PLN, SEK and EUR directly is incorrect, while replacing the paid amount with a converted value loses auditability.
++
++## Decision
++
++Every expense preserves the confirmed original amount and currency.
++
++An optional EUR reference conversion is stored separately with enough provenance to reproduce or explain it:
++
++```text
++original amount
++original ISO 4217 currency
++EUR reference amount
++exchange rate
++rate date
++rate source
++conversion mode
++conversion timestamp
++```
++
++Supported conversion modes are planned as:
++
++- daily rate for the expense date,
++- trip-start rate,
++- user-defined fixed rate.
++
++The default mode is the daily rate for the expense date. If no trustworthy rate is available, Roadplanner keeps the original expense and excludes it from the EUR total rather than inventing a conversion.
++
++Recalculation never changes the original amount. Manual conversion overrides remain distinguishable from provider rates.
++
++## Consequences
++
++- The cost book can show both `126 PLN` and `≈ 29.43 EUR`.
++- Trip totals can be expressed in EUR without losing original payment facts.
++- Historical totals remain explainable when rates change later.
++- A future exchange-rate provider is replaceable and non-authoritative.
++
++## Rejected alternatives
++
++- Overwrite every expense with EUR.
++- Add different currencies without conversion.
++- Fetch the current rate every time the UI opens without storing provenance.
+diff --git a/docs/architecture/adr/README.md b/docs/architecture/adr/README.md
+new file mode 100644
+index 0000000..35c692d
+--- /dev/null
++++ b/docs/architecture/adr/README.md
+@@ -0,0 +1,34 @@
++# Architecture Decision Records
++
++Architecture Decision Records (ADRs) capture decisions that constrain future Roadplanner development.
++
++## Rules
++
++- ADRs are immutable once accepted. Superseded decisions remain in the repository and point to their replacement.
++- Every ADR states context, decision, consequences and rejected alternatives.
++- Code changes that contradict an accepted ADR require a new ADR that explicitly supersedes it.
++- Product ideas and implementation tasks do not belong here; use `ROADMAP.md`, `BACKLOG.md` or a development task.
++
++## Status values
++
++- `Proposed`
++- `Accepted`
++- `Deprecated`
++- `Superseded by ADR-NNN`
++
++## Naming
++
++```text
++ADR-NNN-short-kebab-case-title.md
++```
++
++## Index
++
++| ADR | Decision | Status |
++|---|---|---|
++| [ADR-001](ADR-001-domain-authority-boundaries.md) | Domain authority boundaries | Accepted |
++| [ADR-002](ADR-002-review-only-write-path.md) | Review-only mutation pipeline | Accepted |
++| [ADR-003](ADR-003-media-originals-and-references.md) | Media originals and references | Accepted |
++| [ADR-004](ADR-004-canonical-stop-ordering.md) | Canonical stop ordering | Accepted |
++| [ADR-005](ADR-005-derived-views-use-domain-services.md) | Derived views use shared domain services | Accepted |
++| [ADR-006](ADR-006-money-preserves-original-currency.md) | Money preserves original currency and adds EUR reference values | Accepted; implementation pending |
