@@ -23,6 +23,11 @@ from homeassistant.util import dt as dt_util
 
 from .assistant_provider import AssistantProvider
 from .const import EVENT_ROADPLANNER_UPDATED
+from .decision_logic import (
+    DecisionBaselineError,
+    compact_decision_days,
+    ensure_current_plan_option,
+)
 from .destination_images import DestinationImageProvider
 from .experience_store import ExperienceStore, new_id, utc_now_iso
 from .geocoding import NominatimGeocoder
@@ -108,7 +113,7 @@ _DECISION_SCHEMA: dict[str, Any] = {
         "options": {
             "type": "array",
             "minItems": 2,
-            "maxItems": 3,
+            "maxItems": 4,
             "items": {
                 "type": "object",
                 "properties": {
@@ -126,6 +131,9 @@ _DECISION_SCHEMA: dict[str, Any] = {
                             "note": {"type": ["string", "null"]},
                         },
                     },
+                    "is_current_plan": {"type": "boolean"},
+                    "change_type": {"type": "string"},
+                    "existing_stop_id": {"type": ["string", "null"]},
                 },
                 "required": ["title", "summary", "place_query", "stop_type", "pros", "cons"],
             },
@@ -135,9 +143,11 @@ _DECISION_SCHEMA: dict[str, Any] = {
 }
 
 _DECISION_PROMPT = """Du erstellst eine lokale Roadplanner-Entscheidungsvorlage aus genau einer bereits sichtbaren Assistentenantwort.
-Extrahiere ausschließlich die zwei oder drei konkreten Optionen, die in der Antwort wirklich genannt wurden. Erfinde keine zusätzliche Option und keine ungeklärten Preise.
+Extrahiere ausschließlich die konkreten Optionen, die in der Antwort wirklich genannt wurden. Erfinde keine ungeklärten Preise oder Orte.
 Jede Option benötigt einen kurzen Titel, eine knappe Zusammenfassung, einen geocodierbaren Orts-/Anbieternamen in place_query, einen Roadplanner-Stopp-Typ sowie höchstens vier Vor- und Nachteile.
+Wenn die Frage sinngemäß lautet, ob der bestehende Plan beibehalten oder durch eine Alternative ersetzt werden soll, MUSS der aktuelle Roadbook-Stopp als eigene erste Option enthalten sein. Setze dann is_current_plan=true, change_type=keep_existing und existing_stop_id auf die vorhandene Stop-ID. Alternativen erhalten is_current_plan=false und change_type=replace_existing.
 Wenn die Antwort einen Reisetag eindeutig nennt, verwende ausschließlich eine vorhandene day_id aus dem mitgelieferten Roadbook. Andernfalls linked_day_id=null.
+Die mitgelieferten Tage enthalten kompakte vorhandene Stopps. Verwende ihre IDs nur, wenn der Name und der Kontext eindeutig übereinstimmen.
 Antworte ausschließlich im vorgegebenen JSON-Schema."""
 
 
@@ -1355,7 +1365,7 @@ class RoadplannerExperienceManager:
             raise ValidationError("Assistentenantwort nicht gefunden")
         payload = await self.manager.async_get_assistant_payload(trip_id)
         days = _all_days(payload)
-        compact_days = [{"id": day.get("id"), "date": day.get("date"), "title": day.get("title"), "start": day.get("start"), "end": day.get("end")} for day in days]
+        compact_days = compact_decision_days(days)
         try:
             result = await self.provider.async_generate_json_result(
                 system_instruction=_DECISION_PROMPT,
@@ -1374,7 +1384,7 @@ class RoadplannerExperienceManager:
         valid_day_ids = {str(day.get("id") or "") for day in days}
         if linked_day_id not in valid_day_ids:
             linked_day_id = None
-        for index, option_raw in enumerate(options_raw[:3]):
+        for index, option_raw in enumerate(options_raw[:4]):
             if not isinstance(option_raw, dict):
                 continue
             options.append(
@@ -1388,8 +1398,22 @@ class RoadplannerExperienceManager:
                     "cons": [_clean(item, 300) for item in list(option_raw.get("cons") or [])[:4] if _clean(item, 300)],
                     "estimated_cost": option_raw.get("estimated_cost") if isinstance(option_raw.get("estimated_cost"), dict) else {},
                     "details": {},
+                    "is_current_plan": bool(option_raw.get("is_current_plan", False)),
+                    "change_type": _clean(option_raw.get("change_type"), 80) or "choose",
+                    "existing_stop_id": _clean(option_raw.get("existing_stop_id"), 200) or None,
                 }
             )
+        try:
+            options, linked_day_id, baseline_required, current_plan_option_id = ensure_current_plan_option(
+                assistant_message=str(message.get("content") or ""),
+                decision_title=_clean(raw.get("title"), 400),
+                question=_clean(raw.get("question"), 1_000),
+                linked_day_id=linked_day_id,
+                days=days,
+                options=options,
+            )
+        except DecisionBaselineError as err:
+            raise ValidationError(f"{err} (Anfrage {request_id})") from err
         if len(options) < 2:
             raise ValidationError("In dieser Antwort konnten nicht mindestens zwei konkrete Optionen erkannt werden")
         # Geocoding, image lookup and route enrichment are independent for each
@@ -1410,7 +1434,19 @@ class RoadplannerExperienceManager:
         decision = await self.hass.async_add_executor_job(
             self.store.create_decision,
             trip_id,
-            {"id": new_id("decision"), "title": _clean(raw.get("title"), 400) or "Entscheidung", "question": _clean(raw.get("question"), 1_000), "status": "open", "linked_day_id": linked_day_id, "source_message_id": message_id, "options": options, "created_at": utc_now_iso(), "updated_at": utc_now_iso()},
+            {
+                "id": new_id("decision"),
+                "title": _clean(raw.get("title"), 400) or "Entscheidung",
+                "question": _clean(raw.get("question"), 1_000),
+                "status": "open",
+                "linked_day_id": linked_day_id,
+                "source_message_id": message_id,
+                "baseline_required": baseline_required,
+                "current_plan_option_id": current_plan_option_id,
+                "options": options,
+                "created_at": utc_now_iso(),
+                "updated_at": utc_now_iso(),
+            },
         )
         return {"decision": decision, "experience": await self.async_panel_payload(trip_id)}
 
@@ -1421,12 +1457,17 @@ class RoadplannerExperienceManager:
         query = str(option.get("place_query") or "").strip()
 
         async def resolve_location() -> tuple[Any, list[Any]]:
+            if _coordinate(option.get("location")) is not None:
+                return None, []
             if not query or not self.geocoder or not self.geocoder.enabled:
                 return None, []
             async with asyncio.timeout(_DECISION_GEOCODE_TIMEOUT_SECONDS):
                 return await self.geocoder.async_resolve(query, language="de")
 
         async def resolve_image() -> dict[str, Any] | None:
+            existing = option.get("image") if isinstance(option.get("image"), dict) else {}
+            if existing.get("image_url"):
+                return existing
             if not query:
                 return None
             async with asyncio.timeout(_DECISION_IMAGE_TIMEOUT_SECONDS):
@@ -1595,6 +1636,19 @@ class RoadplannerExperienceManager:
         option = next((item for item in decision.get("options", []) if item.get("id") == selected_id), None)
         if option is None:
             raise ValidationError("Bitte zuerst eine Option auswählen")
+        if bool(option.get("is_current_plan")) or str(option.get("change_type") or "") == "keep_existing":
+            updated = await self.hass.async_add_executor_job(
+                self.store.update_decision,
+                trip_id,
+                decision_id,
+                {"status": "selected"},
+            )
+            return {
+                "decision": updated,
+                "kept_existing": True,
+                "assistant": self.assistant.state(user_id, trip_id),
+                "experience": await self.async_panel_payload(trip_id),
+            }
         result = await self.assistant.async_add_decision_draft(user_id=user_id, trip_id=trip_id, decision=decision, option=option)
         draft = result.get("draft") or {}
         updated = await self.hass.async_add_executor_job(self.store.update_decision, trip_id, decision_id, {"status": "transferred", "transferred_draft_id": draft.get("id")})

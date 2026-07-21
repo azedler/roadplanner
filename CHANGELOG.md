@@ -41,6 +41,26 @@ The project follows Semantic Versioning for public releases.
 
 This entry records the first Git-managed baseline. Detailed historical notes are preserved in `docs/legacy/2.6.5/`.
 
+## [2.7.2] - 2026-07-21
+
+### Added
+
+- Decision templates can include the currently planned Roadbook stop as a verified baseline option.
+- Current-plan decision slides are visibly labelled and require no change-basket transfer.
+
+### Changed
+
+- Markdown links from the assistant tolerate safe line wrapping inside long HTTPS URLs.
+- The assistant review button shows a dedicated progress state and opens the handoff overview after preparation.
+- Keep-or-replace decisions may contain the current plan plus up to three alternatives.
+
+### Fixed
+
+- Google Maps Markdown links with Unicode query values are rendered as clickable links.
+- The "Änderungen prüfen" button no longer fails silently on touch devices.
+- A stale "last message unanswered" banner is cleared when a later assistant reply exists.
+- Decision questions that mention keeping the existing plan can no longer omit that plan from the options.
+
 ## [2.7.1] - 2026-07-21
 
 ### Added

@@ -106,4 +106,36 @@ const decisionButton = panel._renderAssistantMessage({
 assert.match(decisionButton, /Vorlage wird erstellt/);
 assert.match(decisionButton, /disabled/);
 
+
+panel._assistantLastFailedText = "Gib mir den Maps-Link";
+panel._assistantLastFailedAt = Date.parse("2026-07-21T09:55:00Z");
+assert.equal(panel._assistantFailureResolved([
+  { role: "user", content: "Gib mir den Maps-Link", created_at: "2026-07-21T09:55:00Z" },
+  { role: "assistant", content: "Hier ist der Link", created_at: "2026-07-21T09:56:00Z" },
+]), true, "a later assistant reply must resolve the stale retry banner");
+
+let preparedAction = "";
+let prepareLoadCount = 0;
+panel._data = {
+  selected_is_active: true,
+  assistant: { basket_count: 1, basket: [{ id: "draft-1" }] },
+};
+panel._selectedTripId = "trip-1";
+panel._busy = false;
+panel._showToast = () => {};
+panel._runAction = async (action) => {
+  preparedAction = action;
+  return {
+    handoff: { id: "handoff-1" },
+    assistant: { basket_count: 0, basket: [] },
+  };
+};
+panel._loadData = async () => { prepareLoadCount += 1; };
+const prepared = await panel._prepareAssistantChanges();
+assert.equal(preparedAction, "assistant_prepare");
+assert.equal(prepared.handoff.id, "handoff-1");
+assert.equal(panel._activeTab, "handoffs");
+assert.equal(prepareLoadCount, 1, "review preparation must refresh the handoff overview exactly once");
+assert.equal(panel._assistantPrepareInFlight, false);
+
 console.log("Assistant interaction and persistent error tests passed.");

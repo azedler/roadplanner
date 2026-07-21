@@ -188,9 +188,11 @@ class RoadplannerPanel extends HTMLElement {
     this._mapHydrationToken = 0;
     this._assistantLastFailedText = "";
     this._assistantLastFailedRequestId = "";
+    this._assistantLastFailedAt = 0;
     this._assistantDiagnostics = null;
     this._assistantAutoBriefingRequested = new Set();
     this._assistantSubmitInFlight = false;
+    this._assistantPrepareInFlight = false;
     this._assistantPending = null;
     this._decisionCreateInFlightMessageId = "";
     this._actionErrorRetry = null;
@@ -207,6 +209,13 @@ class RoadplannerPanel extends HTMLElement {
         event.preventDefault();
         event.stopPropagation();
         void this._submitAssistantComposer(button.closest("form"));
+        return;
+      }
+      const prepareButton = event.target?.closest?.("[data-action='assistant-prepare']");
+      if (prepareButton && !prepareButton.disabled) {
+        event.preventDefault();
+        event.stopPropagation();
+        void this._prepareAssistantChanges();
         return;
       }
       const slide = event.target?.closest?.(".decision-slide");
@@ -829,19 +838,73 @@ class RoadplannerPanel extends HTMLElement {
     return output;
   }
 
+  _normalizeAssistantMarkdownUrl(value) {
+    return String(value ?? "")
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      .replace(/\s+/g, "")
+      .trim();
+  }
+
+  _assistantMarkdownLinks(value) {
+    const text = String(value ?? "");
+    const links = [];
+    let cursor = 0;
+    while (cursor < text.length) {
+      const start = text.indexOf("[", cursor);
+      if (start < 0) break;
+      const labelEnd = text.indexOf("](", start + 1);
+      if (labelEnd < 0 || labelEnd - start > 241) {
+        cursor = start + 1;
+        continue;
+      }
+      const label = text.slice(start + 1, labelEnd).replace(/\s+/g, " ").trim();
+      if (!label) {
+        cursor = start + 1;
+        continue;
+      }
+      const urlStart = labelEnd + 2;
+      let depth = 0;
+      let end = -1;
+      for (let index = urlStart; index < text.length; index += 1) {
+        const character = text[index];
+        if (character === "(") depth += 1;
+        else if (character === ")") {
+          if (depth > 0) depth -= 1;
+          else {
+            end = index;
+            break;
+          }
+        }
+      }
+      if (end < 0) break;
+      const rawUrl = text.slice(urlStart, end);
+      const normalizedUrl = this._normalizeAssistantMarkdownUrl(rawUrl);
+      if (/^https?:\/\//i.test(normalizedUrl)) {
+        links.push({
+          start,
+          end: end + 1,
+          label,
+          url: normalizedUrl,
+          raw: text.slice(start, end + 1),
+        });
+      }
+      cursor = end + 1;
+    }
+    return links;
+  }
+
   _renderAssistantContent(value) {
     const text = String(value ?? "");
-    const markdownLink = /\[([^\]\n]{1,240})\]\((https?:\/\/[^\s<]+)\)/gi;
+    const markdownLinks = this._assistantMarkdownLinks(text);
     let cursor = 0;
     let output = "";
-    for (const match of text.matchAll(markdownLink)) {
-      const index = match.index ?? 0;
-      output += this._linkifyAssistantPlainText(text.slice(cursor, index));
-      const candidate = this._trimAssistantUrlCandidate(match[2]);
-      const link = this._renderAssistantLink(candidate.url, match[1]);
-      output += link || this._linkifyAssistantPlainText(match[0]);
+    for (const match of markdownLinks) {
+      output += this._linkifyAssistantPlainText(text.slice(cursor, match.start));
+      const candidate = this._trimAssistantUrlCandidate(match.url);
+      const link = this._renderAssistantLink(candidate.url, match.label);
+      output += link || this._linkifyAssistantPlainText(match.raw);
       output += escapeHtml(candidate.suffix);
-      cursor = index + match[0].length;
+      cursor = match.end;
     }
     output += this._linkifyAssistantPlainText(text.slice(cursor));
     return output;
@@ -2144,6 +2207,28 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
+  _assistantFailureResolved(messages = []) {
+    const failedText = cleanText(this._assistantLastFailedText);
+    if (!failedText) return true;
+    let failedUserIndex = -1;
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index] || {};
+      if (message.role === "user" && cleanText(message.content) === failedText) {
+        failedUserIndex = index;
+      }
+    }
+    if (failedUserIndex >= 0) {
+      return messages.slice(failedUserIndex + 1).some((message) => message?.role === "assistant");
+    }
+    const failedAt = Number(this._assistantLastFailedAt || 0);
+    if (!failedAt) return false;
+    return messages.some((message) => {
+      if (message?.role !== "assistant") return false;
+      const created = Date.parse(message.created_at || "");
+      return Number.isFinite(created) && created >= failedAt;
+    });
+  }
+
   async _sendAssistantMessage(text, { requestId = "" } = {}) {
     const message = cleanText(text);
     if (!message || !this._selectedTripId) return false;
@@ -2169,12 +2254,14 @@ class RoadplannerPanel extends HTMLElement {
     if (!result) {
       this._assistantLastFailedText = message;
       this._assistantLastFailedRequestId = clientRequestId;
+      this._assistantLastFailedAt = Date.now();
       this._render({ preserveScroll: true });
       return false;
     }
 
     this._assistantLastFailedText = "";
     this._assistantLastFailedRequestId = "";
+    this._assistantLastFailedAt = 0;
     if (result.assistant && this._data) {
       this._data = { ...this._data, assistant: result.assistant };
       this._signature = "";
@@ -2244,21 +2331,56 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   async _prepareAssistantChanges() {
+    if (this._assistantPrepareInFlight) return null;
     const assistant = this._data?.assistant || {};
     if (!assistant.basket_count) {
       this._showToast("Es sind noch keine Änderungen vorgemerkt", "error");
-      return;
+      return null;
     }
     if (!this._data?.selected_is_active) {
       this._showToast("Bitte diese Reise zuerst als aktiv setzen", "error");
-      return;
+      return null;
     }
-    const result = await this._runAction("assistant_prepare", {
-      trip_id: this._selectedTripId,
-    }, "Änderungsentwurf erstellt");
-    if (result?.handoff) {
+    if (this._busy) {
+      this._showToast("Roadplanner verarbeitet noch eine andere Aktion. Bitte kurz erneut versuchen.", "error", 5000);
+      return null;
+    }
+
+    this._assistantPrepareInFlight = true;
+    this._render({ preserveScroll: true });
+    const retry = () => this._prepareAssistantChanges();
+    try {
+      const result = await this._runAction("assistant_prepare", {
+        trip_id: this._selectedTripId,
+      }, "", {
+        refresh: false,
+        errorMode: "dialog",
+        errorTitle: "Änderungsentwurf konnte nicht erstellt werden",
+        retry,
+      });
+      if (!result) return null;
+      if (result.assistant && this._data) {
+        this._data = { ...this._data, assistant: result.assistant };
+        this._signature = "";
+      }
+      if (!result.handoff) {
+        this._showActionError(
+          "Roadplanner hat den Entwurf verarbeitet, aber keine prüfbare Übergabe zurückgegeben.",
+          {
+            title: "Änderungsübersicht konnte nicht geöffnet werden",
+            action: "assistant_prepare",
+            retry,
+          },
+        );
+        return null;
+      }
       this._activeTab = "handoffs";
-      this._render();
+      await this._loadData({ silent: true, force: true });
+      this._showToast("Änderungsentwurf erstellt", "success", 4000);
+      return result;
+    } finally {
+      this._assistantPrepareInFlight = false;
+      if (this._activeTab === "assistant") this._render({ preserveScroll: true });
     }
   }
 
@@ -2944,6 +3066,12 @@ class RoadplannerPanel extends HTMLElement {
     const canUse = Boolean(this._data?.capabilities?.can_assistant);
     const configured = Boolean(assistant.configured);
     const messages = assistant.messages || [];
+    if (this._assistantLastFailedText && this._assistantFailureResolved(messages)) {
+      this._assistantLastFailedText = "";
+      this._assistantLastFailedRequestId = "";
+      this._assistantLastFailedAt = 0;
+    }
+    const showRetryNotice = Boolean(this._assistantLastFailedText);
     const orderedMessages = messages.slice().reverse();
     const basket = assistant.basket || [];
     const memory = assistant.memory || {};
@@ -3010,7 +3138,7 @@ class RoadplannerPanel extends HTMLElement {
 
       ${!this._data.selected_is_active ? `<div class="notice warning"><ha-icon icon="mdi:information-outline"></ha-icon><div><strong>Planung im Lesemodus</strong><span>Du kannst diese Reise besprechen. Für die Änderungsübersicht muss sie zuerst als aktive Reise gesetzt werden.</span></div></div>` : ""}
 
-      ${this._assistantLastFailedText ? `<div class="notice warning assistant-retry-notice"><ha-icon icon="mdi:reload-alert"></ha-icon><div><strong>Die letzte Nachricht wurde nicht beantwortet</strong><span>Der Text bleibt erhalten. Roadplanner kann ihn mit aktuellem Reisekontext erneut senden.</span></div><button class="secondary-button compact-button" type="button" data-action="assistant-retry"><ha-icon icon="mdi:reload"></ha-icon> Erneut senden</button></div>` : ""}
+      ${showRetryNotice ? `<div class="notice warning assistant-retry-notice"><ha-icon icon="mdi:reload-alert"></ha-icon><div><strong>Die letzte Nachricht wurde nicht beantwortet</strong><span>Der Text bleibt erhalten. Roadplanner kann ihn mit aktuellem Reisekontext erneut senden.</span></div><button class="secondary-button compact-button" type="button" data-action="assistant-retry"><ha-icon icon="mdi:reload"></ha-icon> Erneut senden</button></div>` : ""}
 
       <section class="assistant-layout">
         <div class="assistant-chat panel-card newest-first">
@@ -3029,7 +3157,7 @@ class RoadplannerPanel extends HTMLElement {
           ${basketEnabled
             ? (basket.length ? `<div class="basket-list">${basket.map((item) => this._renderDraftItem(item)).join("")}</div>` : `<div class="basket-empty"><ha-icon icon="mdi:playlist-edit"></ha-icon><strong>Noch keine Änderung</strong><span>Fragen und Vorschläge bleiben unverbindlich. Klare Entscheidungen oder Planungsaufträge erscheinen hier.</span></div>`)
             : `<div class="basket-empty"><ha-icon icon="mdi:message-processing-outline"></ha-icon><strong>Keine Vormerkungen</strong><span>In diesem Modus beantwortet der Assistent Fragen${assistant.autonomy_level === "suggestions" ? " und macht Vorschläge" : ""}, sammelt aber keine Änderungen. Das kannst du in den Integrationsoptionen umstellen.</span></div>`}
-          <button class="primary-button full-width" type="button" data-action="assistant-prepare" ${basketEnabled && basket.length && this._data.selected_is_active ? "" : "disabled"}><ha-icon icon="mdi:clipboard-text-search-outline"></ha-icon> Änderungen prüfen</button>
+          <button class="primary-button full-width" type="button" data-action="assistant-prepare" aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}" ${basketEnabled && basket.length && this._data.selected_is_active && !this._assistantPrepareInFlight ? "" : "disabled"}><ha-icon icon="${this._assistantPrepareInFlight ? "mdi:loading mdi-spin" : "mdi:clipboard-text-search-outline"}"></ha-icon> ${this._assistantPrepareInFlight ? "Entwurf wird erstellt …" : "Änderungen prüfen"}</button>
           <p class="basket-footnote">Der Button erzeugt nur einen prüfbaren Entwurf. Das Reisegespräch läuft danach weiter; übernommen wird weiterhin separat in der Änderungsübersicht.</p>
         </aside>
       </section>
@@ -3230,7 +3358,7 @@ class RoadplannerPanel extends HTMLElement {
     return `
       ${this._renderReadOnlyNotice()}
       <section class="panel-card decision-intro">
-        <div><span class="eyebrow">Gemeinsam entscheiden</span><h2>Entscheidungs-Slides</h2><p>Speichere zwei oder drei Assistentenvorschläge als bildbasierte Vorlage, wische gemeinsam durch die Optionen und übernimm erst eure Auswahl in den Änderungskorb.</p></div>
+        <div><span class="eyebrow">Gemeinsam entscheiden</span><h2>Entscheidungs-Slides</h2><p>Vergleiche den aktuellen Plan mit bis zu drei Alternativen, wische gemeinsam durch die Optionen und übernimm nur eine echte Planänderung in den Änderungskorb.</p></div>
       </section>
       ${decisions.length ? `<div class="decision-list">${decisions.map((decision) => this._renderDecisionCard(decision)).join("")}</div>` : `<div class="empty-state"><ha-icon icon="mdi:cards-playing-outline"></ha-icon><h2>Noch keine Entscheidungsvorlage</h2><p>Öffne eine Assistentenantwort mit mehreren konkreten Optionen und tippe dort auf „Als Entscheidungsvorlage“.</p></div>`}
     `;
@@ -3254,6 +3382,7 @@ class RoadplannerPanel extends HTMLElement {
     const route = option.route_metrics || {};
     const selected = decision.selected_option_id === option.id;
     const transferred = decision.status === "transferred";
+    const currentPlan = Boolean(option.is_current_plan || option.change_type === "keep_existing");
     const cost = option.estimated_cost || {};
     const costText = Number.isFinite(Number(cost.amount))
       ? `${Number(cost.amount).toLocaleString("de-DE", { maximumFractionDigits: 2 })} ${escapeHtml(cost.currency || "EUR")}`
@@ -3263,7 +3392,7 @@ class RoadplannerPanel extends HTMLElement {
       <div class="decision-slide">
         <div class="decision-image ${imageUrl ? "" : "empty"}">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(option.image?.alt || option.title)}" loading="lazy">${option.image?.attribution ? `<small>${escapeHtml(option.image.attribution)}</small>` : ""}` : `<ha-icon icon="mdi:image-area"></ha-icon><span>Kein sicher zugeordnetes Bild gefunden</span>`}</div>
         <div class="decision-copy">
-          <div class="decision-title-row"><div><span class="eyebrow">Option ${index + 1}</span><h3>${escapeHtml(option.title)}</h3></div>${selected ? `<span class="status-badge status-success">Ausgewählt</span>` : ""}</div>
+          <div class="decision-title-row"><div><span class="eyebrow">${currentPlan ? "Aktuell geplant" : `Option ${index + 1}`}</span><h3>${escapeHtml(option.title)}</h3></div><div class="decision-title-badges">${currentPlan ? `<span class="status-badge neutral">Bestehender Plan</span>` : ""}${selected ? `<span class="status-badge status-success">Ausgewählt</span>` : ""}</div></div>
           <p>${escapeHtml(option.summary || "")}</p>
           <div class="decision-metrics">
             ${Number.isFinite(Number(route.distance_km)) ? `<span><ha-icon icon="mdi:map-marker-distance"></ha-icon>${Number(route.distance_km).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km</span>` : ""}
@@ -3273,8 +3402,9 @@ class RoadplannerPanel extends HTMLElement {
           <div class="decision-procon"><div><strong>Vorteile</strong><ul>${(option.pros || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>Keine verifizierten Vorteile hinterlegt</li>"}</ul></div><div><strong>Nachteile</strong><ul>${(option.cons || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>Keine verifizierten Nachteile hinterlegt</li>"}</ul></div></div>
           <div class="button-row decision-actions">
             ${this._externalLink(this._googleMapsQueryUrl(mapsQuery), "Karte", "mdi:google-maps", "secondary-button")}
-            <button class="${selected ? "secondary-button" : "primary-button"}" type="button" data-action="decision-select" data-decision-id="${escapeHtml(decision.id)}" data-option-id="${escapeHtml(option.id)}" ${transferred ? "disabled" : ""}><ha-icon icon="mdi:check-circle-outline"></ha-icon>${selected ? "Ausgewählt" : "Diese Option auswählen"}</button>
-            ${selected && !transferred ? `<button class="primary-button" type="button" data-action="decision-transfer" data-decision-id="${escapeHtml(decision.id)}"><ha-icon icon="mdi:playlist-plus"></ha-icon>In Änderungskorb</button>` : ""}
+            <button class="${selected ? "secondary-button" : "primary-button"}" type="button" data-action="decision-select" data-decision-id="${escapeHtml(decision.id)}" data-option-id="${escapeHtml(option.id)}" ${transferred ? "disabled" : ""}><ha-icon icon="mdi:check-circle-outline"></ha-icon>${selected ? "Ausgewählt" : (currentPlan ? "Bei diesem Plan bleiben" : "Diese Option auswählen")}</button>
+            ${selected && currentPlan ? `<span class="status-badge status-success">Keine Änderung nötig</span>` : ""}
+            ${selected && !currentPlan && !transferred ? `<button class="primary-button" type="button" data-action="decision-transfer" data-decision-id="${escapeHtml(decision.id)}"><ha-icon icon="mdi:playlist-plus"></ha-icon>In Änderungskorb</button>` : ""}
             ${transferred ? `<span class="status-badge status-success">Im Änderungskorb</span>` : ""}
           </div>
         </div>
@@ -4971,6 +5101,7 @@ class RoadplannerPanel extends HTMLElement {
       .decision-image.empty ha-icon { --mdc-icon-size: 56px; }
       .decision-copy { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
       .decision-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .decision-title-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
       .decision-title-row h3 { font-size: 25px; margin: 3px 0 0; }
       .decision-copy > p { margin: 0; line-height: 1.55; }
       .decision-metrics { display: flex; flex-wrap: wrap; gap: 8px; }
