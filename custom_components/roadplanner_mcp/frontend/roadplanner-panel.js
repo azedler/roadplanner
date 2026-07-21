@@ -191,6 +191,9 @@ class RoadplannerPanel extends HTMLElement {
     this._assistantDiagnostics = null;
     this._assistantAutoBriefingRequested = new Set();
     this._assistantSubmitInFlight = false;
+    this._assistantPending = null;
+    this._decisionCreateInFlightMessageId = "";
+    this._actionErrorRetry = null;
     this._archiveUploadContext = null;
     this._offlineDocumentIds = new Set();
     this._archiveDbPromise = null;
@@ -419,8 +422,14 @@ class RoadplannerPanel extends HTMLElement {
     if (progress) progress.toggleAttribute("hidden", !this._busy);
   }
 
-  async _runAction(action, data = {}, successMessage = "Änderung gespeichert") {
+  async _runAction(action, data = {}, successMessage = "Änderung gespeichert", options = {}) {
     if (this._busy) return null;
+    const {
+      refresh = true,
+      errorMode = "toast",
+      errorTitle = "Roadplanner-Aktion fehlgeschlagen",
+      retry = null,
+    } = options || {};
     const tripScopedActions = new Set([
       "update_trip",
       "add_day",
@@ -443,11 +452,19 @@ class RoadplannerPanel extends HTMLElement {
     try {
       const result = await this._send({ type: WS_ACTION, action, data: payload });
       if (successMessage) this._showToast(successMessage, "success");
-      await this._loadData({ silent: true, force: true });
+      if (refresh) await this._loadData({ silent: true, force: true });
       return result;
     } catch (error) {
       const message = this._errorMessage(error);
-      this._showToast(message, "error", 6500);
+      if (errorMode === "dialog") {
+        this._showActionError(message, {
+          title: errorTitle,
+          action,
+          retry,
+        });
+      } else {
+        this._showToast(message, "error", 6500);
+      }
       if (String(error?.code || "").includes("revision")) {
         await this._loadData({ silent: true, force: true });
       }
@@ -512,6 +529,50 @@ class RoadplannerPanel extends HTMLElement {
     return error?.message || error?.error?.message || "Unbekannter Roadplanner-Fehler";
   }
 
+  _requestIdFromMessage(message) {
+    const match = String(message || "").match(/\(Anfrage\s+([^)]+)\)/i);
+    return match ? cleanText(match[1]) : "";
+  }
+
+  _showActionError(message, { title = "Roadplanner-Aktion fehlgeschlagen", action = "", retry = null } = {}) {
+    const text = cleanText(message) || "Unbekannter Roadplanner-Fehler";
+    this._actionErrorRetry = typeof retry === "function" ? retry : null;
+    this._dialog = {
+      type: "action-error",
+      title: cleanText(title) || "Roadplanner-Aktion fehlgeschlagen",
+      message: text,
+      requestId: this._requestIdFromMessage(text),
+      action: cleanText(action),
+    };
+    this._render({ preserveScroll: true });
+  }
+
+  async _copyActionError() {
+    const dialog = this._dialog?.type === "action-error" ? this._dialog : null;
+    if (!dialog) return;
+    const text = [
+      dialog.title,
+      dialog.message,
+      dialog.requestId ? `Anfrage: ${dialog.requestId}` : "",
+      dialog.action ? `Aktion: ${dialog.action}` : "",
+    ].filter(Boolean).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      this._showToast("Fehlerdetails kopiert", "success", 3000);
+    } catch (_error) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand?.("copy");
+      textarea.remove();
+      this._showToast("Fehlerdetails kopiert", "success", 3000);
+    }
+  }
+
   _showToast(message, type = "success", duration = 3500) {
     this._toast = { message, type };
     if (this._toastTimer) window.clearTimeout(this._toastTimer);
@@ -529,6 +590,7 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _closeDialog({ flushRefresh = true } = {}) {
+    if (this._dialog?.type === "action-error") this._actionErrorRetry = null;
     this._dialog = null;
     this._render({ preserveScroll: true });
     if (flushRefresh && this._refreshQueued && !this._busy) {
@@ -681,6 +743,108 @@ class RoadplannerPanel extends HTMLElement {
       return "";
     }
     return "";
+  }
+
+  _assistantLinkDetails(value) {
+    const safe = this._safeUrl(value);
+    if (!safe) return null;
+    try {
+      const parsed = new URL(safe, window.location.origin);
+      const hostname = parsed.hostname.toLowerCase();
+      const googleMaps = hostname === "maps.google.com"
+        || hostname === "maps.app.goo.gl"
+        || (hostname === "goo.gl" && parsed.pathname.startsWith("/maps"))
+        || (hostname.endsWith(".google.com") && parsed.pathname.startsWith("/maps"));
+      return {
+        url: safe,
+        icon: googleMaps ? "mdi:google-maps" : "mdi:open-in-new",
+        className: googleMaps ? "google-maps" : "external",
+        googleMaps,
+      };
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  _assistantLinkLabel(url, fallback = "") {
+    const details = this._assistantLinkDetails(url);
+    if (!details) return cleanText(fallback);
+    if (details.googleMaps) return cleanText(fallback) || "Google Maps öffnen";
+    if (cleanText(fallback)) return cleanText(fallback);
+    try {
+      const parsed = new URL(details.url, window.location.origin);
+      const hostname = parsed.hostname.replace(/^www\./i, "");
+      let path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+      try {
+        path = decodeURI(path);
+      } catch (_error) {
+        // Keep the encoded path when it cannot be decoded safely.
+      }
+      const display = `${hostname}${path}` || details.url;
+      return display.length > 84 ? `${display.slice(0, 81)}…` : display;
+    } catch (_error) {
+      return details.url;
+    }
+  }
+
+  _trimAssistantUrlCandidate(value) {
+    let url = String(value || "");
+    let suffix = "";
+    while (url && /[.,;:!?]$/.test(url)) {
+      suffix = url.slice(-1) + suffix;
+      url = url.slice(0, -1);
+    }
+    for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
+      const count = (input, character) => [...input].filter((item) => item === character).length;
+      while (url.endsWith(close) && count(url, close) > count(url, open)) {
+        suffix = close + suffix;
+        url = url.slice(0, -1);
+      }
+    }
+    return { url, suffix };
+  }
+
+  _renderAssistantLink(url, label = "") {
+    const details = this._assistantLinkDetails(url);
+    if (!details) return "";
+    const display = this._assistantLinkLabel(details.url, label);
+    return `<a class="assistant-inline-link ${details.className}" href="${escapeHtml(details.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(details.url)}"><ha-icon icon="${details.icon}"></ha-icon><span>${escapeHtml(display)}</span></a>`;
+  }
+
+  _linkifyAssistantPlainText(value) {
+    const text = String(value ?? "");
+    const pattern = /https?:\/\/[^\s<>"']+/gi;
+    let cursor = 0;
+    let output = "";
+    for (const match of text.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      output += escapeHtml(text.slice(cursor, index));
+      const candidate = this._trimAssistantUrlCandidate(match[0]);
+      const link = this._renderAssistantLink(candidate.url);
+      output += link || escapeHtml(candidate.url);
+      output += escapeHtml(candidate.suffix);
+      cursor = index + match[0].length;
+    }
+    output += escapeHtml(text.slice(cursor));
+    return output;
+  }
+
+  _renderAssistantContent(value) {
+    const text = String(value ?? "");
+    const markdownLink = /\[([^\]\n]{1,240})\]\((https?:\/\/[^\s<]+)\)/gi;
+    let cursor = 0;
+    let output = "";
+    for (const match of text.matchAll(markdownLink)) {
+      const index = match.index ?? 0;
+      output += this._linkifyAssistantPlainText(text.slice(cursor, index));
+      const candidate = this._trimAssistantUrlCandidate(match[2]);
+      const link = this._renderAssistantLink(candidate.url, match[1]);
+      output += link || this._linkifyAssistantPlainText(match[0]);
+      output += escapeHtml(candidate.suffix);
+      cursor = index + match[0].length;
+    }
+    output += this._linkifyAssistantPlainText(text.slice(cursor));
+    return output;
   }
 
   _mediaFrom(entity) {
@@ -1396,16 +1560,13 @@ class RoadplannerPanel extends HTMLElement {
       event.preventDefault();
       void this._submitAssistantComposer(target.closest("form"));
     } else if (action === "decision-from-message") {
-      void (async () => {
-        const result = await this._runAction("decision_create_from_message", {
-          trip_id: this._selectedTripId,
-          message_id: target.dataset.messageId,
-        }, "Entscheidungsvorlage erstellt");
-        if (result) {
-          this._activeTab = "decisions";
-          this._render();
-        }
-      })();
+      void this._createDecisionFromMessage(target.dataset.messageId);
+    } else if (action === "copy-action-error") {
+      void this._copyActionError();
+    } else if (action === "retry-action-error") {
+      const retry = this._actionErrorRetry;
+      this._closeDialog({ flushRefresh: false });
+      if (retry) void retry();
     } else if (["decision-prev", "decision-next", "decision-go"].includes(action)) {
       const decision = (this._experienceData().decisions || []).find((item) => item.id === target.dataset.decisionId);
       const options = decision?.options || [];
@@ -1895,6 +2056,36 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
+  async _createDecisionFromMessage(messageId) {
+    const id = cleanText(messageId);
+    if (!id || this._decisionCreateInFlightMessageId) return null;
+    this._decisionCreateInFlightMessageId = id;
+    this._render({ preserveScroll: true });
+    const retry = () => this._createDecisionFromMessage(id);
+    try {
+      const result = await this._runAction("decision_create_from_message", {
+        trip_id: this._selectedTripId,
+        message_id: id,
+      }, "Entscheidungsvorlage erstellt", {
+        refresh: false,
+        errorMode: "dialog",
+        errorTitle: "Entscheidungsvorlage konnte nicht erstellt werden",
+        retry,
+      });
+      if (!result) return null;
+      if (result.experience && this._data) {
+        this._data = { ...this._data, experience: result.experience };
+        this._signature = "";
+      }
+      this._activeTab = "decisions";
+      this._render({ preserveScroll: false });
+      return result;
+    } finally {
+      this._decisionCreateInFlightMessageId = "";
+      if (this._activeTab === "assistant") this._render({ preserveScroll: true });
+    }
+  }
+
   _setAssistantSubmitState(sending) {
     this._assistantSubmitInFlight = Boolean(sending);
     const form = this.shadowRoot.querySelector("form[data-form='assistant-chat']");
@@ -1957,11 +2148,24 @@ class RoadplannerPanel extends HTMLElement {
     const message = cleanText(text);
     if (!message || !this._selectedTripId) return false;
     const clientRequestId = cleanText(requestId) || newClientRequestId();
+    this._assistantPending = {
+      id: clientRequestId,
+      text: message,
+      created_at: new Date().toISOString(),
+    };
+    this._render({ preserveScroll: true });
+    const retry = () => this._sendAssistantMessage(message, { requestId: clientRequestId });
     const result = await this._runAction("assistant_chat", {
       trip_id: this._selectedTripId,
       text: message,
       client_request_id: clientRequestId,
-    }, "");
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "Assistent konnte nicht antworten",
+      retry,
+    });
+    this._assistantPending = null;
     if (!result) {
       this._assistantLastFailedText = message;
       this._assistantLastFailedRequestId = clientRequestId;
@@ -1994,7 +2198,7 @@ class RoadplannerPanel extends HTMLElement {
   async _testAssistantConnection() {
     const result = await this._runAction("assistant_test", {
       trip_id: this._selectedTripId,
-    }, "Gemini-Verbindung geprüft");
+    }, "Gemini-Verbindung geprüft", { refresh: false, errorMode: "dialog", errorTitle: "Gemini-Verbindungstest fehlgeschlagen" });
     if (result) {
       this._showToast(result.ok ? "Gemini antwortet zuverlässig" : "Unerwartete Testantwort", result.ok ? "success" : "error", 5000);
     }
@@ -2004,7 +2208,16 @@ class RoadplannerPanel extends HTMLElement {
     if (!this._selectedTripId) return null;
     const result = await this._runAction("assistant_briefing", {
       trip_id: this._selectedTripId,
-    }, automatic ? "Tagesbriefing geladen" : "Copilot-Briefing geladen");
+    }, automatic ? "Tagesbriefing geladen" : "Copilot-Briefing geladen", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "Tagesbriefing konnte nicht erstellt werden",
+    });
+    if (result?.assistant && this._data) {
+      this._data = { ...this._data, assistant: result.assistant };
+      this._signature = "";
+      this._render({ preserveScroll: true });
+    }
     return result;
   }
 
@@ -2023,7 +2236,7 @@ class RoadplannerPanel extends HTMLElement {
   async _loadAssistantDiagnostics() {
     const result = await this._runAction("assistant_diagnostics", {
       trip_id: this._selectedTripId,
-    }, "Assistenten-Diagnose geladen");
+    }, "Assistenten-Diagnose geladen", { refresh: false, errorMode: "dialog", errorTitle: "Assistenten-Diagnose konnte nicht geladen werden" });
     if (!result) return;
     this._assistantDiagnostics = result;
     this._dialog = { type: "assistant-diagnostics", diagnostics: result };
@@ -2803,7 +3016,8 @@ class RoadplannerPanel extends HTMLElement {
         <div class="assistant-chat panel-card newest-first">
           ${composer}
           <div class="assistant-thread" aria-live="polite" aria-label="Reisegespräch, neueste Nachrichten zuerst">
-            ${orderedMessages.length ? orderedMessages.map((message) => this._renderAssistantMessage(message)).join("") : this._renderAssistantWelcome()}
+            ${this._assistantPending ? this._renderAssistantPending(this._assistantPending) : ""}
+            ${orderedMessages.length ? orderedMessages.map((message) => this._renderAssistantMessage(message)).join("") : (this._assistantPending ? "" : this._renderAssistantWelcome())}
           </div>
         </div>
 
@@ -2852,6 +3066,19 @@ class RoadplannerPanel extends HTMLElement {
     </div>`;
   }
 
+  _renderAssistantPending(pending) {
+    return `<div class="assistant-pending-group">
+      <article class="assistant-message user pending">
+        <div class="message-avatar"><ha-icon icon="mdi:account-outline"></ha-icon></div>
+        <div class="message-body"><div class="message-meta"><strong>Du</strong><span>Wird gesendet</span></div><div class="message-text">${escapeHtml(pending.text || "")}</div></div>
+      </article>
+      <article class="assistant-message assistant pending thinking" aria-busy="true">
+        <div class="message-avatar"><ha-icon icon="mdi:robot-outline"></ha-icon></div>
+        <div class="message-body"><div class="message-meta"><strong>Roadplanner</strong><span>arbeitet</span></div><div class="assistant-thinking"><span></span><span></span><span></span><strong>Roadplanner denkt und lädt den aktuellen Reisekontext …</strong></div></div>
+      </article>
+    </div>`;
+  }
+
   _renderAssistantMessage(message) {
     const assistant = message.role === "assistant";
     const sources = (message.sources || [])
@@ -2868,10 +3095,10 @@ class RoadplannerPanel extends HTMLElement {
       <div class="message-avatar"><ha-icon icon="${assistant ? "mdi:robot-outline" : "mdi:account-outline"}"></ha-icon></div>
       <div class="message-body">
         <div class="message-meta"><strong>${assistant ? "Roadplanner" : "Du"}</strong><span>${escapeHtml(this._formatTimestamp(message.created_at))}</span></div>
-        <div class="message-text">${escapeHtml(message.content || "")}</div>
+        <div class="message-text">${this._renderAssistantContent(message.content || "")}</div>
         ${basketMeta}
         ${sources.length ? `<div class="message-sources"><span>Quellen</span>${sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>${escapeHtml(source.title)}</a>`).join("")}</div>` : ""}
-        ${assistant && !status && message.id ? `<div class="message-actions"><button class="text-button" type="button" data-action="decision-from-message" data-message-id="${escapeHtml(message.id)}"><ha-icon icon="mdi:cards-playing-outline"></ha-icon>Als Entscheidungsvorlage</button></div>` : ""}
+        ${assistant && !status && message.id ? `<div class="message-actions"><button class="text-button" type="button" data-action="decision-from-message" data-message-id="${escapeHtml(message.id)}" ${this._decisionCreateInFlightMessageId ? "disabled" : ""}><ha-icon icon="${this._decisionCreateInFlightMessageId === message.id ? "mdi:loading mdi-spin" : "mdi:cards-playing-outline"}"></ha-icon>${this._decisionCreateInFlightMessageId === message.id ? "Vorlage wird erstellt …" : "Als Entscheidungsvorlage"}</button></div>` : ""}
       </div>
     </article>`;
   }
@@ -3689,6 +3916,7 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "image-search") body = this._renderImageSearch(this._dialog);
     else if (this._dialog.type === "assistant-draft") body = this._renderAssistantDraftDialog(this._dialog);
     else if (this._dialog.type === "assistant-diagnostics") body = this._renderAssistantDiagnostics(this._dialog);
+    else if (this._dialog.type === "action-error") body = this._renderActionErrorDialog(this._dialog);
     else if (this._dialog.type === "archive-document-review") body = this._renderArchiveDocumentReview(this._dialog);
     else if (this._dialog.type === "archive-document-edit") body = this._renderArchiveDocumentEdit(this._dialog);
     else if (this._dialog.type === "archive-expense") body = this._renderArchiveExpenseDialog(this._dialog);
@@ -3701,6 +3929,22 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "media-edit") body = this._renderMediaEdit(this._dialog);
     else if (this._dialog.type === "media-gallery") body = this._renderMediaGallery(this._dialog);
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
+  }
+
+  _renderActionErrorDialog(dialog) {
+    const requestLine = dialog.requestId
+      ? `<div class="action-error-request"><span>Anfrage</span><code>${escapeHtml(dialog.requestId)}</code></div>`
+      : "";
+    return `${this._renderModalHeader(dialog.title || "Roadplanner-Aktion fehlgeschlagen", "Die Meldung bleibt geöffnet, bis du sie schließt.")}
+      <div class="action-error-body">
+        <div class="action-error-icon"><ha-icon icon="mdi:alert-circle-outline"></ha-icon></div>
+        <div><p>${escapeHtml(dialog.message || "Unbekannter Roadplanner-Fehler")}</p>${requestLine}</div>
+      </div>
+      <div class="modal-actions action-error-actions">
+        <button class="secondary-button" type="button" data-action="copy-action-error"><ha-icon icon="mdi:content-copy"></ha-icon>Details kopieren</button>
+        ${this._actionErrorRetry ? `<button class="secondary-button" type="button" data-action="retry-action-error"><ha-icon icon="mdi:reload"></ha-icon>Erneut versuchen</button>` : ""}
+        <button class="primary-button" type="button" data-action="close-dialog">Schließen</button>
+      </div>`;
   }
 
   _renderModalHeader(title, subtitle = "") {
@@ -4457,7 +4701,7 @@ class RoadplannerPanel extends HTMLElement {
       .progress { position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 20; overflow: hidden; background: color-mix(in srgb, var(--primary-color) 20%, transparent); }
       .progress::after { content: ""; display: block; width: 35%; height: 100%; background: var(--primary-color); animation: progress 1s ease-in-out infinite; }
       @keyframes progress { from { transform: translateX(-120%); } to { transform: translateX(390%); } }
-      .toast-host { position: absolute; right: 22px; bottom: max(22px, env(safe-area-inset-bottom)); z-index: 30; pointer-events: none; }
+      .toast-host { position: fixed; right: 22px; top: max(18px, env(safe-area-inset-top)); z-index: 1000; pointer-events: none; }
       .toast { max-width: min(420px, calc(100vw - 32px)); padding: 13px 16px; border-radius: 15px; color: white; display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.22); pointer-events: auto; }
       .toast.success { background: var(--success-color, #2e7d32); }
       .toast.error { background: var(--error-color, #d32f2f); }
@@ -4466,6 +4710,14 @@ class RoadplannerPanel extends HTMLElement {
       .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 22px 12px; position: sticky; top: 0; background: var(--card-background-color); z-index: 2; }
       .modal-header h2 { margin: 0; }
       .modal-header p { margin: 5px 0 0; color: var(--secondary-text-color); }
+      .action-error-body { padding: 18px 22px 8px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+      .action-error-icon { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; color: white; background: var(--error-color, #d32f2f); }
+      .action-error-icon ha-icon { --mdc-icon-size: 29px; }
+      .action-error-body p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+      .action-error-request { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--secondary-text-color); }
+      .action-error-request code { user-select: all; max-width: 100%; overflow-wrap: anywhere; padding: 5px 8px; border-radius: 8px; background: var(--secondary-background-color); color: var(--primary-text-color); }
+      .action-error-actions { flex-wrap: wrap; }
+      .action-error-actions .primary-button { margin-left: auto; }
       .form-grid { padding: 10px 22px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
       .form-field { display: flex; flex-direction: column; gap: 6px; color: var(--secondary-text-color); font-size: 12px; }
       .form-field.full, .form-section.full, .modal-actions.full { grid-column: 1 / -1; }
@@ -4536,6 +4788,21 @@ class RoadplannerPanel extends HTMLElement {
       .message-meta { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 7px; font-size: 11px; }
       .message-meta span { color: var(--secondary-text-color); }
       .message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+      .message-text .assistant-inline-link { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; color: var(--primary-color); font-weight: 700; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; vertical-align: baseline; overflow-wrap: anywhere; word-break: break-word; }
+      .message-text .assistant-inline-link ha-icon { --mdc-icon-size: 15px; flex: 0 0 auto; }
+      .message-text .assistant-inline-link span { min-width: 0; overflow-wrap: anywhere; }
+      .message-text .assistant-inline-link.google-maps { padding: 2px 6px; border-radius: 8px; background: color-mix(in srgb, var(--primary-color) 10%, transparent); text-decoration: none; }
+      .message-text .assistant-inline-link:hover { filter: brightness(1.08); }
+      .message-text .assistant-inline-link:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; border-radius: 6px; }
+      .assistant-pending-group { display: grid; gap: 10px; }
+      .assistant-message.pending { opacity: .92; }
+      .assistant-message.pending.thinking .message-body { border-style: dashed; }
+      .assistant-thinking { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--secondary-text-color); }
+      .assistant-thinking > span { width: 7px; height: 7px; border-radius: 999px; background: var(--primary-color); animation: roadplanner-thinking 1.15s infinite ease-in-out; }
+      .assistant-thinking > span:nth-child(2) { animation-delay: .16s; }
+      .assistant-thinking > span:nth-child(3) { animation-delay: .32s; }
+      .assistant-thinking strong { margin-left: 3px; font-size: 12px; font-weight: 700; }
+      @keyframes roadplanner-thinking { 0%, 80%, 100% { opacity: .28; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
       .message-basket-status { margin-top: 11px; padding: 9px 10px; border-radius: 11px; display: flex; align-items: flex-start; gap: 7px; font-size: 11px; line-height: 1.4; border: 1px solid var(--divider-color); background: var(--card-background-color); }
       .message-basket-status ha-icon { --mdc-icon-size: 17px; flex: 0 0 auto; }
       .message-basket-status.success { color: var(--success-color, #2e7d32); border-color: color-mix(in srgb, var(--success-color, #2e7d32) 35%, var(--divider-color)); }
@@ -4922,7 +5189,7 @@ class RoadplannerPanel extends HTMLElement {
         .modal { width: 100%; max-height: 92%; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom); }
         .modal-header { padding: 18px 16px 10px; }
         .modal-actions { padding-left: 16px; padding-right: 16px; }
-        .toast-host { left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); }
+        .toast-host { left: 10px; right: 10px; top: max(10px, env(safe-area-inset-top)); }
         .toast { max-width: 100%; }
         .view-notice { align-items: flex-start; flex-wrap: wrap; }
         .compact-button { margin-left: 0; width: 100%; }

@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased] — Roadplanner 3.0
 
+### Changed
+
+- Added the Roadplanner repository governance and development handbook.
+- Added a single documented specification/patch/validation/merge workflow.
+- Added Definition of Done, test strategy, repository structure, commit conventions, release checklist, and publication checklist.
+- Strengthened repository validation and release packaging contracts.
+- Added a standard pull-request template.
+- Licensed Roadplanner under Apache-2.0.
+- Added the AI-to-Git patch workflow for iPad and Codespaces.
+- Removed the requirement for a repository-specific devcontainer during the initial 3.0 phase.
+
 ### Planned
 
 - GitHub and HACS delivery foundation.
@@ -29,3 +40,22 @@ The project follows Semantic Versioning for public releases.
 - Mobile layout and numerous assistant-normalization fixes.
 
 This entry records the first Git-managed baseline. Detailed historical notes are preserved in `docs/legacy/2.6.5/`.
+
+## [2.7.1] - 2026-07-21
+
+### Added
+
+- Assistant responses can contain safely clickable HTTPS and Google Maps links.
+- Persistent, mobile-friendly error dialogs with retry and copy-details actions.
+- Visible assistant loading state while requests are processed.
+
+### Changed
+
+- Assistant responses are rendered directly without a blocking full panel reload.
+- Decision option enrichment runs concurrently with bounded timeouts.
+- Missing images, routes, or geocoding results no longer invalidate an entire decision draft.
+- Gemini timeout handling reserves time for a configured fallback model.
+
+### Fixed
+
+- Assistant and decision errors are no longer hidden or clipped at the bottom of mobile screens.

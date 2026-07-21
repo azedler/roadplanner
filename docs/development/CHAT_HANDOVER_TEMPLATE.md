@@ -1,25 +1,58 @@
 # Roadplanner development chat handover
 
-## Repository
+## Repository state
 
-## Current version and branch
+- Repository URL:
+- Current branch:
+- Current commit:
+- `main` commit:
+- Working tree clean: yes / no
 
-## Installed Home Assistant version
+## Runtime state
+
+- Repository integration version:
+- Installed Home Assistant Roadplanner version:
+- Home Assistant version:
+- Test environment/device:
 
 ## Architecture contracts
+
+- Relevant ADRs:
+- Canonical data owner:
+- Migration/rollback constraints:
+- Decisions that must not be revisited casually:
 
 ## Completed work
 
 ## Current task
 
+- Task ID:
+- Objective:
+- Scope:
+- Acceptance criteria:
+
 ## Known issues
 
 ## Unreleased changes
 
-## Validation performed
+## Validation actually performed
 
-## Files/artifacts
+- Repository validation:
+- Regression tests:
+- Home Assistant runtime tests:
+- Mobile/iPad tests:
+- Provider/live tests:
+- Not tested:
+
+## Files and artifacts
+
+- Specification:
+- Patch/commit:
+- Screenshots/logs:
+- Release or migration notes:
 
 ## Next executable steps
 
-## Decisions that must not be revisited casually
+1.
+2.
+3.

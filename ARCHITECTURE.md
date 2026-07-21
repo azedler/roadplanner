@@ -22,6 +22,11 @@ Home Assistant integration API
 Canonical Roadbook + private sidecars
 ```
 
+
+## Architecture governance
+
+Accepted decisions are recorded in [`docs/architecture/adr/`](docs/architecture/adr/README.md). A code change that contradicts an accepted ADR requires a new ADR that explicitly supersedes it. Detailed implementation boundaries live under [`docs/architecture/`](docs/architecture/); this root document remains the product-level overview.
+
 ## 2. Canonical data model
 
 The canonical hierarchy is:

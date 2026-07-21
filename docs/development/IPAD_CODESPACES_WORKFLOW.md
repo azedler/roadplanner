@@ -1,48 +1,52 @@
 # iPad-only GitHub and Codespaces workflow
 
-No PC is required for the normal Roadplanner development and deployment workflow.
+No PC is required for the normal Roadplanner development and HACS deployment workflow.
 
-## One-time bootstrap of the empty repository
+## Choose the lightest environment
 
-1. In the empty GitHub repository, choose **uploading an existing file**.
-2. Upload the provided Roadplanner bootstrap ZIP and commit it to `main`.
-3. Open **Code → Codespaces → Create codespace on main**.
-4. In the Codespaces terminal run:
+- GitHub web UI: repository settings, pull requests, releases, and small file edits.
+- `github.dev`: small Markdown or configuration edits.
+- GitHub Codespaces: patch application, Python validation, larger edits, and release preparation.
+
+Roadplanner intentionally uses the default Codespaces environment. A repository-specific `.devcontainer` must not be added without a tested need and an explicit task.
+
+## Start a work session
+
+Open a Codespace on `develop`, then run:
 
 ```bash
-unzip Roadplanner_GitHub_Bootstrap_2.6.5_to_3.0.zip -d /tmp/roadplanner-bootstrap
-cp -a /tmp/roadplanner-bootstrap/. .
-rm Roadplanner_GitHub_Bootstrap_2.6.5_to_3.0.zip
-python tools/validate_repository.py
-git add .
-git commit -m "chore: import Roadplanner 2.6.5 baseline and 3.0 foundation"
-git push
+git switch develop
+git pull --rebase origin develop
+git status --short
 ```
 
-5. Stop the Codespace when finished.
+A clean working tree is required before applying a patch.
 
-## Normal editing
+## Apply changes
 
-For small Markdown or configuration changes, use the free `github.dev` browser editor:
+Follow [PATCH_WORKFLOW.md](PATCH_WORKFLOW.md). Prefer uploading a temporary patch directly to Codespaces rather than committing it through the GitHub repository.
 
-- open the repository,
-- replace `github.com` with `github.dev`, or press `.` with a keyboard,
-- edit and commit.
+## Finish a work session
 
-For code changes, tests, ZIP extraction or release building, use a Codespace.
+```bash
+python tools/validate_repository.py
+git status
+git push origin develop
+```
 
-## Branches
+Stop the Codespace when finished to avoid unnecessary usage. Unsaved or uncommitted changes can be lost when a Codespace is deleted.
 
-- `main`: tested and releasable.
-- `develop`: active Roadplanner 3.x development.
-- optional short feature branches only for larger changes.
+## Git push rejection
 
-Create `develop` after the baseline is imported.
+If Git reports `fetch first`, integrate remote work safely:
+
+```bash
+git pull --rebase origin develop
+git push origin develop
+```
+
+Do not force-push `develop`.
 
 ## HACS deployment
 
-HACS requires the GitHub repository to be public. Keep the repository private while importing and auditing it. After selecting a license and verifying that no personal data or secrets are present:
-
-1. switch the repository to public,
-2. create a GitHub release,
-3. add the repository URL to HACS as a custom repository of type **Integration**.
+HACS uses public `main` and stable releases. `develop` is never the production source. Follow [HACS_SETUP.md](HACS_SETUP.md) and [RELEASE_PROCESS.md](RELEASE_PROCESS.md).

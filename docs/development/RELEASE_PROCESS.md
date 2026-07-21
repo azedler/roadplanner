@@ -4,9 +4,9 @@
 
 Roadplanner uses Semantic Versioning:
 
-- major: architectural or user-visible breaking change with migration,
+- major: user-visible or architectural breaking change with migration,
 - minor: backward-compatible feature release,
-- patch: backward-compatible bug fix.
+- patch: backward-compatible defect correction.
 
 The version must match in:
 
@@ -16,23 +16,39 @@ custom_components/roadplanner_mcp/const.py
 CHANGELOG.md
 ```
 
-## Pre-release checklist
+## Branch contract
 
-1. Review the task and acceptance criteria.
-2. Confirm migration/rollback behavior.
-3. Run:
+- `develop` is the active integration branch.
+- `main` is always releasable and is the source for HACS and GitHub releases.
+- A release is tagged only from `main`.
+
+## Preparation
+
+1. Complete the relevant task and Definition of Done.
+2. Update version and changelog.
+3. Document migration, rollback, privacy, provider, and mobile impact.
+4. Run the [release checklist](RELEASE_CHECKLIST.md).
+5. Merge the reviewed `develop` state into `main`.
+
+## Build
+
+Run from a clean `main` workspace:
 
 ```bash
-python tools/validate_repository.py
+python tools/validate_repository.py --release
+python tools/build_release.py
 ```
 
-4. Test the relevant workflow in Home Assistant.
-5. Test mobile layout for visible UI changes.
-6. Update `CHANGELOG.md`.
-7. Merge the tested change into `main`.
-8. Create a GitHub release with tag `vX.Y.Z`.
-9. Verify the HACS update flow.
+The build tool creates a deterministic manual-install archive and SHA-256 checksum under `dist/`. GitHub source archives remain the normal HACS distribution source.
 
-## No duplicate CI requirement
+## Publish
 
-Automated GitHub Actions are not required in the initial 3.0 phase. The repository contains local validation tools. Lightweight CI may be added later when it materially improves reliability.
+1. Create tag `vX.Y.Z` from `main`.
+2. Create a GitHub release using the matching changelog section.
+3. Attach the optional manual-install archive and checksum.
+4. Verify HACS installation or update.
+5. Merge or rebase released changes back into `develop` if necessary.
+
+## CI policy
+
+Complex GitHub Actions are intentionally not required during the initial Roadplanner 3.0 phase. Local validation and explicit release evidence remain authoritative. Lightweight CI may be added later if it eliminates real failures rather than duplicating the same checks without benefit.

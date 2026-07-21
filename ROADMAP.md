@@ -2,46 +2,52 @@
 
 ## Current baseline
 
-- **Imported baseline:** Roadplanner 2.6.5
-- **Next major:** Roadplanner 3.0
-- **Technical domain:** `roadplanner_mcp`
+- Imported stable baseline: **Roadplanner 2.6.5**
+- Active major development: **Roadplanner 3.0**
+- Technical domain: `roadplanner_mcp`
 
 ## Roadplanner 3.0 — Product foundation
 
-### Repository and delivery
+### Foundation completed
 
-- GitHub becomes the source of truth for code.
-- HACS-compatible repository layout.
-- Browser/Codespaces workflow for iPad-only development.
-- Clear release, rollback and migration process.
-- Public-repository and license decision before HACS rollout.
+- [x] GitHub is the source of truth for code.
+- [x] HACS-compatible repository layout.
+- [x] `main` and `develop` branch model.
+- [x] Apache-2.0 licensing and NOTICE.
+- [x] AI Development Contract.
+- [x] Architecture Decision Records.
+- [x] Patch-based iPad/Codespaces workflow.
+- [x] Repository governance, validation, release, and Definition-of-Done contracts.
 
 ### Domain consistency
 
-- One canonical stop-order function.
-- Stop numbering follows planned/temporal day progression.
-- Day timeline, map, routing and navigation use the same order.
+- Canonical stop ordering shared by map, timeline, routing, navigation, and assistant context.
+- Day timeline built exclusively from effective ordered route elements.
 - Overnight continuity without duplicate canonical stops.
-- Legacy day `start`/`end` fields no longer create duplicate visual route elements.
+- Legacy day `start`/`end` fields no longer create conflicting route elements.
 
 ### Planning metrics and overview
 
-- Rough full-trip distance based on confirmed day anchors even before detailed stops exist.
-- Distinguish estimated planning distance from calculated detailed driving distance.
-- Replace technical dashboard counters with phase-aware information:
-  - planning completion,
-  - open decisions,
-  - due tasks,
-  - estimated/detailed distance,
-  - document readiness.
+- Rough full-trip distance from confirmed planning anchors before detailed stops exist.
+- Separate estimated planning distance from calculated driving distance.
+- Phase-aware overview for planning, preparation, travel, and memory.
+- Planning completeness, open decisions, due tasks, document readiness, and route coverage.
+
+### Expenses and EUR reference values
+
+- Preserve original amount and currency.
+- Add optional EUR reference amount.
+- Support daily, trip-start, and manual fixed-rate policies.
+- Store rate source, effective date, conversion mode, and timestamp.
+- Aggregate EUR totals without hiding per-currency totals.
 
 ### Assistant lifecycle
 
 - Session conversation per user and trip.
 - Controlled summarization of long conversations.
-- Attachment/image context pruning.
-- Persistent Roadbook remains the memory after a commit.
-- Diagnosis stays separate from normal travel UX.
+- Attachment and image-context pruning.
+- Persistent Roadbook remains memory after commit.
+- Diagnostics remain separate from normal travel UX.
 
 ### Media Intelligence
 
@@ -49,24 +55,23 @@
 
 - file and perceptual-hash deduplication,
 - burst grouping,
-- blur/sharpness score,
-- exposure and resolution score,
+- blur, exposure, and resolution scoring,
 - time/GPS consistency,
-- best representative image per duplicate group.
+- best representative per duplicate group.
 
 #### Optional AI curation
 
-- operate on the locally reduced set, per stop/day,
-- select story-oriented highlights rather than near-identical images,
+- operate only on the locally reduced set,
+- select story-oriented highlights per stop/day,
 - propose title images and captions,
 - user approval remains authoritative.
 
 ### Architecture
 
-- Define provider APIs v1.
-- Prepare incremental boundaries for Core, HA adapter and UI.
-- Freeze and document Roadbook schema v1.
-- Eliminate duplicate configuration sources.
+- Provider APIs v1.
+- Roadbook schema v1 freeze and migration contract.
+- Incremental Core, Home Assistant adapter, and UI boundaries.
+- Eliminate duplicate configuration and derived-logic sources.
 
 ## Roadplanner 3.1 — Travel Story
 
@@ -79,15 +84,15 @@
 
 - Apple Photos bridge or native companion sync.
 - Multi-account OneDrive support.
-- Optional Google Photos, Immich and NAS providers.
+- Optional Google Photos, Immich, and NAS providers.
 
 ## Roadplanner 3.3 — Automation and mobility
 
 - EVCC-aware charging plans.
-- weather-aware proactive suggestions,
-- improved offline mode,
-- background mobile notifications.
+- Weather-aware proactive suggestions.
+- Improved offline mode.
+- Background mobile notifications.
 
-## Backlog policy
+## Planning policy
 
-Until multiple external contributors are active, the canonical backlog is [BACKLOG.md](BACKLOG.md). GitHub Issues remain available for concrete bugs and externally reported problems, but are not required for every internal idea.
+The canonical internal priority list is [BACKLOG.md](BACKLOG.md). GitHub Issues are used for concrete reproducible bugs and external feedback, not for every product idea.

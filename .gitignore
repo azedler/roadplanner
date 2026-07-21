@@ -53,3 +53,10 @@ release/
 Roadplanner_MCP_*.zip
 *_VALIDATION.log
 *_SHA256SUMS.txt
+
+# Temporary AI task delivery files
+RP-*.patch
+RP-*_SPEC.md
+RP-*_APPLY.md
+RP-*_VALIDATION.log
+RP-*_bundle.zip

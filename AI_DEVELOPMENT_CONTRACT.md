@@ -145,3 +145,44 @@ replaceable providers
 ```
 
 Do not perform a big-bang rewrite. Preserve working behavior and extract boundaries incrementally.
+
+
+## 16. Licensing and provenance
+
+- Roadplanner source code is licensed under the Apache License 2.0.
+- Do not introduce code, media, documentation, datasets, fonts, or generated assets with unclear provenance.
+- Preserve required third-party copyright, license, and NOTICE information.
+- New dependencies must have a license compatible with Roadplanner distribution and must be documented when attribution or redistribution conditions apply.
+- AI-generated code is untrusted input: review it for provenance, copied passages, incompatible dependencies, private data, secrets, and license obligations before committing.
+- Release artifacts must include the root `LICENSE` file and the root `NOTICE` file.
+
+## 17. Patch delivery contract
+
+- GitHub is the source of truth for code.
+- An AI implementation must be delivered as a scoped specification and a Git patch based on the current `develop` commit.
+- Never assume direct repository access, credentials, or the ability to push.
+- A patch must pass `git apply --check`, repository validation, and the task-specific acceptance tests.
+- Do not bundle unrelated features into the same patch.
+- Do not create release artifacts in chat when the repository release process is available.
+
+## 18. Repository hygiene
+
+- GitHub is authoritative; chat attachments and local patch files are temporary transport artifacts.
+- Never commit `.patch`, release ZIP, validation log, checksum, personal screenshot, or runtime export unless a task explicitly establishes it as a permanent project asset.
+- Repository-level contracts and runtime code changes may share a task only when they are inseparable; otherwise deliver them separately.
+- Root documentation is an entry point. Detailed procedures belong under `docs/` and must not create competing process definitions.
+- A new configuration value requires one authoritative storage location and a migration from any legacy duplicate source.
+
+## 19. Delivery evidence
+
+Every implementation delivery must include:
+
+- task ID and baseline commit,
+- exact scope and affected files,
+- patch or reviewed commit diff,
+- validation commands actually run and their results,
+- Home Assistant/mobile/provider checks actually run,
+- explicit list of items not live-tested,
+- migration, rollback, security, privacy, and licensing notes.
+
+Do not substitute confidence, plausibility, or prose for execution evidence.

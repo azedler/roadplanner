@@ -43,6 +43,9 @@ _DELTA_CATCHUP_MODE = "delta_catchup"
 _DELTA_MODE = "delta"
 _SCAN_PAGE_SIZE = 200
 _DEFAULT_SCAN_TIME_BUDGET_SECONDS = 12
+_DECISION_GEOCODE_TIMEOUT_SECONDS = 12.0
+_DECISION_IMAGE_TIMEOUT_SECONDS = 10.0
+_DECISION_ROUTE_TIMEOUT_SECONDS = 15.0
 _HIDDEN_MEDIA_FOLDERS = frozenset({
     ".picasaoriginals",
     ".thumbnails",
@@ -1345,6 +1348,7 @@ class RoadplannerExperienceManager:
     async def async_create_decision_from_message(self, *, user_id: str, trip_id: str, message_id: str) -> dict[str, Any]:
         if self.provider is None or not self.provider.configured:
             raise ValidationError("Der Assistent ist nicht konfiguriert")
+        request_id = f"decision-{secrets.token_hex(6)}"
         assistant_state = self.assistant.state(user_id, trip_id)
         message = next((item for item in assistant_state.get("messages", []) if str(item.get("id") or "") == message_id and item.get("role") == "assistant"), None)
         if message is None:
@@ -1352,14 +1356,17 @@ class RoadplannerExperienceManager:
         payload = await self.manager.async_get_assistant_payload(trip_id)
         days = _all_days(payload)
         compact_days = [{"id": day.get("id"), "date": day.get("date"), "title": day.get("title"), "start": day.get("start"), "end": day.get("end")} for day in days]
-        result = await self.provider.async_generate_json_result(
-            system_instruction=_DECISION_PROMPT,
-            messages=[{"role": "user", "content": json.dumps({"assistant_message": message.get("content"), "local_date": dt_util.now().date().isoformat(), "available_days": compact_days}, ensure_ascii=False)}],
-            schema=_DECISION_SCHEMA,
-            enable_search=False,
-            max_output_tokens=4096,
-            temperature=0.05,
-        )
+        try:
+            result = await self.provider.async_generate_json_result(
+                system_instruction=_DECISION_PROMPT,
+                messages=[{"role": "user", "content": json.dumps({"assistant_message": message.get("content"), "local_date": dt_util.now().date().isoformat(), "available_days": compact_days}, ensure_ascii=False)}],
+                schema=_DECISION_SCHEMA,
+                enable_search=False,
+                max_output_tokens=4096,
+                temperature=0.05,
+            )
+        except RoadplannerError as err:
+            raise ValidationError(f"{err} (Anfrage {request_id})") from err
         raw = result.value
         options_raw = raw.get("options") if isinstance(raw.get("options"), list) else []
         options: list[dict[str, Any]] = []
@@ -1370,21 +1377,36 @@ class RoadplannerExperienceManager:
         for index, option_raw in enumerate(options_raw[:3]):
             if not isinstance(option_raw, dict):
                 continue
-            option = {
-                "id": f"option-{index + 1}",
-                "title": _clean(option_raw.get("title"), 300) or f"Option {index + 1}",
-                "summary": _clean(option_raw.get("summary"), 2_000),
-                "place_query": _clean(option_raw.get("place_query"), 500),
-                "stop_type": _clean(option_raw.get("stop_type"), 100) or "waypoint",
-                "pros": [_clean(item, 300) for item in list(option_raw.get("pros") or [])[:4] if _clean(item, 300)],
-                "cons": [_clean(item, 300) for item in list(option_raw.get("cons") or [])[:4] if _clean(item, 300)],
-                "estimated_cost": option_raw.get("estimated_cost") if isinstance(option_raw.get("estimated_cost"), dict) else {},
-                "details": {},
-            }
-            await self._enrich_option(option, linked_day_id, days)
-            options.append(option)
+            options.append(
+                {
+                    "id": f"option-{index + 1}",
+                    "title": _clean(option_raw.get("title"), 300) or f"Option {index + 1}",
+                    "summary": _clean(option_raw.get("summary"), 2_000),
+                    "place_query": _clean(option_raw.get("place_query"), 500),
+                    "stop_type": _clean(option_raw.get("stop_type"), 100) or "waypoint",
+                    "pros": [_clean(item, 300) for item in list(option_raw.get("pros") or [])[:4] if _clean(item, 300)],
+                    "cons": [_clean(item, 300) for item in list(option_raw.get("cons") or [])[:4] if _clean(item, 300)],
+                    "estimated_cost": option_raw.get("estimated_cost") if isinstance(option_raw.get("estimated_cost"), dict) else {},
+                    "details": {},
+                }
+            )
         if len(options) < 2:
             raise ValidationError("In dieser Antwort konnten nicht mindestens zwei konkrete Optionen erkannt werden")
+        # Geocoding, image lookup and route enrichment are independent for each
+        # option. Running the options concurrently avoids multiplying provider
+        # latency by the number of slides. Every enrichment step is fail-open:
+        # a missing image or route must never discard an otherwise usable choice.
+        try:
+            await asyncio.gather(
+                *(self._enrich_option(option, linked_day_id, days) for option in options)
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # defensive decision boundary
+            _LOGGER.exception("Unexpected decision enrichment failure (%s)", request_id)
+            raise ValidationError(
+                f"Die Entscheidungsoptionen konnten nicht sicher vorbereitet werden (Anfrage {request_id})."
+            ) from err
         decision = await self.hass.async_add_executor_job(
             self.store.create_decision,
             trip_id,
@@ -1393,46 +1415,133 @@ class RoadplannerExperienceManager:
         return {"decision": decision, "experience": await self.async_panel_payload(trip_id)}
 
     async def _enrich_option(self, option: dict[str, Any], linked_day_id: str | None, days: list[dict[str, Any]]) -> None:
+        """Enrich one decision option without making the decision depend on it."""
+        started = monotonic()
+        details = option.setdefault("details", {})
         query = str(option.get("place_query") or "").strip()
-        if query and self.geocoder and self.geocoder.enabled:
-            try:
-                best, candidates = await self.geocoder.async_resolve(query, language="de")
-            except RoadplannerError as err:
-                option["details"]["geocoding_error"] = str(err)
-                best, candidates = None, []
+
+        async def resolve_location() -> tuple[Any, list[Any]]:
+            if not query or not self.geocoder or not self.geocoder.enabled:
+                return None, []
+            async with asyncio.timeout(_DECISION_GEOCODE_TIMEOUT_SECONDS):
+                return await self.geocoder.async_resolve(query, language="de")
+
+        async def resolve_image() -> dict[str, Any] | None:
+            if not query:
+                return None
+            async with asyncio.timeout(_DECISION_IMAGE_TIMEOUT_SECONDS):
+                images = await self.image_provider.async_search(query, limit=1)
+                if images.get("results"):
+                    return images["results"][0]
+                return None
+
+        location_result, image_result = await asyncio.gather(
+            resolve_location(),
+            resolve_image(),
+            return_exceptions=True,
+        )
+
+        if isinstance(location_result, BaseException):
+            if isinstance(location_result, asyncio.CancelledError):
+                raise location_result
+            if isinstance(location_result, TimeoutError):
+                details["geocoding_error"] = "Ortsauflösung hat das Zeitlimit überschritten"
+            elif isinstance(location_result, RoadplannerError):
+                details["geocoding_error"] = str(location_result)
+            else:
+                _LOGGER.warning(
+                    "Decision option geocoding failed for %s: %s",
+                    option.get("id"),
+                    type(location_result).__name__,
+                )
+                details["geocoding_error"] = "Ortsauflösung ist vorübergehend fehlgeschlagen"
+        else:
+            best, candidates = location_result
             if best is not None:
                 option["location"] = best.as_location()
-                option["details"]["geocoding"] = best.as_provenance()
+                details["geocoding"] = best.as_provenance()
             elif candidates:
-                option["details"]["geocoding_candidates"] = [
+                details["geocoding_candidates"] = [
                     {
                         "location": candidate.as_location(),
                         "provenance": candidate.as_provenance(),
                     }
                     for candidate in candidates[:3]
                 ]
-        if query:
-            try:
-                images = await self.image_provider.async_search(query, limit=1)
-                if images.get("results"):
-                    option["image"] = images["results"][0]
-            except RoadplannerError:
-                pass
+
+        if isinstance(image_result, BaseException):
+            if isinstance(image_result, asyncio.CancelledError):
+                raise image_result
+            if isinstance(image_result, TimeoutError):
+                details["image_error"] = "Bildsuche hat das Zeitlimit überschritten"
+            elif isinstance(image_result, RoadplannerError):
+                details["image_error"] = str(image_result)
+            else:
+                _LOGGER.warning(
+                    "Decision option image lookup failed for %s: %s",
+                    option.get("id"),
+                    type(image_result).__name__,
+                )
+                details["image_error"] = "Bildsuche ist vorübergehend fehlgeschlagen"
+        elif image_result is not None:
+            option["image"] = image_result
+
         coord = _coordinate(option.get("location"))
         if coord is not None and linked_day_id and self.router.configured:
-            day_index = next((index for index, day in enumerate(days) if str(day.get("id") or "") == linked_day_id), None)
+            day_index = next(
+                (
+                    index
+                    for index, day in enumerate(days)
+                    if str(day.get("id") or "") == linked_day_id
+                ),
+                None,
+            )
             if day_index is not None:
                 origin = self._day_origin(days, day_index)
                 onward = self._day_onward(days, day_index)
                 if origin is not None:
                     try:
-                        points = [{"latitude": origin[0], "longitude": origin[1]}, {"latitude": coord[0], "longitude": coord[1]}]
+                        points = [
+                            {"latitude": origin[0], "longitude": origin[1]},
+                            {"latitude": coord[0], "longitude": coord[1]},
+                        ]
                         if onward is not None:
-                            points.append({"latitude": onward[0], "longitude": onward[1]})
-                        result = await self.router.async_calculate(points, input_hash=route_input_hash(points, self.router.profile))
-                        option["route_metrics"] = {"distance_km": round(float(result.get("distance_m") or 0) / 1000, 1), "drive_minutes": round(float(result.get("duration_s") or 0) / 60), "point_count": len(points)}
+                            points.append(
+                                {"latitude": onward[0], "longitude": onward[1]}
+                            )
+                        async with asyncio.timeout(_DECISION_ROUTE_TIMEOUT_SECONDS):
+                            result = await self.router.async_calculate(
+                                points,
+                                input_hash=route_input_hash(
+                                    points, self.router.profile
+                                ),
+                            )
+                        option["route_metrics"] = {
+                            "distance_km": round(
+                                float(result.get("distance_m") or 0) / 1000, 1
+                            ),
+                            "drive_minutes": round(
+                                float(result.get("duration_s") or 0) / 60
+                            ),
+                            "point_count": len(points),
+                        }
+                    except TimeoutError:
+                        details["routing_error"] = (
+                            "Routenberechnung hat das Zeitlimit überschritten"
+                        )
                     except RoadplannerError as err:
-                        option["details"]["routing_error"] = str(err)
+                        details["routing_error"] = str(err)
+                    except Exception as err:  # defensive enrichment boundary
+                        _LOGGER.warning(
+                            "Decision option routing failed for %s: %s",
+                            option.get("id"),
+                            type(err).__name__,
+                        )
+                        details["routing_error"] = (
+                            "Routenberechnung ist vorübergehend fehlgeschlagen"
+                        )
+
+        details["enrichment_duration_ms"] = int((monotonic() - started) * 1000)
 
     @staticmethod
     def _day_origin(days: list[dict[str, Any]], index: int) -> tuple[float, float] | None:
