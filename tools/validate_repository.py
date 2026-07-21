@@ -366,7 +366,7 @@ def main() -> None:
     print(f"ADRs validated: {adr_count}")
     print(f"Local Markdown links checked: {link_count}")
     if not args.quick:
-        print(f"Text files scanned for obvious secrets: {scanned}")
+        print("Repository text files scanned for obvious secrets.")
 
 
 if __name__ == "__main__":
