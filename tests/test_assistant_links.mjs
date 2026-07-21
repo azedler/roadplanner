@@ -62,4 +62,20 @@ const internalHttp = panel._renderAssistantMessage({
 });
 assert.doesNotMatch(internalHttp, /href="http:\/\/example\.com/);
 
+
+const wrappedMarkdown = panel._renderAssistantMessage({
+  id: "msg-wrapped",
+  role: "assistant",
+  created_at: "2026-07-21T09:56:00Z",
+  content: [
+    "Hier ist der Link zur Weißen Düne:",
+    "[Weiße Düne Saulkrasti bei Google Maps](https://www.google.com/maps/search/?",
+    "api=1&query=Baltā+kāpa+Saulkrasti+Lettland).",
+  ].join("\n"),
+});
+assert.match(wrappedMarkdown, /class="assistant-inline-link google-maps"/);
+assert.match(wrappedMarkdown, /href="https:\/\/www\.google\.com\/maps\/search\/\?api=1&amp;query=Balt%C4%81\+k%C4%81pa\+Saulkrasti\+Lettland"/);
+assert.match(wrappedMarkdown, />Weiße Düne Saulkrasti bei Google Maps<\/span>/);
+assert.doesNotMatch(wrappedMarkdown, /\[Weiße Düne Saulkrasti bei Google Maps\]\(/);
+
 console.log("Assistant link rendering tests passed.");

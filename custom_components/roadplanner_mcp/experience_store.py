@@ -139,6 +139,9 @@ def normalize_decision(raw: dict[str, Any]) -> dict[str, Any]:
             "route_metrics": _json_safe(option_raw.get("route_metrics") if isinstance(option_raw.get("route_metrics"), dict) else {}),
             "estimated_cost": _json_safe(option_raw.get("estimated_cost") if isinstance(option_raw.get("estimated_cost"), dict) else {}),
             "details": _json_safe(option_raw.get("details") if isinstance(option_raw.get("details"), dict) else {}),
+            "is_current_plan": bool(option_raw.get("is_current_plan", False)),
+            "change_type": _clean(option_raw.get("change_type"), 80) or "choose",
+            "existing_stop_id": _clean(option_raw.get("existing_stop_id"), 200) or None,
         }
         options.append(option)
         if len(options) >= MAX_OPTIONS_PER_DECISION:
@@ -154,6 +157,8 @@ def normalize_decision(raw: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "linked_day_id": linked_day_id or None,
         "source_message_id": _clean(raw.get("source_message_id"), 200) or None,
+        "baseline_required": bool(raw.get("baseline_required", False)),
+        "current_plan_option_id": _clean(raw.get("current_plan_option_id"), 200) or None,
         "options": options,
         "selected_option_id": _clean(raw.get("selected_option_id"), 200) or None,
         "transferred_draft_id": _clean(raw.get("transferred_draft_id"), 200) or None,
