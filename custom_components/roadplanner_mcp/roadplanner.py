@@ -27,6 +27,8 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 import uuid
 
+from .stop_ordering import canonical_order_stops, reindex_explicit_positions
+
 POINTER_SCHEMA_VERSION = 1
 TRIP_SCHEMA_VERSION = 3
 DAY_SCHEMA_VERSION = 1
@@ -475,6 +477,7 @@ def normalize_stop(
         "type",
         "arrival_time",
         "departure_time",
+        "position",
         "location",
         "notes",
         "details",
@@ -493,7 +496,7 @@ def normalize_stop(
         allow_empty=False,
         max_length=100,
     )
-    return {
+    result = {
         "id": stop_id,
         "name": name,
         "type": _ensure_string(
@@ -527,6 +530,13 @@ def normalize_stop(
             max_length=100,
         ),
     }
+    position = _ensure_optional_positive_int(
+        raw.get("position"),
+        f"stops[{index}].position",
+    )
+    if position is not None:
+        result["position"] = position
+    return result
 
 
 def normalize_day_document(
@@ -1093,12 +1103,13 @@ def _effective_routing_stops(
             "inherited": False,
             "source_day_id": day_id,
         }
-        for stop in document["stops"]
+        for stop in canonical_order_stops(document["stops"])
     ]
     if index <= 0:
         return result
     previous = ordered[index - 1]
-    overnight = previous["stops"][-1] if previous["stops"] else None
+    previous_stops = canonical_order_stops(previous["stops"])
+    overnight = previous_stops[-1] if previous_stops else None
     if not _is_overnight_stop(overnight):
         return result
     if result and _same_stop_place(overnight, result[0]["stop"]):
@@ -1277,7 +1288,7 @@ def _route_stop_signature(document: dict[str, Any]) -> list[tuple[Any, ...]]:
             str(_stop_transport(stop).get("mode_from_previous") or ""),
             str(_stop_transport(stop).get("ferry_role") or ""),
         )
-        for stop in document["stops"]
+        for stop in canonical_order_stops(document["stops"])
     ]
 
 
@@ -1504,6 +1515,7 @@ def _compact_stop(
         "type": stop["type"],
         "arrival_time": stop.get("arrival_time"),
         "departure_time": stop.get("departure_time"),
+        "position": stop.get("position"),
         "location": _bounded_json_value(
             stop.get("location", {}),
             max_items=50,
@@ -1555,7 +1567,7 @@ def _first_trip_media(state: "TripState") -> dict[str, str] | None:
         media = _media_from_details(document["day"].get("details"))
         if media is not None:
             return media
-        for stop in document["stops"]:
+        for stop in canonical_order_stops(document["stops"]):
             media = _media_from_details(stop.get("details"))
             if media is not None:
                 return media
@@ -1628,7 +1640,7 @@ class TripState:
                     )
                 )
             for stop_sequence, raw_stop in enumerate(
-                document["stops"],
+                canonical_order_stops(document["stops"]),
                 start=1,
             ):
                 if len(flat_stops) >= MAX_COORDINATOR_STOPS:
@@ -2077,7 +2089,7 @@ class RoadplannerStore:
             if include_stops:
                 day["stops"] = [
                     _compact_stop(stop, include_details=True)
-                    for stop in document["stops"][:MAX_SUMMARY_STOPS]
+                    for stop in canonical_order_stops(document["stops"])[:MAX_SUMMARY_STOPS]
                 ]
                 day["stops_truncated"] = (
                     len(document["stops"]) > MAX_SUMMARY_STOPS
@@ -2117,7 +2129,7 @@ class RoadplannerStore:
             or not 1 <= stop_limit <= 100
         ):
             raise ValidationError("'stop_limit' muss zwischen 1 und 100 liegen")
-        stops = document["stops"]
+        stops = canonical_order_stops(document["stops"])
         selected = stops[stop_offset : stop_offset + stop_limit]
         sequence = next(
             index
@@ -2172,7 +2184,7 @@ class RoadplannerStore:
                 continue
             if normalized_date is not None and day.get("date") != normalized_date:
                 continue
-            for stop_sequence, stop in enumerate(document["stops"], start=1):
+            for stop_sequence, stop in enumerate(canonical_order_stops(document["stops"]), start=1):
                 if stop_type is not None and stop["type"] != stop_type:
                     continue
                 searchable = json.dumps(
@@ -2770,6 +2782,8 @@ class RoadplannerStore:
         )
         insert_at = self._insert_index(position, len(target["stops"]))
         target["stops"].insert(insert_at, stop)
+        if position is not None or any(item.get("position") is not None for item in target["stops"]):
+            reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = now
         result = self._commit(
             previous,
@@ -2845,6 +2859,7 @@ class RoadplannerStore:
                 self._insert_index(position, len(target["stops"])),
                 moved,
             )
+            reindex_explicit_positions(target["stops"])
         if changed_fields or position is not None:
             target["day"]["updated_at"] = utc_now_iso()
         result = self._commit(
@@ -2884,6 +2899,8 @@ class RoadplannerStore:
         candidate = previous.clone()
         target = candidate.day_documents[day_id]
         removed = target["stops"].pop(old_index)
+        if any(item.get("position") is not None for item in target["stops"]):
+            reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = utc_now_iso()
         result = self._commit(
             previous,
@@ -3448,7 +3465,7 @@ class RoadplannerStore:
             route["days"].append(day)
             used_bytes += day_bytes
 
-            for stop in document["stops"]:
+            for stop in canonical_order_stops(document["stops"]):
                 if len(day["stops"]) >= MAX_CONTEXT_STOPS_PER_DAY:
                     day["stops_truncated"] = True
                     route["stops_truncated"] = True
@@ -3525,7 +3542,7 @@ class RoadplannerStore:
                                 "- Präferenz "
                                 f"[`{preference.get('id', '?')}`]: {text[:1_000]}"
                             )
-            for stop in document["stops"][:MAX_CONTEXT_STOPS_PER_DAY]:
+            for stop in canonical_order_stops(document["stops"])[:MAX_CONTEXT_STOPS_PER_DAY]:
                 candidate.append(
                     f"- {stop['name']} [{stop['type']}] (`{stop['id']}`)"
                 )

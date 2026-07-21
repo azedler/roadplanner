@@ -20,14 +20,17 @@ import uuid
 
 from .roadplanner import StorageError, ValidationError, validate_identifier
 
-EXPERIENCE_SCHEMA_VERSION = 1
+EXPERIENCE_SCHEMA_VERSION = 2
 MAX_DECISIONS_PER_TRIP = 250
 MAX_MEDIA_PER_TRIP = 20_000
 MAX_OPTIONS_PER_DECISION = 5
+MAX_DESTINATION_GALLERIES_PER_TRIP = 2_000
+MAX_DESTINATION_IMAGES_PER_GALLERY = 3
 
 _DECISION_STATUS = frozenset({"draft", "open", "selected", "transferred", "archived"})
 _ASSIGNMENT_STATUS = frozenset({"automatic", "suggested", "manual", "unassigned"})
 _MEDIA_TYPES = frozenset({"photo", "video"})
+_GALLERY_STATUS = frozenset({"ready", "empty", "partial", "error"})
 
 
 def utc_now_iso() -> str:
@@ -108,11 +111,144 @@ def _normalize_location(value: Any) -> dict[str, Any]:
 
 def _normalize_image(value: Any) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
-    return {
+    result = {
         key: text
-        for key in ("image_url", "source_url", "alt", "attribution", "provider")
+        for key in (
+            "id",
+            "media_id",
+            "image_url",
+            "thumbnail_url",
+            "original_url",
+            "source_url",
+            "alt",
+            "attribution",
+            "provider",
+            "author",
+            "license",
+            "license_url",
+        )
         if (text := _clean(source.get(key), 2_000))
     }
+    for key in ("width", "height"):
+        raw = source.get(key)
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+            result[key] = raw
+    return result
+
+
+def normalize_destination_gallery(raw: dict[str, Any]) -> dict[str, Any]:
+    stop_id = validate_identifier(raw.get("stop_id"), "destination_gallery.stop_id")
+    day_id = validate_identifier(raw.get("day_id"), "destination_gallery.day_id")
+    images: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw.get("images", []):
+        image = _normalize_image(item)
+        identity = str(
+            image.get("id")
+            or image.get("source_url")
+            or image.get("image_url")
+            or ""
+        )
+        if not (image.get("image_url") or image.get("media_id")) or not identity or identity in seen:
+            continue
+        seen.add(identity)
+        if not image.get("id"):
+            image["id"] = f"image-{len(images) + 1}"
+        images.append(image)
+        if len(images) >= MAX_DESTINATION_IMAGES_PER_GALLERY:
+            break
+    status = str(raw.get("status") or ("ready" if images else "empty"))
+    if status not in _GALLERY_STATUS:
+        status = "ready" if images else "empty"
+    primary_image_id = _clean(raw.get("primary_image_id"), 500)
+    if not any(item.get("id") == primary_image_id for item in images):
+        primary_image_id = str(images[0].get("id") or "") if images else ""
+    provider_errors = raw.get("provider_errors")
+    if not isinstance(provider_errors, dict):
+        provider_errors = {}
+    return {
+        "stop_id": stop_id,
+        "day_id": day_id,
+        "query": _clean(raw.get("query"), 1_000),
+        "query_fingerprint": _clean(raw.get("query_fingerprint"), 200),
+        "status": status,
+        "images": images,
+        "primary_image_id": primary_image_id or None,
+        "provider_errors": _json_safe(provider_errors),
+        "attempted_at": _clean(raw.get("attempted_at"), 100) or utc_now_iso(),
+        "updated_at": _clean(raw.get("updated_at"), 100) or utc_now_iso(),
+    }
+
+
+def resolve_decision_media_references(
+    decisions: list[dict[str, Any]],
+    media: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve persisted OneDrive media IDs to fresh panel URLs.
+
+    Decision sidecars must not persist short-lived signed Home Assistant URLs.
+    They store only ``media_id`` and receive current URLs whenever a panel
+    payload is built.
+    """
+    resolved = deepcopy(decisions)
+    media_by_id = {
+        str(item.get("id") or ""): item
+        for item in media
+        if isinstance(item, dict) and item.get("id")
+    }
+    for decision in resolved:
+        if not isinstance(decision, dict):
+            continue
+        for option in list(decision.get("options") or []):
+            if not isinstance(option, dict):
+                continue
+            images: list[dict[str, Any]] = []
+            for raw_image in list(option.get("images") or [])[:3]:
+                if not isinstance(raw_image, dict):
+                    continue
+                image = deepcopy(raw_image)
+                media_id = str(image.get("media_id") or "")
+                media_item = media_by_id.get(media_id) if media_id else None
+                if media_item is not None:
+                    image.update({
+                        "id": image.get("id") or f"media-{media_id}",
+                        "provider": "onedrive",
+                        "image_url": media_item.get("thumbnail_url"),
+                        "thumbnail_url": media_item.get("thumbnail_url"),
+                        "original_url": media_item.get("original_url"),
+                        "source_url": media_item.get("original_url"),
+                        "alt": image.get("alt")
+                        or media_item.get("caption")
+                        or media_item.get("name")
+                        or option.get("title"),
+                        "attribution": image.get("attribution") or "Eigenes Reisefoto",
+                    })
+                if image.get("image_url"):
+                    images.append(image)
+            option["images"] = images
+            primary = option.get("image") if isinstance(option.get("image"), dict) else {}
+            primary_media_id = str(primary.get("media_id") or "")
+            primary_item = media_by_id.get(primary_media_id) if primary_media_id else None
+            if primary_item is not None:
+                option["image"] = {
+                    **deepcopy(primary),
+                    "id": primary.get("id") or f"media-{primary_media_id}",
+                    "provider": "onedrive",
+                    "image_url": primary_item.get("thumbnail_url"),
+                    "thumbnail_url": primary_item.get("thumbnail_url"),
+                    "original_url": primary_item.get("original_url"),
+                    "source_url": primary_item.get("original_url"),
+                    "alt": primary.get("alt")
+                    or primary_item.get("caption")
+                    or primary_item.get("name")
+                    or option.get("title"),
+                    "attribution": primary.get("attribution") or "Eigenes Reisefoto",
+                }
+            elif images:
+                option["image"] = deepcopy(images[0])
+            else:
+                option["image"] = {}
+    return resolved
 
 
 def normalize_decision(raw: dict[str, Any]) -> dict[str, Any]:
@@ -136,6 +272,11 @@ def normalize_decision(raw: dict[str, Any]) -> dict[str, Any]:
             "cons": [_clean(item, 500) for item in list(option_raw.get("cons") or [])[:8] if _clean(item, 500)],
             "location": _normalize_location(option_raw.get("location")),
             "image": _normalize_image(option_raw.get("image")),
+            "images": [
+                image
+                for item in list(option_raw.get("images") or [])[:3]
+                if (image := _normalize_image(item)).get("image_url") or image.get("media_id")
+            ],
             "route_metrics": _json_safe(option_raw.get("route_metrics") if isinstance(option_raw.get("route_metrics"), dict) else {}),
             "estimated_cost": _json_safe(option_raw.get("estimated_cost") if isinstance(option_raw.get("estimated_cost"), dict) else {}),
             "details": _json_safe(option_raw.get("details") if isinstance(option_raw.get("details"), dict) else {}),
@@ -143,6 +284,10 @@ def normalize_decision(raw: dict[str, Any]) -> dict[str, Any]:
             "change_type": _clean(option_raw.get("change_type"), 80) or "choose",
             "existing_stop_id": _clean(option_raw.get("existing_stop_id"), 200) or None,
         }
+        if option["images"] and not (option["image"].get("image_url") or option["image"].get("media_id")):
+            option["image"] = deepcopy(option["images"][0])
+        elif (option["image"].get("image_url") or option["image"].get("media_id")) and not option["images"]:
+            option["images"] = [deepcopy(option["image"])]
         options.append(option)
         if len(options) >= MAX_OPTIONS_PER_DECISION:
             break
@@ -237,6 +382,7 @@ class ExperienceStore:
             "decisions": [],
             "media": [],
             "media_sync": {},
+            "destination_galleries": {},
         }
 
     def load(self, trip_id: str) -> dict[str, Any]:
@@ -268,6 +414,19 @@ class ExperienceStore:
                 media.append(normalize_media(item))
             except ValidationError:
                 continue
+        galleries: dict[str, dict[str, Any]] = {}
+        raw_galleries = raw.get("destination_galleries")
+        if isinstance(raw_galleries, dict):
+            for stop_id, item in raw_galleries.items():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    gallery = normalize_destination_gallery({**item, "stop_id": stop_id})
+                except ValidationError:
+                    continue
+                galleries[gallery["stop_id"]] = gallery
+                if len(galleries) >= MAX_DESTINATION_GALLERIES_PER_TRIP:
+                    break
         return {
             "schema_version": EXPERIENCE_SCHEMA_VERSION,
             "trip_id": trip_id,
@@ -275,6 +434,7 @@ class ExperienceStore:
             "decisions": decisions[:MAX_DECISIONS_PER_TRIP],
             "media": media[:MAX_MEDIA_PER_TRIP],
             "media_sync": _json_safe(raw.get("media_sync") if isinstance(raw.get("media_sync"), dict) else {}),
+            "destination_galleries": galleries,
         }
 
     def write(self, state: dict[str, Any]) -> None:
@@ -372,6 +532,53 @@ class ExperienceStore:
                 state["media_sync"] = _json_safe(sync_state)
             self.write(state)
             return before - len(state["media"])
+
+    def upsert_destination_galleries(
+        self,
+        trip_id: str,
+        galleries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        with self._lock:
+            state = self.load(trip_id)
+            stored = dict(state.get("destination_galleries") or {})
+            updated = 0
+            for raw in galleries:
+                if not isinstance(raw, dict):
+                    continue
+                gallery = normalize_destination_gallery(raw)
+                stored[gallery["stop_id"]] = gallery
+                updated += 1
+                if len(stored) >= MAX_DESTINATION_GALLERIES_PER_TRIP:
+                    break
+            state["destination_galleries"] = stored
+            self.write(state)
+            return {"updated": updated, "total": len(stored)}
+
+    def update_destination_gallery(
+        self,
+        trip_id: str,
+        stop_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._lock:
+            state = self.load(trip_id)
+            stop_id = validate_identifier(stop_id, "stop_id")
+            existing = (state.get("destination_galleries") or {}).get(stop_id)
+            if not isinstance(existing, dict):
+                raise ValidationError(f"Bildergalerie nicht gefunden: {stop_id}")
+            gallery = normalize_destination_gallery({**existing, **deepcopy(patch), "stop_id": stop_id})
+            state["destination_galleries"][stop_id] = gallery
+            self.write(state)
+            return deepcopy(gallery)
+
+    def delete_destination_gallery(self, trip_id: str, stop_id: str) -> None:
+        with self._lock:
+            state = self.load(trip_id)
+            stop_id = validate_identifier(stop_id, "stop_id")
+            if stop_id not in state.get("destination_galleries", {}):
+                return
+            state["destination_galleries"].pop(stop_id, None)
+            self.write(state)
 
     def update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:

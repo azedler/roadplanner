@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 
 from .assistant_provider import AssistantProvider
 from .roadplanner import ValidationError
+from .stop_ordering import canonical_order_stops
 from .travel_archive_manager import MAX_INLINE_ANALYSIS_BYTES, TravelArchiveManager
 from .universal_import import MAX_IMPORT_DRAFTS, ParsedImport, parse_import_file
 
@@ -210,7 +211,7 @@ class UniversalImportManager:
                             "type": stop.get("type"),
                             "location": stop.get("location") or {},
                         }
-                        for stop in day.get("stops", [])
+                        for stop in canonical_order_stops(day.get("stops", []))
                         if isinstance(stop, dict)
                     ],
                 }

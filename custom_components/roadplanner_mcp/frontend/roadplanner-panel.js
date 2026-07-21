@@ -201,6 +201,9 @@ class RoadplannerPanel extends HTMLElement {
     this._archiveDbPromise = null;
     this._decisionSlideIndexes = new Map();
     this._decisionSwipe = null;
+    this._destinationGallerySwipe = null;
+    this._destinationAutoFillRequested = new Set();
+    this._destinationAutoFillInFlight = false;
     this._onedriveAuth = null;
 
     this.shadowRoot.addEventListener("pointerdown", (event) => {
@@ -244,7 +247,28 @@ class RoadplannerPanel extends HTMLElement {
       this._decisionSlideIndexes.set(decision.id, index);
       this._render({ preserveScroll: true });
     });
-    this.shadowRoot.addEventListener("pointercancel", () => { this._decisionSwipe = null; });
+    this.shadowRoot.addEventListener("pointerdown", (event) => {
+      const stage = event.target?.closest?.("[data-destination-gallery-stage]");
+      if (!stage || event.target?.closest?.("button, a")) return;
+      this._destinationGallerySwipe = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+    });
+    this.shadowRoot.addEventListener("pointerup", (event) => {
+      const swipe = this._destinationGallerySwipe;
+      this._destinationGallerySwipe = null;
+      if (!swipe || swipe.pointerId !== event.pointerId) return;
+      const dx = event.clientX - swipe.x;
+      const dy = event.clientY - swipe.y;
+      if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      this._stepDestinationGallery(dx < 0 ? 1 : -1);
+    });
+    this.shadowRoot.addEventListener("pointercancel", () => {
+      this._decisionSwipe = null;
+      this._destinationGallerySwipe = null;
+    });
     this.shadowRoot.addEventListener("click", (event) => this._handleClick(event));
     this.shadowRoot.addEventListener("change", (event) => this._handleChange(event));
     this.shadowRoot.addEventListener("submit", (event) => this._handleSubmit(event));
@@ -412,6 +436,7 @@ class RoadplannerPanel extends HTMLElement {
         this._render({ preserveScroll: true });
         void this._refreshOfflineDocumentIds();
         if (this._activeTab === "assistant") this._maybeStartAutoBriefing();
+        void this._maybeAutoPopulateDestinationGalleries(payload);
       } else if (this._initialLoading) {
         this._initialLoading = false;
         this._render();
@@ -420,6 +445,45 @@ class RoadplannerPanel extends HTMLElement {
       this._initialLoading = false;
       this._error = this._errorMessage(error);
       this._render({ preserveScroll: true });
+    }
+  }
+
+  async _maybeAutoPopulateDestinationGalleries(payload) {
+    const tripId = cleanText(payload?.selected_trip_id);
+    const revision = Number(payload?.summary?.revision ?? 0);
+    if (!tripId || !this._canEdit() || !payload?.settings?.destination_image_auto_fill) return;
+    const key = `${tripId}:${revision}`;
+    if (this._destinationAutoFillRequested.has(key) || this._destinationAutoFillInFlight) return;
+    const stops = (payload?.days?.days || []).flatMap((day) => this._canonicalStops(day?.stops || []));
+    if (!stops.length) return;
+    const galleries = payload?.experience?.destination_galleries || {};
+    const missing = stops.some((stop) => stop?.id && !galleries[stop.id]);
+    if (!missing) {
+      this._destinationAutoFillRequested.add(key);
+      return;
+    }
+    this._destinationAutoFillRequested.add(key);
+    this._destinationAutoFillInFlight = true;
+    try {
+      for (let batch = 0; batch < 6; batch += 1) {
+        const result = await this._send({
+          type: WS_ACTION,
+          action: "auto_populate_destination_galleries",
+          data: { trip_id: tripId, limit: 6 },
+        });
+        if (result?.experience && this._data?.selected_trip_id === tripId) {
+          this._data = { ...this._data, experience: result.experience };
+          this._signature = "";
+          this._render({ preserveScroll: true });
+        }
+        if (!result || Number(result.searched || 0) === 0) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+    } catch (error) {
+      console.warn("Roadplanner automatic destination image search failed", error);
+      this._destinationAutoFillRequested.delete(key);
+    } finally {
+      this._destinationAutoFillInFlight = false;
     }
   }
 
@@ -633,6 +697,48 @@ class RoadplannerPanel extends HTMLElement {
       .includes(cleanText(stop?.type).toLowerCase());
   }
 
+  _stopTimeMinutes(stop) {
+    const value = cleanText(stop?.arrival_time || stop?.departure_time);
+    const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(value);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return null;
+    return hour * 60 + minute;
+  }
+
+  _canonicalStops(stops) {
+    const values = Array.isArray(stops) ? stops.filter((stop) => stop && typeof stop === "object") : [];
+    if (values.length < 2) return [...values];
+    const positions = values.map((stop) => Number(stop.position));
+    const completePositions = positions.every((position) => Number.isInteger(position) && position > 0)
+      && new Set(positions).size === values.length;
+    if (completePositions) {
+      return values.map((stop, index) => ({ stop, index }))
+        .sort((left, right) => Number(left.stop.position) - Number(right.stop.position) || left.index - right.index)
+        .map((item) => item.stop);
+    }
+    const startTypes = new Set(["start", "origin", "home"]);
+    const hasChronology = values.some((stop) => this._stopTimeMinutes(stop) !== null)
+      || values.some((stop) => startTypes.has(cleanText(stop.type).toLowerCase()) || this._isOvernightStop(stop));
+    if (!hasChronology) return [...values];
+    return values.map((stop, index) => ({ stop, index }))
+      .sort((left, right) => {
+        const key = ({ stop, index }) => {
+          const type = cleanText(stop.type).toLowerCase();
+          const minutes = this._stopTimeMinutes(stop);
+          if (startTypes.has(type) && minutes === null) return [0, 0, index];
+          if (minutes !== null) return [1, minutes, index];
+          if (this._isOvernightStop(stop)) return [3, 0, index];
+          return [2, 0, index];
+        };
+        const first = key(left);
+        const second = key(right);
+        return first[0] - second[0] || first[1] - second[1] || first[2] - second[2];
+      })
+      .map((item) => item.stop);
+  }
+
   _samePlace(first, second) {
     if (!first || !second) return false;
     if (first.id && first.id === second.id) return true;
@@ -647,12 +753,12 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _effectiveDayStops(day) {
-    const canonicalStops = [...(day?.stops || [])];
+    const canonicalStops = this._canonicalStops(day?.stops || []);
     const days = this._data?.days?.days || [];
     const index = days.findIndex((item) => item.id === day?.id);
     if (index <= 0) return canonicalStops;
     const previous = days[index - 1];
-    const previousStops = previous?.stops || [];
+    const previousStops = this._canonicalStops(previous?.stops || []);
     const overnight = previousStops.at(-1);
     if (!this._isOvernightStop(overnight)) return canonicalStops;
     if (canonicalStops.length && this._samePlace(overnight, canonicalStops[0])) {
@@ -982,7 +1088,7 @@ class RoadplannerPanel extends HTMLElement {
     const points = [];
     let sequence = 0;
     for (const day of this._data?.days?.days || []) {
-      for (const stop of day.stops || []) {
+      for (const stop of this._canonicalStops(day.stops || [])) {
         const point = this._coordinate(stop, day, sequence);
         sequence += 1;
         if (point) {
@@ -1056,8 +1162,7 @@ class RoadplannerPanel extends HTMLElement {
 
   _effectiveDayStart(day) {
     const stops = this._effectiveDayStops(day);
-    const inherited = stops.find((stop) => stop?._inherited);
-    return inherited?.name || day?.start || stops[0]?.name || "?";
+    return stops[0]?.name || day?.start || "?";
   }
 
   _routeStatusLabel(day) {
@@ -1106,7 +1211,16 @@ class RoadplannerPanel extends HTMLElement {
     add(this._data?.summary?.trip, this._data?.summary?.trip?.title);
     for (const day of this._data?.days?.days || []) {
       add(day, day.title);
-      for (const stop of day.stops || []) add(stop, `${day.title} · ${stop.name}`);
+      for (const stop of this._canonicalStops(day.stops || [])) {
+        const gallery = this._destinationGalleryForStop(stop.id);
+        const primary = this._destinationGalleryPrimary(gallery);
+        if (primary && !seen.has(primary.image_url)) {
+          seen.add(primary.image_url);
+          result.push({ ...primary, context: `${day.title} · ${stop.name}` });
+        } else {
+          add(stop, `${day.title} · ${stop.name}`);
+        }
+      }
       if (result.length >= limit) break;
     }
     return result.slice(0, limit);
@@ -1640,6 +1754,22 @@ class RoadplannerPanel extends HTMLElement {
       else index = Math.max(0, Math.min(options.length - 1, Number(target.dataset.optionIndex || 0)));
       this._decisionSlideIndexes.set(decision.id, index);
       this._render({ preserveScroll: true });
+    } else if (action === "decision-gallery-open") {
+      const decision = (this._experienceData().decisions || []).find((item) => item.id === target.dataset.decisionId);
+      const option = (decision?.options || []).find((item) => item.id === target.dataset.optionId);
+      const images = Array.isArray(option?.images) && option.images.length
+        ? option.images.slice(0, 3)
+        : (option?.image?.image_url ? [option.image] : []);
+      if (images.length) {
+        this._dialog = {
+          type: "destination-gallery",
+          images,
+          index: Math.max(0, Math.min(images.length - 1, Number(target.dataset.imageIndex || 0))),
+          title: option.title || decision?.title || "Entscheidungsbilder",
+          readOnly: true,
+        };
+        this._render({ preserveScroll: true });
+      }
     } else if (action === "decision-select") {
       void this._runAction("decision_select_option", {
         trip_id: this._selectedTripId,
@@ -1734,6 +1864,36 @@ class RoadplannerPanel extends HTMLElement {
         trip_id: this._selectedTripId,
         full_rescan: action === "onedrive-full-sync",
       }, action === "onedrive-full-sync" ? "OneDrive-Fotos werden ab Reisebeginn neu eingelesen" : "OneDrive-Fotos synchronisiert");
+    } else if (action === "destination-gallery-open") {
+      const gallery = this._destinationGalleryForStop(stopId);
+      const images = this._destinationGalleryImages(gallery);
+      if (images.length) {
+        const primary = this._destinationGalleryPrimary(gallery) || images[0];
+        const ordered = [primary, ...images.filter((image) => image.id !== primary.id)];
+        this._dialog = {
+          type: "destination-gallery",
+          images: ordered,
+          index: Math.max(0, Math.min(ordered.length - 1, Number(target.dataset.imageIndex || 0))),
+          title: this._findStop(dayId, stopId)?.name || "Stoppbilder",
+          dayId,
+          stopId,
+          primaryImageId: gallery?.primary_image_id || primary.id,
+          readOnly: !this._canEdit(),
+        };
+        this._render({ preserveScroll: true });
+      }
+    } else if (action === "destination-gallery-prev" || action === "destination-gallery-next") {
+      this._stepDestinationGallery(action.endsWith("next") ? 1 : -1);
+    } else if (action === "destination-gallery-primary") {
+      void this._updateDestinationGalleryFromDialog({ primaryOnly: true });
+    } else if (action === "destination-gallery-remove-image") {
+      void this._updateDestinationGalleryFromDialog({ removeCurrent: true });
+    } else if (action === "destination-gallery-move-left" || action === "destination-gallery-move-right") {
+      void this._updateDestinationGalleryFromDialog({ move: action.endsWith("right") ? 1 : -1 });
+    } else if (action === "destination-gallery-refresh") {
+      void this._refreshDestinationGallery(dayId, stopId);
+    } else if (action === "destination-gallery-delete") {
+      this._confirm("Bildergalerie entfernen?", "Die externen Originalbilder werden nicht gelöscht. Nur die gespeicherte Auswahl für diesen Stopp wird entfernt.", "Galerie entfernen", () => this._runAction("delete_destination_gallery", { trip_id: this._selectedTripId, stop_id: stopId }, "Bildergalerie entfernt"), true);
     } else if (action === "media-open-album") {
       const dayId = target.dataset.dayId || "";
       const stopId = target.dataset.stopId || "";
@@ -2015,11 +2175,12 @@ class RoadplannerPanel extends HTMLElement {
       const stop = this._findStop(dayId, stopId);
       const day = this._findDay(dayId);
       const city = cleanText(stop?.location?.city);
+      const country = cleanText(stop?.location?.country_code);
       this._searchImages({
         targetType: "stop",
         dayId,
         stopId,
-        query: [stop?.name, city, day?.end].filter(Boolean).join(" "),
+        query: [stop?.name, this._statusLabel(stop?.type), city, country, stop?.notes, day?.end].filter(Boolean).join(" "),
       });
     } else if (action === "search-day-images" && this._canEdit()) {
       const day = this._findDay(dayId);
@@ -2028,6 +2189,12 @@ class RoadplannerPanel extends HTMLElement {
         dayId,
         query: [day?.title, day?.end].filter(Boolean).join(" "),
       });
+    } else if (action === "image-result-toggle") {
+      this._toggleImageSearchResult(Number(target.dataset.imageIndex));
+    } else if (action === "image-result-primary") {
+      this._setImageSearchPrimary(Number(target.dataset.imageIndex));
+    } else if (action === "save-image-gallery") {
+      void this._saveImageSearchGallery();
     } else if (action === "choose-image") {
       this._chooseImage(Number(target.dataset.imageIndex));
     } else if (action === "remove-stop-image" && this._canEdit()) {
@@ -2410,23 +2577,118 @@ class RoadplannerPanel extends HTMLElement {
     if (this._busy) return;
     this._setBusy(true);
     try {
+      const stop = context?.targetType === "stop"
+        ? this._findStop(context.dayId, context.stopId)
+        : null;
+      const location = stop?.location || {};
       const result = await this._send({
         type: WS_ACTION,
         action: "search_destination_images",
-        data: { query: context.query, limit: 8 },
+        data: {
+          query: context.query,
+          limit: 12,
+          latitude: location.latitude ?? location.lat ?? null,
+          longitude: location.longitude ?? location.lon ?? location.lng ?? null,
+        },
       });
+      const existingGallery = context?.targetType === "stop"
+        ? this._destinationGalleryForStop(context.stopId)
+        : null;
+      const existing = this._destinationGalleryImages(existingGallery);
+      const combined = [];
+      const seen = new Set();
+      for (const image of [...existing, ...(result.results || [])]) {
+        const identity = cleanText(image?.id || image?.source_url || image?.image_url);
+        if (!identity || seen.has(identity)) continue;
+        seen.add(identity);
+        combined.push(image);
+      }
+      const selectedIds = context?.targetType === "stop"
+        ? existing.map((image) => cleanText(image.id || image.source_url || image.image_url)).filter(Boolean)
+        : [];
       this._dialog = {
         type: "image-search",
         context,
         query: result.query,
-        results: result.results || [],
+        results: combined,
+        providerErrors: result.provider_errors || {},
+        selectedIds: selectedIds.slice(0, 3),
+        primaryImageId: cleanText(existingGallery?.primary_image_id || selectedIds[0]),
       };
       this._render({ preserveScroll: true });
     } catch (error) {
-      this._showToast(this._errorMessage(error), "error", 6500);
+      this._showActionError(error, {
+        title: "Bildsuche fehlgeschlagen",
+        retry: () => this._searchImages(context),
+      });
     } finally {
       this._setBusy(false);
     }
+  }
+
+  _imageSearchIdentity(image) {
+    return cleanText(image?.id || image?.source_url || image?.image_url);
+  }
+
+  _toggleImageSearchResult(index) {
+    if (this._dialog?.type !== "image-search" || this._dialog?.context?.targetType !== "stop") return;
+    const image = this._dialog.results?.[index];
+    const identity = this._imageSearchIdentity(image);
+    if (!identity) return;
+    const selected = new Set(this._dialog.selectedIds || []);
+    if (selected.has(identity)) {
+      selected.delete(identity);
+      if (this._dialog.primaryImageId === identity) {
+        this._dialog.primaryImageId = [...selected][0] || "";
+      }
+    } else {
+      if (selected.size >= 3) {
+        this._showToast("Pro Stopp können höchstens drei Planungsbilder aktiv sein.", "error", 5000);
+        return;
+      }
+      selected.add(identity);
+      if (!this._dialog.primaryImageId) this._dialog.primaryImageId = identity;
+    }
+    this._dialog.selectedIds = [...selected];
+    this._render({ preserveScroll: true });
+  }
+
+  _setImageSearchPrimary(index) {
+    if (this._dialog?.type !== "image-search" || this._dialog?.context?.targetType !== "stop") return;
+    const image = this._dialog.results?.[index];
+    const identity = this._imageSearchIdentity(image);
+    if (!identity) return;
+    const selected = new Set(this._dialog.selectedIds || []);
+    if (!selected.has(identity)) {
+      if (selected.size >= 3) selected.delete([...selected][selected.size - 1]);
+      selected.add(identity);
+    }
+    this._dialog.selectedIds = [...selected];
+    this._dialog.primaryImageId = identity;
+    this._render({ preserveScroll: true });
+  }
+
+  async _saveImageSearchGallery() {
+    const dialog = this._dialog;
+    if (dialog?.type !== "image-search" || dialog?.context?.targetType !== "stop") return;
+    const selected = new Set(dialog.selectedIds || []);
+    const images = (dialog.results || []).filter((image) => selected.has(this._imageSearchIdentity(image))).slice(0, 3);
+    if (!images.length) {
+      this._showToast("Wähle mindestens ein Bild aus.", "error", 4500);
+      return;
+    }
+    const primary = dialog.primaryImageId && selected.has(dialog.primaryImageId)
+      ? dialog.primaryImageId
+      : this._imageSearchIdentity(images[0]);
+    const context = dialog.context;
+    const result = await this._runAction("save_destination_gallery", {
+      trip_id: this._selectedTripId,
+      day_id: context.dayId,
+      stop_id: context.stopId,
+      images,
+      primary_image_id: primary,
+    }, "Bildergalerie gespeichert");
+    if (result) this._closeDialog({ flushRefresh: false });
   }
 
   async _chooseImage(index) {
@@ -2434,6 +2696,10 @@ class RoadplannerPanel extends HTMLElement {
     const image = dialog?.results?.[index];
     const context = dialog?.context;
     if (!image || !context) return;
+    if (context.targetType === "stop") {
+      this._setImageSearchPrimary(index);
+      return;
+    }
     this._closeDialog({ flushRefresh: false });
     const media = {
       image_url: image.image_url,
@@ -2442,22 +2708,81 @@ class RoadplannerPanel extends HTMLElement {
       source_url: image.source_url,
       provider: image.provider,
     };
-    if (context.targetType === "day") {
-      const day = this._findDay(context.dayId);
-      await this._runAction("update_day", {
-        day_id: context.dayId,
-        patch: { details: this._detailsWithMedia(day, media) },
-        expected_revision: this._currentRevision(),
-      }, "Titelbild gespeichert");
-    } else {
-      const stop = this._findStop(context.dayId, context.stopId);
-      await this._runAction("update_stop", {
-        day_id: context.dayId,
-        stop_id: context.stopId,
-        patch: { details: this._detailsWithMedia(stop, media) },
-        expected_revision: this._currentRevision(),
-      }, "Zielbild gespeichert");
+    const day = this._findDay(context.dayId);
+    await this._runAction("update_day", {
+      day_id: context.dayId,
+      patch: { details: this._detailsWithMedia(day, media) },
+      expected_revision: this._currentRevision(),
+    }, "Titelbild gespeichert");
+  }
+
+  async _refreshDestinationGallery(dayId, stopId) {
+    if (!dayId || !stopId) return;
+    const result = await this._runAction("refresh_destination_gallery", {
+      trip_id: this._selectedTripId,
+      day_id: dayId,
+      stop_id: stopId,
+    }, "Bilder aktualisiert", {
+      errorMode: "dialog",
+      errorTitle: "Bilder konnten nicht aktualisiert werden",
+      retry: () => this._refreshDestinationGallery(dayId, stopId),
+    });
+    if (result?.gallery?.images?.length) {
+      this._dialog = {
+        type: "destination-gallery",
+        images: result.gallery.images,
+        index: 0,
+        title: this._findStop(dayId, stopId)?.name || "Stoppbilder",
+        dayId,
+        stopId,
+        primaryImageId: result.gallery.primary_image_id,
+        readOnly: !this._canEdit(),
+      };
+      this._render({ preserveScroll: true });
     }
+  }
+
+  async _updateDestinationGalleryFromDialog({ primaryOnly = false, removeCurrent = false, move = 0 } = {}) {
+    const dialog = this._dialog;
+    if (dialog?.type !== "destination-gallery" || dialog.readOnly || !dialog.stopId) return;
+    const images = [...(dialog.images || [])];
+    let index = Math.max(0, Math.min(images.length - 1, Number(dialog.index || 0)));
+    if (!images.length) return;
+    let primaryImageId = cleanText(dialog.primaryImageId || images[0]?.id);
+    if (removeCurrent) {
+      const [removed] = images.splice(index, 1);
+      if (removed?.id === primaryImageId) primaryImageId = cleanText(images[0]?.id);
+      index = Math.max(0, Math.min(images.length - 1, index));
+    } else if (move) {
+      const target = Math.max(0, Math.min(images.length - 1, index + move));
+      if (target !== index) {
+        [images[index], images[target]] = [images[target], images[index]];
+        index = target;
+      }
+    } else if (primaryOnly) {
+      primaryImageId = cleanText(images[index]?.id);
+    }
+    if (!images.length) {
+      await this._runAction("delete_destination_gallery", {
+        trip_id: this._selectedTripId,
+        stop_id: dialog.stopId,
+      }, "Bildergalerie entfernt");
+      this._closeDialog({ flushRefresh: false });
+      return;
+    }
+    const result = await this._runAction("save_destination_gallery", {
+      trip_id: this._selectedTripId,
+      day_id: dialog.dayId,
+      stop_id: dialog.stopId,
+      images,
+      primary_image_id: primaryImageId,
+    }, primaryOnly ? "Hauptbild gesetzt" : "Bildergalerie gespeichert");
+    if (!result) return;
+    dialog.images = result.gallery?.images || images;
+    dialog.primaryImageId = result.gallery?.primary_image_id || primaryImageId;
+    dialog.index = index;
+    this._dialog = dialog;
+    this._render({ preserveScroll: true });
   }
 
   async _removeImage(context) {
@@ -3321,7 +3646,66 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _experienceData() {
-    return this._data?.experience || { decisions: [], media: [], stats: {}, by_day: {}, by_stop: {}, onedrive: {} };
+    return this._data?.experience || { decisions: [], media: [], destination_galleries: {}, stats: {}, by_day: {}, by_stop: {}, onedrive: {} };
+  }
+
+  _destinationGalleries() {
+    const value = this._experienceData().destination_galleries;
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
+  _destinationGalleryForStop(stopId) {
+    return stopId ? this._destinationGalleries()[stopId] || null : null;
+  }
+
+  _destinationGalleryImages(gallery) {
+    return Array.isArray(gallery?.images)
+      ? gallery.images.filter((image) => this._safeUrl(image?.image_url || image?.thumbnail_url)).slice(0, 3)
+      : [];
+  }
+
+  _destinationGalleryPrimary(gallery) {
+    const images = this._destinationGalleryImages(gallery);
+    if (!images.length) return null;
+    return images.find((image) => image.id === gallery?.primary_image_id) || images[0];
+  }
+
+  _destinationProviderLabel(provider) {
+    const labels = {
+      wikimedia_commons: "Wikimedia Commons",
+      openverse: "Openverse",
+      manual: "Manuell",
+      onedrive: "OneDrive",
+    };
+    return labels[cleanText(provider)] || cleanText(provider) || "Bildquelle";
+  }
+
+  _renderDestinationGalleryPreview(gallery, { dayId = "", stopId = "", compact = false } = {}) {
+    const images = this._destinationGalleryImages(gallery);
+    if (!images.length) return "";
+    const primary = this._destinationGalleryPrimary(gallery) || images[0];
+    const ordered = [primary, ...images.filter((image) => image.id !== primary.id)].slice(0, 3);
+    return `<div class="destination-gallery-preview ${compact ? "compact" : ""}">
+      <button class="destination-gallery-main" type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="0"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || primary.title || "Reiseziel")}"><span><ha-icon icon="mdi:image-multiple-outline"></ha-icon>${images.length} Bilder</span></button>
+      ${ordered.length > 1 ? `<div class="destination-gallery-thumbs">${ordered.slice(1).map((image, index) => `<button type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="${index + 1}"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || "Reiseziel")}"></button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
+  _renderDestinationGalleryStatus(gallery, dayId, stopId) {
+    if (!gallery || this._destinationGalleryImages(gallery).length) return "";
+    const errors = gallery.provider_errors && typeof gallery.provider_errors === "object"
+      ? Object.values(gallery.provider_errors).filter(Boolean)
+      : [];
+    const failed = gallery.status === "error" || errors.length;
+    return `<div class="destination-gallery-inline ${failed ? "warning" : "neutral"}"><ha-icon icon="${failed ? "mdi:image-off-outline" : "mdi:image-search-outline"}"></ha-icon><div><strong>${failed ? "Bilder konnten noch nicht geladen werden" : "Noch keine passenden Planungsbilder"}</strong><span>${failed ? "Andere Stoppinformationen bleiben vollständig verfügbar." : "Roadplanner sucht im Hintergrund nach passenden Bildern."}</span></div>${this._canEdit() ? `<button class="text-button" type="button" data-action="destination-gallery-refresh" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}">Erneut versuchen</button>` : ""}</div>`;
+  }
+
+  _stepDestinationGallery(delta) {
+    if (this._dialog?.type !== "destination-gallery") return;
+    const images = this._dialog.images || [];
+    if (!images.length) return;
+    this._dialog.index = (Number(this._dialog.index || 0) + delta + images.length) % images.length;
+    this._render({ preserveScroll: true });
   }
 
   _experienceMediaByIds(ids) {
@@ -3364,6 +3748,20 @@ class RoadplannerPanel extends HTMLElement {
     `;
   }
 
+  _renderDecisionOptionGallery(decision, option) {
+    const images = Array.isArray(option?.images) && option.images.length
+      ? option.images.slice(0, 3)
+      : (option?.image?.image_url ? [option.image] : []);
+    if (!images.length) {
+      return `<div class="decision-image empty"><ha-icon icon="mdi:image-area"></ha-icon><span>Kein sicher zugeordnetes Bild gefunden</span></div>`;
+    }
+    const primary = images[0];
+    return `<div class="decision-option-gallery">
+      <button type="button" class="decision-image" data-action="decision-gallery-open" data-decision-id="${escapeHtml(decision.id)}" data-option-id="${escapeHtml(option.id)}" data-image-index="0"><img src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || option.title)}" loading="lazy">${primary.attribution ? `<small>${escapeHtml(primary.attribution)}</small>` : ""}</button>
+      ${images.length > 1 ? `<div class="decision-image-thumbs">${images.slice(1).map((image, index) => `<button type="button" data-action="decision-gallery-open" data-decision-id="${escapeHtml(decision.id)}" data-option-id="${escapeHtml(option.id)}" data-image-index="${index + 1}"><img src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || option.title)}" loading="lazy"></button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
   _renderDecisionCard(decision) {
     const options = Array.isArray(decision.options) ? decision.options : [];
     if (!options.length) return "";
@@ -3373,7 +3771,6 @@ class RoadplannerPanel extends HTMLElement {
       index = selected >= 0 ? selected : 0;
     }
     const option = options[index];
-    const imageUrl = this._safeUrl(option?.image?.image_url);
     const location = option?.location || {};
     const lat = Number(location.latitude ?? location.lat);
     const lon = Number(location.longitude ?? location.lon ?? location.lng);
@@ -3390,7 +3787,7 @@ class RoadplannerPanel extends HTMLElement {
     return `<article class="decision-card panel-card" data-decision-card="${escapeHtml(decision.id)}">
       <header class="decision-heading"><div><span class="eyebrow">${escapeHtml(this._archiveDayLabel(decision.linked_day_id))}</span><h2>${escapeHtml(decision.title || "Entscheidung")}</h2><p>${escapeHtml(decision.question || "Welche Option passt am besten?")}</p></div><span class="decision-counter">${index + 1} / ${options.length}</span></header>
       <div class="decision-slide">
-        <div class="decision-image ${imageUrl ? "" : "empty"}">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(option.image?.alt || option.title)}" loading="lazy">${option.image?.attribution ? `<small>${escapeHtml(option.image.attribution)}</small>` : ""}` : `<ha-icon icon="mdi:image-area"></ha-icon><span>Kein sicher zugeordnetes Bild gefunden</span>`}</div>
+        ${this._renderDecisionOptionGallery(decision, option)}
         <div class="decision-copy">
           <div class="decision-title-row"><div><span class="eyebrow">${currentPlan ? "Aktuell geplant" : `Option ${index + 1}`}</span><h3>${escapeHtml(option.title)}</h3></div><div class="decision-title-badges">${currentPlan ? `<span class="status-badge neutral">Bestehender Plan</span>` : ""}${selected ? `<span class="status-badge status-success">Ausgewählt</span>` : ""}</div></div>
           <p>${escapeHtml(option.summary || "")}</p>
@@ -3672,7 +4069,7 @@ class RoadplannerPanel extends HTMLElement {
         ${nextDay ? `
           <div class="next-day-grid">
             <div><span>Datum</span><strong>${escapeHtml(this._formatDate(nextDay.date))}</strong></div>
-            <div><span>Route</span><strong>${escapeHtml(nextDay.start || "?")} → ${escapeHtml(nextDay.end || "?")}</strong></div>
+            <div><span>Route</span><strong>${escapeHtml(this._effectiveDayStart(nextDay))} → ${escapeHtml(this._effectiveDayStops(nextDay).at(-1)?.name || nextDay.end || "?")}</strong></div>
             <div><span>Stopps</span><strong>${nextDay.stop_count || 0}</strong></div>
           </div>
         ` : `<p class="muted">Lege den ersten Reisetag direkt im Panel an oder plane ihn später über Gemini.</p>`}
@@ -3749,8 +4146,10 @@ class RoadplannerPanel extends HTMLElement {
     const dayImages = [];
     const dayMedia = this._mediaFrom(day);
     if (dayMedia) dayImages.push({ ...dayMedia, context: day.title });
-    for (const stop of day.stops || []) {
-      const media = this._mediaFrom(stop);
+    for (const stop of this._canonicalStops(day.stops || [])) {
+      const gallery = this._destinationGalleryForStop(stop.id);
+      const primary = this._destinationGalleryPrimary(gallery);
+      const media = primary || this._mediaFrom(stop);
       if (media) dayImages.push({ ...media, context: stop.name });
     }
     const drive = this._formatDriveMinutes(day.drive_minutes);
@@ -3785,7 +4184,7 @@ class RoadplannerPanel extends HTMLElement {
         <div>
           <span class="eyebrow">Tagesroute</span>
           <h2>${escapeHtml(day.title)}</h2>
-          <p>${escapeHtml(this._formatDate(day.date))} · ${escapeHtml(effectiveStart)} → ${escapeHtml(day.end || routeStops.at(-1)?.name || "?")}</p>
+          <p>${escapeHtml(this._formatDate(day.date))} · ${escapeHtml(effectiveStart)} → ${escapeHtml(routeStops.at(-1)?.name || day.end || "?")}</p>
         </div>
         <label class="day-select"><span>Reisetag</span><select data-action="select-day">${days.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === day.id ? "selected" : ""}>${item.sequence}. ${escapeHtml(item.title)}</option>`).join("")}</select></label>
       </section>
@@ -3867,21 +4266,20 @@ class RoadplannerPanel extends HTMLElement {
   _renderRouteFlow(day) {
     const stops = this._effectiveDayStops(day);
     const nodes = [];
-    if (day.start && !stops.some((stop) => stop?._inherited)) {
-      nodes.push({ label: day.start, type: "start", icon: "mdi:flag-outline" });
-    }
-    for (const stop of stops) {
-      nodes.push({
-        label: stop.name,
-        type: stop.type,
-        icon: stopIcons[stop.type] || stopIcons.waypoint,
-        time: stop._inherited
-          ? `Start vom Vortag${stop.departure_time ? ` · Abfahrt ${stop.departure_time}` : ""}`
-          : (stop.arrival_time || stop.departure_time),
-      });
-    }
-    if (day.end && (!nodes.length || nodes[nodes.length - 1].label !== day.end)) {
-      nodes.push({ label: day.end, type: "end", icon: "mdi:flag-checkered" });
+    if (stops.length) {
+      for (const stop of stops) {
+        nodes.push({
+          label: stop.name,
+          type: stop.type,
+          icon: stopIcons[stop.type] || stopIcons.waypoint,
+          time: stop._inherited
+            ? `Start vom Vortag${stop.departure_time ? ` · Abfahrt ${stop.departure_time}` : ""}`
+            : (stop.arrival_time || stop.departure_time),
+        });
+      }
+    } else {
+      if (day.start) nodes.push({ label: day.start, type: "start", icon: "mdi:flag-outline" });
+      if (day.end && day.end !== day.start) nodes.push({ label: day.end, type: "end", icon: "mdi:flag-checkered" });
     }
     if (!nodes.length) return "";
     return `<section class="route-flow-card"><span class="eyebrow">Schematischer Tagesablauf</span><div class="route-flow">${nodes.map((node, index) => `<div class="flow-item"><div class="flow-node"><ha-icon icon="${node.icon}"></ha-icon></div><div class="flow-copy"><strong>${escapeHtml(node.label)}</strong><span>${escapeHtml(node.time || this._statusLabel(node.type))}</span></div>${index < nodes.length - 1 ? '<div class="flow-line"></div>' : ""}</div>`).join("")}</div></section>`;
@@ -3892,6 +4290,8 @@ class RoadplannerPanel extends HTMLElement {
     const media = this._mediaFrom(stop);
     const experienceMedia = this._experienceMediaForStop(stop.id);
     const experienceCover = experienceMedia.find((item) => item.is_cover) || experienceMedia[0] || null;
+    const destinationGallery = this._destinationGalleryForStop(stop.id);
+    const destinationImages = this._destinationGalleryImages(destinationGallery);
     const location = stop.location || {};
     const coordinate = this._coordinate(stop);
     const time = [stop.arrival_time && `Ankunft ${stop.arrival_time}`, stop.departure_time && `Abfahrt ${stop.departure_time}`].filter(Boolean).join(" · ");
@@ -3902,7 +4302,7 @@ class RoadplannerPanel extends HTMLElement {
       this._externalLink(navigationUrl, "Navigieren", "mdi:navigation-variant-outline", "primary-button"),
     ].filter(Boolean).join("");
     return `<article class="stop-card ${inherited ? "inherited-stop" : ""}">
-      ${experienceCover ? `<button type="button" class="stop-experience-cover" data-action="media-open-album" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" data-media-id="${escapeHtml(experienceCover.id)}"><img src="${escapeHtml(this._safeUrl(experienceCover.thumbnail_url))}" alt="${escapeHtml(experienceCover.caption || experienceCover.name || stop.name)}" loading="lazy"><span><ha-icon icon="mdi:image-multiple"></ha-icon>${experienceMedia.length} ${experienceMedia.length === 1 ? "Foto" : "Fotos"}</span></button>` : media ? this._renderDestinationImage({ ...media, context: stop.name }, { compact: true }) : `<div class="stop-image-placeholder"><ha-icon icon="${stopIcons[stop.type] || stopIcons.waypoint}"></ha-icon><span>${escapeHtml(this._statusLabel(stop.type))}</span></div>`}
+      ${experienceCover ? `<button type="button" class="stop-experience-cover" data-action="media-open-album" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" data-media-id="${escapeHtml(experienceCover.id)}"><img src="${escapeHtml(this._safeUrl(experienceCover.thumbnail_url))}" alt="${escapeHtml(experienceCover.caption || experienceCover.name || stop.name)}" loading="lazy"><span><ha-icon icon="mdi:image-multiple"></ha-icon>${experienceMedia.length} ${experienceMedia.length === 1 ? "Foto" : "Fotos"}</span></button>` : destinationImages.length ? this._renderDestinationGalleryPreview(destinationGallery, { dayId: day.id, stopId: stop.id, compact: true }) : media ? this._renderDestinationImage({ ...media, context: stop.name }, { compact: true }) : `<div class="stop-image-placeholder"><ha-icon icon="${stopIcons[stop.type] || stopIcons.waypoint}"></ha-icon><span>${escapeHtml(this._statusLabel(stop.type))}</span></div>`}
       <div class="stop-card-body">
         <div class="stop-card-heading"><span class="sequence-badge">${index + 1}</span><div><h3>${escapeHtml(stop.name)}</h3><span>${escapeHtml(this._statusLabel(stop.type))}${inherited ? " · Start vom Vortag" : ""}</span></div></div>
         ${inherited ? `<div class="inherited-badge"><ha-icon icon="mdi:link-variant"></ha-icon>Derselbe Übernachtungsstopp wie am Vortag</div>` : ""}
@@ -3912,11 +4312,12 @@ class RoadplannerPanel extends HTMLElement {
           ${coordinate ? `<span><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${coordinate.lat.toFixed(5)}, ${coordinate.lon.toFixed(5)}</span>` : ""}
         </div>
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
-        ${media?.attribution && !experienceCover ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
+        ${media?.attribution && !experienceCover && !destinationImages.length ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
+        ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id)}
         ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name })}
         ${this._renderStopArchiveSummary(day, stop)}
         ${externalActions ? `<div class="button-row stop-actions">${externalActions}</div>` : ""}
-        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button><button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-search-outline"></ha-icon> Bild suchen</button>${media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
+        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button><button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
       </div>
     </article>`;
   }
@@ -3961,29 +4362,36 @@ class RoadplannerPanel extends HTMLElement {
         <ha-icon icon="mdi:route"></ha-icon>
       </div>
       <div class="journey-track" role="list">
-        ${days.map((day, index) => `
+        ${days.map((day, index) => {
+          const routeStops = this._effectiveDayStops(day);
+          const start = routeStops[0]?.name || day.start || "?";
+          const end = routeStops.at(-1)?.name || day.end || "?";
+          return `
           <button type="button" class="journey-node" role="listitem" data-action="select-day-card" data-day-id="${escapeHtml(day.id)}">
             <span class="journey-dot">${day.sequence}</span>
             <span class="journey-copy">
               <small>${escapeHtml(this._formatDate(day.date))}</small>
               <strong>${escapeHtml(day.title)}</strong>
-              <span>${escapeHtml(day.start || "?")} → ${escapeHtml(day.end || "?")}</span>
+              <span>${escapeHtml(start)} → ${escapeHtml(end)}</span>
             </span>
           </button>
           ${index < days.length - 1 ? '<span class="journey-line" aria-hidden="true"></span>' : ""}
-        `).join("")}
+        `;
+        }).join("")}
       </div>
     </section>`;
   }
 
   _renderTotalDay(day) {
-    const media = this._mediaFrom(day) || (day.stops || []).map((stop) => this._mediaFrom(stop)).find(Boolean);
+    const orderedStops = this._canonicalStops(day.stops || []);
+    const galleryMedia = orderedStops.map((stop) => this._destinationGalleryPrimary(this._destinationGalleryForStop(stop.id))).find(Boolean);
+    const media = this._mediaFrom(day) || galleryMedia || orderedStops.map((stop) => this._mediaFrom(stop)).find(Boolean);
     const drive = this._formatDriveMinutes(day.drive_minutes);
     const routeStatus = this._routeStatusLabel(day);
     return `<article class="total-day-card" data-action="select-day-card" data-day-id="${escapeHtml(day.id)}">
       <div class="total-day-sequence"><span>${day.sequence}</span></div>
       ${media ? `<div class="total-day-image">${this._renderDestinationImage({ ...media, context: day.title }, { compact: true })}</div>` : ""}
-      <div class="total-day-copy"><span>${escapeHtml(this._formatDate(day.date))}</span><h3>${escapeHtml(day.title)}</h3><p>${escapeHtml(this._effectiveDayStart(day))} → ${escapeHtml(day.end || day.stops?.at(-1)?.name || "?")}</p><div>${[day.distance_km != null ? `${day.distance_km} km` : "", drive, `${day.stop_count || 0} Stopps`, routeStatus].filter(Boolean).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></div>
+      <div class="total-day-copy"><span>${escapeHtml(this._formatDate(day.date))}</span><h3>${escapeHtml(day.title)}</h3><p>${escapeHtml(this._effectiveDayStart(day))} → ${escapeHtml(orderedStops.at(-1)?.name || day.end || "?")}</p><div>${[day.distance_km != null ? `${day.distance_km} km` : "", drive, `${day.stop_count || 0} Stopps`, routeStatus].filter(Boolean).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></div>
       <ha-icon class="chevron" icon="mdi:chevron-right"></ha-icon>
     </article>`;
   }
@@ -4058,6 +4466,7 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "onedrive-auth") body = this._renderOneDriveAuth(this._dialog);
     else if (this._dialog.type === "media-edit") body = this._renderMediaEdit(this._dialog);
     else if (this._dialog.type === "media-gallery") body = this._renderMediaGallery(this._dialog);
+    else if (this._dialog.type === "destination-gallery") body = this._renderDestinationGallery(this._dialog);
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
   }
 
@@ -4103,7 +4512,7 @@ class RoadplannerPanel extends HTMLElement {
   _archiveStopOptions(selected = "") {
     const result = [{ value: "", label: "Kein konkreter Stopp" }];
     for (const day of this._data?.days?.days || []) {
-      for (const stop of day.stops || []) {
+      for (const stop of this._canonicalStops(day.stops || [])) {
         result.push({ value: `${day.id}::${stop.id}`, label: `${this._formatDate(day.date)} · ${stop.name || stop.id}` });
       }
     }
@@ -4330,10 +4739,25 @@ class RoadplannerPanel extends HTMLElement {
     const dayOptions = [{ value: "", label: "Nicht zugeordnet" }, ...days.map((day) => ({ value: day.id, label: `${this._formatDate(day.date)} · ${day.title || day.id}` }))];
     const stopOptions = [{ value: "", label: "Kein konkreter Stopp" }];
     for (const day of days) {
-      for (const stop of day.stops || []) stopOptions.push({ value: `${day.id}::${stop.id}`, label: `${this._formatDate(day.date)} · ${stop.name}` });
+      for (const stop of this._canonicalStops(day.stops || [])) stopOptions.push({ value: `${day.id}::${stop.id}`, label: `${this._formatDate(day.date)} · ${stop.name}` });
     }
     const stopRef = item.linked_day_id && item.linked_stop_id ? `${item.linked_day_id}::${item.linked_stop_id}` : "";
     return `${this._renderModalHeader("Foto zuordnen", item.name || "OneDrive-Foto")}<form data-form="media-edit" data-media-id="${escapeHtml(item.id || "")}" class="form-grid">${this._archiveSelect("linked_day_id", "Reisetag", item.linked_day_id || "", dayOptions, "full")}${this._archiveSelect("linked_stop_ref", "Stopp", stopRef, stopOptions, "full")}${this._textarea("caption", "Bildunterschrift", item.caption || "", "full")}<label class="checkbox-field full"><input type="checkbox" name="is_cover" ${item.is_cover ? "checked" : ""}><span><strong>Als Titelbild dieses Stopps verwenden</strong><small>Roadplanner zeigt pro Stopp nur ein Titelbild.</small></span></label>${this._formActions("Zuordnung speichern")}</form><div class="modal-actions"><button class="text-button danger-text" type="button" data-action="media-delete" data-media-id="${escapeHtml(item.id || "")}">Aus Roadplanner entfernen</button></div>`;
+  }
+
+  _renderDestinationGallery(dialog) {
+    const images = Array.isArray(dialog.images) ? dialog.images : [];
+    if (!images.length) return `${this._renderModalHeader(dialog.title || "Bildergalerie")}<div class="empty-state">Keine Bilder</div>`;
+    const index = Math.max(0, Math.min(images.length - 1, Number(dialog.index || 0)));
+    const item = images[index];
+    const isPrimary = cleanText(item.id) && cleanText(item.id) === cleanText(dialog.primaryImageId);
+    const source = this._safeUrl(item.source_url || item.original_url);
+    return `${this._renderModalHeader(dialog.title || "Bildergalerie", `${index + 1} von ${images.length}`)}
+      <div class="media-gallery destination-gallery-dialog">
+        <div class="media-gallery-stage" data-destination-gallery-stage><img data-destination-image src="${escapeHtml(this._safeUrl(item.original_url || item.image_url || item.thumbnail_url))}" alt="${escapeHtml(item.alt || item.title || "Reiseziel")}"></div>
+        <div class="media-gallery-caption"><strong>${escapeHtml(item.title || item.alt || dialog.title || "Bild")}</strong><span>${escapeHtml(this._destinationProviderLabel(item.provider))}${item.license ? ` · ${escapeHtml(item.license)}` : ""}</span>${item.attribution ? `<small>${escapeHtml(item.attribution)}</small>` : ""}</div>
+      </div>
+      <div class="modal-actions media-gallery-actions"><button class="icon-button" type="button" data-action="destination-gallery-prev"><ha-icon icon="mdi:chevron-left"></ha-icon></button>${!dialog.readOnly ? `<button class="secondary-button" type="button" data-action="destination-gallery-move-left" ${index <= 0 ? "disabled" : ""}><ha-icon icon="mdi:arrow-left"></ha-icon>Nach links</button><button class="secondary-button" type="button" data-action="destination-gallery-primary" ${isPrimary ? "disabled" : ""}><ha-icon icon="mdi:star-outline"></ha-icon>${isPrimary ? "Hauptbild" : "Als Hauptbild"}</button><button class="secondary-button" type="button" data-action="destination-gallery-move-right" ${index >= images.length - 1 ? "disabled" : ""}>Nach rechts<ha-icon icon="mdi:arrow-right"></ha-icon></button><button class="text-button danger-text" type="button" data-action="destination-gallery-remove-image">Bild entfernen</button>` : ""}${source ? `<a class="secondary-button" href="${escapeHtml(source)}" target="_blank" rel="noopener noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>Quelle</a>` : ""}<button class="icon-button" type="button" data-action="destination-gallery-next"><ha-icon icon="mdi:chevron-right"></ha-icon></button></div>`;
   }
 
   _renderMediaGallery(dialog) {
@@ -4453,7 +4877,17 @@ class RoadplannerPanel extends HTMLElement {
 
   _renderImageSearch(dialog) {
     const results = dialog.results || [];
-    return `${this._renderModalHeader("Zielbild auswählen", dialog.query)}<div class="image-search-body">${results.length ? `<div class="image-search-grid">${results.map((image, index) => `<article class="image-result">${this._renderDestinationImage({ ...image, context: image.title }, { compact: true })}<div><strong>${escapeHtml(image.title || image.alt)}</strong><span>${escapeHtml(image.attribution || "Wikimedia Commons")}</span><button class="primary-button" type="button" data-action="choose-image" data-image-index="${index}">Dieses Bild verwenden</button></div></article>`).join("")}</div>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-search-outline"></ha-icon><h2>Keine passenden Bilder gefunden</h2><p>Bearbeite den Namen oder Ort des Ziels und starte die Suche erneut.</p></div>`}<div class="notice info"><ha-icon icon="mdi:information-outline"></ha-icon><div><strong>Bildquelle</strong><span>Die Suche läuft nur auf ausdrücklichen Klick über Wikimedia Commons. Bildnachweis und Quellseite werden mitgespeichert.</span></div></div></div><div class="modal-actions"><button class="secondary-button" type="button" data-action="close-dialog">Schließen</button></div>`;
+    const isStopGallery = dialog?.context?.targetType === "stop";
+    const selected = new Set(dialog.selectedIds || []);
+    const providerErrors = dialog.providerErrors && typeof dialog.providerErrors === "object"
+      ? Object.entries(dialog.providerErrors)
+      : [];
+    return `${this._renderModalHeader(isStopGallery ? "Bilder verwalten" : "Zielbild auswählen", dialog.query)}<div class="image-search-body">${results.length ? `<div class="image-search-grid">${results.map((image, index) => {
+      const identity = this._imageSearchIdentity(image);
+      const active = selected.has(identity);
+      const primary = dialog.primaryImageId === identity;
+      return `<article class="image-result ${active ? "selected" : ""}">${this._renderDestinationImage({ ...image, context: image.title }, { compact: true })}<div><strong>${escapeHtml(image.title || image.alt)}</strong><span>${escapeHtml(image.attribution || this._destinationProviderLabel(image.provider))}</span><small>${escapeHtml(this._destinationProviderLabel(image.provider))}${image.license ? ` · ${escapeHtml(image.license)}` : ""}</small>${isStopGallery ? `<div class="image-result-actions"><button class="${active ? "secondary-button" : "primary-button"}" type="button" data-action="image-result-toggle" data-image-index="${index}">${active ? "Aus Auswahl entfernen" : "Zur Galerie hinzufügen"}</button><button class="text-button" type="button" data-action="image-result-primary" data-image-index="${index}" ${primary ? "disabled" : ""}><ha-icon icon="mdi:star${primary ? "" : "-outline"}"></ha-icon>${primary ? "Hauptbild" : "Als Hauptbild"}</button></div>` : `<button class="primary-button" type="button" data-action="choose-image" data-image-index="${index}">Dieses Bild verwenden</button>`}</div></article>`;
+    }).join("")}</div>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-search-outline"></ha-icon><h2>Keine passenden Bilder gefunden</h2><p>Die Stoppdaten bleiben vollständig erhalten. Du kannst die Suche später erneut versuchen oder eine eigene Bild-URL hinterlegen.</p></div>`}${providerErrors.length ? `<div class="destination-provider-errors"><strong>Nicht alle Bildquellen waren erreichbar</strong>${providerErrors.map(([provider, message]) => `<span><b>${escapeHtml(this._destinationProviderLabel(provider))}:</b> ${escapeHtml(message)}</span>`).join("")}</div>` : ""}<div class="notice info"><ha-icon icon="mdi:information-outline"></ha-icon><div><strong>Bildquellen</strong><span>Roadplanner kombiniert Wikimedia Commons und Openverse, speichert Quellen- und Lizenzangaben und verwendet höchstens drei aktive Planungsbilder pro Stopp.</span></div></div></div><div class="modal-actions"><button class="secondary-button" type="button" data-action="close-dialog">Schließen</button>${isStopGallery ? `<button class="primary-button" type="button" data-action="save-image-gallery" ${selected.size ? "" : "disabled"}><ha-icon icon="mdi:content-save-outline"></ha-icon>${selected.size} ${selected.size === 1 ? "Bild" : "Bilder"} speichern</button>` : ""}</div>`;
   }
 
   _field(name, label, value, type = "text", required = false, className = "", min = "", step = "") {
@@ -4760,6 +5194,19 @@ class RoadplannerPanel extends HTMLElement {
       .image-fallback { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; flex-direction: column; gap: 7px; color: var(--secondary-text-color); }
       .destination-image.image-error img { display: none; }
       .destination-image.image-error .image-fallback { display: flex; }
+      .destination-gallery-preview { height: 190px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(74px, .8fr); gap: 4px; overflow: hidden; background: var(--secondary-background-color); }
+      .destination-gallery-preview.compact { height: 190px; }
+      .destination-gallery-main, .destination-gallery-thumbs button { position: relative; min-width: 0; border: 0; padding: 0; background: var(--secondary-background-color); cursor: pointer; overflow: hidden; }
+      .destination-gallery-main img, .destination-gallery-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .destination-gallery-main > span { position: absolute; left: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; background: rgba(0,0,0,.62); color: white; font-size: 11px; font-weight: 800; }
+      .destination-gallery-main ha-icon { --mdc-icon-size: 16px; }
+      .destination-gallery-thumbs { display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 4px; min-width: 0; }
+      .destination-gallery-inline { margin-top: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px; border-radius: 13px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
+      .destination-gallery-inline.warning { color: var(--warning-color, #f57c00); background: color-mix(in srgb, var(--warning-color, #f57c00) 9%, var(--secondary-background-color)); }
+      .destination-gallery-inline > div { min-width: 0; display: grid; gap: 2px; }
+      .destination-gallery-inline strong { color: var(--primary-text-color); }
+      .destination-gallery-inline span { font-size: 11px; line-height: 1.35; }
+      .destination-gallery-inline ha-icon { --mdc-icon-size: 22px; }
       .empty-inline { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 16px; color: var(--secondary-text-color); text-align: left; }
       .empty-inline ha-icon { --mdc-icon-size: 42px; color: var(--primary-color); }
       .empty-inline > div { display: flex; flex-direction: column; gap: 4px; }
@@ -4871,6 +5318,12 @@ class RoadplannerPanel extends HTMLElement {
       .image-result { border: 1px solid var(--divider-color); border-radius: 16px; overflow: hidden; background: var(--secondary-background-color); }
       .image-result > div:last-child { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
       .image-result > div:last-child span { color: var(--secondary-text-color); font-size: 11px; }
+      .image-result.selected { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent); }
+      .image-result > div:last-child small { color: var(--secondary-text-color); font-size: 10px; }
+      .image-result-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      .destination-provider-errors { margin-top: 14px; padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--warning-color, #f57c00) 10%, var(--secondary-background-color)); display: grid; gap: 5px; color: var(--secondary-text-color); }
+      .destination-provider-errors strong { color: var(--primary-text-color); }
+      .destination-provider-errors span { font-size: 11px; overflow-wrap: anywhere; }
       .assistant-setup { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; }
       .assistant-setup-icon, .assistant-avatar { width: 58px; height: 58px; border-radius: 18px; display: grid; place-items: center; background: color-mix(in srgb, var(--primary-color) 14%, transparent); color: var(--primary-color); }
       .assistant-setup-icon ha-icon, .assistant-avatar ha-icon { --mdc-icon-size: 34px; }
@@ -5099,6 +5552,11 @@ class RoadplannerPanel extends HTMLElement {
       .decision-image small { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 5px 8px; border-radius: 8px; background: rgba(0,0,0,.58); color: white; font-size: 10px; z-index: 1; }
       .decision-image.empty { color: var(--secondary-text-color); align-content: center; gap: 10px; text-align: center; padding: 24px; }
       .decision-image.empty ha-icon { --mdc-icon-size: 56px; }
+      .decision-option-gallery { display: grid; grid-template-rows: minmax(0, 1fr) 92px; min-height: 420px; background: var(--secondary-background-color); }
+      .decision-option-gallery .decision-image { min-height: 0; border: 0; padding: 0; cursor: pointer; }
+      .decision-image-thumbs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding-top: 4px; }
+      .decision-image-thumbs button { border: 0; padding: 0; background: var(--secondary-background-color); cursor: pointer; overflow: hidden; }
+      .decision-image-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .decision-copy { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
       .decision-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
       .decision-title-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
@@ -5282,6 +5740,9 @@ class RoadplannerPanel extends HTMLElement {
         .decision-slide { grid-template-columns: 1fr; }
         .experience-album.compact .experience-album-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .decision-image { min-height: 280px; }
+        .decision-option-gallery { min-height: 360px; grid-template-rows: minmax(0, 1fr) 78px; }
+        .destination-gallery-inline { grid-template-columns: auto minmax(0, 1fr); }
+        .destination-gallery-inline .text-button { grid-column: 1 / -1; justify-self: start; }
         .decision-procon { grid-template-columns: 1fr; }
         .decision-footer { grid-template-columns: auto 1fr auto; }
         .decision-footer > .text-button { grid-column: 1 / -1; }

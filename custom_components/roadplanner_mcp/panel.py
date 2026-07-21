@@ -55,6 +55,10 @@ _ACTIONS = {
     "archive_handoff",
     "create_backup",
     "search_destination_images",
+    "refresh_destination_gallery",
+    "save_destination_gallery",
+    "delete_destination_gallery",
+    "auto_populate_destination_galleries",
     "assistant_chat",
     "assistant_clear",
     "assistant_remove_draft",
@@ -105,6 +109,10 @@ _EDIT_ACTIONS = {
     "calculate_day_route",
     "calculate_trip_routes",
     "search_destination_images",
+    "refresh_destination_gallery",
+    "save_destination_gallery",
+    "delete_destination_gallery",
+    "auto_populate_destination_galleries",
     "archive_create_upload_ticket",
     "archive_analyze_document",
     "archive_confirm_document",
@@ -419,6 +427,37 @@ async def _execute_action(
         return await runtime.experience.async_delete_decision(
             str(data.get("trip_id") or ""),
             str(data.get("decision_id") or ""),
+        )
+
+    if action == "refresh_destination_gallery":
+        return await runtime.experience.async_refresh_destination_gallery(
+            str(data.get("trip_id") or ""),
+            str(data.get("day_id") or ""),
+            str(data.get("stop_id") or ""),
+        )
+
+    if action == "save_destination_gallery":
+        images = data.get("images")
+        if not isinstance(images, list):
+            raise ValidationError("Die Bildergalerie ist unvollständig")
+        return await runtime.experience.async_save_destination_gallery(
+            str(data.get("trip_id") or ""),
+            str(data.get("day_id") or ""),
+            str(data.get("stop_id") or ""),
+            [item for item in images if isinstance(item, dict)],
+            str(data.get("primary_image_id") or "") or None,
+        )
+
+    if action == "delete_destination_gallery":
+        return await runtime.experience.async_delete_destination_gallery(
+            str(data.get("trip_id") or ""),
+            str(data.get("stop_id") or ""),
+        )
+
+    if action == "auto_populate_destination_galleries":
+        return await runtime.experience.async_auto_populate_destination_galleries(
+            str(data.get("trip_id") or ""),
+            limit=_optional_int(data.get("limit")) or 6,
         )
 
     if action == "onedrive_configure":
@@ -814,6 +853,8 @@ async def _execute_action(
         return await runtime.image_provider.async_search(
             str(data.get("query") or ""),
             limit=_optional_int(data.get("limit")) or 8,
+            latitude=data.get("latitude"),
+            longitude=data.get("longitude"),
         )
 
     raise ValidationError(f"Unbekannte Panel-Aktion: {action}")
@@ -888,7 +929,9 @@ async def websocket_get_panel_data(
                 "drive_import_endpoint": (
                     DRIVE_IMPORT_PATH if runtime.webhook_token else None
                 ),
-                "destination_image_provider": "wikimedia_commons",
+                "destination_image_provider": "wikimedia_commons+openverse",
+                "destination_image_gallery_size": 3,
+                "destination_image_auto_fill": True,
                 "assistant_configured": runtime.assistant.configured,
                 "assistant_provider": runtime.assistant.provider_name,
                 "assistant_model": runtime.assistant.model,
