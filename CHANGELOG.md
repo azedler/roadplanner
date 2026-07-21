@@ -40,3 +40,22 @@ The project follows Semantic Versioning for public releases.
 - Mobile layout and numerous assistant-normalization fixes.
 
 This entry records the first Git-managed baseline. Detailed historical notes are preserved in `docs/legacy/2.6.5/`.
+
+## [2.7.1] - 2026-07-21
+
+### Added
+
+- Assistant responses can contain safely clickable HTTPS and Google Maps links.
+- Persistent, mobile-friendly error dialogs with retry and copy-details actions.
+- Visible assistant loading state while requests are processed.
+
+### Changed
+
+- Assistant responses are rendered directly without a blocking full panel reload.
+- Decision option enrichment runs concurrently with bounded timeouts.
+- Missing images, routes, or geocoding results no longer invalidate an entire decision draft.
+- Gemini timeout handling reserves time for a configured fallback model.
+
+### Fixed
+
+- Assistant and decision errors are no longer hidden or clipped at the bottom of mobile screens.

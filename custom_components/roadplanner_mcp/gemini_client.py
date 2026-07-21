@@ -696,6 +696,17 @@ class GeminiClient:
                                     break
                                 stop_model = True
                                 break
+                            if (
+                                err.code == "timeout"
+                                and model_index == 0
+                                and len(models) > 1
+                                and err.allow_fallback
+                            ):
+                                # A second long wait against the same primary model
+                                # rarely improves an interactive chat. Preserve the
+                                # remaining deadline for the configured fallback.
+                                stop_model = True
+                                break
                             if not err.retriable:
                                 stop_model = True
                                 break
