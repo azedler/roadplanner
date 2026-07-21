@@ -20,26 +20,36 @@ The project follows Semantic Versioning for public releases.
 ### Planned
 
 - GitHub and HACS delivery foundation.
-- Canonical stop ordering shared by map, timeline, routing and navigation.
 - Planning-distance estimates and phase-aware overview.
 - Media Intelligence with local deduplication and optional AI highlights.
 - Long-conversation compaction and attachment pruning.
 - Provider and Roadbook architecture contracts.
 
-## [2.6.5] — Imported baseline
+## [2.8.0] - 2026-07-21
 
-### Added and stabilized
+### Added
 
-- Native conversational assistant and change basket.
-- Roadbook, routes, stops and inherited overnight starts.
-- Routing and Google Maps handoff.
-- Documents, expenses and daily tasks.
-- Decisions and image-based option cards.
-- OneDrive Personal photo synchronization and albums.
-- Universal importer.
-- Mobile layout and numerous assistant-normalization fixes.
+- Canonical stop ordering shared by Roadbook payloads, maps, day cards, routing, navigation, decisions, assistant context, archives, and imports.
+- Automatic destination galleries with up to three planning images per stop.
+- Wikimedia Commons coordinate-aware image search and Openverse fallback with source and license metadata.
+- Main image selection, reordering, removal, full-screen swipe gallery, lazy loading, and inline retry states.
+- Decision slides with up to three images and preference for the stop's own OneDrive travel photos.
+- Tolerant structured-output parsing and one bounded Gemini repair attempt for malformed JSON responses.
 
-This entry records the first Git-managed baseline. Detailed historical notes are preserved in `docs/legacy/2.6.5/`.
+### Changed
+
+- Stop numbering and derived day routes now use one deterministic ordering contract.
+- Existing explicit `position` values remain authoritative; legacy trips fall back to times, start/overnight roles, and stable storage order.
+- Destination image providers run concurrently and fail independently.
+- Image searches use stop name, category, place, country, coordinates, description, and day context.
+- External destination images remain provider-hosted; Roadplanner stores only URLs, attribution, licensing, and selection metadata.
+
+### Fixed
+
+- Maps, stop cards, day flows, routing, navigation, and assistant context no longer disagree about stop order.
+- A failed Wikimedia request no longer blocks a stop card, decision template, or alternative image provider.
+- Assistant prepare requests can recover from JSON wrapped in Markdown, surrounding prose, a bare list, or a nested JSON string.
+- OneDrive image references in persisted decisions are resolved to fresh signed URLs when the panel payload is loaded.
 
 ## [2.7.2] - 2026-07-21
 
@@ -79,3 +89,18 @@ This entry records the first Git-managed baseline. Detailed historical notes are
 ### Fixed
 
 - Assistant and decision errors are no longer hidden or clipped at the bottom of mobile screens.
+
+## [2.6.5] — Imported baseline
+
+### Added and stabilized
+
+- Native conversational assistant and change basket.
+- Roadbook, routes, stops and inherited overnight starts.
+- Routing and Google Maps handoff.
+- Documents, expenses and daily tasks.
+- Decisions and image-based option cards.
+- OneDrive Personal photo synchronization and albums.
+- Universal importer.
+- Mobile layout and numerous assistant-normalization fixes.
+
+This entry records the first Git-managed baseline. Detailed historical notes are preserved in `docs/legacy/2.6.5/`.

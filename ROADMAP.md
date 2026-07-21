@@ -2,7 +2,7 @@
 
 ## Current baseline
 
-- Imported stable baseline: **Roadplanner 2.6.5**
+- Latest public feature release: **Roadplanner 2.8.0**
 - Active major development: **Roadplanner 3.0**
 - Technical domain: `roadplanner_mcp`
 
@@ -21,9 +21,10 @@
 
 ### Domain consistency
 
-- Canonical stop ordering shared by map, timeline, routing, navigation, and assistant context.
+- [x] Canonical stop ordering shared by map, timeline, routing, navigation, decisions, archives, imports, and assistant context.
+- [x] Deterministic legacy fallback with explicit positions remaining authoritative.
+- [x] Overnight continuity without duplicate canonical stops in derived views.
 - Day timeline built exclusively from effective ordered route elements.
-- Overnight continuity without duplicate canonical stops.
 - Legacy day `start`/`end` fields no longer create conflicting route elements.
 
 ### Planning metrics and overview
@@ -50,6 +51,10 @@
 - Diagnostics remain separate from normal travel UX.
 
 ### Media Intelligence
+
+- [x] Automatic stop galleries with Wikimedia Commons and Openverse.
+- [x] Up to three planning images, source/license metadata, main image, reordering, and swipe gallery.
+- [x] Existing OneDrive travel photos preferred in decisions.
 
 #### Local analysis by default
 

@@ -33,6 +33,7 @@ from .assistant_provider import (
     AssistantTextResult,
 )
 from .roadplanner import RoadplannerError, ValidationError
+from .structured_output import StructuredOutputError, parse_structured_object
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -902,6 +903,89 @@ class GeminiClient:
             diagnostics=diagnostics,
         )
 
+    @staticmethod
+    def _merge_usage(*items: dict[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for key, value in item.items():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    result[key] = int(result.get(key, 0)) + value
+        return result
+
+    async def _repair_structured_output(
+        self,
+        *,
+        invalid_text: str,
+        schema: dict[str, Any],
+        max_output_tokens: int,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str | None]:
+        """Ask Gemini once to repair one malformed structured response."""
+        sanitized = str(invalid_text or "")[:24_000]
+
+        def body_for_model(model: str) -> list[BodyVariant]:
+            max_tokens = max(256, min(int(max_output_tokens), 16_384))
+            config: dict[str, Any] = {
+                "maxOutputTokens": max_tokens,
+                "responseMimeType": "application/json",
+                "responseJsonSchema": self._supported_schema(schema),
+            }
+            if not model.casefold().startswith("gemini-3"):
+                config["temperature"] = 0.0
+            base = {
+                "systemInstruction": {
+                    "parts": [{
+                        "text": (
+                            "Repariere die bereitgestellte Modellantwort. Gib ausschließlich "
+                            "ein gültiges JSON-Objekt zurück, das dem vorgegebenen Schema entspricht. "
+                            "Erfinde keine fachlichen Daten. Übernimm nur Inhalte aus der fehlerhaften Antwort."
+                        )
+                    }]
+                },
+                "contents": self._contents([{
+                    "role": "user",
+                    "content": (
+                        "Fehlerhafte Antwort:\n---\n"
+                        + sanitized
+                        + "\n---\nGib jetzt nur das reparierte JSON-Objekt zurück."
+                    ),
+                }]),
+            }
+            return [
+                ("repair_schema", {**base, "generationConfig": config}),
+                (
+                    "repair_json_mime",
+                    {
+                        **base,
+                        "generationConfig": {
+                            key: value
+                            for key, value in config.items()
+                            if key != "responseJsonSchema"
+                        },
+                    },
+                ),
+            ]
+
+        payload, diagnostics = await self._post(
+            body_for_model,
+            search_requested=False,
+        )
+        candidate = self._candidate(payload)
+        repaired_text = self._text(candidate)
+        value, normalization = parse_structured_object(repaired_text, schema)
+        repair_diagnostics = {
+            **diagnostics,
+            "structured_output_repaired": True,
+            "structured_output_normalization": normalization,
+        }
+        return (
+            value,
+            repair_diagnostics,
+            self._usage(payload),
+            str(payload.get("modelVersion") or "") or None,
+        )
+
     async def async_generate_json_result(
         self,
         *,
@@ -940,9 +1024,6 @@ class GeminiClient:
                 "schema_no_search",
                 {**base, "generationConfig": structured_config},
             ))
-            # Final compatibility mode: JSON MIME type plus explicit prompt
-            # contract, but no responseJsonSchema. This handles provider/model
-            # combinations that reject a complex schema with HTTP 400.
             plain_messages = list(messages)
             plain_messages.append({
                 "role": "user",
@@ -967,24 +1048,51 @@ class GeminiClient:
         )
         candidate = self._candidate(payload)
         text = self._text(candidate)
+        usage = self._usage(payload)
+        model_version = str(payload.get("modelVersion") or "") or None
         try:
-            value = json.loads(text)
-        except (TypeError, ValueError) as err:
-            _LOGGER.debug("Gemini structured output was not JSON: %.200s", text)
-            raise GeminiApiError(
-                "Gemini hat kein gültiges strukturiertes Ergebnis geliefert.",
-                code="invalid_structured_output",
-            ) from err
-        if not isinstance(value, dict):
-            raise GeminiApiError(
-                "Gemini hat statt eines JSON-Objekts einen anderen Wert geliefert",
-                code="invalid_structured_output",
+            value, normalization = parse_structured_object(text, schema)
+            diagnostics = {
+                **diagnostics,
+                "structured_output_repaired": False,
+                "structured_output_normalization": normalization,
+            }
+        except StructuredOutputError as err:
+            _LOGGER.debug(
+                "Gemini structured output required repair (%s, %s characters)",
+                type(err).__name__,
+                len(text),
             )
+            try:
+                value, repair_diagnostics, repair_usage, repair_model = (
+                    await self._repair_structured_output(
+                        invalid_text=text,
+                        schema=schema,
+                        max_output_tokens=max_output_tokens,
+                    )
+                )
+            except (StructuredOutputError, GeminiApiError) as repair_err:
+                raise GeminiApiError(
+                    "Gemini hat kein zuverlässig lesbares JSON-Objekt geliefert.",
+                    code="invalid_structured_output",
+                    provider_detail=str(repair_err)[:500],
+                ) from repair_err
+            diagnostics = {
+                **diagnostics,
+                "structured_output_repaired": True,
+                "repair_attempt_count": repair_diagnostics.get("attempt_count", 0),
+                "repair_duration_ms": repair_diagnostics.get("duration_ms", 0),
+                "structured_output_normalization": repair_diagnostics.get(
+                    "structured_output_normalization", "repair_object"
+                ),
+            }
+            usage = self._merge_usage(usage, repair_usage)
+            model_version = repair_model or model_version
         return AssistantJsonResult(
             value=value,
             sources=self._sources(candidate),
-            model_version=str(payload.get("modelVersion") or "") or None,
-            usage=self._usage(payload),
+            model_version=model_version,
+            usage=usage,
             diagnostics=diagnostics,
         )
 
@@ -1077,17 +1185,17 @@ class GeminiClient:
         candidate = self._candidate(payload)
         text = self._text(candidate)
         try:
-            value = json.loads(text)
-        except (TypeError, ValueError) as err:
+            value, normalization = parse_structured_object(text, schema)
+        except StructuredOutputError as err:
             raise GeminiApiError(
-                "Gemini hat für das Dokument kein gültiges JSON geliefert.",
+                "Gemini hat für das Dokument kein zuverlässig lesbares JSON-Objekt geliefert.",
                 code="invalid_structured_output",
             ) from err
-        if not isinstance(value, dict):
-            raise GeminiApiError(
-                "Gemini hat für das Dokument kein JSON-Objekt geliefert.",
-                code="invalid_structured_output",
-            )
+        diagnostics = {
+            **diagnostics,
+            "structured_output_repaired": False,
+            "structured_output_normalization": normalization,
+        }
         return AssistantJsonResult(
             value=value,
             sources=[],

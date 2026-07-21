@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 
 from .assistant_provider import AssistantProvider
 from .roadplanner import ValidationError
+from .stop_ordering import canonical_order_stops
 from .travel_archive import (
     DOCUMENT_TYPES,
     EXPENSE_CATEGORIES,
@@ -239,7 +240,7 @@ class TravelArchiveManager:
             if not isinstance(day, dict) or not day.get("id"):
                 continue
             day_map[str(day["id"])] = day
-            for stop in day.get("stops", []):
+            for stop in canonical_order_stops(day.get("stops", [])):
                 if isinstance(stop, dict) and stop.get("id"):
                     stop_map[f"{day['id']}/{stop['id']}"] = stop
         return {"payload": payload, "days": day_map, "stops": stop_map}
@@ -406,7 +407,7 @@ class TravelArchiveManager:
                     "end": day.get("end"),
                     "stops": [
                         {"id": stop.get("id"), "name": stop.get("name"), "type": stop.get("type")}
-                        for stop in day.get("stops", [])[:100]
+                        for stop in canonical_order_stops(day.get("stops", []))[:100]
                         if isinstance(stop, dict)
                     ],
                 }
@@ -522,7 +523,7 @@ class TravelArchiveManager:
             resolved_days.append(str(selected.get("id")))
             if stop_hint:
                 stop_candidates = []
-                for stop in selected.get("stops", []):
+                for stop in canonical_order_stops(selected.get("stops", [])):
                     if not isinstance(stop, dict):
                         continue
                     name = str(stop.get("name") or "").casefold()

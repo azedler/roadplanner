@@ -44,6 +44,7 @@ from .assistant_provider import (
 from .geocoding import GeocodingError, NominatimGeocoder
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
+from .stop_ordering import canonical_order_stops
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -709,7 +710,7 @@ def _roadbook_removal_draft(
         day_titles[day_id] = _first_nonempty_text(
             day.get("title"), day.get("date"), day_id, maximum=300
         )
-        for stop in day.get("stops", []):
+        for stop in canonical_order_stops(day.get("stops", [])):
             if not isinstance(stop, dict):
                 continue
             stop_id = _clean_text(stop.get("id"), maximum=200)
@@ -1704,7 +1705,7 @@ def _bounded_context(payload: dict[str, Any]) -> dict[str, Any]:
                 for key, value in details.items()
                 if key in {"planning_preferences", "bookings"}
             }
-        for stop in day.get("stops", []):
+        for stop in canonical_order_stops(day.get("stops", [])):
             stop["notes"] = str(stop.get("notes") or "")[:1_200]
             details = stop.get("details")
             if isinstance(details, dict):
@@ -3575,7 +3576,7 @@ class RoadplannerAssistant:
             day_ids.add(day_id)
             stop_ids[day_id] = {
                 str(stop.get("id"))
-                for stop in day.get("stops", [])
+                for stop in canonical_order_stops(day.get("stops", []))
                 if isinstance(stop, dict) and stop.get("id")
             }
             details = day.get("details")
@@ -4035,7 +4036,7 @@ class RoadplannerAssistant:
                 day_detail = RoadplannerAssistant._day_detail(context, day_id)
                 overnight_stops = [
                     stop
-                    for stop in (day_detail or {}).get("stops", [])
+                    for stop in canonical_order_stops((day_detail or {}).get("stops", []))
                     if isinstance(stop, dict)
                     and str(stop.get("type") or "").casefold() in OVERNIGHT_STOP_TYPES
                     and stop.get("id")

@@ -1,12 +1,25 @@
 """Regression tests for current-plan decision baselines."""
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import sys
+import types
 
-MODULE_PATH = Path("custom_components/roadplanner_mcp/decision_logic.py")
-spec = spec_from_file_location("roadplanner_decision_logic", MODULE_PATH)
-assert spec and spec.loader
-module = module_from_spec(spec)
-spec.loader.exec_module(module)
+PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
+package = types.ModuleType("roadplanner_test_package")
+package.__path__ = [str(PACKAGE_ROOT)]
+sys.modules[package.__name__] = package
+
+for module_name in ("stop_ordering", "decision_logic"):
+    spec = spec_from_file_location(
+        f"{package.__name__}.{module_name}",
+        PACKAGE_ROOT / f"{module_name}.py",
+    )
+    assert spec and spec.loader
+    loaded = module_from_spec(spec)
+    sys.modules[spec.name] = loaded
+    spec.loader.exec_module(loaded)
+
+module = sys.modules[f"{package.__name__}.decision_logic"]
 
 
 def stop(stop_id: str, name: str, stop_type: str) -> dict:

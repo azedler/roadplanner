@@ -11,7 +11,7 @@ Roadplanner supports the full travel lifecycle:
 
 ## Project status
 
-The repository contains the proven **Roadplanner 2.6.5** baseline and the architecture foundation for **Roadplanner 3.0**.
+The repository contains the public **Roadplanner 2.8.0** feature release and the architecture foundation for **Roadplanner 3.0**.
 
 - Stable/releasable branch: `main`
 - Active integration branch: `develop`
@@ -19,6 +19,13 @@ The repository contains the proven **Roadplanner 2.6.5** baseline and the archit
 - Visible product name: **Roadplanner**
 
 Roadplanner 3.0 is an incremental product and architecture evolution, not a big-bang rewrite.
+
+## Roadplanner 2.8 highlights
+
+- One canonical stop order drives numbering, maps, day flow, routing, navigation, decisions, archives, imports, and assistant context.
+- Planned stops can automatically receive up to three attributed images from Wikimedia Commons and Openverse.
+- Stop and decision galleries support a main image, thumbnails, swipe navigation, reordering, and fail-open provider errors.
+- Gemini structured output is normalized and, when necessary, repaired once without inventing travel facts.
 
 ## Core principles
 

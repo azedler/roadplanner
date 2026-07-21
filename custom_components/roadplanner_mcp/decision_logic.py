@@ -11,6 +11,8 @@ from copy import deepcopy
 import re
 from typing import Any
 
+from .stop_ordering import canonical_order_stops
+
 _MAX_ALTERNATIVES_WITH_BASELINE = 3
 _OVERNIGHT_TYPES = frozenset(
     {
@@ -46,7 +48,7 @@ def _match_text(value: Any) -> str:
 
 def _stops(day: dict[str, Any]) -> list[dict[str, Any]]:
     value = day.get("stops")
-    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    return canonical_order_stops(value if isinstance(value, list) else [])
 
 
 def _location_query(stop: dict[str, Any]) -> str:

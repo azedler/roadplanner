@@ -9,14 +9,14 @@
 - Architecture Decision Records.
 - Repository governance, Definition of Done, test strategy, and release process.
 
+## Completed in Roadplanner 2.8.0
+
+- Canonical stop ordering across Roadbook, panel, routing, navigation, assistant, decisions, archives, and imports.
+- Automatic stop galleries with Wikimedia Commons and Openverse.
+- Multi-image decision slides and OneDrive-photo preference.
+- Structured Gemini output normalization and bounded repair.
+
 ## Next — correctness
-
-### RP-303: Canonical stop ordering
-
-- One backend ordering service using canonical `position`.
-- Deterministic legacy fallback.
-- Numbering, map, timeline, routing, navigation, and assistant use the same order.
-- Regression coverage for inherited overnight start plus explicit stops.
 
 ### RP-304: Derived day route consistency
 

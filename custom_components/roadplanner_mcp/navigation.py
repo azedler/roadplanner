@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from .routing import coordinate_from_location
+from .stop_ordering import canonical_order_stops
 
 _GOOGLE_MAPS_SEARCH = "https://www.google.com/maps/search/"
 _GOOGLE_MAPS_DIRECTIONS = "https://www.google.com/maps/dir/"
@@ -48,10 +49,10 @@ def _same_place(first: Any, second: Any) -> bool:
 
 def effective_day_stops(days: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
     """Return canonical stops plus the prior overnight start when applicable."""
-    canonical = list(days[index].get("stops") or [])
+    canonical = canonical_order_stops(days[index].get("stops") or [])
     if index <= 0:
         return canonical
-    previous = list(days[index - 1].get("stops") or [])
+    previous = canonical_order_stops(days[index - 1].get("stops") or [])
     overnight = previous[-1] if previous else None
     if not _is_overnight(overnight):
         return canonical
@@ -160,7 +161,7 @@ def decorate_panel_navigation(days_payload: dict[str, Any]) -> None:
     if not isinstance(days, list):
         return
     for day in days:
-        for stop in day.get("stops") or []:
+        for stop in canonical_order_stops(day.get("stops") or []):
             if isinstance(stop, dict):
                 decorate_stop_navigation(stop)
     for index, day in enumerate(days):

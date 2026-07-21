@@ -17,6 +17,8 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
+from .stop_ordering import canonical_order_stops
+
 MAX_CONTEXT_CHARACTERS = 120_000
 MAX_INDEX_DAYS = 180
 MAX_DETAILED_DAYS = 30
@@ -92,10 +94,13 @@ def with_overnight_continuity(days: list[dict[str, Any]]) -> list[dict[str, Any]
     result = deepcopy(days)
     previous: dict[str, Any] | None = None
     for day in result:
-        stops = day.get("stops") if isinstance(day.get("stops"), list) else []
+        raw_stops = day.get("stops") if isinstance(day.get("stops"), list) else []
+        stops = canonical_order_stops(raw_stops)
+        day["stops"] = stops
         inherited = None
         if previous is not None:
-            previous_stops = previous.get("stops") if isinstance(previous.get("stops"), list) else []
+            previous_raw_stops = previous.get("stops") if isinstance(previous.get("stops"), list) else []
+            previous_stops = canonical_order_stops(previous_raw_stops)
             if previous_stops:
                 last_stop = previous_stops[-1]
                 if str(last_stop.get("type") or "").casefold() in OVERNIGHT_STOP_TYPES:
@@ -180,7 +185,7 @@ def _trim_day(day: dict[str, Any], *, aggressive: bool = False) -> dict[str, Any
     value["notes"] = str(value.get("notes") or "")[: (1_000 if aggressive else 3_000)]
     value["details"] = _trim_details(value.get("details"), entity="day")
     stops: list[dict[str, Any]] = []
-    for raw_stop in value.get("stops", []):
+    for raw_stop in canonical_order_stops(value.get("stops", [])):
         if not isinstance(raw_stop, dict):
             continue
         stop = deepcopy(raw_stop)
@@ -192,7 +197,7 @@ def _trim_day(day: dict[str, Any], *, aggressive: bool = False) -> dict[str, Any
 
 
 def _day_index(day: dict[str, Any]) -> dict[str, Any]:
-    stops = [stop for stop in day.get("stops", []) if isinstance(stop, dict)]
+    stops = canonical_order_stops(day.get("stops", []))
     overnight = None
     if stops and str(stops[-1].get("type") or "").casefold() in OVERNIGHT_STOP_TYPES:
         overnight = {
@@ -231,8 +236,8 @@ def _id_catalog(days: list[dict[str, Any]], trip: dict[str, Any]) -> dict[str, A
         day_ids.append(day_id)
         stop_ids[day_id] = [
             str(stop.get("id"))
-            for stop in day.get("stops", [])
-            if isinstance(stop, dict) and stop.get("id")
+            for stop in canonical_order_stops(day.get("stops", []))
+            if stop.get("id")
         ]
         day_details = day.get("details") if isinstance(day.get("details"), dict) else {}
         day_preferences = day_details.get("planning_preferences") if isinstance(day_details, dict) else None
@@ -299,8 +304,8 @@ class AssistantContextBuilder:
             day_date = str(day.get("date") or "")
             stop_ids = {
                 str(stop.get("id"))
-                for stop in day.get("stops", [])
-                if isinstance(stop, dict) and stop.get("id")
+                for stop in canonical_order_stops(day.get("stops", []))
+                if stop.get("id")
             }
             for item in basket:
                 if not isinstance(item, dict):
@@ -331,8 +336,7 @@ class AssistantContextBuilder:
             ]
             candidates.extend(
                 stop.get("name")
-                for stop in day.get("stops", [])
-                if isinstance(stop, dict)
+                for stop in canonical_order_stops(day.get("stops", []))
             )
             for candidate in candidates:
                 label = " ".join(str(candidate or "").casefold().split())
