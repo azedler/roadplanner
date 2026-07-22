@@ -18,7 +18,8 @@
 - [x] Architecture Decision Records.
 - [x] Patch-based iPad/Codespaces workflow.
 - [x] Repository governance, validation, release, and Definition-of-Done contracts.
-- [x] RP-500: Explicit Codespaces/GitHub release automation with protected tags and HACS publication.
+- [x] RP-500: Codespaces/GitHub release preparation with protected tags and HACS publication.
+- [x] Roadplanner 3.2: automatic publication on the merged `main` commit without Codespaces workflow-dispatch permissions.
 
 ### Domain consistency
 
@@ -91,20 +92,29 @@
 - [x] Review-only GPS completion through the change basket.
 - [ ] Live acceptance on the active journey.
 
-## Roadplanner 3.2 — Travel Story
+## Roadplanner 3.2 — Intelligent Travel Foundation
+
+- [x] Trip-wide travel-integrity score for sequence, GPS, routes and images.
+- [x] Review-only bulk GPS completion for the active trip.
+- [x] Automatic background planning-image enrichment for current and upcoming days.
+- [x] Personal OneDrive photos suppress unnecessary stock-image searches.
+- [x] Release publication starts automatically after the prepared pull request is merged into `main`.
+- [x] GitHub publishes the release assets and fast-forwards `develop` when safe.
+
+## Roadplanner 3.3 — Travel Story
 
 - Trip-wide highlight selection.
 - Story chapters per day and stop.
 - Travel Movie export contract.
 - Photo-book/export metadata.
 
-## Roadplanner 3.3 — Media providers
+## Roadplanner 3.4 — Media providers
 
 - Apple Photos bridge or native companion sync.
 - Multi-account OneDrive support.
 - Optional Google Photos, Immich, and NAS providers.
 
-## Roadplanner 3.4 — Automation and mobility
+## Roadplanner 3.5 — Automation and mobility
 
 - EVCC-aware charging plans.
 - Weather-aware proactive suggestions.

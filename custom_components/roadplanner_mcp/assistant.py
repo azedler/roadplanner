@@ -3247,6 +3247,90 @@ class RoadplannerAssistant:
             self.sessions.clear(user_id, trip_id)
             return self.state(user_id, trip_id)
 
+    @staticmethod
+    def _build_location_drafts(
+        payload: dict[str, Any],
+        *,
+        day_ids: set[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        """Build review-only GPS completion drafts from canonical day data."""
+        selected_day_ids = {str(item) for item in day_ids or set() if str(item)}
+        drafts: list[dict[str, Any]] = []
+        touched_day_ids: set[str] = set()
+        seen_stops: set[tuple[str, str]] = set()
+        for day in payload.get("days", {}).get("days", []):
+            if not isinstance(day, dict):
+                continue
+            day_id = _clean_text(day.get("id"), maximum=200)
+            if selected_day_ids and day_id not in selected_day_ids:
+                continue
+            for stop in canonical_day_stops(day):
+                if not isinstance(stop, dict) or location_status(stop) == "resolved":
+                    continue
+                stop_id = _clean_text(stop.get("id"), maximum=200)
+                name = _clean_text(stop.get("name"), maximum=500)
+                owner_day_id = _clean_text(
+                    stop.get("_source_day_id") if stop.get("_inherited") else day_id,
+                    maximum=200,
+                )
+                if not stop_id or not name or not owner_day_id:
+                    continue
+                identity = (owner_day_id, stop_id)
+                if identity in seen_stops:
+                    continue
+                seen_stops.add(identity)
+                location = (
+                    stop.get("location")
+                    if isinstance(stop.get("location"), dict)
+                    else {}
+                )
+                details = (
+                    stop.get("details")
+                    if isinstance(stop.get("details"), dict)
+                    else {}
+                )
+                geocoding = (
+                    details.get("geocoding")
+                    if isinstance(details.get("geocoding"), dict)
+                    else {}
+                )
+                query_parts = [
+                    _clean_text(geocoding.get("query"), maximum=500),
+                    name,
+                    _clean_text(location.get("label"), maximum=300),
+                    _clean_text(location.get("city"), maximum=200),
+                    _clean_text(location.get("country_code"), maximum=20),
+                ]
+                query_values: list[str] = []
+                seen_values: set[str] = set()
+                for value in query_parts:
+                    key = value.casefold()
+                    if value and key not in seen_values:
+                        seen_values.add(key)
+                        query_values.append(value)
+                place_query = ", ".join(query_values)[:500]
+                if not place_query:
+                    continue
+                inherited_note = " (Start vom Vortag)" if stop.get("_inherited") else ""
+                drafts.append(
+                    {
+                        "action": "update",
+                        "entity_type": "stop",
+                        "target_id": stop_id,
+                        "day_id": owner_day_id,
+                        "place_query": place_query,
+                        "summary": f"GPS-Daten prüfen/ergänzen: {name}{inherited_note}",
+                        "reason": (
+                            "Der konkrete Roadbook-Stopp besitzt noch keine eindeutig "
+                            "bestätigten GPS-Daten. Roadplanner soll den Ort serverseitig "
+                            "auflösen und die Auswahl vor dem Speichern prüfen."
+                        ),
+                        "values": {},
+                    }
+                )
+                touched_day_ids.add(owner_day_id)
+        return drafts, touched_day_ids
+
     async def async_add_location_drafts(
         self,
         *,
@@ -3254,11 +3338,7 @@ class RoadplannerAssistant:
         trip_id: str,
         day_id: str,
     ) -> dict[str, Any]:
-        """Add review-only GPS completion drafts for one Roadbook day.
-
-        No coordinates are invented here. The existing geocoding plugin resolves
-        each ``place_query`` later when the user presses ``Änderungen prüfen``.
-        """
+        """Add review-only GPS completion drafts for one Roadbook day."""
         payload = await self._load_trip_payload(trip_id)
         if not payload.get("selected_is_active"):
             raise ValidationError(
@@ -3274,74 +3354,10 @@ class RoadplannerAssistant:
         )
         if day is None:
             raise ValidationError(f"Reisetag nicht gefunden: {day_id}")
-
-        drafts: list[dict[str, Any]] = []
-        seen_stops: set[tuple[str, str]] = set()
-        for stop in canonical_day_stops(day):
-            if not isinstance(stop, dict) or location_status(stop) == "resolved":
-                continue
-            stop_id = _clean_text(stop.get("id"), maximum=200)
-            name = _clean_text(stop.get("name"), maximum=500)
-            owner_day_id = _clean_text(
-                stop.get("_source_day_id") if stop.get("_inherited") else day_id,
-                maximum=200,
-            )
-            if not stop_id or not name or not owner_day_id:
-                continue
-            identity = (owner_day_id, stop_id)
-            if identity in seen_stops:
-                continue
-            seen_stops.add(identity)
-            location = (
-                stop.get("location")
-                if isinstance(stop.get("location"), dict)
-                else {}
-            )
-            details = (
-                stop.get("details")
-                if isinstance(stop.get("details"), dict)
-                else {}
-            )
-            geocoding = (
-                details.get("geocoding")
-                if isinstance(details.get("geocoding"), dict)
-                else {}
-            )
-            query_parts = [
-                _clean_text(geocoding.get("query"), maximum=500),
-                name,
-                _clean_text(location.get("label"), maximum=300),
-                _clean_text(location.get("city"), maximum=200),
-                _clean_text(location.get("country_code"), maximum=20),
-            ]
-            query_values: list[str] = []
-            seen: set[str] = set()
-            for value in query_parts:
-                key = value.casefold()
-                if value and key not in seen:
-                    seen.add(key)
-                    query_values.append(value)
-            place_query = ", ".join(query_values)[:500]
-            if not place_query:
-                continue
-            inherited_note = " (Start vom Vortag)" if stop.get("_inherited") else ""
-            drafts.append(
-                {
-                    "action": "update",
-                    "entity_type": "stop",
-                    "target_id": stop_id,
-                    "day_id": owner_day_id,
-                    "place_query": place_query,
-                    "summary": f"GPS-Daten prüfen/ergänzen: {name}{inherited_note}",
-                    "reason": (
-                        "Der konkrete Roadbook-Stopp besitzt noch keine eindeutig "
-                        "bestätigten GPS-Daten. Roadplanner soll den Ort serverseitig "
-                        "auflösen und die Auswahl vor dem Speichern prüfen."
-                    ),
-                    "values": {},
-                }
-            )
-
+        drafts, _touched_days = self._build_location_drafts(
+            payload,
+            day_ids={str(day_id)},
+        )
         if not drafts:
             raise ValidationError(
                 "Für diesen Reisetag wurden keine offenen GPS-Zuordnungen gefunden"
@@ -3366,6 +3382,49 @@ class RoadplannerAssistant:
             return {
                 "draft_count": int(applied.get("added_count") or 0)
                 + int(applied.get("updated_count") or 0),
+                "day_count": 1,
+                "basket_result": applied,
+                "assistant": self.state(user_id, trip_id),
+            }
+
+    async def async_add_trip_location_drafts(
+        self,
+        *,
+        user_id: str,
+        trip_id: str,
+    ) -> dict[str, Any]:
+        """Add review-only GPS completion drafts for the selected trip."""
+        payload = await self._load_trip_payload(trip_id)
+        if not payload.get("selected_is_active"):
+            raise ValidationError(
+                "GPS-Daten können nur für die aktive Reise ergänzt werden"
+            )
+        drafts, touched_day_ids = self._build_location_drafts(payload)
+        if not drafts:
+            raise ValidationError(
+                "Für diese Reise wurden keine offenen GPS-Zuordnungen gefunden"
+            )
+        delta = {
+            "add_or_update": drafts,
+            "remove_ids": [],
+            "note": "GPS-Vervollständigung für die ausgewählte Reise",
+        }
+        async with self.sessions.lock(user_id, trip_id):
+            session = self.sessions.session(user_id, trip_id)
+            applied = self.sessions.apply_delta(
+                session,
+                delta,
+                roadbook_context=payload,
+            )
+            if not applied.get("changed"):
+                reason = (applied.get("rejected") or [{}])[0].get("reason")
+                raise ValidationError(
+                    reason or "Die GPS-Vervollständigung konnte nicht vorgemerkt werden"
+                )
+            return {
+                "draft_count": int(applied.get("added_count") or 0)
+                + int(applied.get("updated_count") or 0),
+                "day_count": len(touched_day_ids),
                 "basket_result": applied,
                 "assistant": self.state(user_id, trip_id),
             }

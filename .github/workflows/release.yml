@@ -1,29 +1,90 @@
 name: Publish Roadplanner release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
-        description: Stable semantic version without the v prefix, for example 3.1.0
-        required: true
+        description: Optional stable semantic version without the v prefix
+        required: false
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: roadplanner-release
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate release source
+  detect:
+    name: Detect unpublished Roadplanner version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      should_publish: ${{ steps.release.outputs.should_publish }}
     steps:
-      - name: Check out main
+      - name: Check out exact main commit
         uses: actions/checkout@v4
         with:
-          ref: main
+          fetch-depth: 0
+
+      - name: Detect version and existing tag
+        id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('custom_components/roadplanner_mcp/manifest.json').read_text())
+          print(value['version'])
+          PY
+          )"
+          if [[ -n "${REQUESTED_VERSION:-}" && "${REQUESTED_VERSION}" != "${version}" ]]; then
+            echo "Requested version ${REQUESTED_VERSION} does not match manifest version ${version}." >&2
+            exit 1
+          fi
+          if ! grep -Fq "## [${version}]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no release section for ${version}." >&2
+            exit 1
+          fi
+          tag="v${version}"
+          should_publish="true"
+          for candidate in "${tag}" "V${version}"; do
+            if git ls-remote --exit-code --tags origin "refs/tags/${candidate}" >/dev/null 2>&1; then
+              should_publish="false"
+            fi
+          done
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${should_publish}" >> "$GITHUB_OUTPUT"
+
+      - name: Explain skipped publication
+        if: steps.release.outputs.should_publish != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          {
+            echo "## Roadplanner ${VERSION} already published"
+            echo
+            echo "The matching release tag already exists. No tag or release was changed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate:
+    name: Validate release source
+    needs:
+      - detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact release commit
+        uses: actions/checkout@v4
+        with:
           fetch-depth: 0
 
       - name: Set up Python
@@ -38,7 +99,7 @@ jobs:
 
       - name: Run Roadplanner release checks and build artifacts
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: >-
           python tools/release.py check
           --version "$VERSION"
@@ -47,7 +108,7 @@ jobs:
 
       - name: Export release notes
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: >-
           python tools/release.py notes
           "$VERSION"
@@ -56,37 +117,36 @@ jobs:
       - name: Upload validated release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: roadplanner-v${{ inputs.version }}
+          name: roadplanner-v${{ needs.detect.outputs.version }}
           path: |
-            dist/Roadplanner_MCP_v${{ inputs.version }}_HA_install.zip
-            dist/Roadplanner_MCP_v${{ inputs.version }}_SHA256SUMS.txt
-            dist/RELEASE_NOTES_v${{ inputs.version }}.md
+            dist/Roadplanner_MCP_v${{ needs.detect.outputs.version }}_HA_install.zip
+            dist/Roadplanner_MCP_v${{ needs.detect.outputs.version }}_SHA256SUMS.txt
+            dist/RELEASE_NOTES_v${{ needs.detect.outputs.version }}.md
           if-no-files-found: error
           retention-days: 7
 
   publish:
     name: Create GitHub tag and release
-    permissions:
-      contents: write
     needs:
+      - detect
       - validate
+    if: needs.detect.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out exact main commit
+      - name: Check out exact release commit
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Download validated release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: roadplanner-v${{ inputs.version }}
+          name: roadplanner-v${{ needs.detect.outputs.version }}
           path: dist
 
       - name: Refuse an existing release tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
@@ -100,32 +160,43 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
           archive="dist/Roadplanner_MCP_v${VERSION}_HA_install.zip"
           checksums="dist/Roadplanner_MCP_v${VERSION}_SHA256SUMS.txt"
           notes="dist/RELEASE_NOTES_v${VERSION}.md"
+          gh release create \
+            "$tag" \
+            "$archive" \
+            "$checksums" \
+            --target "$GITHUB_SHA" \
+            --title "Roadplanner ${VERSION}" \
+            --notes-file "$notes" \
+            --fail-on-no-commits \
+            --latest
 
-          args=(
-            "$tag"
-            "$archive"
-            "$checksums"
-            --target "$GITHUB_SHA"
-            --title "Roadplanner ${VERSION}"
-            --notes-file "$notes"
-            --fail-on-no-commits
-          )
-
-          args+=(--latest)
-
-          gh release create "${args[@]}"
+      - name: Fast-forward develop when safe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin develop
+          if git merge-base --is-ancestor origin/develop "$GITHUB_SHA"; then
+            if git push origin "$GITHUB_SHA:refs/heads/develop"; then
+              echo "develop fast-forwarded to ${GITHUB_SHA}."
+            else
+              echo "develop could not be fast-forwarded automatically. The release remains valid; synchronize develop manually." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "develop contains commits not present in the release; automatic synchronization was skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Publish release summary
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
           {
             echo "## Roadplanner ${VERSION} published"

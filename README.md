@@ -31,6 +31,14 @@ Roadplanner 3.0 is an incremental product and architecture evolution, not a big-
 
 See the [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md).
 
+## Roadplanner 3.2 intelligent foundation
+
+- Trip-wide quality report for sequence, GPS completeness, routes and visual readiness.
+- Review-only bulk GPS completion for incomplete stops.
+- Bounded automatic planning-image enrichment for the active trip.
+- Personal OneDrive photos take precedence over external planning images.
+- Merging a prepared release pull request automatically validates, tags and publishes the HACS release.
+
 ## Core principles
 
 - Canonical Roadbook and domain sidecars have explicit ownership boundaries.

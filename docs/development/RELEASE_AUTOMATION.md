@@ -1,14 +1,14 @@
 # Release automation
 
-Roadplanner releases use a two-stage, explicit workflow that is convenient from an iPad Codespace and safe for the permanent `main` branch.
+Roadplanner releases use one explicit human approval and otherwise run automatically from GitHub and HACS.
 
 ```text
 develop
   ↓ prepare (version, changelog, tests, commit, push, PR)
-main
-  ↓ publish (protected GitHub workflow)
-tag + GitHub release
-  ↓
+release pull request
+  ↓ human merge into main
+GitHub Actions on main
+  ↓ validate, build, tag, release, synchronize develop
 HACS update
 ```
 
@@ -28,9 +28,11 @@ gh auth status
 
 The repository must be clean before `prepare`, `publish`, or `sync` is used.
 
+The repository must allow GitHub Actions to write repository contents so the protected workflow can create the release tag, release assets, and a safe fast-forward of `develop`.
+
 ## 1. Record changes under Unreleased
 
-Every user-visible feature or fix must first be documented below:
+Every user-visible feature or fix is documented below:
 
 ```markdown
 ## [Unreleased]
@@ -39,8 +41,6 @@ Every user-visible feature or fix must first be documented below:
 in `CHANGELOG.md`. `prepare` converts that section into the requested released version and creates a new empty Unreleased section.
 
 ## 2. Validate during development
-
-Run the same canonical checks used by GitHub:
 
 ```bash
 python tools/release.py check
@@ -55,14 +55,12 @@ This command:
 - runs the repository validator,
 - runs the local HACS preflight for the manifest version.
 
-The validator itself remains non-mutating and will continue to reject caches if another process leaves them behind.
-
 ## 3. Prepare a release on develop
 
 Example:
 
 ```bash
-python tools/release.py prepare 3.1.0 --remote
+python tools/release.py prepare 3.2.0 --remote
 ```
 
 The command:
@@ -70,63 +68,71 @@ The command:
 1. requires branch `develop` and a clean tree,
 2. fetches `origin` and refuses branch divergence,
 3. requires `develop` to contain current `origin/main`,
-4. verifies that `3.1.0` is greater than the current version,
-5. moves the Unreleased changelog content to `3.1.0`,
+4. verifies that `3.2.0` is greater than the current version,
+5. moves the Unreleased changelog content to `3.2.0`,
 6. updates `manifest.json` and `const.py`,
 7. runs all release checks,
-8. commits the three release-preparation files,
+8. commits the release-preparation files,
 9. after confirmation, pushes `develop`,
-10. creates or reuses the release pull request to `main`.
+10. creates or updates the release pull request to `main`.
 
 For a non-interactive Codespaces command:
 
 ```bash
-python tools/release.py prepare 3.1.0 --remote --yes
+python tools/release.py prepare 3.2.0 --remote --yes
 ```
-
-Without `--remote`, the release commit is created locally but nothing is pushed.
 
 ## 4. Review and merge the pull request
 
-GitHub runs `Roadplanner validation`, CodeQL, and the configured repository checks. Merge only when required checks are green.
+GitHub runs the Roadplanner validation workflow, official HACS validation and repository security checks.
 
-The automation deliberately does not merge the pull request. Human approval remains the publication boundary.
+Merge only when required checks are green. The merge is the single human publication approval.
 
-## 5. Publish after merge
+## 5. Automatic publication after merge
 
-Switch to current `main` and dispatch the protected release workflow:
+The push of the merged release commit to `main` automatically starts:
+
+```text
+.github/workflows/release.yml
+```
+
+The workflow:
+
+1. reads the exact version from `manifest.json`,
+2. verifies a matching `CHANGELOG.md` section,
+3. skips safely when the matching tag already exists,
+4. runs all contract, repository and HACS checks against the exact merge commit,
+5. creates the deterministic manual-install archive and checksum,
+6. exports release notes from `CHANGELOG.md`,
+7. creates a lower-case tag such as `v3.2.0`,
+8. publishes the GitHub release and validated assets,
+9. fast-forwards `develop` to the released `main` commit when this is safe.
+
+No manual workflow dispatch is required. This avoids Codespaces token restrictions such as `Resource not accessible by integration`.
+
+## 6. Observe or verify publication
+
+Publication continues even if the Codespace is closed. To watch it from the iPad after the merge:
 
 ```bash
 git switch main
 git pull --ff-only origin main
-python tools/release.py publish 3.1.0 --watch --sync-develop
+python tools/release.py publish 3.2.0 --watch --sync-develop
 ```
 
-`publish` verifies that `main` contains the requested version and then dispatches `.github/workflows/release.yml`.
+`publish` no longer starts the workflow. It finds the automatic run for the current `main` commit, optionally watches it, verifies that the GitHub release exists, and can run a fallback synchronization of `develop`.
 
-The GitHub workflow:
-
-1. checks out the exact `main` commit,
-2. runs all contract, repository and HACS checks,
-3. creates the deterministic manual-install archive and checksum,
-4. exports release notes from `CHANGELOG.md`,
-5. refuses any existing `v3.1.0` tag,
-6. creates a lower-case `v3.1.0` tag on the exact validated commit,
-7. publishes the GitHub release and validated assets.
-
-With `--watch`, Codespaces waits for the workflow result. With `--sync-develop`, a successful release is followed by a safe fast-forward of `develop` to `origin/main`.
-
-The equivalent GitHub-only path is:
+The same status is visible under:
 
 ```text
-Actions → Publish Roadplanner release → Run workflow
+GitHub → Actions → Publish Roadplanner release
 ```
 
-Enter the stable version without the `v` prefix.
+`workflow_dispatch` remains available only as a manual fallback when an automatic run was cancelled or GitHub was temporarily unavailable.
 
-## 6. Synchronize develop separately
+## 7. Synchronize develop separately
 
-If the release was created from the GitHub interface:
+Normally the release workflow fast-forwards `develop` automatically. If it reports that `develop` already contains new commits, synchronize later after reviewing the branch:
 
 ```bash
 python tools/release.py sync
@@ -134,33 +140,33 @@ python tools/release.py sync
 
 The command only performs fast-forward operations. It fails rather than creating an unexpected merge or rewriting shared history.
 
-## 7. Export release notes
+## 8. Export release notes
 
 ```bash
-python tools/release.py notes 3.1.0
+python tools/release.py notes 3.2.0
 ```
 
 or:
 
 ```bash
-python tools/release.py notes 3.1.0 --output dist/RELEASE_NOTES_v3.1.0.md
+python tools/release.py notes 3.2.0 --output dist/RELEASE_NOTES_v3.2.0.md
 ```
 
 Release notes are derived from the exact matching changelog section, not from GitHub's automatic pull-request summary.
 
-## 8. Safety and recovery
+## 9. Safety and recovery
 
 ### A release tag already exists
 
-The workflow stops. Tags are immutable release evidence and are never moved automatically. Investigate before deleting or replacing anything.
+The workflow skips publication. Tags are immutable release evidence and are never moved automatically.
 
 ### The GitHub workflow fails
 
-No GitHub release is published. Open the failed workflow, correct the cause on `develop`, prepare another patch release, and repeat the normal process.
+No release is published. Correct the cause on `develop`, prepare a patch release, merge it, and let the automatic workflow run again.
 
 ### prepare fails after version files were changed
 
-Inspect the error, correct the repository, and rerun the checks. To abandon the preparation before commit:
+To abandon the preparation before commit:
 
 ```bash
 git restore CHANGELOG.md \

@@ -106,11 +106,23 @@ release_workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
     encoding="utf-8"
 )
 assert "workflow_dispatch:" in release_workflow
-assert 'tag="v${VERSION}"' in release_workflow
-assert '"V${VERSION}"' in release_workflow
-assert 'gh release create "${args[@]}"' in release_workflow
+assert "push:" in release_workflow
+assert "branches:" in release_workflow
+assert "- main" in release_workflow
+assert 'tag="v${version}"' in release_workflow
+assert '"V${version}"' in release_workflow
+assert "gh release create" in release_workflow
 assert '--target "$GITHUB_SHA"' in release_workflow
 assert "contents: write" in release_workflow
+assert 'git push origin "$GITHUB_SHA:refs/heads/develop"' in release_workflow
+assert "The release remains valid; synchronize develop manually" in release_workflow
+assert "should_publish" in release_workflow
+
+release_tool = (ROOT / "tools" / "release.py").read_text(encoding="utf-8")
+assert "Merging this pull request into `main` automatically starts" in release_tool
+assert "workflow_dispatch" in release_tool
+assert "gh workflow run" not in release_tool
+assert "already published" in release_tool
 
 validation_workflow = (
     ROOT / ".github" / "workflows" / "roadplanner-validation.yml"

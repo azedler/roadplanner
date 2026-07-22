@@ -36,8 +36,9 @@ The canonical automated path is documented in [Release automation](RELEASE_AUTOM
 
 ## Automated publication
 
-- [ ] switch to current `main`
-- [ ] run `python tools/release.py publish X.Y.Z --watch --sync-develop`
+- [ ] merge the prepared release pull request into `main`
+- [ ] automatic release workflow starts for the merge commit
+- [ ] optionally run `python tools/release.py publish X.Y.Z --watch --sync-develop` to monitor
 - [ ] protected workflow validates the exact `main` commit
 - [ ] deterministic manual archive and checksum are created
 - [ ] lower-case tag `vX.Y.Z` points to the exact release commit
