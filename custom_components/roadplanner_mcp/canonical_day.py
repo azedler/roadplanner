@@ -71,6 +71,70 @@ def _coordinate(stop: Any) -> tuple[float, float] | None:
     return latitude, longitude
 
 
+def _geocoding_details(stop: Any) -> dict[str, Any]:
+    if not isinstance(stop, dict):
+        return {}
+    details = stop.get("details") if isinstance(stop.get("details"), dict) else {}
+    geocoding = details.get("geocoding") if isinstance(details.get("geocoding"), dict) else {}
+    return geocoding
+
+
+def location_status(stop: Any) -> str:
+    """Return one stable canonical location state for a stop.
+
+    Values are ``resolved``, ``unverified``, ``ambiguous`` or ``missing``.
+    Coordinates are never inferred here; this is a pure derived status.
+    """
+    coordinate = _coordinate(stop)
+    status = _text(_geocoding_details(stop).get("status")).casefold()
+    if coordinate is not None:
+        if not status or status == "resolved":
+            return "resolved"
+        return "unverified"
+    if "ambiguous" in status:
+        return "ambiguous"
+    return "missing"
+
+
+def _location_query(stop: Any) -> str:
+    if not isinstance(stop, dict):
+        return ""
+    geocoding = _geocoding_details(stop)
+    query = _text(geocoding.get("query"))
+    if query:
+        return query
+    location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
+    context = [
+        _text(stop.get("name")),
+        _text(location.get("label")),
+        _text(location.get("city")),
+        _text(location.get("country_code")),
+    ]
+    seen: set[str] = set()
+    values: list[str] = []
+    for value in context:
+        key = value.casefold()
+        if value and key not in seen:
+            seen.add(key)
+            values.append(value)
+    return ", ".join(values)[:500]
+
+
+def _decorate_location_state(stop: dict[str, Any]) -> dict[str, Any]:
+    status = location_status(stop)
+    stop["location_status"] = status
+    stop["has_coordinates"] = _coordinate(stop) is not None
+    stop["location_query"] = _location_query(stop)
+    stop["location_requires_attention"] = status != "resolved"
+    stop["location_message"] = {
+        "resolved": "GPS vorhanden",
+        "unverified": "GPS vorhanden, aber noch nicht bestätigt",
+        "ambiguous": "GPS-Zuordnung ist mehrdeutig",
+        "missing": "GPS-Koordinaten fehlen",
+    }[status]
+    return stop
+
+
 def same_place(first: Any, second: Any) -> bool:
     """Return whether two stop objects represent the same physical place."""
     if not isinstance(first, dict) or not isinstance(second, dict):
@@ -99,7 +163,7 @@ def _roadbook_stop(stop: dict[str, Any], *, sequence: int) -> dict[str, Any]:
     result["_inherited"] = False
     result["_route_node_kind"] = "stop"
     result["_is_roadbook_stop"] = True
-    return result
+    return _decorate_location_state(result)
 
 
 def _inherited_stop(
@@ -117,7 +181,7 @@ def _inherited_stop(
     result["_source_day_title"] = source_day_title
     result["_route_node_kind"] = "inherited_start"
     result["_is_roadbook_stop"] = False
-    return result
+    return _decorate_location_state(result)
 
 
 def _legacy_node(label: str, *, kind: str) -> dict[str, Any]:
@@ -247,6 +311,41 @@ def canonical_day_model(
         )
 
     map_nodes = [node for node in route_nodes if _coordinate(node) is not None]
+    location_counts = {
+        "resolved": 0,
+        "unverified": 0,
+        "ambiguous": 0,
+        "missing": 0,
+    }
+    for node in route_nodes:
+        status = _text(node.get("location_status")) or location_status(node)
+        if status not in location_counts:
+            status = "missing"
+        location_counts[status] += 1
+
+    def location_node_payload(node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": _text(node.get("id")) or None,
+            "name": _text(node.get("name")) or "Unbenannter Stopp",
+            "display_sequence": node.get("display_sequence"),
+            "marker_label": node.get("marker_label"),
+            "inherited": bool(node.get("_inherited")),
+            "status": _text(node.get("location_status")) or location_status(node),
+            "query": _text(node.get("location_query")) or _location_query(node),
+        }
+
+    missing_location_nodes = [
+        location_node_payload(node)
+        for node in route_nodes
+        if _coordinate(node) is None
+    ]
+    location_attention_nodes = [
+        location_node_payload(node)
+        for node in route_nodes
+        if (
+            _text(node.get("location_status")) or location_status(node)
+        ) != "resolved"
+    ]
     stop_ids = [
         _text(stop.get("id"))
         for stop in roadbook_stops
@@ -259,7 +358,7 @@ def canonical_day_model(
     ]
 
     model = {
-        "version": 2,
+        "version": 3,
         "day_id": _text(day.get("id")),
         "day_sequence": day.get("sequence"),
         "phase": _phase(day, today),
@@ -293,6 +392,27 @@ def canonical_day_model(
         "real_stop_count": len(roadbook_stops),
         "route_node_count": len(route_nodes),
         "coordinate_count": len(map_nodes),
+        "missing_coordinate_count": len(missing_location_nodes),
+        "location_counts": location_counts,
+        "missing_location_nodes": missing_location_nodes,
+        "location_attention_nodes": location_attention_nodes,
+        "location_complete": not location_attention_nodes,
+        "route_complete": bool(route_nodes) and not missing_location_nodes,
+        "data_quality": {
+            "sequence": "complete",
+            "locations": (
+                "partial"
+                if missing_location_nodes
+                else "review"
+                if location_attention_nodes
+                else "complete"
+            ),
+            "score": (
+                100
+                if not route_nodes
+                else round(100 * location_counts["resolved"] / len(route_nodes))
+            ),
+        },
         "warnings": warnings,
     }
     model["route_fingerprint"] = _route_fingerprint(model["day_id"], route_nodes)

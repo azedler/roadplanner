@@ -8,6 +8,7 @@
 - AI-to-Git patch workflow.
 - Architecture Decision Records.
 - Repository governance, Definition of Done, test strategy, and release process.
+- RP-500: Automated, explicitly approved GitHub release pipeline.
 
 ## Completed in Roadplanner 2.8.0
 
@@ -23,6 +24,15 @@
 - RP-402: Visual planning day covers and automatic planning-image presentation.
 - RP-403: Personal-memory prioritization with local duplicate and burst reduction.
 - RP-404: Phase-oriented navigation, dashboard and Roadplanner 3.0 mobile UX foundation.
+
+## Prepared for Roadplanner 3.1.0 — Canonical Day Experience
+
+- Stop order is authoritative through complete positions or stored legacy list order; times are descriptive only.
+- Add, update, move and remove paths reindex positions consistently.
+- Assistant operations maintain the complete day sequence and insert ordinary stops before the overnight destination by default.
+- Canonical location states expose missing, ambiguous and unverified GPS data.
+- Map legends retain all stop numbers and visibly mark GPS gaps.
+- “GPS prüfen/ergänzen” creates review-only geocoding drafts, including inherited overnight starts.
 
 ## Next — correctness
 
@@ -65,7 +75,6 @@
 ## Later — architecture and delivery
 
 - Public-source and third-party license audit.
-- Automated, explicitly approved GitHub release pipeline.
 - Provider interfaces v1.
 - Roadbook schema v1 and migration harness.
 - Incremental separation of domain, Home Assistant adapter, and UI.

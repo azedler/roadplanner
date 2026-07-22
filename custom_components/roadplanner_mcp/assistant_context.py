@@ -77,6 +77,8 @@ def with_overnight_continuity(days: list[dict[str, Any]]) -> list[dict[str, Any]
                 "name": inherited.get("name"),
                 "type": inherited.get("type"),
                 "location": deepcopy(inherited.get("location") or {}),
+                "location_status": inherited.get("location_status"),
+                "location_query": inherited.get("location_query"),
                 "departure_time": inherited.get("departure_time"),
                 "read_only": True,
             }

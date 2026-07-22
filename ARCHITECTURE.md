@@ -72,13 +72,17 @@ The final overnight stop of day N is the effective start of day N+1. It is store
 
 The route order is a domain property, not an insertion-order accident.
 
-Roadplanner 3.0 must establish one canonical order source for every day:
+Roadplanner uses one canonical order source for every day:
 
-1. explicit planned sequence/position,
-2. confirmed arrival/departure chronology when available,
-3. deterministic fallback order only for incomplete legacy data.
+1. a complete set of explicit planned `position` values,
+2. otherwise the user-confirmed stored Roadbook list order for legacy data.
 
-The map, day timeline, Google Maps handoff, routing provider and assistant context must all use the same ordered stop list.
+Arrival and departure times describe the schedule and never reorder stops. Every
+mutation leaves a complete one-based position set behind. The map, day timeline,
+Google Maps handoff, routing provider and assistant context all use the same
+ordered stop list. Location completeness is tracked separately; a GPS-less stop
+remains visible in sequence while the physical map and route are explicitly
+partial.
 
 ## 4. Write path
 

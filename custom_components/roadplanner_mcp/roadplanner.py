@@ -28,7 +28,11 @@ from typing import Any
 import uuid
 
 from .canonical_day import canonical_day_model
-from .stop_ordering import canonical_order_stops, reindex_explicit_positions
+from .stop_ordering import (
+    canonical_order_stops,
+    normalize_stop_sequence,
+    reindex_explicit_positions,
+)
 
 POINTER_SCHEMA_VERSION = 1
 TRIP_SCHEMA_VERSION = 3
@@ -631,6 +635,12 @@ def normalize_day_document(
             raise ValidationError(f"Doppelte Stopp-ID in Tag {day_id}: {stop['id']}")
         seen_stop_ids.add(stop["id"])
         stops.append(stop)
+
+    # Roadplanner 3.1 treats the user-confirmed list order as authoritative for
+    # legacy/incomplete days and normalizes them into a complete gap-free
+    # position set. The existing storage migration/write path persists the
+    # idempotent result without a destructive standalone migration.
+    normalize_stop_sequence(stops)
 
     return {
         "schema_version": DAY_SCHEMA_VERSION,
@@ -2753,8 +2763,7 @@ class RoadplannerStore:
         )
         insert_at = self._insert_index(position, len(target["stops"]))
         target["stops"].insert(insert_at, stop)
-        if position is not None or any(item.get("position") is not None for item in target["stops"]):
-            reindex_explicit_positions(target["stops"])
+        reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = now
         result = self._commit(
             previous,
@@ -2830,7 +2839,8 @@ class RoadplannerStore:
                 self._insert_index(position, len(target["stops"])),
                 moved,
             )
-            reindex_explicit_positions(target["stops"])
+        # Every stop mutation leaves a complete explicit sequence behind.
+        reindex_explicit_positions(target["stops"])
         if changed_fields or position is not None:
             target["day"]["updated_at"] = utc_now_iso()
         result = self._commit(
@@ -2840,7 +2850,9 @@ class RoadplannerStore:
             operation="update_stop",
             removed_files=[],
         )
-        result["stop"] = deepcopy(normalized)
+        result["stop"] = deepcopy(
+            next(item for item in target["stops"] if item["id"] == stop_id)
+        )
         result["day_id"] = day_id
         return result
 
@@ -2870,8 +2882,7 @@ class RoadplannerStore:
         candidate = previous.clone()
         target = candidate.day_documents[day_id]
         removed = target["stops"].pop(old_index)
-        if any(item.get("position") is not None for item in target["stops"]):
-            reindex_explicit_positions(target["stops"])
+        reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = utc_now_iso()
         result = self._commit(
             previous,

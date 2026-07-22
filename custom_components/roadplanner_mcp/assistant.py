@@ -24,7 +24,12 @@ from uuid import uuid4
 from homeassistant.util import dt as dt_util
 
 from .assistant_context import AssistantContextBuilder
-from .canonical_day import canonical_roadbook_stops, decorate_canonical_days
+from .canonical_day import (
+    canonical_day_stops,
+    canonical_roadbook_stops,
+    decorate_canonical_days,
+    location_status,
+)
 from .assistant_plugins import (
     AssistantPluginRegistry,
     GeocodingAssistantPlugin,
@@ -3242,6 +3247,129 @@ class RoadplannerAssistant:
             self.sessions.clear(user_id, trip_id)
             return self.state(user_id, trip_id)
 
+    async def async_add_location_drafts(
+        self,
+        *,
+        user_id: str,
+        trip_id: str,
+        day_id: str,
+    ) -> dict[str, Any]:
+        """Add review-only GPS completion drafts for one Roadbook day.
+
+        No coordinates are invented here. The existing geocoding plugin resolves
+        each ``place_query`` later when the user presses ``Änderungen prüfen``.
+        """
+        payload = await self._load_trip_payload(trip_id)
+        if not payload.get("selected_is_active"):
+            raise ValidationError(
+                "GPS-Daten können nur für die aktive Reise ergänzt werden"
+            )
+        day = next(
+            (
+                item
+                for item in payload.get("days", {}).get("days", [])
+                if isinstance(item, dict) and str(item.get("id") or "") == str(day_id)
+            ),
+            None,
+        )
+        if day is None:
+            raise ValidationError(f"Reisetag nicht gefunden: {day_id}")
+
+        drafts: list[dict[str, Any]] = []
+        seen_stops: set[tuple[str, str]] = set()
+        for stop in canonical_day_stops(day):
+            if not isinstance(stop, dict) or location_status(stop) == "resolved":
+                continue
+            stop_id = _clean_text(stop.get("id"), maximum=200)
+            name = _clean_text(stop.get("name"), maximum=500)
+            owner_day_id = _clean_text(
+                stop.get("_source_day_id") if stop.get("_inherited") else day_id,
+                maximum=200,
+            )
+            if not stop_id or not name or not owner_day_id:
+                continue
+            identity = (owner_day_id, stop_id)
+            if identity in seen_stops:
+                continue
+            seen_stops.add(identity)
+            location = (
+                stop.get("location")
+                if isinstance(stop.get("location"), dict)
+                else {}
+            )
+            details = (
+                stop.get("details")
+                if isinstance(stop.get("details"), dict)
+                else {}
+            )
+            geocoding = (
+                details.get("geocoding")
+                if isinstance(details.get("geocoding"), dict)
+                else {}
+            )
+            query_parts = [
+                _clean_text(geocoding.get("query"), maximum=500),
+                name,
+                _clean_text(location.get("label"), maximum=300),
+                _clean_text(location.get("city"), maximum=200),
+                _clean_text(location.get("country_code"), maximum=20),
+            ]
+            query_values: list[str] = []
+            seen: set[str] = set()
+            for value in query_parts:
+                key = value.casefold()
+                if value and key not in seen:
+                    seen.add(key)
+                    query_values.append(value)
+            place_query = ", ".join(query_values)[:500]
+            if not place_query:
+                continue
+            inherited_note = " (Start vom Vortag)" if stop.get("_inherited") else ""
+            drafts.append(
+                {
+                    "action": "update",
+                    "entity_type": "stop",
+                    "target_id": stop_id,
+                    "day_id": owner_day_id,
+                    "place_query": place_query,
+                    "summary": f"GPS-Daten prüfen/ergänzen: {name}{inherited_note}",
+                    "reason": (
+                        "Der konkrete Roadbook-Stopp besitzt noch keine eindeutig "
+                        "bestätigten GPS-Daten. Roadplanner soll den Ort serverseitig "
+                        "auflösen und die Auswahl vor dem Speichern prüfen."
+                    ),
+                    "values": {},
+                }
+            )
+
+        if not drafts:
+            raise ValidationError(
+                "Für diesen Reisetag wurden keine offenen GPS-Zuordnungen gefunden"
+            )
+        delta = {
+            "add_or_update": drafts,
+            "remove_ids": [],
+            "note": f"GPS-Vervollständigung für {day.get('title') or day_id}",
+        }
+        async with self.sessions.lock(user_id, trip_id):
+            session = self.sessions.session(user_id, trip_id)
+            applied = self.sessions.apply_delta(
+                session,
+                delta,
+                roadbook_context=payload,
+            )
+            if not applied.get("changed"):
+                reason = (applied.get("rejected") or [{}])[0].get("reason")
+                raise ValidationError(
+                    reason or "Die GPS-Vervollständigung konnte nicht vorgemerkt werden"
+                )
+            return {
+                "draft_count": int(applied.get("added_count") or 0)
+                + int(applied.get("updated_count") or 0),
+                "basket_result": applied,
+                "assistant": self.state(user_id, trip_id),
+            }
+
     async def async_add_decision_draft(
         self,
         *,
@@ -3863,6 +3991,7 @@ class RoadplannerAssistant:
         context: dict[str, Any],
         new_day_refs: set[str],
         basket: list[dict[str, Any]] | None = None,
+        position_state: dict[str, list[dict[str, str]]] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(raw, dict):
             raise ValidationError(f"Assistenten-Operation {index + 1} ist kein Objekt")
@@ -4033,6 +4162,36 @@ class RoadplannerAssistant:
                     raise ValidationError(
                         "Ein neuer konkreter Stopp benötigt place_query für die GPS-Prüfung"
                     )
+                if position_state is not None:
+                    parent_ref = str(day_id or day_ref or "")
+                    state = position_state.setdefault(parent_ref, [])
+                    requested = operation.get("position")
+                    if (
+                        isinstance(requested, int)
+                        and not isinstance(requested, bool)
+                        and requested > 0
+                    ):
+                        insert_at = min(requested - 1, len(state))
+                    elif stop_type in OVERNIGHT_STOP_TYPES:
+                        insert_at = len(state)
+                    else:
+                        overnight_index = next(
+                            (
+                                state_index
+                                for state_index, item in enumerate(state)
+                                if str(item.get("type") or "").casefold() in OVERNIGHT_STOP_TYPES
+                            ),
+                            len(state),
+                        )
+                        insert_at = overnight_index
+                    operation["position"] = insert_at + 1
+                    state.insert(
+                        insert_at,
+                        {
+                            "id": str(operation.get("entity_id") or ""),
+                            "type": stop_type,
+                        },
+                    )
             else:
                 if not day_id:
                     raise ValidationError("Bestehende Stopps müssen über day_id referenziert werden")
@@ -4048,6 +4207,41 @@ class RoadplannerAssistant:
                     if stop_type not in _ALLOWED_STOP_TYPES:
                         raise ValidationError(f"Nicht unterstützter Stopptyp: {stop_type}")
                     operation["changes"]["type"] = stop_type
+                if position_state is not None and day_id:
+                    state = position_state.setdefault(day_id, [])
+                    current_index = next(
+                        (
+                            state_index
+                            for state_index, item in enumerate(state)
+                            if item.get("id") == str(entity_id or "")
+                        ),
+                        None,
+                    )
+                    if action == "remove":
+                        if current_index is not None:
+                            state.pop(current_index)
+                    else:
+                        item = (
+                            state.pop(current_index)
+                            if current_index is not None
+                            else {"id": str(entity_id or ""), "type": "waypoint"}
+                        )
+                        if "type" in operation["changes"]:
+                            item["type"] = str(operation["changes"]["type"])
+                        requested = operation.get("position")
+                        if (
+                            isinstance(requested, int)
+                            and not isinstance(requested, bool)
+                            and requested > 0
+                        ):
+                            insert_at = min(requested - 1, len(state))
+                        elif current_index is not None:
+                            insert_at = min(current_index, len(state))
+                        else:
+                            insert_at = len(state)
+                        state.insert(insert_at, item)
+                        if action == "move" or "position" in operation:
+                            operation["position"] = insert_at + 1
         else:  # preference
             operation.pop("position", None)
             operation.pop("place_query", None)
@@ -4069,8 +4263,15 @@ class RoadplannerAssistant:
                     f"Bestehende Präferenz-ID ist nicht im aktuellen Roadbook vorhanden: {entity_id or 'fehlt'}"
                 )
 
-        if action == "update" and not operation["changes"] and "position" not in operation:
-            raise ValidationError("Eine Aktualisierung benötigt Änderungen oder eine Position")
+        if (
+            action == "update"
+            and not operation["changes"]
+            and "position" not in operation
+            and not operation.get("place_query")
+        ):
+            raise ValidationError(
+                "Eine Aktualisierung benötigt Änderungen, eine Position oder place_query"
+            )
         if action in {"remove", "move"} and operation["changes"]:
             raise ValidationError("changes muss bei remove/move leer sein")
         return operation
@@ -4118,6 +4319,23 @@ class RoadplannerAssistant:
                 prepared_raw_operations, new_day_refs = (
                     _prepare_compiled_operation_batch(raw_operations)
                 )
+                position_state: dict[str, list[dict[str, str]]] = {}
+                for context_day in context.get("days", []):
+                    if not isinstance(context_day, dict):
+                        continue
+                    context_day_id = _clean_text(context_day.get("id"), maximum=200)
+                    if not context_day_id:
+                        continue
+                    position_state[context_day_id] = [
+                        {
+                            "id": _clean_text(stop.get("id"), maximum=200),
+                            "type": _clean_text(stop.get("type"), maximum=100).casefold(),
+                        }
+                        for stop in canonical_roadbook_stops(context_day)
+                        if isinstance(stop, dict)
+                    ]
+                for day_ref in new_day_refs:
+                    position_state.setdefault(day_ref, [])
                 for index, raw in enumerate(prepared_raw_operations):
                     operations.append(
                         self._sanitize_operation(
@@ -4126,6 +4344,7 @@ class RoadplannerAssistant:
                             context=context,
                             new_day_refs=new_day_refs,
                             basket=session.basket,
+                            position_state=position_state,
                         )
                     )
                 open_questions, open_questions_omitted = _normalize_text_items(

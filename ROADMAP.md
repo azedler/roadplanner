@@ -2,7 +2,7 @@
 
 ## Current baseline
 
-- Latest public feature release: **Roadplanner 3.0.0**
+- Latest public feature release: [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest)
 - Active major development: **Roadplanner 3.x**
 - Technical domain: `roadplanner_mcp`
 
@@ -18,14 +18,18 @@
 - [x] Architecture Decision Records.
 - [x] Patch-based iPad/Codespaces workflow.
 - [x] Repository governance, validation, release, and Definition-of-Done contracts.
+- [x] RP-500: Explicit Codespaces/GitHub release automation with protected tags and HACS publication.
 
 ### Domain consistency
 
 - [x] Canonical stop ordering shared by map, timeline, routing, navigation, decisions, archives, imports, and assistant context.
-- [x] Deterministic legacy fallback with explicit positions remaining authoritative.
+- [x] User-confirmed legacy list order as fallback; schedule times never reorder stops.
 - [x] Overnight continuity without duplicate canonical stops in derived views.
 - [x] Day timeline built exclusively from effective ordered route elements.
 - [x] Legacy day `start`/`end` fields no longer create conflicting route elements.
+- [x] Every stop mutation persists a complete one-based `position` sequence.
+- [x] Explicit location completeness states and partial-route UX for GPS-less stops.
+- [x] Review-only GPS completion through the existing change-basket/geocoding pipeline.
 
 ### Planning metrics and overview
 
@@ -78,20 +82,29 @@
 - Incremental Core, Home Assistant adapter, and UI boundaries.
 - Eliminate duplicate configuration and derived-logic sources.
 
-## Roadplanner 3.1 — Travel Story
+## Roadplanner 3.1 — Canonical Day Experience
+
+- [x] User-confirmed stop sequence independent of schedule times.
+- [x] Complete positions after every stop mutation.
+- [x] Shared order for map, flow, routing, navigation and assistant planning.
+- [x] Explicit location completeness and partial-route UX.
+- [x] Review-only GPS completion through the change basket.
+- [ ] Live acceptance on the active journey.
+
+## Roadplanner 3.2 — Travel Story
 
 - Trip-wide highlight selection.
 - Story chapters per day and stop.
 - Travel Movie export contract.
 - Photo-book/export metadata.
 
-## Roadplanner 3.2 — Media providers
+## Roadplanner 3.3 — Media providers
 
 - Apple Photos bridge or native companion sync.
 - Multi-account OneDrive support.
 - Optional Google Photos, Immich, and NAS providers.
 
-## Roadplanner 3.3 — Automation and mobility
+## Roadplanner 3.4 — Automation and mobility
 
 - EVCC-aware charging plans.
 - Weather-aware proactive suggestions.

@@ -23,13 +23,13 @@ const explicit = [
 ];
 assert.deepEqual(panel._canonicalStops(explicit).map((item) => item.id), ["first", "second", "third"]);
 
-const chronological = [
+const storedOrder = [
   { id: "overnight", type: "wildcamp" },
-  { id: "late", type: "attraction", arrival_time: "16:30" },
-  { id: "start", type: "start" },
-  { id: "early", type: "sightseeing", arrival_time: "09:45" },
+  { id: "parking", type: "parking" },
+  { id: "pharmacy", type: "service" },
+  { id: "ferry", type: "ferry", arrival_time: "19:30" },
 ];
-assert.deepEqual(panel._canonicalStops(chronological).map((item) => item.id), ["start", "early", "late", "overnight"]);
+assert.deepEqual(panel._canonicalStops(storedOrder).map((item) => item.id), ["overnight", "parking", "pharmacy", "ferry"]);
 
 panel._data = {
   days: {

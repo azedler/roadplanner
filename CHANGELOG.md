@@ -6,6 +6,32 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-22
+
+### Added
+
+- Canonical location states for every day-route node, including explicit missing, ambiguous and unverified GPS data.
+- Review-only “GPS prüfen/ergänzen” workflow that prepares geocoding drafts for incomplete stops without inventing coordinates.
+- Complete map legends and partial-route notices that keep GPS-less stops visible in their confirmed sequence.
+- Two-stage release automation for Codespaces: prepare, validate, push, pull request, publish, and branch synchronization.
+- Protected GitHub release workflow that validates the exact `main` commit, creates a lower-case version tag, publishes release notes from the changelog, and attaches validated manual-install artifacts.
+- Canonical Roadplanner validation workflow for pull requests to `main`, with an on-demand manual trigger.
+
+### Changed
+
+- Stop order is independent from schedule times: complete explicit positions win; legacy days preserve their stored user-confirmed list order.
+- Every stop mutation and ChangeSet operation leaves a complete gap-free one-based `position` sequence behind.
+- The assistant plans stop additions and moves against the complete canonical day sequence and emits explicit positions.
+- Local and GitHub release checks now use the same `tools/release.py check` entry point.
+- Release preparation cuts the `[Unreleased]` changelog section and keeps `manifest.json` and `const.py` versions synchronized.
+- Python caches are removed by release automation before and after tests instead of requiring repetitive manual cleanup.
+
+### Fixed
+
+- A timed ferry can no longer jump ahead of untimed parking, pharmacy, shopping or service stops.
+- GPS-less stops no longer disappear silently from the day map; the route remains visibly partial until reviewed coordinates exist.
+- GPS repair for an inherited overnight start targets the owning previous Roadbook day instead of creating a duplicate stop.
+
 ## [3.0.0] - 2026-07-22
 
 ### Added

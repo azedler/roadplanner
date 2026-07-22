@@ -53,6 +53,7 @@ REQUIRED_DEVELOPMENT_DOCS = {
     "docs/development/DEFINITION_OF_DONE.md",
     "docs/development/TEST_STRATEGY.md",
     "docs/development/RELEASE_PROCESS.md",
+    "docs/development/RELEASE_AUTOMATION.md",
     "docs/development/RELEASE_CHECKLIST.md",
     "docs/development/PUBLICATION_CHECKLIST.md",
     "docs/development/TASK_TEMPLATE.md",
@@ -104,7 +105,13 @@ def validate_layout() -> None:
         if not path.exists():
             fail(f"Missing required file: {item}")
 
-    for required in (INTEGRATION / "__init__.py", INTEGRATION / "manifest.json"):
+    for required in (
+        INTEGRATION / "__init__.py",
+        INTEGRATION / "manifest.json",
+        ROOT / "tools" / "release.py",
+        ROOT / ".github" / "workflows" / "release.yml",
+        ROOT / ".github" / "workflows" / "roadplanner-validation.yml",
+    ):
         if not required.exists():
             fail(f"Missing required file: {relative(required)}")
 
