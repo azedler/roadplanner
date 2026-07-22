@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-22
+
 ### Added
 
 - Canonical location states for every day-route node, including explicit missing, ambiguous and unverified GPS data.
