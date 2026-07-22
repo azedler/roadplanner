@@ -26,6 +26,7 @@ from .const import (
     ROLE_VIEWER,
 )
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
+from .travel_integrity import build_travel_integrity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ _ACTIONS = {
     "assistant_update_draft",
     "assistant_prepare",
     "assistant_prepare_locations",
+    "assistant_prepare_trip_locations",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -115,6 +117,7 @@ _EDIT_ACTIONS = {
     "delete_destination_gallery",
     "auto_populate_destination_galleries",
     "assistant_prepare_locations",
+    "assistant_prepare_trip_locations",
     "archive_create_upload_ticket",
     "archive_analyze_document",
     "archive_confirm_document",
@@ -154,6 +157,7 @@ _ASSISTANT_ACTIONS = {
     "assistant_update_draft",
     "assistant_prepare",
     "assistant_prepare_locations",
+    "assistant_prepare_trip_locations",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -380,6 +384,17 @@ async def _execute_action(
             user_id=user_id,
             trip_id=trip_id,
             day_id=day_id,
+        )
+
+    if action == "assistant_prepare_trip_locations":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError(
+                "Für die GPS-Vervollständigung wurde keine Reise ausgewählt"
+            )
+        return await runtime.assistant.async_add_trip_location_drafts(
+            user_id=user_id,
+            trip_id=trip_id,
         )
 
     if action == "assistant_test":
@@ -924,6 +939,13 @@ async def websocket_get_panel_data(
         if selected_trip_id
         else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "onedrive": runtime.experience.onedrive.status()}
     )
+    summary_state = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    integrity_state = build_travel_integrity(
+        list(payload.get("days", {}).get("days", []) or []),
+        destination_galleries=experience_state.get("destination_galleries"),
+        media_by_stop=experience_state.get("by_stop"),
+        route_metrics=summary_state.get("route_metrics"),
+    )
     payload.update(
         {
             "integration_version": INTEGRATION_VERSION,
@@ -932,6 +954,7 @@ async def websocket_get_panel_data(
             "assistant": assistant_state,
             "travel_archive": archive_state,
             "experience": experience_state,
+            "integrity": integrity_state,
             "user": {
                 "id": getattr(user, "id", None),
                 "name": getattr(user, "name", None),

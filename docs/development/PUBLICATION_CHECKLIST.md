@@ -24,7 +24,7 @@ Use this checklist before changing the repository from private to public.
 - [ ] `manifest.json` contains version, documentation, issue tracker, and code owners
 - [ ] `hacs.json` is valid
 - [ ] `main` is installable
-- [ ] `python tools/release.py publish X.Y.Z --watch` completed successfully
+- [ ] automatic publication after the `main` merge completed successfully
 - [ ] a stable GitHub release and lower-case `vX.Y.Z` tag exist on the exact validated `main` commit
 - [ ] installation and update were tested through HACS
 

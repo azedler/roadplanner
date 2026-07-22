@@ -162,3 +162,18 @@ Roadplanner 3.0 introduces shared derived services instead of duplicating busine
 - panel view-models prefer personal travel media after a visit and fall back to attributed planning images before it.
 
 The product target is documented in [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md).
+
+## Intelligent travel foundation (3.2)
+
+Roadplanner derives a bounded trip-integrity report from the canonical day payload and existing sidecars. The report is read-only and evaluates four dimensions independently:
+
+- confirmed stop sequence,
+- location/GPS completeness,
+- route freshness and coverage,
+- visual readiness.
+
+Schedule times remain descriptive and are not integrity or ordering inputs. Repair actions create review-only change-basket drafts through the existing assistant/geocoding path.
+
+Planning images are enriched by a bounded backend scheduler for the active trip. The scheduler prioritizes current and upcoming days, skips stops with personal OneDrive media, persists provider results, and isolates provider failures. The panel may start one small best-effort batch for immediate visible content, but no longer scans the whole trip on each load.
+
+Release publication is triggered by the merge commit reaching `main`. The GitHub workflow validates that exact commit, builds artifacts, creates an immutable lower-case tag and release, and fast-forwards `develop` only when no unpublished work would be overwritten.

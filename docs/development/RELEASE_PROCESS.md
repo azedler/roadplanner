@@ -1,6 +1,6 @@
 # Release process
 
-Roadplanner uses Semantic Versioning and an explicit two-stage release automation. See [Release automation](RELEASE_AUTOMATION.md) for the complete Codespaces workflow.
+Roadplanner uses Semantic Versioning and a pull-request-gated automatic release workflow. See [Release automation](RELEASE_AUTOMATION.md) for the complete Codespaces workflow.
 
 ## Versioning
 
@@ -45,15 +45,17 @@ python tools/release.py prepare X.Y.Z --remote
 
 4. Review and merge the generated pull request after all checks pass.
 
-### On main
+### After the merge
+
+Merging the prepared pull request into `main` automatically starts the protected GitHub workflow. It performs final validation, builds the manual-install artifacts, creates the exact tag, publishes the release used by HACS and fast-forwards `develop` when safe.
+
+Optional monitoring from Codespaces:
 
 ```bash
 git switch main
 git pull --ff-only origin main
 python tools/release.py publish X.Y.Z --watch --sync-develop
 ```
-
-The protected GitHub workflow performs final validation, builds optional manual-install artifacts, creates the exact tag, and publishes the release used by HACS.
 
 ## Local validation only
 
@@ -76,15 +78,15 @@ python tools/build_release.py
 
 The manual archive and checksum are created in `dist/`. GitHub source archives remain the normal HACS distribution source.
 
-## GitHub-only publication fallback
+## Manual publication fallback
 
-After the release preparation pull request has been merged:
+Publication normally starts automatically on the `main` push created by the release pull-request merge. If an automatic run was cancelled or GitHub was temporarily unavailable:
 
 ```text
 Actions → Publish Roadplanner release → Run workflow
 ```
 
-Enter version `X.Y.Z` without a tag prefix. The workflow creates `vX.Y.Z` on the exact validated `main` commit.
+The version input is optional and, when supplied, must match `manifest.json`.
 
 ## HACS
 

@@ -34,6 +34,18 @@
 - Map legends retain all stop numbers and visibly mark GPS gaps.
 - “GPS prüfen/ergänzen” creates review-only geocoding drafts, including inherited overnight starts.
 
+
+## Prepared for Roadplanner 3.2.0 — Intelligent Travel Foundation
+
+- Trip-wide integrity report and quality score.
+- Bulk review-only GPS completion across the active trip.
+- Clear route and visual gaps with direct repair actions.
+- Bounded background image enrichment for the active trip.
+- Current and upcoming days are enriched before historical days.
+- Existing OneDrive travel photos take precedence over stock-image searches.
+- Automatic GitHub release creation after the release PR merge.
+- Automatic safe synchronization of `develop` after publication.
+
 ## Next — correctness
 
 ## Next — planning UX

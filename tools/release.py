@@ -6,7 +6,7 @@ The workflow is deliberately split into safe stages:
 * ``check`` validates the current repository without modifying Git history.
 * ``prepare`` cuts the changelog, updates versions, validates, commits, and can
   push ``develop`` and open the release pull request.
-* ``publish`` dispatches the protected GitHub release workflow on ``main``.
+* ``publish`` observes and verifies the automatic GitHub release workflow on ``main``.
 * ``sync`` fast-forwards ``develop`` to the released ``main`` history.
 * ``notes`` exports one changelog section as GitHub release notes.
 
@@ -421,7 +421,11 @@ Roadplanner {version}
 
 ## Publication
 
-After this pull request is merged, run:
+Merging this pull request into `main` automatically starts the protected
+release workflow. It validates the exact merge commit, creates `v{version}`,
+publishes the GitHub release and fast-forwards `develop` when safe.
+
+Optional monitoring from Codespaces:
 
 ```bash
 python tools/release.py publish {version} --watch --sync-develop
@@ -560,8 +564,8 @@ def prepare_release(args: argparse.Namespace) -> None:
 
 
 def latest_workflow_run(head_sha: str) -> tuple[str, str] | None:
-    # GitHub can take a few seconds to register a workflow_dispatch run.
-    for _attempt in range(8):
+    """Find the automatic or manually triggered release run for one commit."""
+    for _attempt in range(12):
         raw = gh(
             "run",
             "list",
@@ -569,12 +573,10 @@ def latest_workflow_run(head_sha: str) -> tuple[str, str] | None:
             RELEASE_WORKFLOW,
             "--branch",
             MAIN_BRANCH,
-            "--event",
-            "workflow_dispatch",
             "--limit",
-            "10",
+            "20",
             "--json",
-            "databaseId,headSha,url,createdAt",
+            "databaseId,headSha,url,createdAt,event,status,conclusion",
             "-R",
             REPOSITORY,
         )
@@ -584,13 +586,18 @@ def latest_workflow_run(head_sha: str) -> tuple[str, str] | None:
             entries = []
         if isinstance(entries, list):
             for entry in entries:
-                if isinstance(entry, dict) and entry.get("headSha") == head_sha:
+                if (
+                    isinstance(entry, dict)
+                    and entry.get("headSha") == head_sha
+                    and entry.get("event") in {"push", "workflow_dispatch"}
+                ):
                     return str(entry.get("databaseId")), str(entry.get("url"))
         time.sleep(2)
     return None
 
 
 def publish_release(args: argparse.Namespace) -> None:
+    """Observe the release automatically started by merging into main."""
     target = Version.parse(args.version)
     require_branch(MAIN_BRANCH)
     require_clean_tree()
@@ -606,50 +613,64 @@ def publish_release(args: argparse.Namespace) -> None:
     release_section(CHANGELOG.read_text(encoding="utf-8"), str(target))
 
     tag = f"v{target}"
-    conflicting_tags = existing_release_tags(target)
-    if conflicting_tags:
-        joined = ", ".join(conflicting_tags)
-        raise ReleaseError(
-            f"Remote release tag already exists: {joined}. "
-            "The automation never moves release tags."
-        )
-    for candidate in (tag, f"V{target}"):
-        release_exists = gh("release", "view", candidate, "-R", REPOSITORY, check=False)
-        if release_exists:
-            raise ReleaseError(f"GitHub release {candidate} already exists")
-
-    gh("auth", "status", capture=True)
-    confirm(
-        f"Dispatch the protected GitHub release workflow for Roadplanner {target}?",
-        assume_yes=args.yes,
-    )
-    gh(
-        "workflow",
-        "run",
-        RELEASE_WORKFLOW,
-        "--ref",
-        MAIN_BRANCH,
-        "-f",
-        f"version={target}",
+    release_url = gh(
+        "release",
+        "view",
+        tag,
+        "--json",
+        "url",
+        "--jq",
+        ".url",
         "-R",
         REPOSITORY,
-        capture=False,
+        check=False,
     )
+    if release_url:
+        print(f"Roadplanner {target} is already published: {release_url}")
+        if args.sync_develop:
+            sync_develop(argparse.Namespace())
+        return
+
     head_sha = current_commit()
     found = latest_workflow_run(head_sha)
     if found is None:
-        print("Release workflow dispatched. Open GitHub Actions to follow progress.")
+        print(
+            "No release workflow run is visible yet. Merging the prepared release "
+            "pull request into main starts it automatically. As a fallback, open "
+            "GitHub → Actions → Publish Roadplanner release → Run workflow."
+        )
         return
     run_id, url = found
     print(f"Release workflow: {url}")
     if args.watch:
-        run(["gh", "run", "watch", run_id, "--exit-status", "-R", REPOSITORY], capture=False)
-        print(f"Roadplanner {target} release workflow completed successfully.")
+        run(
+            ["gh", "run", "watch", run_id, "--exit-status", "-R", REPOSITORY],
+            capture=False,
+        )
+        release_url = gh(
+            "release",
+            "view",
+            tag,
+            "--json",
+            "url",
+            "--jq",
+            ".url",
+            "-R",
+            REPOSITORY,
+            check=False,
+        )
+        if not release_url:
+            raise ReleaseError(
+                f"The workflow completed, but GitHub release {tag} is not visible."
+            )
+        print(f"Roadplanner {target} published successfully: {release_url}")
         if args.sync_develop:
-            sync_develop(argparse.Namespace(yes=True))
+            sync_develop(argparse.Namespace())
     elif args.sync_develop:
-        print("--sync-develop requires --watch so the release is known to have completed.")
-
+        print(
+            "--sync-develop without --watch is unnecessary: the GitHub workflow "
+            "fast-forwards develop automatically when safe."
+        )
 
 def sync_develop(_args: argparse.Namespace) -> None:
     require_clean_tree()
@@ -717,7 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.set_defaults(handler=prepare_release)
 
     publish_parser = subparsers.add_parser(
-        "publish", help="Dispatch the protected GitHub release workflow from main"
+        "publish", help="Watch or verify the automatic GitHub release from main"
     )
     publish_parser.add_argument("version", help="Released stable version X.Y.Z")
     publish_parser.add_argument(
@@ -727,9 +748,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--sync-develop",
         action="store_true",
         help="After a successful watched release, fast-forward develop to main",
-    )
-    publish_parser.add_argument(
-        "--yes", action="store_true", help="Skip the workflow-dispatch confirmation"
     )
     publish_parser.set_defaults(handler=publish_release)
 

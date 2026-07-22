@@ -22,11 +22,15 @@ assert "Jede neue Stoppoperation enthält eine positive position" in prompt
 
 # GPS completion remains review-only and uses existing geocoding enrichment.
 assert "async_add_location_drafts" in assistant
+assert "async_add_trip_location_drafts" in assistant
+assert "_build_location_drafts" in assistant
 assert '"action": "update"' in assistant
 assert '"place_query": place_query' in assistant
 assert 'stop.get("_source_day_id") if stop.get("_inherited") else day_id' in assistant
 assert '"assistant_prepare_locations"' in panel
+assert '"assistant_prepare_trip_locations"' in panel
 assert 'data-action="complete-day-locations"' in frontend
 assert "GPS prüfen/ergänzen" in frontend
+assert 'data-action="integrity-prepare-locations"' in frontend
 
 print("Canonical day plan integrity contract tests passed.")

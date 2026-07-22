@@ -6,6 +6,28 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Trip-wide travel-integrity report with scores for stop order, GPS completeness, routes and visual readiness.
+- Review-only bulk GPS completion for all incomplete stops in the active trip.
+- Automatic bounded planning-image enrichment for the active trip, including background scheduling and provider-status diagnostics.
+- Travel-quality dashboard card and a mobile-friendly detail view with direct repair actions.
+- Automatic GitHub publication after a prepared release pull request is merged into `main`.
+
+### Changed
+
+- Planning-image enrichment prioritizes the current and upcoming travel days and skips stops that already have personal OneDrive photos.
+- The panel starts only one small best-effort image batch; the backend continues enrichment without blocking the UI.
+- Release preparation now documents that merging the release pull request is the publication trigger.
+- `tools/release.py publish` observes or verifies the automatic workflow instead of attempting an API dispatch that Codespaces may reject.
+- Missing schedule times remain informational and never change the confirmed stop order or lower the trip-integrity score.
+
+### Fixed
+
+- Trips with missing GPS no longer require manual day-by-day diagnosis before repair drafts can be prepared.
+- Release publication no longer depends on a Codespaces token having permission to call `workflow_dispatch`.
+- Existing personal travel photos are no longer displaced by unnecessary stock-image searches.
+
 ## [3.1.0] - 2026-07-22
 
 ### Added

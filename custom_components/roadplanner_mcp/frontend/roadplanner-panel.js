@@ -454,10 +454,14 @@ class RoadplannerPanel extends HTMLElement {
     if (!tripId || !this._canEdit() || !payload?.settings?.destination_image_auto_fill) return;
     const key = `${tripId}:${revision}`;
     if (this._destinationAutoFillRequested.has(key) || this._destinationAutoFillInFlight) return;
+    if (payload?.experience?.destination_enrichment?.state === "running") return;
     const stops = (payload?.days?.days || []).flatMap((day) => this._dayRoadbookStops(day));
     if (!stops.length) return;
     const galleries = payload?.experience?.destination_galleries || {};
-    const missing = stops.some((stop) => stop?.id && !galleries[stop.id]);
+    const ownByStop = payload?.experience?.by_stop || {};
+    const missing = stops.some((stop) => stop?.id
+      && !(Array.isArray(ownByStop?.[stop.id]) && ownByStop[stop.id].length)
+      && !galleries[stop.id]);
     if (!missing) {
       this._destinationAutoFillRequested.add(key);
       return;
@@ -465,19 +469,18 @@ class RoadplannerPanel extends HTMLElement {
     this._destinationAutoFillRequested.add(key);
     this._destinationAutoFillInFlight = true;
     try {
-      for (let batch = 0; batch < 10; batch += 1) {
-        const result = await this._send({
-          type: WS_ACTION,
-          action: "auto_populate_destination_galleries",
-          data: { trip_id: tripId, limit: 6 },
-        });
-        if (result?.experience && this._data?.selected_trip_id === tripId) {
-          this._data = { ...this._data, experience: result.experience };
-          this._signature = "";
-          this._render({ preserveScroll: true });
-        }
-        if (!result || Number(result.searched || 0) === 0) break;
-        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      // The backend now performs bounded background enrichment. The panel only
+      // starts one small best-effort batch so the first visible stops do not
+      // wait for the next scheduler interval.
+      const result = await this._send({
+        type: WS_ACTION,
+        action: "auto_populate_destination_galleries",
+        data: { trip_id: tripId, limit: 4 },
+      });
+      if (result?.experience && this._data?.selected_trip_id === tripId) {
+        this._data = { ...this._data, experience: result.experience };
+        this._signature = "";
+        this._render({ preserveScroll: true });
       }
     } catch (error) {
       console.warn("Roadplanner automatic destination image search failed", error);
@@ -571,6 +574,28 @@ class RoadplannerPanel extends HTMLElement {
     }
     this._activeTab = "assistant";
     this._showToast(`${Number(result.draft_count || 0)} GPS-Änderungen vorgemerkt`, "success", 4500);
+    this._render({ preserveScroll: false });
+    return result;
+  }
+
+  async _prepareTripLocations() {
+    const retry = () => this._prepareTripLocations();
+    const result = await this._runAction("assistant_prepare_trip_locations", {
+      trip_id: this._selectedTripId,
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "GPS-Vervollständigung konnte nicht vorbereitet werden",
+      retry,
+    });
+    if (!result) return null;
+    if (result.assistant && this._data) {
+      this._data = { ...this._data, assistant: result.assistant };
+      this._signature = "";
+    }
+    this._dialog = null;
+    this._activeTab = "assistant";
+    this._showToast(`${Number(result.draft_count || 0)} GPS-Änderungen für ${Number(result.day_count || 0)} Tage vorgemerkt`, "success", 5200);
     this._render({ preserveScroll: false });
     return result;
   }
@@ -1810,6 +1835,33 @@ class RoadplannerPanel extends HTMLElement {
       const retry = this._actionErrorRetry;
       this._closeDialog({ flushRefresh: false });
       if (retry) void retry();
+    } else if (action === "integrity-open") {
+      this._dialog = { type: "travel-integrity" };
+      this._render({ preserveScroll: true });
+    } else if (action === "integrity-refresh") {
+      void this._loadData({ silent: true, force: true });
+    } else if (action === "integrity-prepare-locations") {
+      void this._prepareTripLocations();
+    } else if (action === "integrity-open-day") {
+      const selectedDayId = cleanText(target.dataset.dayId);
+      if (selectedDayId) this._selectedDayId = selectedDayId;
+      this._dialog = null;
+      this._activeTab = "day-route";
+      this._render({ preserveScroll: false });
+    } else if (action === "integrity-auto-images") {
+      void (async () => {
+        const result = await this._runAction("auto_populate_destination_galleries", {
+          trip_id: this._selectedTripId,
+          limit: 12,
+        }, "Planungsbilder werden ergänzt");
+        if (result) {
+          this._dialog = { type: "travel-integrity" };
+          this._render({ preserveScroll: true });
+        }
+      })();
+    } else if (action === "integrity-recalculate-routes") {
+      this._dialog = null;
+      void this._calculateTripRoutes(true);
     } else if (["decision-prev", "decision-next", "decision-go"].includes(action)) {
       const decision = (this._experienceData().decisions || []).find((item) => item.id === target.dataset.decisionId);
       const options = decision?.options || [];
@@ -3728,6 +3780,13 @@ class RoadplannerPanel extends HTMLElement {
     return this._data?.experience || { decisions: [], media: [], destination_galleries: {}, presentation: {}, stats: {}, by_day: {}, by_stop: {}, onedrive: {} };
   }
 
+  _integrityData() {
+    const value = this._data?.integrity;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : { score: 0, status: "incomplete", dimensions: {}, stats: {}, days: [], issues: [] };
+  }
+
   _destinationGalleries() {
     const value = this._experienceData().destination_galleries;
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -4153,6 +4212,89 @@ class RoadplannerPanel extends HTMLElement {
   }
 
 
+  _integrityStatusLabel(status) {
+    return {
+      ready: "Bereit",
+      attention: "Prüfen",
+      incomplete: "Unvollständig",
+    }[cleanText(status)] || "Prüfen";
+  }
+
+  _integrityDimensionLabel(key) {
+    return {
+      sequence: "Reihenfolge",
+      locations: "GPS",
+      routes: "Routen",
+      visuals: "Bilder",
+    }[key] || key;
+  }
+
+  _renderIntegrityCard(integrity = this._integrityData()) {
+    const score = Math.max(0, Math.min(100, Number(integrity?.score || 0)));
+    const stats = integrity?.stats || {};
+    const dimensions = integrity?.dimensions || {};
+    const status = cleanText(integrity?.status) || "incomplete";
+    const repairable = Number(stats.repairable_location_count || 0);
+    const routeIssues = Number(stats.route_issue_count || 0);
+    const visualMissing = Number(stats.visual_missing_count || 0);
+    return `<section class="panel-card integrity-card status-${escapeHtml(status)}">
+      <div class="integrity-card-main">
+        <div class="integrity-score" aria-label="Reisequalität ${score} Prozent"><strong>${score}</strong><span>%</span></div>
+        <div class="integrity-copy">
+          <span class="eyebrow">Datenqualität</span>
+          <h2>Reisequalität · ${escapeHtml(this._integrityStatusLabel(status))}</h2>
+          <p>${repairable ? `${repairable} GPS-Zuordnungen benötigen Aufmerksamkeit.` : "Die Standortdaten sind vollständig."} ${routeIssues ? `${routeIssues} Routen sind unvollständig oder veraltet.` : ""}</p>
+        </div>
+      </div>
+      <div class="integrity-dimensions">
+        ${Object.entries(dimensions).map(([key, value]) => `<div><span>${escapeHtml(this._integrityDimensionLabel(key))}</span><strong>${Math.round(Number(value || 0))}%</strong><i><b style="width:${Math.max(0, Math.min(100, Number(value || 0)))}%"></b></i></div>`).join("")}
+      </div>
+      <div class="integrity-summary">
+        <span><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon>${repairable} GPS offen</span>
+        <span><ha-icon icon="mdi:map-marker-path"></ha-icon>${routeIssues} Routen offen</span>
+        <span><ha-icon icon="mdi:image-search-outline"></ha-icon>${visualMissing} Bilder offen</span>
+      </div>
+      <div class="button-row">
+        <button class="primary-button" type="button" data-action="integrity-open"><ha-icon icon="mdi:shield-check-outline"></ha-icon> Details prüfen</button>
+        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> GPS ergänzen</button>` : ""}
+      </div>
+    </section>`;
+  }
+
+  _renderTravelIntegrity() {
+    const integrity = this._integrityData();
+    const stats = integrity?.stats || {};
+    const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
+    const severityIcon = {
+      error: "mdi:alert-circle-outline",
+      warning: "mdi:alert-outline",
+      info: "mdi:information-outline",
+    };
+    const rows = issues.length
+      ? issues.slice(0, 100).map((issue) => `<article class="integrity-issue severity-${escapeHtml(issue.severity || "info")}">
+          <ha-icon icon="${severityIcon[issue.severity] || severityIcon.info}"></ha-icon>
+          <div><strong>${escapeHtml(issue.title || "Prüfhinweis")}</strong><span>${escapeHtml(issue.message || "")}</span>${issue.day_date || issue.day_title ? `<small>${escapeHtml([issue.day_date, issue.day_title, issue.stop_name].filter(Boolean).join(" · "))}</small>` : ""}</div>
+          ${issue.day_id ? `<button class="text-button" type="button" data-action="integrity-open-day" data-day-id="${escapeHtml(issue.day_id)}">Tag öffnen</button>` : ""}
+        </article>`).join("")
+      : `<div class="empty-inline"><ha-icon icon="mdi:check-decagram-outline"></ha-icon><div><strong>Keine offenen Qualitätsprobleme</strong><span>Die Reise ist für die vorhandenen Daten vollständig vorbereitet.</span></div></div>`;
+    return `${this._renderModalHeader("Reisequalität", `${Number(integrity.score || 0)} % · ${this._integrityStatusLabel(integrity.status)}`)}
+      <div class="integrity-dialog-body">
+        <div class="integrity-dialog-stats">
+          <span><strong>${Number(stats.stop_count || 0)}</strong> Stopps</span>
+          <span><strong>${Number(stats.repairable_location_count || 0)}</strong> GPS offen</span>
+          <span><strong>${Number(stats.route_issue_count || 0)}</strong> Routen offen</span>
+          <span><strong>${Number(stats.visual_missing_count || 0)}</strong> Bilder offen</span>
+        </div>
+        <div class="integrity-issue-list">${rows}</div>
+      </div>
+      <div class="modal-actions integrity-dialog-actions">
+        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>GPS-Vervollständigung vorbereiten</button>` : ""}
+        ${Number(stats.route_issue_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-recalculate-routes"><ha-icon icon="mdi:map-marker-path"></ha-icon>Routen neu berechnen</button>` : ""}
+        ${Number(stats.visual_missing_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-auto-images"><ha-icon icon="mdi:image-sync-outline"></ha-icon>Planungsbilder ergänzen</button>` : ""}
+        <button class="primary-button" type="button" data-action="close-dialog">Schließen</button>
+      </div>`;
+  }
+
   _renderOverview() {
     const summary = this._data.summary;
     const trip = summary.trip;
@@ -4163,6 +4305,7 @@ class RoadplannerPanel extends HTMLElement {
     const plannedDays = days.filter((day) => this._dayRoadbookStops(day).length > 0).length;
     const planningProgress = days.length ? Math.round((plannedDays / days.length) * 100) : 0;
     const openDecisions = Number(this._experienceData().stats?.open_decision_count || 0);
+    const integrity = this._integrityData();
     const todoTiming = this._todoTimingSummary();
     const galleries = this._destinationGalleries();
     const ownByStop = this._experienceData().by_stop || {};
@@ -4204,6 +4347,8 @@ class RoadplannerPanel extends HTMLElement {
         ${this._statCard("mdi:cards-playing-outline", openDecisions, "offene Entscheidungen")}
         ${this._statCard("mdi:checkbox-marked-circle-auto-outline", todoTiming.urgent || 0, todoTiming.urgent ? "heute / überfällig" : "nichts Dringendes")}
       </section>
+
+      ${this._renderIntegrityCard(integrity)}
 
       ${nextDay ? `<section class="panel-card next-journey-card">
         <div class="section-heading">
@@ -4667,6 +4812,7 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "media-edit") body = this._renderMediaEdit(this._dialog);
     else if (this._dialog.type === "media-gallery") body = this._renderMediaGallery(this._dialog);
     else if (this._dialog.type === "destination-gallery") body = this._renderDestinationGallery(this._dialog);
+    else if (this._dialog.type === "travel-integrity") body = this._renderTravelIntegrity(this._dialog);
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
   }
 
@@ -6038,6 +6184,51 @@ class RoadplannerPanel extends HTMLElement {
         .view-notice { align-items: flex-start; flex-wrap: wrap; }
         .compact-button { margin-left: 0; width: 100%; }
       }
+      .integrity-card { display: grid; gap: 16px; }
+      .integrity-card.status-ready { border-color: color-mix(in srgb, var(--success-color, #2e7d32) 40%, var(--divider-color)); }
+      .integrity-card.status-attention { border-color: color-mix(in srgb, var(--warning-color, #ef9a00) 45%, var(--divider-color)); }
+      .integrity-card.status-incomplete { border-color: color-mix(in srgb, var(--error-color, #d32f2f) 45%, var(--divider-color)); }
+      .integrity-card-main { display: flex; gap: 16px; align-items: center; min-width: 0; }
+      .integrity-score { flex: 0 0 78px; width: 78px; height: 78px; border-radius: 50%; display: grid; place-content: center; grid-template-columns: auto auto; align-items: baseline; background: var(--secondary-background-color); border: 5px solid var(--primary-color); }
+      .integrity-score strong { font-size: 27px; line-height: 1; }
+      .integrity-score span { font-size: 12px; font-weight: 800; }
+      .integrity-copy { min-width: 0; }
+      .integrity-copy h2 { margin: 3px 0 5px; }
+      .integrity-copy p { margin: 0; color: var(--secondary-text-color); overflow-wrap: anywhere; }
+      .integrity-dimensions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .integrity-dimensions > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: center; }
+      .integrity-dimensions span { color: var(--secondary-text-color); font-size: 12px; }
+      .integrity-dimensions strong { font-size: 13px; }
+      .integrity-dimensions i { grid-column: 1 / -1; height: 6px; border-radius: 999px; overflow: hidden; background: var(--secondary-background-color); }
+      .integrity-dimensions i b { display: block; height: 100%; background: var(--primary-color); border-radius: inherit; }
+      .integrity-summary { display: flex; flex-wrap: wrap; gap: 8px; }
+      .integrity-summary span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 999px; background: var(--secondary-background-color); font-size: 12px; font-weight: 700; }
+      .integrity-summary ha-icon { --mdc-icon-size: 17px; }
+      .integrity-dialog-body { padding: 0 20px 10px; display: grid; gap: 16px; max-height: min(68vh, 720px); overflow: auto; }
+      .integrity-dialog-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .integrity-dialog-stats span { display: grid; gap: 3px; padding: 12px; border-radius: 13px; background: var(--secondary-background-color); color: var(--secondary-text-color); font-size: 12px; }
+      .integrity-dialog-stats strong { color: var(--primary-text-color); font-size: 21px; }
+      .integrity-issue-list { display: grid; gap: 9px; }
+      .integrity-issue { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px; border-radius: 14px; border: 1px solid var(--divider-color); background: var(--card-background-color); }
+      .integrity-issue > ha-icon { margin-top: 2px; }
+      .integrity-issue > div { min-width: 0; display: grid; gap: 4px; }
+      .integrity-issue span, .integrity-issue small { color: var(--secondary-text-color); line-height: 1.4; overflow-wrap: anywhere; }
+      .integrity-issue.severity-error > ha-icon { color: var(--error-color, #d32f2f); }
+      .integrity-issue.severity-warning > ha-icon { color: var(--warning-color, #ef9a00); }
+      .integrity-issue.severity-info > ha-icon { color: var(--info-color, #1976d2); }
+      .integrity-dialog-actions { flex-wrap: wrap; }
+
+      @media (max-width: 680px) {
+        .integrity-card-main { align-items: flex-start; }
+        .integrity-score { flex-basis: 64px; width: 64px; height: 64px; border-width: 4px; }
+        .integrity-score strong { font-size: 22px; }
+        .integrity-dimensions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .integrity-dialog-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .integrity-issue { grid-template-columns: auto minmax(0, 1fr); }
+        .integrity-issue > .text-button { grid-column: 2; justify-self: start; }
+        .integrity-dialog-actions > * { width: 100%; justify-content: center; }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
       }
