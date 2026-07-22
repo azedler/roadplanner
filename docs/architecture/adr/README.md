@@ -29,8 +29,10 @@ ADR-NNN-short-kebab-case-title.md
 | [ADR-001](ADR-001-domain-authority-boundaries.md) | Domain authority boundaries | Accepted |
 | [ADR-002](ADR-002-review-only-write-path.md) | Review-only mutation pipeline | Accepted |
 | [ADR-003](ADR-003-media-originals-and-references.md) | Media originals and references | Accepted |
-| [ADR-004](ADR-004-canonical-stop-ordering.md) | Canonical stop ordering | Accepted |
+| [ADR-004](ADR-004-canonical-stop-ordering.md) | Canonical stop ordering | Superseded by ADR-009 |
 | [ADR-005](ADR-005-derived-views-use-domain-services.md) | Derived views use shared domain services | Accepted |
 | [ADR-006](ADR-006-money-preserves-original-currency.md) | Money preserves original currency and adds EUR reference values | Accepted; implementation pending |
 | [ADR-007](ADR-007-planning-and-travel-image-precedence.md) | Planning and travel image precedence | Accepted |
 | [ADR-008](ADR-008-phase-oriented-primary-navigation.md) | Phase-oriented primary navigation | Accepted |
+| [ADR-009](ADR-009-user-confirmed-stop-sequence.md) | User-confirmed stop sequence is authoritative | Accepted |
+| [ADR-010](ADR-010-location-completeness-and-review.md) | Location completeness is explicit and repaired through review | Accepted |

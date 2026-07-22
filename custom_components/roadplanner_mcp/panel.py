@@ -64,6 +64,7 @@ _ACTIONS = {
     "assistant_remove_draft",
     "assistant_update_draft",
     "assistant_prepare",
+    "assistant_prepare_locations",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -113,6 +114,7 @@ _EDIT_ACTIONS = {
     "save_destination_gallery",
     "delete_destination_gallery",
     "auto_populate_destination_galleries",
+    "assistant_prepare_locations",
     "archive_create_upload_ticket",
     "archive_analyze_document",
     "archive_confirm_document",
@@ -151,6 +153,7 @@ _ASSISTANT_ACTIONS = {
     "assistant_remove_draft",
     "assistant_update_draft",
     "assistant_prepare",
+    "assistant_prepare_locations",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -364,6 +367,19 @@ async def _execute_action(
             user_id=user_id,
             trip_id=trip_id,
             actor=actor,
+        )
+
+    if action == "assistant_prepare_locations":
+        trip_id = str(data.get("trip_id") or "").strip()
+        day_id = str(data.get("day_id") or "").strip()
+        if not trip_id or not day_id:
+            raise ValidationError(
+                "Reise und Reisetag werden für die GPS-Vervollständigung benötigt"
+            )
+        return await runtime.assistant.async_add_location_drafts(
+            user_id=user_id,
+            trip_id=trip_id,
+            day_id=day_id,
         )
 
     if action == "assistant_test":

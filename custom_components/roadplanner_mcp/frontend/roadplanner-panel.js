@@ -551,6 +551,30 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
+  async _prepareDayLocations(dayId) {
+    const id = cleanText(dayId);
+    if (!id) return null;
+    const retry = () => this._prepareDayLocations(id);
+    const result = await this._runAction("assistant_prepare_locations", {
+      trip_id: this._selectedTripId,
+      day_id: id,
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "GPS-Vervollständigung konnte nicht vorbereitet werden",
+      retry,
+    });
+    if (!result) return null;
+    if (result.assistant && this._data) {
+      this._data = { ...this._data, assistant: result.assistant };
+      this._signature = "";
+    }
+    this._activeTab = "assistant";
+    this._showToast(`${Number(result.draft_count || 0)} GPS-Änderungen vorgemerkt`, "success", 4500);
+    this._render({ preserveScroll: false });
+    return result;
+  }
+
   async _calculateDayRoute(dayId, force = false) {
     const result = await this._runAction("calculate_day_route", {
       day_id: dayId,
@@ -718,25 +742,9 @@ class RoadplannerPanel extends HTMLElement {
         .sort((left, right) => Number(left.stop.position) - Number(right.stop.position) || left.index - right.index)
         .map((item) => item.stop);
     }
-    const startTypes = new Set(["start", "origin", "home"]);
-    const hasChronology = values.some((stop) => this._stopTimeMinutes(stop) !== null)
-      || values.some((stop) => startTypes.has(cleanText(stop.type).toLowerCase()) || this._isOvernightStop(stop));
-    if (!hasChronology) return [...values];
-    return values.map((stop, index) => ({ stop, index }))
-      .sort((left, right) => {
-        const key = ({ stop, index }) => {
-          const type = cleanText(stop.type).toLowerCase();
-          const minutes = this._stopTimeMinutes(stop);
-          if (startTypes.has(type) && minutes === null) return [0, 0, index];
-          if (minutes !== null) return [1, minutes, index];
-          if (this._isOvernightStop(stop)) return [3, 0, index];
-          return [2, 0, index];
-        };
-        const first = key(left);
-        const second = key(right);
-        return first[0] - second[0] || first[1] - second[1] || first[2] - second[2];
-      })
-      .map((item) => item.stop);
+    // Schedule times are descriptive only. The stored Roadbook list order is
+    // the canonical fallback whenever a legacy day has incomplete positions.
+    return [...values];
   }
 
   _samePlace(first, second) {
@@ -1109,23 +1117,45 @@ class RoadplannerPanel extends HTMLElement {
       .filter(Boolean);
   }
 
-  _allRoutePoints() {
-    const points = [];
+  _allRouteNodes() {
+    const nodes = [];
     let sequence = 0;
     for (const day of this._data?.days?.days || []) {
       for (const stop of this._dayRoadbookStops(day)) {
-        const point = this._coordinate(stop, day, sequence);
         sequence += 1;
-        if (point) {
-          points.push({
-            ...point,
-            markerLabel: String(sequence),
-            sequence,
-            dayId: day.id,
-            dayTitle: day.title,
-            date: day.date,
-          });
-        }
+        nodes.push({
+          ...stop,
+          display_sequence: sequence,
+          route_sequence: sequence,
+          marker_label: String(sequence),
+          _trip_day_id: day.id,
+          _trip_day_title: day.title,
+          _trip_day_date: day.date,
+        });
+      }
+    }
+    return nodes;
+  }
+
+  _allRoutePoints(routeNodes = null) {
+    const points = [];
+    const nodes = Array.isArray(routeNodes) ? routeNodes : this._allRouteNodes();
+    for (const [index, stop] of nodes.entries()) {
+      const day = {
+        id: stop?._trip_day_id,
+        title: stop?._trip_day_title,
+        date: stop?._trip_day_date,
+      };
+      const point = this._coordinate(stop, day, index);
+      if (point) {
+        points.push({
+          ...point,
+          markerLabel: cleanText(stop?.marker_label) || String(index + 1),
+          sequence: Number(stop?.display_sequence) || index + 1,
+          dayId: day.id,
+          dayTitle: day.title,
+          date: day.date,
+        });
       }
     }
     return points;
@@ -2203,6 +2233,8 @@ class RoadplannerPanel extends HTMLElement {
         position,
         expected_revision: this._currentRevision(),
       }, "Stopp verschoben");
+    } else if (action === "complete-day-locations" && this._canEdit()) {
+      void this._prepareDayLocations(dayId);
     } else if (action === "calculate-day-route" && this._canEdit()) {
       void this._calculateDayRoute(dayId, target.dataset.force === "true");
     } else if (action === "calculate-trip-routes" && this._canEdit()) {
@@ -4249,6 +4281,19 @@ class RoadplannerPanel extends HTMLElement {
     const routeStops = this._effectiveDayStops(day);
     const points = this._dayRoutePoints(day);
     const routePaths = this._routingSegmentPaths(day);
+    const canonicalModel = this._canonicalDayModel(day) || {};
+    const missingLocationNodes = Array.isArray(canonicalModel.missing_location_nodes)
+      ? canonicalModel.missing_location_nodes
+      : routeStops.filter((stop) => !this._coordinate(stop, day)).map((stop, index) => ({
+        id: stop?.id,
+        name: cleanText(stop?.name) || `Stopp ${index + 1}`,
+        marker_label: cleanText(stop?.marker_label) || String(this._displayStopSequence(stop, index + 1)),
+        status: cleanText(stop?.location_status) || "missing",
+      }));
+    const locationAttentionNodes = Array.isArray(canonicalModel.location_attention_nodes)
+      ? canonicalModel.location_attention_nodes
+      : routeStops.filter((stop) => cleanText(stop?.location_status) && cleanText(stop?.location_status) !== "resolved");
+    const coordinateCount = Number(canonicalModel.coordinate_count ?? points.length);
     const dayCover = this._dayCoverImage(day);
     const dayImages = [];
     const seenDayImages = new Set();
@@ -4282,6 +4327,17 @@ class RoadplannerPanel extends HTMLElement {
     const experienceDayMedia = this._experienceMediaForDay(day.id);
     const allExperienceDayMedia = this._experienceAllMediaForDay(day.id);
     const routingNotices = [];
+    if (missingLocationNodes.length) {
+      const names = missingLocationNodes.slice(0, 4).map((item) => cleanText(item?.name)).filter(Boolean);
+      const suffix = missingLocationNodes.length > names.length ? ` und ${missingLocationNodes.length - names.length} weitere` : "";
+      routingNotices.push(`Karte und Straßenroute sind unvollständig: GPS fehlt bei ${names.join(", ")}${suffix}.`);
+    }
+    const unverifiedLocationNodes = locationAttentionNodes.filter((item) => cleanText(item?.status) === "unverified");
+    if (unverifiedLocationNodes.length) {
+      const names = unverifiedLocationNodes.slice(0, 4).map((item) => cleanText(item?.name)).filter(Boolean);
+      const suffix = unverifiedLocationNodes.length > names.length ? ` und ${unverifiedLocationNodes.length - names.length} weitere` : "";
+      routingNotices.push(`GPS-Prüfung offen bei ${names.join(", ")}${suffix}. Die Punkte bleiben für die Route verwendbar.`);
+    }
     if (day?.routing?.status === "stale") {
       routingNotices.push("Die gespeicherte Route ist nach einer Stoppänderung veraltet. Bitte neu berechnen.");
     }
@@ -4310,7 +4366,7 @@ class RoadplannerPanel extends HTMLElement {
 
       <section class="route-layout">
         <div class="route-main">
-          ${this._renderMap("day-route-map", points, day.title, routePaths)}
+          ${this._renderMap("day-route-map", points, day.title, routePaths, "", routeStops)}
           ${this._renderRouteFlow(day)}
         </div>
         <aside class="day-facts panel-card">
@@ -4319,7 +4375,8 @@ class RoadplannerPanel extends HTMLElement {
             <div><span>Autofahrt</span><strong>${day.distance_km != null ? `${escapeHtml(day.distance_km)} km` : "—"}</strong></div>
             <div><span>Fahrzeit</span><strong>${escapeHtml(drive || "—")}</strong></div>
             <div><span>Fähre</span><strong>${ferryDistanceKm > 0 ? `${escapeHtml(ferryDistanceKm.toFixed(1))} km` : "—"}</strong></div>
-            <div><span>Routenpunkte</span><strong>${routeStops.length}</strong></div>
+            <div><span>Stopps</span><strong>${routeStops.length}</strong></div>
+            <div><span>Mit GPS</span><strong>${coordinateCount}</strong></div>
             <div><span>Routing</span><strong>${escapeHtml(routeStatus)}</strong></div>
           </div>
           ${routingNotice}
@@ -4327,6 +4384,7 @@ class RoadplannerPanel extends HTMLElement {
           ${!routingConfigured ? '<div class="notice neutral">Straßenrouting ist in den Roadplanner-Optionen noch nicht aktiviert.</div>' : ""}
           ${day.notes ? `<p class="notes-block">${escapeHtml(day.notes)}</p>` : ""}
           <div class="button-row">
+            ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>GPS prüfen/ergänzen (${locationAttentionNodes.length})</button>` : ""}
             ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-day-route" data-day-id="${escapeHtml(day.id)}" data-force="${day.routing ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${day.routing ? "Neu berechnen" : "Route berechnen"}</button>` : ""}
             ${this._externalLink(navigationUrl, "Tagesroute in Google Maps", "mdi:google-maps")}
             ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Tag bearbeiten</button><button class="secondary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopp</button>` : ""}
@@ -4346,30 +4404,48 @@ class RoadplannerPanel extends HTMLElement {
       </section>
 
       <section class="stops-section">
-        <div class="section-heading"><div><span class="eyebrow">Ablauf</span><h2>${routeStops.length} Routenpunkte</h2></div></div>
+        <div class="section-heading"><div><span class="eyebrow">Ablauf</span><h2>${routeStops.length} Stopps${missingLocationNodes.length ? ` · ${missingLocationNodes.length} ohne GPS` : ""}</h2></div></div>
         ${routeStops.length ? `<div class="stop-grid">${routeStops.map((stop, index) => this._renderStopCard(day, stop, index)).join("")}</div>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon><h2>Noch keine Stopps</h2><p>Füge Ziele, Fähren, Stellplätze oder Sehenswürdigkeiten hinzu.</p>${this._canEdit() ? `<button class="primary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}">Ersten Stopp hinzufügen</button>` : ""}</div>`}
       </section>
     `;
   }
 
-  _renderMap(id, points, title, paths = [], caption = "") {
+  _renderMap(id, points, title, paths = [], caption = "", routeNodes = []) {
     const validPoints = points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
     const validPaths = (paths || []).map((path) => ({
       title: cleanText(path?.title) || title,
       mode: cleanText(path?.mode) || "driving",
       points: (path?.points || []).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon)),
     })).filter((path) => path.points.length > 1);
+    const routeNodeValues = Array.isArray(routeNodes) ? routeNodes : [];
+    const legendTotal = routeNodeValues.length || validPoints.length;
+    const buildLegendItems = () => routeNodeValues.length
+      ? routeNodeValues.slice(0, 30).map((stop, index) => {
+        const point = this._coordinate(stop, null, index);
+        return {
+          markerLabel: cleanText(stop?.marker_label) || String(this._displayStopSequence(stop, index + 1)),
+          label: cleanText(stop?.name) || `Stopp ${index + 1}`,
+          inherited: Boolean(stop?._inherited),
+          missing: !point,
+          status: cleanText(stop?.location_status) || (!point ? "missing" : "resolved"),
+        };
+      })
+      : validPoints.slice(0, 30).map((point, index) => ({
+        markerLabel: cleanText(point.markerLabel) || String(Number.isInteger(Number(point.sequence)) && Number(point.sequence) > 0 ? Number(point.sequence) : index + 1),
+        label: point.label,
+        inherited: point.inherited,
+        missing: false,
+        status: "resolved",
+      }));
+    const legendSource = buildLegendItems();
+    const legend = legendSource.map((item) => `
+      <span class="map-key-item ${item.inherited ? "inherited" : ""} ${item.missing ? "missing" : ""}"><b>${escapeHtml(item.markerLabel)}</b><span>${escapeHtml(item.label || `Punkt ${item.markerLabel}`)}${item.missing ? " · GPS fehlt" : ""}</span></span>
+    `).join("");
     if (!validPoints.length && !validPaths.length) {
-      return `<section class="map-card map-unavailable"><div class="map-placeholder"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><strong>Noch keine Koordinaten</strong><span>Trage bei den Stopps Breiten- und Längengrad ein. Die schematische Route darunter funktioniert auch ohne Koordinaten.</span></div></section>`;
+      return `<section class="map-card map-unavailable"><div class="map-placeholder"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><strong>Noch keine Koordinaten</strong><span>Die schematische Route und die bestätigte Reihenfolge bleiben verfügbar. Ergänze GPS-Daten für die Kartenansicht.</span></div>${legend ? `<div class="map-key">${legend}${legendTotal > 30 ? `<span class="map-key-more">+${legendTotal - 30} weitere</span>` : ""}</div>` : ""}</section>`;
     }
     this._mapModels.set(id, { points: validPoints, paths: validPaths, title });
-    const legend = validPoints.slice(0, 30).map((point, index) => {
-      const numericSequence = Number.isInteger(Number(point.sequence)) && Number(point.sequence) > 0 ? Number(point.sequence) : index + 1;
-      const markerLabel = cleanText(point.markerLabel) || String(numericSequence);
-      return `
-      <span class="map-key-item ${point.inherited ? "inherited" : ""}"><b>${escapeHtml(markerLabel)}</b>${escapeHtml(point.label || `Punkt ${markerLabel}`)}</span>
-    `;
-    }).join("");
+    /* legendSource is based on all canonical route nodes, not only mappable points. */
     const hasFerry = validPaths.some((path) => path.mode === "ferry");
     const defaultCaption = validPaths.length
       ? (hasFerry
@@ -4381,7 +4457,7 @@ class RoadplannerPanel extends HTMLElement {
         <ha-map data-map-id="${escapeHtml(id)}" auto-fit theme-mode="auto"></ha-map>
         <div class="map-overlay"><div class="spinner small"></div><span>Karte wird geladen</span></div>
       </div>
-      ${legend ? `<div class="map-key">${legend}${validPoints.length > 30 ? `<span class="map-key-more">+${validPoints.length - 30} weitere</span>` : ""}</div>` : ""}
+      ${legend ? `<div class="map-key">${legend}${legendTotal > 30 ? `<span class="map-key-more">+${legendTotal - 30} weitere</span>` : ""}</div>` : ""}
       <div class="map-caption"><ha-icon icon="mdi:information-outline"></ha-icon><span>${escapeHtml(caption || defaultCaption)}</span></div>
     </section>`;
   }
@@ -4435,6 +4511,7 @@ class RoadplannerPanel extends HTMLElement {
           ${location.city ? `<span><ha-icon icon="mdi:map-marker-outline"></ha-icon>${escapeHtml(location.city)}${location.country_code ? `, ${escapeHtml(location.country_code)}` : ""}</span>` : ""}
           ${coordinate ? `<span><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${coordinate.lat.toFixed(5)}, ${coordinate.lon.toFixed(5)}</span>` : ""}
         </div>
+        ${!coordinate ? `<div class="location-status warning"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon><div><strong>GPS fehlt</strong><span>${escapeHtml(stop.location_message || "Dieser Stopp erscheint noch nicht vollständig auf Karte und Route.")}</span></div></div>` : stop.location_status === "unverified" ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon><div><strong>GPS noch prüfen</strong><span>${escapeHtml(stop.location_message || "Koordinaten sind vorhanden, aber noch nicht bestätigt.")}</span></div></div>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         ${media?.attribution && !experienceCover && !destinationImages.length ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
         ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id)}
@@ -4448,7 +4525,8 @@ class RoadplannerPanel extends HTMLElement {
 
   _renderTotalRoute() {
     const days = this._data.days.days || [];
-    const points = this._allRoutePoints();
+    const routeNodes = this._allRouteNodes();
+    const points = this._allRoutePoints(routeNodes);
     const paths = this._tripRoutePaths(days);
     const images = this._tripImages(12);
     const metrics = this._data?.summary?.route_metrics || {};
@@ -4470,7 +4548,7 @@ class RoadplannerPanel extends HTMLElement {
       ${!routingConfigured ? '<div class="notice neutral">Aktiviere Straßenrouting in den Roadplanner-Optionen, um Kilometer und Fahrzeiten zu berechnen.</div>' : ""}
       ${metrics.stale_day_count ? `<div class="notice warning">${metrics.stale_day_count} gespeicherte ${metrics.stale_day_count === 1 ? "Route ist" : "Routen sind"} nach Änderungen veraltet.</div>` : ""}
       ${metrics.routing_gap_count ? `<div class="notice warning">${metrics.routing_gap_count} ${metrics.routing_gap_count === 1 ? "Routenabschnitt ist" : "Routenabschnitte sind"} noch unvollständig modelliert. Eine Fähre benötigt Abfahrts- und Ankunftsterminal als getrennte Stopps.</div>` : ""}
-      ${this._renderMap("total-route-map", points, this._data.summary.trip.title, paths)}
+      ${this._renderMap("total-route-map", points, this._data.summary.trip.title, paths, "", routeNodes)}
       ${this._renderTripRouteGraphic(days)}
       ${images.length ? `<section class="panel-card image-section"><div class="section-heading compact"><div><span class="eyebrow">Reiseeindrücke</span><h2>Geplante Ziele</h2></div></div>${this._renderImageGallery(images)}</section>` : ""}
       ${days.length ? `<section class="total-route-list"><div class="section-heading"><div><span class="eyebrow">Etappen</span><h2>Reiseverlauf</h2></div></div>${days.map((day) => this._renderTotalDay(day)).join("")}</section>` : `<div class="empty-state"><ha-icon icon="mdi:map-marker-path"></ha-icon><h2>Die Gesamtroute ist noch leer</h2></div>`}
@@ -5323,6 +5401,14 @@ class RoadplannerPanel extends HTMLElement {
       .map-key-item, .map-key-more { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 4px 10px 4px 5px; border-radius: 999px; background: var(--secondary-background-color); color: var(--secondary-text-color); font-size: 11px; }
       .map-key-item b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--primary-color); color: white; font-size: 10px; }
       .map-key-item.inherited b { background: var(--secondary-text-color); }
+      .map-key-item.missing { border: 1px dashed var(--warning-color, #d89b16); background: color-mix(in srgb, var(--warning-color, #d89b16) 10%, var(--card-background-color)); }
+      .map-key-item.missing b { background: transparent; color: var(--warning-color, #b87900); border: 1px dashed currentColor; }
+      .location-status { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 12px; margin: 10px 0; }
+      .location-status ha-icon { flex: 0 0 auto; margin-top: 1px; }
+      .location-status div { min-width: 0; display: grid; gap: 2px; }
+      .location-status span { color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; }
+      .location-status.warning { background: color-mix(in srgb, var(--warning-color, #d89b16) 13%, var(--card-background-color)); color: var(--warning-color, #b87900); }
+      .location-status.neutral { background: var(--secondary-background-color); color: var(--secondary-text-color); }
       .map-caption { padding: 10px 14px; display: flex; gap: 8px; align-items: center; color: var(--secondary-text-color); font-size: 12px; border-top: 1px solid var(--divider-color); }
       .map-unavailable { padding: 0; }
       .map-placeholder { min-height: 230px; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; color: var(--secondary-text-color); }

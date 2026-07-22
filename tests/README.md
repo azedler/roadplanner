@@ -6,7 +6,7 @@ Roadplanner 3.0 is migrating historical release checks into stable repository te
 
 - repository and packaging contracts,
 - Roadbook and ChangeSet contracts,
-- canonical stop and canonical day ordering with overnight continuity,
+- canonical stop/day ordering, location completeness, partial-route UX, and overnight continuity,
 - assistant and change basket,
 - routing and ferry segments,
 - documents, expenses, and todos,

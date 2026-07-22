@@ -25,6 +25,15 @@
 - RP-403: Personal-memory prioritization with local duplicate and burst reduction.
 - RP-404: Phase-oriented navigation, dashboard and Roadplanner 3.0 mobile UX foundation.
 
+## Prepared for Roadplanner 3.1.0 — Canonical Day Experience
+
+- Stop order is authoritative through complete positions or stored legacy list order; times are descriptive only.
+- Add, update, move and remove paths reindex positions consistently.
+- Assistant operations maintain the complete day sequence and insert ordinary stops before the overnight destination by default.
+- Canonical location states expose missing, ambiguous and unverified GPS data.
+- Map legends retain all stop numbers and visibly mark GPS gaps.
+- “GPS prüfen/ergänzen” creates review-only geocoding drafts, including inherited overnight starts.
+
 ## Next — correctness
 
 ## Next — planning UX

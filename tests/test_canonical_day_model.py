@@ -1,4 +1,4 @@
-"""Contract tests for the shared Roadplanner 3.0 canonical day model."""
+"""Contract tests for the shared Roadplanner canonical day model."""
 from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
@@ -22,7 +22,7 @@ for name in ("stop_ordering", "canonical_day"):
 module = sys.modules[f"{PACKAGE_NAME}.canonical_day"]
 
 
-def stop(stop_id, name, position, stop_type="waypoint", *, lat=None, lon=None, arrival=None):
+def stop(stop_id, name, position, stop_type="waypoint", *, lat=None, lon=None, arrival=None, geocoding_status=None):
     value = {
         "id": stop_id,
         "name": name,
@@ -33,6 +33,8 @@ def stop(stop_id, name, position, stop_type="waypoint", *, lat=None, lon=None, a
         value["location"] = {"latitude": lat, "longitude": lon}
     if arrival:
         value["arrival_time"] = arrival
+    if geocoding_status:
+        value["details"] = {"geocoding": {"status": geocoding_status, "query": name}}
     return value
 
 
@@ -63,6 +65,7 @@ days = [
 ]
 
 model = module.canonical_day_model(days, 1)
+assert model["version"] == 3
 assert [item["id"] for item in model["stops"]] == ["first", "second", "third"]
 assert [item["display_sequence"] for item in model["stops"]] == [1, 2, 3]
 assert [item["id"] for item in model["route_nodes"]] == ["camp", "first", "second", "third"]
@@ -74,6 +77,10 @@ assert "Riga" not in [item["name"] for item in model["route_nodes"]]
 assert model["legacy_route_nodes"] == []
 assert any(item["code"] == "legacy_end_context" for item in model["warnings"])
 assert model["map_stop_ids"] == ["camp", "first", "second", "third"]
+assert model["location_complete"] is True
+assert model["route_complete"] is True
+assert model["missing_coordinate_count"] == 0
+assert model["data_quality"] == {"sequence": "complete", "locations": "complete", "score": 100}
 
 payload = {"days": days}
 module.decorate_canonical_days(payload)
@@ -98,6 +105,64 @@ duplicate_days = [
 duplicate_model = module.canonical_day_model(duplicate_days, 1)
 assert duplicate_model["inherited_start"] is False
 assert [item["id"] for item in duplicate_model["route_nodes"]] == ["camp", "next"]
+
+# Missing coordinates remain part of the canonical route order, are omitted
+# only from map nodes, and make the route explicitly partial.
+partial_days = [
+    {
+        "id": "day-partial",
+        "date": "2026-07-22",
+        "stops": [
+            stop("parking", "Parkplatz", 1, "parking", lat=59.43, lon=24.74),
+            stop("pharmacy", "Apotheke", 2, "service"),
+            stop("ferry", "Fährterminal", 3, "ferry", lat=59.45, lon=24.76, arrival="19:30"),
+        ],
+    }
+]
+partial_model = module.canonical_day_model(partial_days, 0)
+assert [item["id"] for item in partial_model["route_nodes"]] == ["parking", "pharmacy", "ferry"]
+assert [item["id"] for item in partial_model["map_nodes"]] == ["parking", "ferry"]
+assert partial_model["map_stop_ids"] == ["parking", "ferry"]
+assert partial_model["coordinate_count"] == 2
+assert partial_model["missing_coordinate_count"] == 1
+assert partial_model["location_counts"] == {"resolved": 2, "unverified": 0, "ambiguous": 0, "missing": 1}
+assert partial_model["missing_location_nodes"] == [
+    {
+        "id": "pharmacy",
+        "name": "Apotheke",
+        "display_sequence": 2,
+        "marker_label": "2",
+        "inherited": False,
+        "status": "missing",
+        "query": "Apotheke",
+    }
+]
+assert partial_model["location_attention_nodes"] == partial_model["missing_location_nodes"]
+assert partial_model["location_complete"] is False
+assert partial_model["route_complete"] is False
+assert partial_model["data_quality"] == {"sequence": "complete", "locations": "partial", "score": 67}
+assert partial_model["stops"][1]["location_status"] == "missing"
+assert partial_model["stops"][1]["location_requires_attention"] is True
+assert partial_model["stops"][1]["location_message"] == "GPS-Koordinaten fehlen"
+
+# Coordinates with unresolved provider provenance remain routable but visible as
+# unverified location data.
+unverified_stop = stop(
+    "unverified",
+    "Manuell gesetzter Punkt",
+    1,
+    lat=59.4,
+    lon=24.7,
+    geocoding_status="coordinates_unverified",
+)
+unverified_model = module.canonical_day_model([{"id": "unverified-day", "stops": [unverified_stop]}], 0)
+assert unverified_model["stops"][0]["location_status"] == "unverified"
+assert unverified_model["coordinate_count"] == 1
+assert unverified_model["missing_location_nodes"] == []
+assert unverified_model["location_attention_nodes"][0]["id"] == "unverified"
+assert unverified_model["location_complete"] is False
+assert unverified_model["route_complete"] is True
+assert unverified_model["data_quality"] == {"sequence": "complete", "locations": "review", "score": 0}
 
 # Legacy labels remain available only when the day has no real Roadbook stops.
 legacy_days = [{"id": "legacy", "start": "A", "end": "B", "stops": []}]

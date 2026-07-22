@@ -30,6 +30,7 @@ from .roadplanner import (
     utc_now_iso,
     validate_identifier,
 )
+from .stop_ordering import reindex_explicit_positions
 
 CHANGESET_KIND = "roadplanner_changeset"
 CHANGESET_VERSION = 1
@@ -1345,6 +1346,7 @@ def execute_changeset(
                     len(document["stops"]),
                 )
                 document["stops"].insert(insert_at, stop)
+                reindex_explicit_positions(document["stops"])
                 document["day"]["updated_at"] = now
                 existing_stop_ids.add(stop_id)
                 if client_id is not None:
@@ -1385,6 +1387,7 @@ def execute_changeset(
                         _insert_index(position, len(document["stops"])),
                         moved,
                     )
+                reindex_explicit_positions(document["stops"])
                 if changed_fields or position is not None:
                     document["day"]["updated_at"] = now
                 result.update({"day_id": day_id, "stop_id": stop_id})
@@ -1398,6 +1401,7 @@ def execute_changeset(
                     stop_refs,
                 )
                 document["stops"].pop(old_index)
+                reindex_explicit_positions(document["stops"])
                 document["day"]["updated_at"] = now
                 existing_stop_ids.discard(stop_id)
                 result.update({"day_id": day_id, "stop_id": stop_id})

@@ -25,6 +25,10 @@ Roadplanner uses a specification-first, patch-based workflow designed to work fr
 - [License policy](LICENSE_POLICY.md)
 - [Security policy](../../SECURITY.md)
 
+## Active delivery specifications
+
+- [EPIC-001: Canonical Day Experience](tasks/EPIC-001_CANONICAL_DAY_EXPERIENCE.md)
+
 ## Planning sources
 
 - Product direction: [`ROADMAP.md`](../../ROADMAP.md)

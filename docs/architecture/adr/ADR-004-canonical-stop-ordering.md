@@ -1,7 +1,11 @@
 # ADR-004: Canonical stop ordering
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-009
 - **Date:** 2026-07-20
+
+> Superseded on 2026-07-22 by [ADR-009](ADR-009-user-confirmed-stop-sequence.md).
+> The earlier chronology fallback could silently move untimed stops ahead of or
+> behind timed stops and therefore did not preserve the user-confirmed plan.
 
 ## Context
 
