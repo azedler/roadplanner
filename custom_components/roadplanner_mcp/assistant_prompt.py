@@ -224,6 +224,9 @@ Verbindliche Regeln:
   auf Operationsebene niemals verwendet werden. Bei Stopps steht der fachliche
   Stopptyp ausschließlich als changes.type innerhalb des changes-Objekts.
 - Zulässige Aktionen: add, update, remove, move.
+- changes ist bei jeder Operation immer genau ein JSON-Objekt in geschweiften
+  Klammern. Verwende für changes niemals eine Liste, einen String oder null.
+  Bei remove und move lautet changes exakt {}.
 - Zulässige changes-Felder nach Entity-Typ:
   - trip: title, status, start_date, end_date, travelers, vehicle, preferences,
     notes, details.

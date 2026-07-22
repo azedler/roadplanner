@@ -50,6 +50,7 @@ from .assistant_provider import (
 from .geocoding import GeocodingError, NominatimGeocoder
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
+from .structured_output import StructuredOutputError, normalize_changes_mapping
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1178,29 +1179,45 @@ def _normalize_compiled_operation_aliases(
             result[target] = target_value
 
     def merge_object(target: str, aliases: tuple[str, ...]) -> None:
-        target_value = result.get(target)
-        if target_value is not None and not isinstance(target_value, dict):
-            raise ValidationError(
-                f"{target} in Assistenten-Operation {index + 1} muss ein JSON-Objekt sein"
-            )
-        merged = deepcopy(target_value) if isinstance(target_value, dict) else None
-        for alias in aliases:
-            alias_value = result.pop(alias, None)
-            if alias_value is None:
-                continue
-            if not isinstance(alias_value, dict):
-                raise ValidationError(
-                    f"{alias} in Assistenten-Operation {index + 1} muss ein JSON-Objekt sein"
+        merged: dict[str, Any] | None = None
+        normalization_modes: list[str] = []
+
+        def merge_candidate(label: str, candidate: Any) -> None:
+            nonlocal merged
+            if candidate is None:
+                return
+            try:
+                normalized, mode = normalize_changes_mapping(
+                    candidate,
+                    allow_scalar_empty=action in {"remove", "move"},
                 )
-            if merged is not None and merged != alias_value:
+            except StructuredOutputError as err:
                 raise ValidationError(
-                    f"Widersprüchliche Änderungsdaten in Assistenten-Operation "
-                    f"{index + 1}: {target} und {alias}"
-                )
+                    f"{label} in Assistenten-Operation {index + 1} konnte nicht "
+                    "sicher als JSON-Objekt gelesen werden"
+                ) from err
             if merged is None:
-                merged = deepcopy(alias_value)
+                merged = {}
+            for key, value in normalized.items():
+                if key in merged and merged[key] != value:
+                    raise ValidationError(
+                        "Widersprüchliche Änderungsdaten in Assistenten-Operation "
+                        f"{index + 1}: {target}.{key}"
+                    )
+                merged[key] = value
+            normalization_modes.append(f"{label}:{mode}")
+
+        merge_candidate(target, result.get(target))
+        for alias in aliases:
+            merge_candidate(alias, result.pop(alias, None))
         if merged is not None:
             result[target] = merged
+            if any(not mode.endswith(":object") for mode in normalization_modes):
+                _LOGGER.debug(
+                    "Normalized assistant operation %s changes (%s)",
+                    index + 1,
+                    ", ".join(normalization_modes),
+                )
 
     # Accept the common canonical payload containers produced in MIME-only JSON
     # fallback mode, but keep the assistant's strict action/entity dialect.
@@ -4088,16 +4105,22 @@ class RoadplannerAssistant:
             raise ValidationError(f"Nicht unterstützte Assistentenaktion: {action}")
         if entity_type not in _ALLOWED_ENTITY_TYPES:
             raise ValidationError(f"Nicht unterstützter Assistententyp: {entity_type}")
-        changes = raw.get("changes")
-        if action == "remove" and changes is None:
-            changes = {}
-        elif action == "remove" and not isinstance(changes, dict):
-            # Remove operations identify their target via entity_id/target aliases.
-            # Gemini may emit null, an empty list or explanatory text for changes;
-            # none of that is needed for a safe deletion, so normalize it away.
-            changes = {}
-        elif not isinstance(changes, dict):
-            raise ValidationError("changes muss ein JSON-Objekt sein")
+        try:
+            changes, changes_mode = normalize_changes_mapping(
+                raw.get("changes"),
+                allow_scalar_empty=action in {"remove", "move"},
+            )
+        except StructuredOutputError as err:
+            raise ValidationError(
+                f"changes in Assistenten-Operation {index + 1} konnte nicht "
+                "sicher als JSON-Objekt gelesen werden"
+            ) from err
+        if changes_mode != "object":
+            _LOGGER.debug(
+                "Normalized assistant operation %s changes during validation (%s)",
+                index + 1,
+                changes_mode,
+            )
         unknown_changes = set(changes) - _ALLOWED_CHANGE_FIELDS
         if unknown_changes:
             raise ValidationError(
