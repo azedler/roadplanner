@@ -1,0 +1,49 @@
+name: Roadplanner validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadplanner-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Contract, repository and local HACS checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run canonical Roadplanner checks
+        run: python tools/release.py check
+
+  hacs-validation:
+    name: Official HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration repository
+        uses: hacs/action@main
+        with:
+          category: integration
+          # Roadplanner is currently distributed as a custom repository. Remove
+          # this ignore before requesting inclusion in the default HACS catalog.
+          ignore: brands

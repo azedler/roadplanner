@@ -11,7 +11,7 @@ Roadplanner supports the full travel lifecycle:
 
 ## Project status
 
-The repository contains **Roadplanner 3.0.0**, the first phase-oriented and visually consistent Roadplanner release.
+The repository contains the current **Roadplanner 3.x** source. The published stable version is shown in [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest) and in the integration manifest.
 
 - Stable/releasable branch: `main`
 - Active integration branch: `develop`
@@ -99,12 +99,13 @@ Start here:
 - [Development workflow](docs/development/DEVELOPMENT_WORKFLOW.md)
 - [AI patch workflow](docs/development/PATCH_WORKFLOW.md)
 - [Definition of Done](docs/development/DEFINITION_OF_DONE.md)
+- [Release automation](docs/development/RELEASE_AUTOMATION.md)
 - [Contributing](CONTRIBUTING.md)
 
-Validate the repository with:
+Run the canonical local and CI checks with:
 
 ```bash
-python tools/validate_repository.py
+python tools/release.py check
 ```
 
 ## Privacy

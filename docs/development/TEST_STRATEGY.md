@@ -1,16 +1,28 @@
 # Test strategy
 
-Roadplanner uses layered validation. The goal is not duplicate testing; each layer catches a different class of failure.
+Roadplanner uses layered validation. The goal is not duplicate testing; each layer catches a different class of failure while sharing one canonical entry point.
+
+## Canonical command
+
+Run for every functional or release-related patch:
+
+```bash
+python tools/release.py check
+```
+
+The same command is used by Codespaces and the `Roadplanner validation` GitHub workflow. It performs cache cleanup, Python contract tests, JavaScript contract tests, panel syntax validation, repository validation, and HACS preflight.
 
 ## 1. Repository validation
 
-Run for every patch:
+For focused diagnosis, run:
 
 ```bash
 python tools/validate_repository.py
 ```
 
-It checks repository layout, version consistency, JSON, Python syntax, JavaScript syntax when Node.js is available, local Markdown links, licensing, ADR structure, obvious secrets, and forbidden generated artifacts.
+It checks repository layout, version consistency, JSON, Python syntax, JavaScript syntax when Node.js is available, local Markdown links, licensing, ADR structure, obvious secrets, required release tooling, and forbidden generated artifacts.
+
+The validator intentionally does not mutate the repository. Cache cleanup belongs to `tools/release.py`.
 
 ## 2. Domain regression tests
 
@@ -22,6 +34,7 @@ Tests under `tests/` should cover stable contracts rather than UI implementation
 - assistant/change-basket truthfulness
 - documents, expenses, todos, decisions, and media assignments
 - import formats and migration behavior
+- release preparation, changelog cutting, version synchronization, and workflow contracts
 
 A production bug should receive a regression test whenever practical.
 
@@ -51,11 +64,10 @@ Provider integrations use bounded fixtures or mocked responses for repeatability
 
 ## 6. Release validation
 
-Before a release:
+The protected GitHub release workflow runs:
 
 ```bash
-python tools/validate_repository.py --release
-python tools/build_release.py
+python tools/release.py check --version X.Y.Z --release --build
 ```
 
-Then inspect the archive contents and test the HACS/manual installation path on a controlled Home Assistant instance.
+This requires a clean `main` workspace, validates the exact release version, builds the deterministic manual-install archive, verifies HACS metadata, and exports release notes before any GitHub tag or release is created.

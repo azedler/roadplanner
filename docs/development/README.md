@@ -18,6 +18,7 @@ Roadplanner uses a specification-first, patch-based workflow designed to work fr
 - [Commit conventions](COMMIT_CONVENTIONS.md)
 - [Testing](TEST_STRATEGY.md)
 - [Release process](RELEASE_PROCESS.md)
+- [Release automation](RELEASE_AUTOMATION.md)
 - [Release checklist](RELEASE_CHECKLIST.md)
 - [HACS setup](HACS_SETUP.md)
 - [Publication checklist](PUBLICATION_CHECKLIST.md)

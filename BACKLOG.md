@@ -8,6 +8,7 @@
 - AI-to-Git patch workflow.
 - Architecture Decision Records.
 - Repository governance, Definition of Done, test strategy, and release process.
+- RP-500: Automated, explicitly approved GitHub release pipeline.
 
 ## Completed in Roadplanner 2.8.0
 
@@ -65,7 +66,6 @@
 ## Later — architecture and delivery
 
 - Public-source and third-party license audit.
-- Automated, explicitly approved GitHub release pipeline.
 - Provider interfaces v1.
 - Roadbook schema v1 and migration harness.
 - Incremental separation of domain, Home Assistant adapter, and UI.

@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Two-stage release automation for Codespaces: prepare, validate, push, pull request, publish, and branch synchronization.
+- Protected GitHub release workflow that validates the exact `main` commit, creates a lower-case version tag, publishes release notes from the changelog, and attaches validated manual-install artifacts.
+- Canonical Roadplanner validation workflow for pull requests to `main`, with an on-demand manual trigger.
+
+### Changed
+
+- Local and GitHub release checks now use the same `tools/release.py check` entry point.
+- Release preparation cuts the `[Unreleased]` changelog section and keeps `manifest.json` and `const.py` versions synchronized.
+- Python caches are removed by release automation before and after tests instead of requiring repetitive manual cleanup.
+
 ## [3.0.0] - 2026-07-22
 
 ### Added

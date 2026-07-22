@@ -2,7 +2,7 @@
 
 ## Current baseline
 
-- Latest public feature release: **Roadplanner 3.0.0**
+- Latest public feature release: [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest)
 - Active major development: **Roadplanner 3.x**
 - Technical domain: `roadplanner_mcp`
 
@@ -18,6 +18,7 @@
 - [x] Architecture Decision Records.
 - [x] Patch-based iPad/Codespaces workflow.
 - [x] Repository governance, validation, release, and Definition-of-Done contracts.
+- [x] RP-500: Explicit Codespaces/GitHub release automation with protected tags and HACS publication.
 
 ### Domain consistency
 

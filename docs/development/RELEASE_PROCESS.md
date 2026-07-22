@@ -1,8 +1,8 @@
 # Release process
 
-## Versioning
+Roadplanner uses Semantic Versioning and an explicit two-stage release automation. See [Release automation](RELEASE_AUTOMATION.md) for the complete Codespaces workflow.
 
-Roadplanner uses Semantic Versioning:
+## Versioning
 
 - major: user-visible or architectural breaking change with migration,
 - minor: backward-compatible feature release,
@@ -16,39 +16,86 @@ custom_components/roadplanner_mcp/const.py
 CHANGELOG.md
 ```
 
+The automation enforces a lower-case release tag:
+
+```text
+vX.Y.Z
+```
+
+Existing tags are never moved automatically.
+
 ## Branch contract
 
 - `develop` is the active integration branch.
 - `main` is always releasable and is the source for HACS and GitHub releases.
-- A release is tagged only from `main`.
+- A release is created only from the exact current `main` commit.
+- Pull requests are still reviewed and merged explicitly by the maintainer.
 
-## Preparation
+## Normal release
 
-1. Complete the relevant task and Definition of Done.
-2. Update version and changelog.
-3. Document migration, rollback, privacy, provider, and mobile impact.
-4. Run the [release checklist](RELEASE_CHECKLIST.md).
-5. Merge the reviewed `develop` state into `main`.
+### On develop
 
-## Build
+1. Complete the task and Definition of Done.
+2. Add user-visible changes to `CHANGELOG.md` under `[Unreleased]`.
+3. Run:
 
-Run from a clean `main` workspace:
+```bash
+python tools/release.py prepare X.Y.Z --remote
+```
+
+4. Review and merge the generated pull request after all checks pass.
+
+### On main
+
+```bash
+git switch main
+git pull --ff-only origin main
+python tools/release.py publish X.Y.Z --watch --sync-develop
+```
+
+The protected GitHub workflow performs final validation, builds optional manual-install artifacts, creates the exact tag, and publishes the release used by HACS.
+
+## Local validation only
+
+```bash
+python tools/release.py check
+```
+
+For a clean release workspace including manual artifacts:
+
+```bash
+python tools/release.py check --version X.Y.Z --release --build
+```
+
+## Manual build fallback
 
 ```bash
 python tools/validate_repository.py --release
 python tools/build_release.py
 ```
 
-The build tool creates a deterministic manual-install archive and SHA-256 checksum under `dist/`. GitHub source archives remain the normal HACS distribution source.
+The manual archive and checksum are created in `dist/`. GitHub source archives remain the normal HACS distribution source.
 
-## Publish
+## GitHub-only publication fallback
 
-1. Create tag `vX.Y.Z` from `main`.
-2. Create a GitHub release using the matching changelog section.
-3. Attach the optional manual-install archive and checksum.
-4. Verify HACS installation or update.
-5. Merge or rebase released changes back into `develop` if necessary.
+After the release preparation pull request has been merged:
+
+```text
+Actions → Publish Roadplanner release → Run workflow
+```
+
+Enter version `X.Y.Z` without a tag prefix. The workflow creates `vX.Y.Z` on the exact validated `main` commit.
+
+## HACS
+
+HACS identifies published versions from GitHub releases. A pushed tag without a published GitHub release is not considered a complete Roadplanner publication.
 
 ## CI policy
 
-Complex GitHub Actions are intentionally not required during the initial Roadplanner 3.0 phase. Local validation and explicit release evidence remain authoritative. Lightweight CI may be added later if it eliminates real failures rather than duplicating the same checks without benefit.
+Roadplanner now has one canonical validation entry point:
+
+```bash
+python tools/release.py check
+```
+
+Local Codespaces checks and GitHub Actions call the same command. This avoids separate test definitions drifting apart while still protecting pull requests and releases.

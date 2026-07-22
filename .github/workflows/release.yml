@@ -1,0 +1,137 @@
+name: Publish Roadplanner release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable semantic version without the v prefix, for example 3.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadplanner-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Roadplanner release checks and build artifacts
+        env:
+          VERSION: ${{ inputs.version }}
+        run: >-
+          python tools/release.py check
+          --version "$VERSION"
+          --release
+          --build
+
+      - name: Export release notes
+        env:
+          VERSION: ${{ inputs.version }}
+        run: >-
+          python tools/release.py notes
+          "$VERSION"
+          --output "dist/RELEASE_NOTES_v${VERSION}.md"
+
+      - name: Upload validated release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadplanner-v${{ inputs.version }}
+          path: |
+            dist/Roadplanner_MCP_v${{ inputs.version }}_HA_install.zip
+            dist/Roadplanner_MCP_v${{ inputs.version }}_SHA256SUMS.txt
+            dist/RELEASE_NOTES_v${{ inputs.version }}.md
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Create GitHub tag and release
+    permissions:
+      contents: write
+    needs:
+      - validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact main commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: roadplanner-v${{ inputs.version }}
+          path: dist
+
+      - name: Refuse an existing release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          for candidate in "$tag" "V${VERSION}"; do
+            if git ls-remote --exit-code --tags origin "refs/tags/${candidate}" >/dev/null 2>&1; then
+              echo "Release tag ${candidate} already exists. Tags are never moved automatically." >&2
+              exit 1
+            fi
+          done
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          archive="dist/Roadplanner_MCP_v${VERSION}_HA_install.zip"
+          checksums="dist/Roadplanner_MCP_v${VERSION}_SHA256SUMS.txt"
+          notes="dist/RELEASE_NOTES_v${VERSION}.md"
+
+          args=(
+            "$tag"
+            "$archive"
+            "$checksums"
+            --target "$GITHUB_SHA"
+            --title "Roadplanner ${VERSION}"
+            --notes-file "$notes"
+            --fail-on-no-commits
+          )
+
+          args+=(--latest)
+
+          gh release create "${args[@]}"
+
+      - name: Publish release summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          {
+            echo "## Roadplanner ${VERSION} published"
+            echo
+            echo "- Tag: \`v${VERSION}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Release: $(gh release view "v${VERSION}" --json url --jq .url)"
+            echo "- HACS can now discover the published GitHub release."
+          } >> "$GITHUB_STEP_SUMMARY"

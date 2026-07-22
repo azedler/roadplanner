@@ -26,17 +26,20 @@ Roadplanner 3.0 is migrating historical release checks into stable repository te
 
 ## Commands
 
-Repository validation:
+Canonical local and CI validation:
+
+```bash
+python tools/release.py check
+```
+
+This runs all dependency-light contract tests, JavaScript syntax checks, repository validation, HACS preflight, and Python-cache cleanup through one shared entry point.
+
+Individual diagnostics remain available:
 
 ```bash
 python tools/validate_repository.py
-```
-
-Current dependency-light contract tests:
-
-```bash
 for test in tests/*.py; do python "$test"; done
 for test in tests/*.mjs; do node "$test"; done
 ```
 
-See [Test strategy](../docs/development/TEST_STRATEGY.md).
+See [Test strategy](../docs/development/TEST_STRATEGY.md) and [Release automation](../docs/development/RELEASE_AUTOMATION.md).

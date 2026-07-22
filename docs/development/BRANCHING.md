@@ -36,4 +36,10 @@ git pull --rebase origin develop
 git status --short
 ```
 
-After a release, ensure `develop` contains the released `main` history. Avoid force-pushing shared branches.
+After a release, ensure `develop` contains the released `main` history:
+
+```bash
+python tools/release.py sync
+```
+
+The command only performs fast-forward operations. Avoid force-pushing shared branches.

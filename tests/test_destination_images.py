@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import sys
@@ -33,7 +34,10 @@ package.__path__ = [str(PACKAGE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
 const_module = types.ModuleType(f"{PACKAGE_NAME}.const")
-const_module.INTEGRATION_VERSION = "3.0.0"
+manifest = json.loads(
+    (PACKAGE_ROOT / "manifest.json").read_text(encoding="utf-8")
+)
+const_module.INTEGRATION_VERSION = str(manifest["version"])
 sys.modules[const_module.__name__] = const_module
 
 roadplanner_module = types.ModuleType(f"{PACKAGE_NAME}.roadplanner")
