@@ -901,9 +901,12 @@ async def websocket_get_panel_data(
         else {"documents": [], "expenses": [], "todos": [], "stats": {}, "by_day": {}, "by_stop": {}}
     )
     experience_state = (
-        await runtime.experience.async_panel_payload(selected_trip_id)
+        await runtime.experience.async_panel_payload(
+            selected_trip_id,
+            days=list(payload.get("days", {}).get("days", []) or []),
+        )
         if selected_trip_id
-        else {"decisions": [], "media": [], "stats": {}, "by_day": {}, "by_stop": {}, "onedrive": runtime.experience.onedrive.status()}
+        else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "onedrive": runtime.experience.onedrive.status()}
     )
     payload.update(
         {

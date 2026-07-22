@@ -12,6 +12,7 @@ docs/
   architecture/                       Stable architecture contracts and ADRs
   development/                        Development and release procedures
   legacy/                             Imported historical release records
+  product/                            Product vision and UX blueprints
 tests/                                Repository and domain regression tests
 tools/                                Validation and release utilities
 assets/                               Public repository documentation assets

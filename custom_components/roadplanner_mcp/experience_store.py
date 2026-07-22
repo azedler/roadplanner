@@ -346,6 +346,8 @@ def normalize_media(raw: dict[str, Any]) -> dict[str, Any]:
         "web_url": _clean(raw.get("web_url"), 2_000) or None,
         "location": _normalize_location(raw.get("location")),
         "file_hash": _clean(raw.get("file_hash"), 500) or None,
+        "width": int(raw.get("width") or 0) if isinstance(raw.get("width"), int) and not isinstance(raw.get("width"), bool) and raw.get("width") > 0 else None,
+        "height": int(raw.get("height") or 0) if isinstance(raw.get("height"), int) and not isinstance(raw.get("height"), bool) and raw.get("height") > 0 else None,
         "linked_day_id": _clean(raw.get("linked_day_id"), 200) or None,
         "linked_stop_id": _clean(raw.get("linked_stop_id"), 200) or None,
         "assignment_status": assignment,

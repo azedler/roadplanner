@@ -10,12 +10,30 @@ import types
 PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
 PACKAGE_NAME = "roadplanner_destination_image_test"
 
+# The pure contract test runs outside Home Assistant. Stub the tiny aiohttp
+# surface used by destination_images.py instead of requiring the full HA stack.
+aiohttp = types.ModuleType("aiohttp")
+
+
+class ClientError(Exception):
+    pass
+
+
+class ClientTimeout:
+    def __init__(self, **kwargs):
+        self.options = kwargs
+
+
+aiohttp.ClientError = ClientError
+aiohttp.ClientTimeout = ClientTimeout
+sys.modules["aiohttp"] = aiohttp
+
 package = types.ModuleType(PACKAGE_NAME)
 package.__path__ = [str(PACKAGE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
 const_module = types.ModuleType(f"{PACKAGE_NAME}.const")
-const_module.INTEGRATION_VERSION = "2.8.0"
+const_module.INTEGRATION_VERSION = "3.0.0"
 sys.modules[const_module.__name__] = const_module
 
 roadplanner_module = types.ModuleType(f"{PACKAGE_NAME}.roadplanner")

@@ -454,7 +454,7 @@ class RoadplannerPanel extends HTMLElement {
     if (!tripId || !this._canEdit() || !payload?.settings?.destination_image_auto_fill) return;
     const key = `${tripId}:${revision}`;
     if (this._destinationAutoFillRequested.has(key) || this._destinationAutoFillInFlight) return;
-    const stops = (payload?.days?.days || []).flatMap((day) => this._canonicalStops(day?.stops || []));
+    const stops = (payload?.days?.days || []).flatMap((day) => this._dayRoadbookStops(day));
     if (!stops.length) return;
     const galleries = payload?.experience?.destination_galleries || {};
     const missing = stops.some((stop) => stop?.id && !galleries[stop.id]);
@@ -465,7 +465,7 @@ class RoadplannerPanel extends HTMLElement {
     this._destinationAutoFillRequested.add(key);
     this._destinationAutoFillInFlight = true;
     try {
-      for (let batch = 0; batch < 6; batch += 1) {
+      for (let batch = 0; batch < 10; batch += 1) {
         const result = await this._send({
           type: WS_ACTION,
           action: "auto_populate_destination_galleries",
@@ -752,24 +752,46 @@ class RoadplannerPanel extends HTMLElement {
       && Math.abs(firstCoordinate.lon - secondCoordinate.lon) < 0.00005;
   }
 
+  _canonicalDayModel(day) {
+    return day?.canonical && typeof day.canonical === "object" && !Array.isArray(day.canonical)
+      ? day.canonical
+      : null;
+  }
+
+  _dayRoadbookStops(day) {
+    const model = this._canonicalDayModel(day);
+    if (Array.isArray(model?.stops)) return model.stops;
+    return this._canonicalStops(day?.stops || []);
+  }
+
   _effectiveDayStops(day) {
+    const model = this._canonicalDayModel(day);
+    if (Array.isArray(model?.route_nodes)) return model.route_nodes;
     const canonicalStops = this._canonicalStops(day?.stops || []);
     const days = this._data?.days?.days || [];
     const index = days.findIndex((item) => item.id === day?.id);
-    if (index <= 0) return canonicalStops;
+    if (index <= 0) return canonicalStops.map((stop, stopIndex) => ({ ...stop, display_sequence: stopIndex + 1, marker_label: String(stopIndex + 1) }));
     const previous = days[index - 1];
     const previousStops = this._canonicalStops(previous?.stops || []);
     const overnight = previousStops.at(-1);
-    if (!this._isOvernightStop(overnight)) return canonicalStops;
+    if (!this._isOvernightStop(overnight)) return canonicalStops.map((stop, stopIndex) => ({ ...stop, display_sequence: stopIndex + 1, marker_label: String(stopIndex + 1) }));
     if (canonicalStops.length && this._samePlace(overnight, canonicalStops[0])) {
-      return canonicalStops;
+      return canonicalStops.map((stop, stopIndex) => ({ ...stop, display_sequence: stopIndex + 1, marker_label: String(stopIndex + 1) }));
     }
     return [{
       ...cloneObject(overnight),
+      display_sequence: null,
+      marker_label: "S",
       _inherited: true,
       _sourceDayId: previous.id,
       _sourceDayTitle: previous.title,
-    }, ...canonicalStops];
+    }, ...canonicalStops.map((stop, stopIndex) => ({ ...stop, display_sequence: stopIndex + 1, marker_label: String(stopIndex + 1) }))];
+  }
+
+  _displayStopSequence(stop, fallback) {
+    if (stop?._inherited) return "S";
+    const value = Number(stop?.display_sequence);
+    return Number.isInteger(value) && value > 0 ? value : fallback;
   }
 
   _currentRevision() {
@@ -1074,6 +1096,9 @@ class RoadplannerPanel extends HTMLElement {
       label: cleanText(stop?.name) || `Stopp ${index + 1}`,
       stopId: stop?.id,
       stopType: cleanText(stop?.type) || "waypoint",
+      sequence: this._displayStopSequence(stop, index + 1),
+      markerLabel: cleanText(stop?.marker_label) || String(this._displayStopSequence(stop, index + 1)),
+      inherited: Boolean(stop?._inherited),
       timestamp,
     };
   }
@@ -1088,12 +1113,14 @@ class RoadplannerPanel extends HTMLElement {
     const points = [];
     let sequence = 0;
     for (const day of this._data?.days?.days || []) {
-      for (const stop of this._canonicalStops(day.stops || [])) {
+      for (const stop of this._dayRoadbookStops(day)) {
         const point = this._coordinate(stop, day, sequence);
         sequence += 1;
         if (point) {
           points.push({
             ...point,
+            markerLabel: String(sequence),
+            sequence,
             dayId: day.id,
             dayTitle: day.title,
             date: day.date,
@@ -1161,8 +1188,17 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _effectiveDayStart(day) {
+    const model = this._canonicalDayModel(day);
+    if (cleanText(model?.start_label)) return cleanText(model.start_label);
     const stops = this._effectiveDayStops(day);
     return stops[0]?.name || day?.start || "?";
+  }
+
+  _effectiveDayEnd(day) {
+    const model = this._canonicalDayModel(day);
+    if (cleanText(model?.end_label)) return cleanText(model.end_label);
+    const stops = this._effectiveDayStops(day);
+    return stops.at(-1)?.name || day?.end || "?";
   }
 
   _routeStatusLabel(day) {
@@ -1897,7 +1933,7 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "media-open-album") {
       const dayId = target.dataset.dayId || "";
       const stopId = target.dataset.stopId || "";
-      const media = stopId ? this._experienceMediaForStop(stopId) : this._experienceMediaForDay(dayId);
+      const media = stopId ? this._experienceAllMediaForStop(stopId) : this._experienceAllMediaForDay(dayId);
       const requestedId = target.dataset.mediaId || "";
       const index = Math.max(0, media.findIndex((item) => item.id === requestedId));
       if (media.length) {
@@ -3288,33 +3324,44 @@ class RoadplannerPanel extends HTMLElement {
     const decisionCount = Number(this._data?.experience?.stats?.open_decision_count || 0);
     const mediaReviewCount = Number(this._data?.experience?.stats?.suggested_count || 0) + Number(this._data?.experience?.stats?.unassigned_count || 0);
     const importReadyCount = this._importDocuments().filter((item) => item?.analysis?.universal_import?.status === "ready").length;
-    const tabs = [
-      ["overview", "mdi:view-dashboard-outline", "Übersicht"],
-      ["assistant", "mdi:message-text-outline", "Assistent"],
-      ["import", "mdi:file-import-outline", "Import"],
-      ["decisions", "mdi:cards-playing-outline", "Entscheidungen"],
-      ["media", "mdi:image-multiple-outline", "Fotos"],
-      ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten"],
-      ["day-route", "mdi:map-clock-outline", "Tagesroute"],
-      ["total-route", "mdi:map-marker-path", "Gesamtroute"],
-      ["trips", "mdi:map-multiple-outline", "Reisen"],
-      ["handoffs", "mdi:inbox-arrow-down", "Übergaben"],
+    const primary = [
+      ["overview", "mdi:map-outline", "Reise"],
+      ["day-route", "mdi:white-balance-sunny", "Heute"],
+      ["media", "mdi:image-multiple-outline", "Erinnerungen"],
+      ["assistant", "mdi:message-processing-outline", "Reisebegleiter"],
     ];
-    return `<nav class="tabs" aria-label="Roadplanner Bereiche">
-      ${tabs.map(([id, icon, label]) => `
-        <button type="button" class="tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}">
-          <ha-icon icon="${icon}"></ha-icon>
-          <span>${label}</span>
-          ${id === "assistant" && drafts ? `<span class="count-badge">${drafts}</span>` : ""}
-          ${id === "import" && importReadyCount ? `<span class="count-badge info">${importReadyCount}</span>` : ""}
-          ${id === "decisions" && decisionCount ? `<span class="count-badge info">${decisionCount}</span>` : ""}
-          ${id === "media" && mediaReviewCount ? `<span class="count-badge warning">${mediaReviewCount}</span>` : ""}
-          ${id === "archive" && todoTiming.urgent ? `<span class="count-badge" title="Heute fällig oder überfällig">${todoTiming.urgent}</span>` : ""}
-          ${id === "archive" && !todoTiming.urgent && todoTiming.upcoming ? `<span class="count-badge warning" title="In den nächsten 24 Stunden fällig">${todoTiming.upcoming}</span>` : ""}
-          ${id === "handoffs" && pending ? `<span class="count-badge">${pending}</span>` : ""}
-        </button>
-      `).join("")}
-    </nav>`;
+    const tools = [
+      ["decisions", "mdi:cards-playing-outline", "Entscheidungen", decisionCount, "info"],
+      ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten", todoTiming.urgent || todoTiming.upcoming, todoTiming.urgent ? "" : "warning"],
+      ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
+      ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
+      ["trips", "mdi:map-multiple-outline", "Reisen", 0, ""],
+      ["handoffs", "mdi:inbox-arrow-down", "Übergaben", pending, ""],
+    ];
+    const primaryIds = new Set(primary.map(([id]) => id));
+    const activeTool = tools.find(([id]) => id === this._activeTab);
+    const badgeFor = (id) => {
+      if (id === "assistant" && drafts) return `<span class="count-badge">${drafts}</span>`;
+      if (id === "media" && mediaReviewCount) return `<span class="count-badge warning">${mediaReviewCount}</span>`;
+      return "";
+    };
+    return `<div class="navigation-shell">
+      <nav class="tabs primary-tabs" aria-label="Roadplanner Reisephasen">
+        ${primary.map(([id, icon, label]) => `
+          <button type="button" class="tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}">
+            <ha-icon icon="${icon}"></ha-icon>
+            <span>${label}</span>
+            ${badgeFor(id)}
+          </button>
+        `).join("")}
+      </nav>
+      <details class="tool-tabs" ${activeTool && !primaryIds.has(this._activeTab) ? "open" : ""}>
+        <summary><ha-icon icon="mdi:dots-horizontal-circle-outline"></ha-icon><span>${activeTool ? escapeHtml(activeTool[2]) : "Mehr"}</span></summary>
+        <nav class="tool-tab-grid" aria-label="Roadplanner Werkzeuge">
+          ${tools.map(([id, icon, label, count, badgeClass]) => `<button type="button" class="tool-tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span>${count ? `<span class="count-badge ${badgeClass || ""}">${count}</span>` : ""}</button>`).join("")}
+        </nav>
+      </details>
+    </div>`;
   }
 
   _renderActiveTab() {
@@ -3646,7 +3693,7 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _experienceData() {
-    return this._data?.experience || { decisions: [], media: [], destination_galleries: {}, stats: {}, by_day: {}, by_stop: {}, onedrive: {} };
+    return this._data?.experience || { decisions: [], media: [], destination_galleries: {}, presentation: {}, stats: {}, by_day: {}, by_stop: {}, onedrive: {} };
   }
 
   _destinationGalleries() {
@@ -3686,7 +3733,7 @@ class RoadplannerPanel extends HTMLElement {
     const primary = this._destinationGalleryPrimary(gallery) || images[0];
     const ordered = [primary, ...images.filter((image) => image.id !== primary.id)].slice(0, 3);
     return `<div class="destination-gallery-preview ${compact ? "compact" : ""}">
-      <button class="destination-gallery-main" type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="0"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || primary.title || "Reiseziel")}"><span><ha-icon icon="mdi:image-multiple-outline"></ha-icon>${images.length} Bilder</span></button>
+      <button class="destination-gallery-main" type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="0"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || primary.title || "Reiseziel")}"><span><ha-icon icon="mdi:image-multiple-outline"></ha-icon>Planungsbilder · ${images.length}</span></button>
       ${ordered.length > 1 ? `<div class="destination-gallery-thumbs">${ordered.slice(1).map((image, index) => `<button type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="${index + 1}"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || "Reiseziel")}"></button>`).join("")}</div>` : ""}
     </div>`;
   }
@@ -3708,31 +3755,75 @@ class RoadplannerPanel extends HTMLElement {
     this._render({ preserveScroll: true });
   }
 
+  _experiencePresentation() {
+    const value = this._experienceData().presentation;
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
   _experienceMediaByIds(ids) {
     const media = this._experienceData().media || [];
-    const wanted = new Set(Array.isArray(ids) ? ids : []);
-    return media.filter((item) => wanted.has(item.id));
+    const byId = new Map(media.filter((item) => item?.id).map((item) => [item.id, item]));
+    return (Array.isArray(ids) ? ids : []).map((id) => byId.get(id)).filter(Boolean);
+  }
+
+  _experienceAllMediaForDay(dayId) {
+    if (!dayId) return [];
+    return this._experienceMediaByIds(this._experienceData().by_day?.[dayId] || []);
+  }
+
+  _experienceAllMediaForStop(stopId) {
+    if (!stopId) return [];
+    return this._experienceMediaByIds(this._experienceData().by_stop?.[stopId] || []);
   }
 
   _experienceMediaForDay(dayId) {
     if (!dayId) return [];
-    const ids = this._experienceData().by_day?.[dayId] || [];
-    return this._experienceMediaByIds(ids);
+    const presentationIds = this._experiencePresentation().day_highlights?.[dayId];
+    return Array.isArray(presentationIds) && presentationIds.length
+      ? this._experienceMediaByIds(presentationIds)
+      : this._experienceAllMediaForDay(dayId).slice(0, 3);
   }
 
   _experienceMediaForStop(stopId) {
     if (!stopId) return [];
-    const ids = this._experienceData().by_stop?.[stopId] || [];
-    return this._experienceMediaByIds(ids);
+    const presentationIds = this._experiencePresentation().stop_highlights?.[stopId];
+    return Array.isArray(presentationIds) && presentationIds.length
+      ? this._experienceMediaByIds(presentationIds)
+      : this._experienceAllMediaForStop(stopId).slice(0, 3);
   }
 
-  _renderExperienceAlbum(media, { dayId = "", stopId = "", compact = false, title = "Reisefotos" } = {}) {
+  _experienceCoverForStop(stopId) {
+    const coverId = this._experiencePresentation().stop_covers?.[stopId];
+    return coverId ? this._experienceMediaByIds([coverId])[0] || null : this._experienceMediaForStop(stopId)[0] || null;
+  }
+
+  _dayCoverImage(day) {
+    const presentation = this._experiencePresentation();
+    const travelCoverId = presentation.day_covers?.[day?.id];
+    if (travelCoverId) {
+      const media = this._experienceMediaByIds([travelCoverId])[0];
+      if (media) return { ...media, image_url: media.thumbnail_url, provider: "onedrive", attribution: "Eigenes Reisefoto", context: day?.title };
+    }
+    const planning = presentation.planning_day_covers?.[day?.id];
+    if (planning?.image_url || planning?.thumbnail_url) return { ...planning, image_url: planning.thumbnail_url || planning.image_url, context: day?.title };
+    for (const stop of this._dayRoadbookStops(day)) {
+      const own = this._experienceCoverForStop(stop.id);
+      if (own) return { ...own, image_url: own.thumbnail_url, provider: "onedrive", attribution: "Eigenes Reisefoto", context: stop.name };
+      const gallery = this._destinationGalleryForStop(stop.id);
+      const primary = this._destinationGalleryPrimary(gallery);
+      if (primary) return { ...primary, context: stop.name };
+    }
+    return this._mediaFrom(day);
+  }
+
+  _renderExperienceAlbum(media, { dayId = "", stopId = "", compact = false, title = "Reisefotos", totalCount = null } = {}) {
     if (!Array.isArray(media) || !media.length) return "";
-    const latest = media.slice(0, compact ? 5 : 8);
+    const highlights = media.slice(0, compact ? 3 : 5);
     const cover = media.find((item) => item.is_cover) || media[0];
+    const count = Number.isInteger(Number(totalCount)) && Number(totalCount) > 0 ? Number(totalCount) : media.length;
     return `<section class="experience-album ${compact ? "compact" : ""}">
-      <div class="experience-album-heading"><div><span class="eyebrow">Album</span><strong>${escapeHtml(title)}</strong><small>${media.length} ${media.length === 1 ? "Foto" : "Fotos"}</small></div><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button></div>
-      <div class="experience-album-strip">${latest.map((item) => `<button class="experience-album-thumb ${item.is_cover ? "cover" : ""}" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(item.id)}"><img src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.caption || item.name || "Reisefoto")}" loading="lazy">${item.is_cover ? `<ha-icon icon="mdi:star"></ha-icon>` : ""}</button>`).join("")}</div>
+      <div class="experience-album-heading"><div><span class="eyebrow">Unsere Fotos</span><strong>${escapeHtml(title)}</strong><small>${highlights.length} Highlights aus ${count} ${count === 1 ? "Foto" : "Fotos"}</small></div><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button></div>
+      <div class="experience-album-strip">${highlights.map((item) => `<button class="experience-album-thumb ${item.is_cover ? "cover" : ""}" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(item.id)}"><img src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.caption || item.name || "Reisefoto")}" loading="lazy">${item.is_cover ? `<ha-icon icon="mdi:star"></ha-icon>` : ""}</button>`).join("")}</div>
     </section>`;
   }
 
@@ -3877,6 +3968,8 @@ class RoadplannerPanel extends HTMLElement {
       <section class="media-stat-grid">
         ${this._mediaStat("mdi:image-multiple-outline", "Fotos", experience.stats?.media_count || 0)}
         ${this._mediaStat("mdi:check-decagram-outline", "Automatisch", experience.stats?.automatic_count || 0)}
+        ${this._mediaStat("mdi:star-four-points-outline", "Stopp-Highlights", experience.stats?.featured_stop_count || 0)}
+        ${this._mediaStat("mdi:image-filter-center-focus-strong-outline", "Zurückgestellt", Number(experience.stats?.media_duplicate_count || 0) + Number(experience.stats?.media_burst_suppressed_count || 0))}
         ${this._mediaStat("mdi:help-circle-outline", "Zu prüfen", experience.stats?.suggested_count || 0)}
         ${this._mediaStat("mdi:image-off-outline", "Ohne Tag", experience.stats?.unassigned_count || 0)}
       </section>
@@ -4031,84 +4124,97 @@ class RoadplannerPanel extends HTMLElement {
   _renderOverview() {
     const summary = this._data.summary;
     const trip = summary.trip;
-    const nextDay = summary.next_day;
+    const nextDay = summary.next_day || this._findDay(this._selectedDayId) || this._data?.days?.days?.[0];
     const handoffs = this._data.handoffs;
     const settings = this._data.settings;
-    const heroMedia = this._tripImages(1)[0];
+    const days = this._data?.days?.days || [];
+    const plannedDays = days.filter((day) => this._dayRoadbookStops(day).length > 0).length;
+    const planningProgress = days.length ? Math.round((plannedDays / days.length) * 100) : 0;
+    const openDecisions = Number(this._experienceData().stats?.open_decision_count || 0);
+    const todoTiming = this._todoTimingSummary();
+    const galleries = this._destinationGalleries();
+    const ownByStop = this._experienceData().by_stop || {};
+    const missingVisuals = days.flatMap((day) => this._dayRoadbookStops(day)).filter((stop) => {
+      const own = ownByStop?.[stop.id];
+      const gallery = galleries?.[stop.id];
+      return !(Array.isArray(own) && own.length) && !this._destinationGalleryImages(gallery).length;
+    }).length;
+    const heroMedia = (nextDay && this._dayCoverImage(nextDay)) || this._tripImages(1)[0];
+    const now = new Date();
+    const start = trip.start_date ? new Date(`${trip.start_date}T00:00:00`) : null;
+    const end = trip.end_date ? new Date(`${trip.end_date}T23:59:59`) : null;
+    const phase = start && now < start ? "Planen" : end && now > end ? "Erinnern" : start && end ? "Unterwegs" : "Planen";
+    const distance = summary.total_distance_km != null ? `${summary.total_distance_km} km` : "≈ offen";
     return `
       ${this._renderReadOnlyNotice()}
-      <section class="hero-card ${heroMedia ? "with-image" : ""}">
+      <section class="hero-card journey-hero ${heroMedia ? "with-image" : ""}">
         ${heroMedia ? `<div class="hero-image">${this._renderDestinationImage(heroMedia, { compact: false })}</div>` : ""}
         <div class="hero-copy">
-          <span class="eyebrow">${this._data.selected_is_active ? "Aktive Reise" : "Ausgewählte Reise"}</span>
+          <span class="eyebrow">${escapeHtml(phase)} · ${this._data.selected_is_active ? "Aktive Reise" : "Ausgewählte Reise"}</span>
           <h2>${escapeHtml(trip.title)}</h2>
-          <p>${escapeHtml(trip.notes || "Noch keine Reisenotiz hinterlegt.")}</p>
+          <p>${escapeHtml(trip.notes || "Roadplanner begleitet euch von der Planung bis zu den Erinnerungen.")}</p>
+          <div class="planning-progress" aria-label="Planungsfortschritt ${planningProgress} Prozent"><span style="width:${planningProgress}%"></span></div>
           <div class="hero-meta">
             <span><ha-icon icon="mdi:calendar-range"></ha-icon>${escapeHtml(trip.start_date || "offen")} – ${escapeHtml(trip.end_date || "offen")}</span>
-            <span><ha-icon icon="mdi:flag-outline"></ha-icon>${escapeHtml(this._statusLabel(trip.status))}</span>
+            <span><ha-icon icon="mdi:progress-check"></ha-icon>${plannedDays}/${days.length || summary.day_count || 0} Tage mit Stopps</span>
           </div>
-          ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-trip"><ha-icon icon="mdi:pencil-outline"></ha-icon> Reise bearbeiten</button>` : ""}
+          <div class="button-row">
+            <button class="primary-button" type="button" data-tab="day-route"><ha-icon icon="mdi:white-balance-sunny"></ha-icon> Heute öffnen</button>
+            <button class="secondary-button" type="button" data-tab="assistant"><ha-icon icon="mdi:message-processing-outline"></ha-icon> Reisebegleiter</button>
+            ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-trip"><ha-icon icon="mdi:pencil-outline"></ha-icon> Reise bearbeiten</button>` : ""}
+          </div>
         </div>
       </section>
 
-      <section class="stat-grid" aria-label="Reiseübersicht">
-        ${this._statCard("mdi:calendar-range", summary.day_count, "Reisetage")}
-        ${this._statCard("mdi:map-marker-multiple", summary.stop_count, "Stopps")}
-        ${this._statCard("mdi:road-variant", summary.total_distance_km != null ? `${summary.total_distance_km} km` : "— km", "geplant")}
-        ${this._statCard("mdi:inbox-arrow-down", handoffs.total, "Übergaben")}
+      <section class="stat-grid planning-stats" aria-label="Reiseplanung">
+        ${this._statCard("mdi:progress-check", `${planningProgress}%`, "Planungsstand")}
+        ${this._statCard("mdi:road-variant", distance, summary.total_distance_km != null ? "berechnete Strecke" : "grobe Strecke offen")}
+        ${this._statCard("mdi:cards-playing-outline", openDecisions, "offene Entscheidungen")}
+        ${this._statCard("mdi:checkbox-marked-circle-auto-outline", todoTiming.urgent || 0, todoTiming.urgent ? "heute / überfällig" : "nichts Dringendes")}
       </section>
 
-      <section class="panel-card">
+      ${nextDay ? `<section class="panel-card next-journey-card">
         <div class="section-heading">
-          <div>
-            <span class="eyebrow">Als Nächstes</span>
-            <h2>${nextDay ? escapeHtml(nextDay.title) : "Noch kein Reisetag geplant"}</h2>
-          </div>
+          <div><span class="eyebrow">${phase === "Unterwegs" ? "Heute" : "Als Nächstes"}</span><h2>${escapeHtml(nextDay.title)}</h2><p>${escapeHtml(this._formatDate(nextDay.date))}</p></div>
           <ha-icon icon="mdi:map-marker-distance"></ha-icon>
         </div>
-        ${nextDay ? `
-          <div class="next-day-grid">
-            <div><span>Datum</span><strong>${escapeHtml(this._formatDate(nextDay.date))}</strong></div>
-            <div><span>Route</span><strong>${escapeHtml(this._effectiveDayStart(nextDay))} → ${escapeHtml(this._effectiveDayStops(nextDay).at(-1)?.name || nextDay.end || "?")}</strong></div>
-            <div><span>Stopps</span><strong>${nextDay.stop_count || 0}</strong></div>
+        <div class="next-day-grid">
+          <div><span>Route</span><strong>${escapeHtml(this._effectiveDayStart(nextDay))} → ${escapeHtml(this._effectiveDayEnd(nextDay))}</strong></div>
+          <div><span>Stopps</span><strong>${this._dayRoadbookStops(nextDay).length}</strong></div>
+          <div><span>Fahrzeit</span><strong>${escapeHtml(this._formatDriveMinutes(nextDay.drive_minutes) || "noch offen")}</strong></div>
+        </div>
+        <div class="button-row"><button class="primary-button" type="button" data-tab="day-route" data-day-id="${escapeHtml(nextDay.id)}"><ha-icon icon="mdi:map-clock-outline"></ha-icon> Tagesetappe</button>${openDecisions ? `<button class="secondary-button" type="button" data-tab="decisions"><ha-icon icon="mdi:cards-playing-outline"></ha-icon>${openDecisions} Entscheidungen</button>` : ""}</div>
+      </section>` : `<section class="panel-card"><div class="empty-inline"><ha-icon icon="mdi:calendar-plus"></ha-icon><div><strong>Noch kein Reisetag geplant</strong><span>Lege einen Tag an oder plane ihn mit dem Reisebegleiter.</span></div></div></section>`}
+
+      <section class="panel-card journey-readiness">
+        <div class="section-heading compact"><div><span class="eyebrow">Reisebereitschaft</span><h2>Was noch Aufmerksamkeit braucht</h2></div></div>
+        <div class="readiness-grid">
+          <button type="button" data-tab="decisions"><ha-icon icon="mdi:cards-playing-outline"></ha-icon><span><strong>${openDecisions}</strong> Entscheidungen</span></button>
+          <button type="button" data-tab="archive"><ha-icon icon="mdi:file-document-check-outline"></ha-icon><span><strong>${Number(this._archiveData().stats?.document_count || 0)}</strong> Dokumente</span></button>
+          <button type="button" data-tab="media"><ha-icon icon="mdi:image-search-outline"></ha-icon><span><strong>${missingVisuals}</strong> Stopps ohne Bild</span></button>
+          <button type="button" data-tab="handoffs"><ha-icon icon="mdi:inbox-arrow-down"></ha-icon><span><strong>${handoffs.total || 0}</strong> Übergaben</span></button>
+        </div>
+      </section>
+
+      <details class="overview-technical panel-card">
+        <summary><span><ha-icon icon="mdi:tools"></ha-icon>Werkzeuge & System</span><small>Import, Reisen, Routing, Rollen und Diagnose</small></summary>
+        <div class="assistant-technical-content">
+          <div class="button-row">
+            <button class="secondary-button" type="button" data-tab="total-route"><ha-icon icon="mdi:map-marker-path"></ha-icon> Gesamtroute</button>
+            <button class="secondary-button" type="button" data-tab="import"><ha-icon icon="mdi:file-import-outline"></ha-icon> Import</button>
+            <button class="secondary-button" type="button" data-tab="trips"><ha-icon icon="mdi:map-multiple-outline"></ha-icon> Reisen</button>
+            <button class="secondary-button" type="button" data-tab="archive"><ha-icon icon="mdi:file-document-multiple-outline"></ha-icon> Dokumente & Kosten</button>
           </div>
-        ` : `<p class="muted">Lege den ersten Reisetag direkt im Panel an oder plane ihn später über Gemini.</p>`}
-        <div class="button-row">
-          ${this._canEdit() ? `<button class="primary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Reisetag hinzufügen</button>` : ""}
-          <button class="secondary-button" type="button" data-tab="day-route"><ha-icon icon="mdi:map-clock-outline"></ha-icon> Tagesroute</button>
-          <button class="secondary-button" type="button" data-tab="total-route"><ha-icon icon="mdi:map-marker-path"></ha-icon> Gesamtroute</button>
+          <div class="settings-list">
+            ${this._valueRow("Roadplanner", this._data.integration_version)}
+            ${this._valueRow("Zugriff", this._statusLabel(this._data.capabilities?.role || "viewer"))}
+            ${this._settingRow("Straßenrouting", settings.routing_configured)}
+            ${this._settingRow("Externe Google-Drive-Bridge", settings.handoff_webhook_enabled)}
+            ${this._settingRow("Automatische Planungsbilder", settings.destination_image_auto_fill)}
+          </div>
+          <div class="button-row">${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
         </div>
-      </section>
-
-      <section class="panel-card">
-        <div class="section-heading compact">
-          <div><span class="eyebrow">Zugriff</span><h2>${escapeHtml(this._statusLabel(this._data.capabilities?.role || "viewer"))}</h2></div>
-          <span class="status-dot success"></span>
-        </div>
-        <div class="settings-list">
-          ${this._settingRow("Routen bearbeiten", this._data.capabilities?.can_edit)}
-          ${this._settingRow("Übergaben verarbeiten", this._data.capabilities?.can_approve)}
-          ${this._valueRow("Standardrolle Nicht-Admins", this._statusLabel(settings.non_admin_role || "viewer"))}
-        </div>
-      </section>
-
-      <section class="panel-card">
-        <div class="section-heading compact">
-          <div><span class="eyebrow">System</span><h2>Roadplanner ${escapeHtml(this._data.integration_version)}</h2></div>
-          <span class="status-dot success"></span>
-        </div>
-        <div class="settings-list">
-          ${this._settingRow("Übergabeordner automatisch prüfen", settings.auto_scan_handoffs)}
-          ${this._settingRow("ChangeSets automatisch anwenden", settings.auto_apply_changesets)}
-          ${this._settingRow("Externe Google-Drive-Bridge", settings.handoff_webhook_enabled)}
-          ${this._settingRow("Straßenrouting", settings.routing_configured)}
-          ${settings.routing_configured ? this._valueRow("Routing", `${settings.routing_provider || "osrm"} · ${settings.routing_profile || "driving"}`) : ""}
-        </div>
-        <div class="button-row">
-          ${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}
-          ${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}
-        </div>
-      </section>
+      </details>
     `;
   }
 
@@ -4143,14 +4249,24 @@ class RoadplannerPanel extends HTMLElement {
     const routeStops = this._effectiveDayStops(day);
     const points = this._dayRoutePoints(day);
     const routePaths = this._routingSegmentPaths(day);
+    const dayCover = this._dayCoverImage(day);
     const dayImages = [];
-    const dayMedia = this._mediaFrom(day);
-    if (dayMedia) dayImages.push({ ...dayMedia, context: day.title });
-    for (const stop of this._canonicalStops(day.stops || [])) {
+    const seenDayImages = new Set();
+    const addDayImage = (image, context) => {
+      const url = this._safeUrl(image?.image_url || image?.thumbnail_url);
+      if (!url || seenDayImages.has(url)) return;
+      seenDayImages.add(url);
+      dayImages.push({ ...image, image_url: url, context });
+    };
+    addDayImage(dayCover, day.title);
+    for (const stop of this._dayRoadbookStops(day)) {
+      const own = this._experienceCoverForStop(stop.id);
+      if (own) {
+        addDayImage({ ...own, image_url: own.thumbnail_url, attribution: "Eigenes Reisefoto" }, stop.name);
+        continue;
+      }
       const gallery = this._destinationGalleryForStop(stop.id);
-      const primary = this._destinationGalleryPrimary(gallery);
-      const media = primary || this._mediaFrom(stop);
-      if (media) dayImages.push({ ...media, context: stop.name });
+      addDayImage(this._destinationGalleryPrimary(gallery) || this._mediaFrom(stop), stop.name);
     }
     const drive = this._formatDriveMinutes(day.drive_minutes);
     const routeStatus = this._routeStatusLabel(day);
@@ -4164,6 +4280,7 @@ class RoadplannerPanel extends HTMLElement {
     const routeWarnings = Array.isArray(day?.routing?.warnings) ? day.routing.warnings.filter(Boolean) : [];
     const archiveRecords = this._archiveRecordsForDay(day.id);
     const experienceDayMedia = this._experienceMediaForDay(day.id);
+    const allExperienceDayMedia = this._experienceAllMediaForDay(day.id);
     const routingNotices = [];
     if (day?.routing?.status === "stale") {
       routingNotices.push("Die gespeicherte Route ist nach einer Stoppänderung veraltet. Bitte neu berechnen.");
@@ -4184,10 +4301,12 @@ class RoadplannerPanel extends HTMLElement {
         <div>
           <span class="eyebrow">Tagesroute</span>
           <h2>${escapeHtml(day.title)}</h2>
-          <p>${escapeHtml(this._formatDate(day.date))} · ${escapeHtml(effectiveStart)} → ${escapeHtml(routeStops.at(-1)?.name || day.end || "?")}</p>
+          <p>${escapeHtml(this._formatDate(day.date))} · ${escapeHtml(effectiveStart)} → ${escapeHtml(this._effectiveDayEnd(day))}</p>
         </div>
         <label class="day-select"><span>Reisetag</span><select data-action="select-day">${days.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === day.id ? "selected" : ""}>${item.sequence}. ${escapeHtml(item.title)}</option>`).join("")}</select></label>
       </section>
+
+      ${dayCover ? `<section class="day-cover-hero panel-card"><div class="day-cover-image">${this._renderDestinationImage(dayCover, { compact: false })}</div><div class="day-cover-copy"><span class="eyebrow">${dayCover.provider === "onedrive" ? "Unsere Erinnerung" : "Planungsvorschau"}</span><h2>${escapeHtml(day.title)}</h2><p>${dayCover.provider === "onedrive" ? "Roadplanner zeigt bevorzugt eure eigenen Fotos dieses Reisetags." : "Dieses Planungsbild vermittelt einen ersten visuellen Eindruck. Nach dem Besuch werden passende eigene OneDrive-Fotos bevorzugt."}</p></div></section>` : ""}
 
       <section class="route-layout">
         <div class="route-main">
@@ -4216,14 +4335,14 @@ class RoadplannerPanel extends HTMLElement {
       </section>
 
       ${this._renderDayArchivePanel(day, archiveRecords)}
-      ${experienceDayMedia.length ? `<section class="panel-card day-experience-album"><div class="section-heading compact"><div><span class="eyebrow">Reiseerinnerungen</span><h2>Fotos dieses Tages</h2></div></div>${this._renderExperienceAlbum(experienceDayMedia, { dayId: day.id, title: day.title || "Tagesalbum" })}</section>` : ""}
+      ${experienceDayMedia.length ? `<section class="panel-card day-experience-album"><div class="section-heading compact"><div><span class="eyebrow">Reiseerinnerungen</span><h2>Fotos dieses Tages</h2></div></div>${this._renderExperienceAlbum(experienceDayMedia, { dayId: day.id, title: day.title || "Tagesalbum", totalCount: allExperienceDayMedia.length })}</section>` : ""}
 
       <section class="panel-card image-section">
         <div class="section-heading compact">
-          <div><span class="eyebrow">Inspiration</span><h2>Bilder der Tagesziele</h2></div>
+          <div><span class="eyebrow">${allExperienceDayMedia.length ? "Unsere Fotos" : "Planungsbilder"}</span><h2>${allExperienceDayMedia.length ? "Highlights dieses Tages" : "Visuelle Vorschau"}</h2></div>
           ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="search-day-images" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:image-search-outline"></ha-icon> Titelbild suchen</button>` : ""}
         </div>
-        ${dayImages.length ? this._renderImageGallery(dayImages) : `<div class="empty-inline"><ha-icon icon="mdi:image-outline"></ha-icon><div><strong>Noch keine Zielbilder</strong><span>Bei jedem Stopp kannst du ein Bild aus Wikimedia Commons auswählen oder eine Bild-URL hinterlegen.</span></div></div>`}
+        ${dayImages.length ? this._renderImageGallery(dayImages) : `<div class="empty-inline"><ha-icon icon="mdi:image-outline"></ha-icon><div><strong>Noch keine Zielbilder</strong><span>Roadplanner sucht automatisch Planungsbilder. Nach dem Besuch werden passende eigene OneDrive-Fotos bevorzugt.</span></div></div>`}
       </section>
 
       <section class="stops-section">
@@ -4244,9 +4363,13 @@ class RoadplannerPanel extends HTMLElement {
       return `<section class="map-card map-unavailable"><div class="map-placeholder"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><strong>Noch keine Koordinaten</strong><span>Trage bei den Stopps Breiten- und Längengrad ein. Die schematische Route darunter funktioniert auch ohne Koordinaten.</span></div></section>`;
     }
     this._mapModels.set(id, { points: validPoints, paths: validPaths, title });
-    const legend = validPoints.slice(0, 30).map((point, index) => `
-      <span class="map-key-item"><b>${index + 1}</b>${escapeHtml(point.label || `Punkt ${index + 1}`)}</span>
-    `).join("");
+    const legend = validPoints.slice(0, 30).map((point, index) => {
+      const numericSequence = Number.isInteger(Number(point.sequence)) && Number(point.sequence) > 0 ? Number(point.sequence) : index + 1;
+      const markerLabel = cleanText(point.markerLabel) || String(numericSequence);
+      return `
+      <span class="map-key-item ${point.inherited ? "inherited" : ""}"><b>${escapeHtml(markerLabel)}</b>${escapeHtml(point.label || `Punkt ${markerLabel}`)}</span>
+    `;
+    }).join("");
     const hasFerry = validPaths.some((path) => path.mode === "ferry");
     const defaultCaption = validPaths.length
       ? (hasFerry
@@ -4264,32 +4387,33 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _renderRouteFlow(day) {
-    const stops = this._effectiveDayStops(day);
-    const nodes = [];
-    if (stops.length) {
-      for (const stop of stops) {
-        nodes.push({
-          label: stop.name,
-          type: stop.type,
-          icon: stopIcons[stop.type] || stopIcons.waypoint,
-          time: stop._inherited
-            ? `Start vom Vortag${stop.departure_time ? ` · Abfahrt ${stop.departure_time}` : ""}`
-            : (stop.arrival_time || stop.departure_time),
-        });
-      }
-    } else {
-      if (day.start) nodes.push({ label: day.start, type: "start", icon: "mdi:flag-outline" });
-      if (day.end && day.end !== day.start) nodes.push({ label: day.end, type: "end", icon: "mdi:flag-checkered" });
-    }
-    if (!nodes.length) return "";
-    return `<section class="route-flow-card"><span class="eyebrow">Schematischer Tagesablauf</span><div class="route-flow">${nodes.map((node, index) => `<div class="flow-item"><div class="flow-node"><ha-icon icon="${node.icon}"></ha-icon></div><div class="flow-copy"><strong>${escapeHtml(node.label)}</strong><span>${escapeHtml(node.time || this._statusLabel(node.type))}</span></div>${index < nodes.length - 1 ? '<div class="flow-line"></div>' : ""}</div>`).join("")}</div></section>`;
+    const model = this._canonicalDayModel(day);
+    const routeNodes = this._effectiveDayStops(day);
+    const legacyNodes = !routeNodes.length && Array.isArray(model?.legacy_route_nodes)
+      ? model.legacy_route_nodes
+      : [];
+    const source = routeNodes.length ? routeNodes : legacyNodes;
+    if (!source.length) return "";
+    const nodes = source.map((stop, index) => ({
+      label: cleanText(stop?.name) || `Stopp ${index + 1}`,
+      type: cleanText(stop?.type) || "waypoint",
+      icon: stopIcons[stop?.type] || stopIcons.waypoint,
+      markerLabel: stop?._inherited ? "S" : (stop?._legacy_context ? "" : String(this._displayStopSequence(stop, index + 1))),
+      inherited: Boolean(stop?._inherited),
+      legacy: Boolean(stop?._legacy_context),
+      time: stop?._inherited
+        ? `Start vom Vortag${stop?.departure_time ? ` · Abfahrt ${stop.departure_time}` : ""}`
+        : (stop?.arrival_time || stop?.departure_time || this._statusLabel(stop?.type)),
+    }));
+    return `<section class="route-flow-card"><span class="eyebrow">Schematischer Tagesablauf</span><div class="route-flow">${nodes.map((node, index) => `<div class="flow-item ${node.inherited ? "inherited" : ""} ${node.legacy ? "legacy" : ""}"><div class="flow-node">${node.markerLabel ? `<span>${escapeHtml(node.markerLabel)}</span>` : `<ha-icon icon="${node.icon}"></ha-icon>`}</div><div class="flow-copy"><strong>${escapeHtml(node.label)}</strong><span>${escapeHtml(node.time || this._statusLabel(node.type))}</span></div>${index < nodes.length - 1 ? '<div class="flow-line"></div>' : ""}</div>`).join("")}</div></section>`;
   }
 
   _renderStopCard(day, stop, index) {
     const inherited = Boolean(stop._inherited);
     const media = this._mediaFrom(stop);
     const experienceMedia = this._experienceMediaForStop(stop.id);
-    const experienceCover = experienceMedia.find((item) => item.is_cover) || experienceMedia[0] || null;
+    const allExperienceMedia = this._experienceAllMediaForStop(stop.id);
+    const experienceCover = this._experienceCoverForStop(stop.id) || experienceMedia[0] || null;
     const destinationGallery = this._destinationGalleryForStop(stop.id);
     const destinationImages = this._destinationGalleryImages(destinationGallery);
     const location = stop.location || {};
@@ -4302,9 +4426,9 @@ class RoadplannerPanel extends HTMLElement {
       this._externalLink(navigationUrl, "Navigieren", "mdi:navigation-variant-outline", "primary-button"),
     ].filter(Boolean).join("");
     return `<article class="stop-card ${inherited ? "inherited-stop" : ""}">
-      ${experienceCover ? `<button type="button" class="stop-experience-cover" data-action="media-open-album" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" data-media-id="${escapeHtml(experienceCover.id)}"><img src="${escapeHtml(this._safeUrl(experienceCover.thumbnail_url))}" alt="${escapeHtml(experienceCover.caption || experienceCover.name || stop.name)}" loading="lazy"><span><ha-icon icon="mdi:image-multiple"></ha-icon>${experienceMedia.length} ${experienceMedia.length === 1 ? "Foto" : "Fotos"}</span></button>` : destinationImages.length ? this._renderDestinationGalleryPreview(destinationGallery, { dayId: day.id, stopId: stop.id, compact: true }) : media ? this._renderDestinationImage({ ...media, context: stop.name }, { compact: true }) : `<div class="stop-image-placeholder"><ha-icon icon="${stopIcons[stop.type] || stopIcons.waypoint}"></ha-icon><span>${escapeHtml(this._statusLabel(stop.type))}</span></div>`}
+      ${experienceCover ? `<button type="button" class="stop-experience-cover" data-action="media-open-album" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" data-media-id="${escapeHtml(experienceCover.id)}"><img src="${escapeHtml(this._safeUrl(experienceCover.thumbnail_url))}" alt="${escapeHtml(experienceCover.caption || experienceCover.name || stop.name)}" loading="lazy"><span><ha-icon icon="mdi:image-multiple"></ha-icon>${allExperienceMedia.length} ${allExperienceMedia.length === 1 ? "Foto" : "Fotos"}</span></button>` : destinationImages.length ? this._renderDestinationGalleryPreview(destinationGallery, { dayId: day.id, stopId: stop.id, compact: true }) : media ? this._renderDestinationImage({ ...media, context: stop.name }, { compact: true }) : `<div class="stop-image-placeholder"><ha-icon icon="${stopIcons[stop.type] || stopIcons.waypoint}"></ha-icon><span>${escapeHtml(this._statusLabel(stop.type))}</span></div>`}
       <div class="stop-card-body">
-        <div class="stop-card-heading"><span class="sequence-badge">${index + 1}</span><div><h3>${escapeHtml(stop.name)}</h3><span>${escapeHtml(this._statusLabel(stop.type))}${inherited ? " · Start vom Vortag" : ""}</span></div></div>
+        <div class="stop-card-heading"><span class="sequence-badge">${this._displayStopSequence(stop, index + 1)}</span><div><h3>${escapeHtml(stop.name)}</h3><span>${escapeHtml(this._statusLabel(stop.type))}${inherited ? " · Start vom Vortag" : ""}</span></div></div>
         ${inherited ? `<div class="inherited-badge"><ha-icon icon="mdi:link-variant"></ha-icon>Derselbe Übernachtungsstopp wie am Vortag</div>` : ""}
         <div class="stop-meta">
           ${time ? `<span><ha-icon icon="mdi:clock-outline"></ha-icon>${escapeHtml(time)}</span>` : ""}
@@ -4314,7 +4438,7 @@ class RoadplannerPanel extends HTMLElement {
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         ${media?.attribution && !experienceCover && !destinationImages.length ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
         ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id)}
-        ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name })}
+        ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name, totalCount: allExperienceMedia.length })}
         ${this._renderStopArchiveSummary(day, stop)}
         ${externalActions ? `<div class="button-row stop-actions">${externalActions}</div>` : ""}
         ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button><button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
@@ -4363,9 +4487,8 @@ class RoadplannerPanel extends HTMLElement {
       </div>
       <div class="journey-track" role="list">
         ${days.map((day, index) => {
-          const routeStops = this._effectiveDayStops(day);
-          const start = routeStops[0]?.name || day.start || "?";
-          const end = routeStops.at(-1)?.name || day.end || "?";
+          const start = this._effectiveDayStart(day);
+          const end = this._effectiveDayEnd(day);
           return `
           <button type="button" class="journey-node" role="listitem" data-action="select-day-card" data-day-id="${escapeHtml(day.id)}">
             <span class="journey-dot">${day.sequence}</span>
@@ -4383,15 +4506,14 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _renderTotalDay(day) {
-    const orderedStops = this._canonicalStops(day.stops || []);
-    const galleryMedia = orderedStops.map((stop) => this._destinationGalleryPrimary(this._destinationGalleryForStop(stop.id))).find(Boolean);
-    const media = this._mediaFrom(day) || galleryMedia || orderedStops.map((stop) => this._mediaFrom(stop)).find(Boolean);
+    const orderedStops = this._dayRoadbookStops(day);
+    const media = this._dayCoverImage(day);
     const drive = this._formatDriveMinutes(day.drive_minutes);
     const routeStatus = this._routeStatusLabel(day);
     return `<article class="total-day-card" data-action="select-day-card" data-day-id="${escapeHtml(day.id)}">
       <div class="total-day-sequence"><span>${day.sequence}</span></div>
       ${media ? `<div class="total-day-image">${this._renderDestinationImage({ ...media, context: day.title }, { compact: true })}</div>` : ""}
-      <div class="total-day-copy"><span>${escapeHtml(this._formatDate(day.date))}</span><h3>${escapeHtml(day.title)}</h3><p>${escapeHtml(this._effectiveDayStart(day))} → ${escapeHtml(orderedStops.at(-1)?.name || day.end || "?")}</p><div>${[day.distance_km != null ? `${day.distance_km} km` : "", drive, `${day.stop_count || 0} Stopps`, routeStatus].filter(Boolean).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></div>
+      <div class="total-day-copy"><span>${escapeHtml(this._formatDate(day.date))}</span><h3>${escapeHtml(day.title)}</h3><p>${escapeHtml(this._effectiveDayStart(day))} → ${escapeHtml(this._effectiveDayEnd(day))}</p><div>${[day.distance_km != null ? `${day.distance_km} km` : "", drive, `${day.stop_count || 0} Stopps`, routeStatus].filter(Boolean).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></div>
       <ha-icon class="chevron" icon="mdi:chevron-right"></ha-icon>
     </article>`;
   }
@@ -4984,17 +5106,20 @@ class RoadplannerPanel extends HTMLElement {
       }));
     }
     for (const [index, point] of (model.points || []).entries()) {
+      const numericSequence = Number.isInteger(Number(point.sequence)) && Number(point.sequence) > 0 ? Number(point.sequence) : index + 1;
+      const markerLabel = cleanText(point.markerLabel) || String(numericSequence);
       const ferryStop = point.stopType === "ferry";
-      const markerColor = ferryStop ? colors.ferry : colors.primary;
+      const markerColor = point.inherited ? colors.muted : (ferryStop ? colors.ferry : colors.primary);
       const icon = Leaflet.divIcon({
-        className: "roadplanner-map-marker",
-        html: `<span style="display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:${escapeHtml(markerColor)};color:#fff;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.35);font:700 12px system-ui,sans-serif">${index + 1}</span>`,
+        className: `roadplanner-map-marker ${point.inherited ? "inherited" : ""}`,
+        html: `<span style="display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:${escapeHtml(markerColor)};color:#fff;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.35);font:700 12px system-ui,sans-serif">${escapeHtml(markerLabel)}</span>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
         tooltipAnchor: [0, -14],
       });
       const marker = Leaflet.marker([point.lat, point.lon], { icon, interactive: true });
-      marker.bindTooltip(`${index + 1}. ${point.label || `Stopp ${index + 1}`}`, { direction: "top" });
+      const prefix = point.inherited ? "Start" : markerLabel;
+      marker.bindTooltip(`${prefix}. ${point.label || `Stopp ${markerLabel}`}`, { direction: "top" });
       layers.push(marker);
     }
     return layers;
@@ -5096,9 +5221,18 @@ class RoadplannerPanel extends HTMLElement {
       .trip-select { display: flex; align-items: center; gap: 8px; min-width: 220px; padding: 7px 10px; border: 1px solid var(--divider-color); border-radius: 12px; background: var(--card-background-color); }
       .trip-select ha-icon { color: var(--primary-color); }
       .trip-select select { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--primary-text-color); }
-      .tabs { display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding: 0 16px; background: var(--card-background-color); border-bottom: 1px solid var(--divider-color); z-index: 3; }
+      .navigation-shell { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; background: var(--card-background-color); border-bottom: 1px solid var(--divider-color); z-index: 3; min-width: 0; }
+      .tabs { display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding: 0 16px; background: transparent; border-bottom: 0; z-index: 3; min-width: 0; }
       .tabs::-webkit-scrollbar { display: none; }
-      .tab { min-height: 54px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); padding: 0 16px; display: flex; align-items: center; gap: 8px; font-weight: 650; cursor: pointer; white-space: nowrap; }
+      .tab { flex: 1 1 0; min-width: 112px; min-height: 58px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--secondary-text-color); padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+      .tool-tabs { position: relative; align-self: center; margin-right: 12px; }
+      .tool-tabs > summary { list-style: none; min-height: 44px; padding: 0 12px; border-radius: 12px; display: inline-flex; align-items: center; gap: 7px; color: var(--secondary-text-color); cursor: pointer; font-weight: 700; }
+      .tool-tabs > summary::-webkit-details-marker { display: none; }
+      .tool-tabs > summary:hover, .tool-tabs[open] > summary { background: var(--secondary-background-color); color: var(--primary-color); }
+      .tool-tab-grid { position: absolute; right: 0; top: calc(100% + 8px); width: min(380px, calc(100vw - 24px)); padding: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--card-background-color); box-shadow: 0 12px 36px rgba(0,0,0,.22); z-index: 30; }
+      .tool-tab { min-width: 0; min-height: 52px; padding: 10px; border: 1px solid var(--divider-color); border-radius: 12px; background: var(--primary-background-color); color: var(--primary-text-color); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; text-align: left; cursor: pointer; }
+      .tool-tab.active { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 9%, var(--card-background-color)); }
+      .tool-tab span:not(.count-badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
       .tab ha-icon { --mdc-icon-size: 21px; }
       .count-badge { min-width: 22px; height: 22px; padding: 0 6px; font-size: 11px; color: white; background: var(--error-color, #d32f2f); }
@@ -5112,6 +5246,18 @@ class RoadplannerPanel extends HTMLElement {
       .hero-copy h2 { margin: 6px 0 10px; font-size: clamp(28px, 5vw, 48px); line-height: 1.04; }
       .hero-copy p { margin: 0 0 18px; color: var(--secondary-text-color); max-width: 70ch; line-height: 1.55; }
       .hero-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 20px; color: var(--secondary-text-color); }
+      .planning-progress { width: min(520px, 100%); height: 9px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 12%, var(--secondary-background-color)); }
+      .planning-progress > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 55%, #7cb342)); transition: width .35s ease; }
+      .readiness-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .readiness-grid button { min-width: 0; min-height: 78px; padding: 12px; border: 1px solid var(--divider-color); border-radius: 14px; background: var(--primary-background-color); color: var(--primary-text-color); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; text-align: left; cursor: pointer; }
+      .readiness-grid button:hover { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color)); }
+      .readiness-grid ha-icon { color: var(--primary-color); --mdc-icon-size: 26px; }
+      .readiness-grid span { display: grid; gap: 2px; min-width: 0; }
+      .readiness-grid strong { font-size: 20px; }
+      .overview-technical > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+      .overview-technical > summary::-webkit-details-marker { display: none; }
+      .overview-technical > summary > span { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
+      .overview-technical > summary small { color: var(--secondary-text-color); }
       .hero-meta span { display: flex; align-items: center; gap: 7px; }
       .eyebrow { display: block; color: var(--primary-color); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
       .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -5153,6 +5299,12 @@ class RoadplannerPanel extends HTMLElement {
       .notice.warning { background: color-mix(in srgb, var(--warning-color, #f57c00) 13%, transparent); }
       .notice.danger { background: color-mix(in srgb, var(--error-color, #d32f2f) 12%, transparent); }
       .view-notice { margin-top: 0; }
+      .day-cover-hero { padding: 0; overflow: hidden; display: grid; grid-template-columns: minmax(280px, 42%) minmax(0, 1fr); min-height: 240px; }
+      .day-cover-image { min-height: 240px; }
+      .day-cover-image .destination-image { min-height: 240px; }
+      .day-cover-copy { padding: clamp(20px, 4vw, 38px); display: flex; flex-direction: column; justify-content: center; }
+      .day-cover-copy h2 { margin: 6px 0 10px; font-size: clamp(25px, 4vw, 38px); }
+      .day-cover-copy p { margin: 0; color: var(--secondary-text-color); line-height: 1.55; }
       .route-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, .8fr); gap: 18px; align-items: start; }
       .route-main { min-width: 0; }
       .day-facts { position: sticky; top: 0; }
@@ -5170,6 +5322,7 @@ class RoadplannerPanel extends HTMLElement {
       .map-key { display: flex; gap: 8px; overflow-x: auto; padding: 10px 14px; border-top: 1px solid var(--divider-color); scrollbar-width: thin; }
       .map-key-item, .map-key-more { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 4px 10px 4px 5px; border-radius: 999px; background: var(--secondary-background-color); color: var(--secondary-text-color); font-size: 11px; }
       .map-key-item b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--primary-color); color: white; font-size: 10px; }
+      .map-key-item.inherited b { background: var(--secondary-text-color); }
       .map-caption { padding: 10px 14px; display: flex; gap: 8px; align-items: center; color: var(--secondary-text-color); font-size: 12px; border-top: 1px solid var(--divider-color); }
       .map-unavailable { padding: 0; }
       .map-placeholder { min-height: 230px; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; color: var(--secondary-text-color); }
@@ -5177,7 +5330,9 @@ class RoadplannerPanel extends HTMLElement {
       .route-flow-card { overflow-x: auto; }
       .route-flow { display: flex; align-items: stretch; min-width: max-content; padding: 18px 8px 8px; }
       .flow-item { width: 180px; position: relative; display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: start; }
-      .flow-node { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-color); color: white; position: relative; z-index: 2; }
+      .flow-node { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-color); color: white; position: relative; z-index: 2; font-weight: 800; }
+      .flow-item.inherited .flow-node { background: var(--secondary-text-color); }
+      .flow-item.legacy { opacity: .72; }
       .flow-copy { display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
       .flow-copy strong { max-width: 120px; }
       .flow-copy span { color: var(--secondary-text-color); font-size: 12px; }
@@ -5609,7 +5764,7 @@ class RoadplannerPanel extends HTMLElement {
       .onedrive-setup-form code { font-family: var(--code-font-family, monospace); }
       .setup-steps { margin: 8px 0 14px; padding-left: 22px; display: grid; gap: 7px; color: var(--secondary-text-color); line-height: 1.45; }
       .inline-link-button { display: inline-flex; width: fit-content; text-decoration: none; }
-      .media-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      .media-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
       .media-stat { display: flex; gap: 13px; align-items: center; min-height: 90px; }
       .media-stat > ha-icon { --mdc-icon-size: 32px; color: var(--primary-color); }
       .media-stat strong, .media-stat span { display: block; }
@@ -5701,6 +5856,8 @@ class RoadplannerPanel extends HTMLElement {
         .hero-card.with-image { grid-template-columns: 1fr; }
         .hero-image { max-height: 340px; }
         .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .overview-technical > summary { align-items: flex-start; flex-direction: column; }
         .route-layout { grid-template-columns: 1fr; }
         .day-facts { position: static; }
         .trip-select { min-width: 0; width: min(42vw, 280px); }
@@ -5758,7 +5915,13 @@ class RoadplannerPanel extends HTMLElement {
         .topbar-actions .icon-button[data-action="refresh"] { display: none; }
         .trip-select ha-icon { display: none; }
         .topbar-actions { gap: 2px; }
+        .navigation-shell { grid-template-columns: 1fr; }
         .tabs { padding: 0 4px; }
+        .primary-tabs .tab { min-width: 82px; padding: 0 8px; font-size: 12px; flex-direction: column; gap: 3px; }
+        .primary-tabs .tab ha-icon { --mdc-icon-size: 20px; }
+        .tool-tabs { position: static; margin: 0 8px 6px; justify-self: stretch; }
+        .tool-tabs > summary { width: 100%; justify-content: center; min-height: 38px; }
+        .tool-tab-grid { position: static; width: 100%; margin-top: 6px; grid-template-columns: 1fr; box-shadow: none; }
         .tab { padding: 0 12px; min-height: 50px; }
         .tab span:not(.count-badge) { font-size: 12px; }
         .content { padding: 14px 10px max(24px, calc(14px + env(safe-area-inset-bottom))); }
@@ -5767,6 +5930,9 @@ class RoadplannerPanel extends HTMLElement {
         .day-toolbar .day-select { min-width: 0; }
         .hero-copy { padding: 22px 18px; }
         .hero-copy h2 { font-size: 31px; }
+        .day-cover-hero { grid-template-columns: 1fr; }
+        .day-cover-image, .day-cover-image .destination-image { min-height: 210px; }
+        .day-cover-copy { padding: 18px 16px; }
         .stat-grid { gap: 9px; }
         .stat-card { min-height: 105px; padding: 14px; border-radius: 16px; }
         .stat-card strong { font-size: 21px; }

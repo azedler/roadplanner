@@ -2,8 +2,8 @@
 
 ## Current baseline
 
-- Latest public feature release: **Roadplanner 2.8.0**
-- Active major development: **Roadplanner 3.0**
+- Latest public feature release: **Roadplanner 3.0.0**
+- Active major development: **Roadplanner 3.x**
 - Technical domain: `roadplanner_mcp`
 
 ## Roadplanner 3.0 — Product foundation
@@ -24,14 +24,14 @@
 - [x] Canonical stop ordering shared by map, timeline, routing, navigation, decisions, archives, imports, and assistant context.
 - [x] Deterministic legacy fallback with explicit positions remaining authoritative.
 - [x] Overnight continuity without duplicate canonical stops in derived views.
-- Day timeline built exclusively from effective ordered route elements.
-- Legacy day `start`/`end` fields no longer create conflicting route elements.
+- [x] Day timeline built exclusively from effective ordered route elements.
+- [x] Legacy day `start`/`end` fields no longer create conflicting route elements.
 
 ### Planning metrics and overview
 
 - Rough full-trip distance from confirmed planning anchors before detailed stops exist.
 - Separate estimated planning distance from calculated driving distance.
-- Phase-aware overview for planning, preparation, travel, and memory.
+- [x] Phase-aware overview for planning, preparation, travel, and memory.
 - Planning completeness, open decisions, due tasks, document readiness, and route coverage.
 
 ### Expenses and EUR reference values
@@ -58,11 +58,11 @@
 
 #### Local analysis by default
 
-- file and perceptual-hash deduplication,
-- burst grouping,
+- [x] exact/file-hash and metadata duplicate collapse,
+- [x] local burst grouping and representative selection,
 - blur, exposure, and resolution scoring,
-- time/GPS consistency,
-- best representative per duplicate group.
+- [x] time/GPS assignment confidence in local ranking,
+- [x] best representative per exact duplicate group.
 
 #### Optional AI curation
 

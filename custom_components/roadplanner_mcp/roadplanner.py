@@ -27,6 +27,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 import uuid
 
+from .canonical_day import canonical_day_model
 from .stop_ordering import canonical_order_stops, reindex_explicit_positions
 
 POINTER_SCHEMA_VERSION = 1
@@ -1073,56 +1074,26 @@ def _routing_leg_mode(source: Any, target: Any) -> tuple[str, str | None]:
     return "driving", None
 
 
-def _same_stop_place(first: Any, second: Any) -> bool:
-    if not isinstance(first, dict) or not isinstance(second, dict):
-        return False
-    if first.get("id") and first.get("id") == second.get("id"):
-        return True
-    first_coordinate = _stop_coordinate(first)
-    second_coordinate = _stop_coordinate(second)
-    if first_coordinate and second_coordinate:
-        return (
-            abs(first_coordinate[0] - second_coordinate[0]) < 0.00005
-            and abs(first_coordinate[1] - second_coordinate[1]) < 0.00005
-        )
-    first_name = str(first.get("name") or "").strip().casefold()
-    second_name = str(second.get("name") or "").strip().casefold()
-    return bool(first_name and first_name == second_name)
-
-
 def _effective_routing_stops(
     ordered: list[dict[str, Any]],
     index: int,
 ) -> list[dict[str, Any]]:
-    """Return route stop wrappers including an inherited prior overnight stop."""
-    document = ordered[index]
-    day_id = document["day"]["id"]
-    result = [
-        {
-            "stop": stop,
-            "inherited": False,
-            "source_day_id": day_id,
-        }
-        for stop in canonical_order_stops(document["stops"])
+    """Return route wrappers from the shared canonical day model."""
+    day_views = [
+        {**deepcopy(document["day"]), "stops": deepcopy(document["stops"])}
+        for document in ordered
     ]
-    if index <= 0:
-        return result
-    previous = ordered[index - 1]
-    previous_stops = canonical_order_stops(previous["stops"])
-    overnight = previous_stops[-1] if previous_stops else None
-    if not _is_overnight_stop(overnight):
-        return result
-    if result and _same_stop_place(overnight, result[0]["stop"]):
-        return result
+    model = canonical_day_model(day_views, index)
+    current_day_id = str(ordered[index]["day"]["id"])
     return [
         {
-            "stop": overnight,
-            "inherited": True,
-            "source_day_id": previous["day"]["id"],
-        },
-        *result,
+            "stop": stop,
+            "inherited": bool(stop.get("_inherited")),
+            "source_day_id": str(stop.get("_source_day_id") or current_day_id),
+        }
+        for stop in model.get("route_nodes", [])
+        if isinstance(stop, dict)
     ]
-
 
 def _routing_summary(document: dict[str, Any]) -> dict[str, Any] | None:
     details = document["day"].get("details")

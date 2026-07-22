@@ -42,6 +42,8 @@ REQUIRED_DEVELOPMENT_DOCS = {
     "docs/README.md",
     "docs/architecture/README.md",
     "docs/legacy/README.md",
+    "docs/product/README.md",
+    "docs/product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md",
     "docs/development/README.md",
     "docs/development/REPOSITORY_STRUCTURE.md",
     "docs/development/DEVELOPMENT_WORKFLOW.md",

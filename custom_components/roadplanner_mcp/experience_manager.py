@@ -23,12 +23,14 @@ from homeassistant.util import dt as dt_util
 
 from .assistant_provider import AssistantProvider
 from .const import EVENT_ROADPLANNER_UPDATED
+from .canonical_day import canonical_roadbook_stops
 from .decision_logic import (
     DecisionBaselineError,
     compact_decision_days,
     ensure_current_plan_option,
 )
 from .destination_images import DestinationImageProvider
+from .media_intelligence import build_media_presentation
 from .experience_store import (
     ExperienceStore,
     new_id,
@@ -40,7 +42,6 @@ from .manager import RoadplannerManager
 from .onedrive_media import OneDrivePersonalClient, normalize_onedrive_folder_path
 from .roadplanner import RoadplannerError, ValidationError
 from .routing import OSRMRoutingClient, route_input_hash
-from .stop_ordering import canonical_order_stops
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -210,8 +211,7 @@ def _day_date(day: dict[str, Any]) -> date | None:
 
 
 def _stops(day: dict[str, Any]) -> list[dict[str, Any]]:
-    value = day.get("stops")
-    return canonical_order_stops(value if isinstance(value, list) else [])
+    return canonical_roadbook_stops(day)
 
 
 def _all_days(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -377,6 +377,7 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
         normalized_location = {"latitude": float(lat), "longitude": float(lon)}
     hashes = file_data.get("hashes") if isinstance(file_data.get("hashes"), dict) else {}
+    image_data = item.get("image") if isinstance(item.get("image"), dict) else {}
     return {
         "provider_item_id": str(item.get("id") or ""),
         "drive_id": str((item.get("parentReference") or {}).get("driveId") or "") if isinstance(item.get("parentReference"), dict) else None,
@@ -394,6 +395,8 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
         "web_url": item.get("webUrl"),
         "location": normalized_location,
         "file_hash": hashes.get("quickXorHash") or hashes.get("sha1Hash") or hashes.get("sha256Hash"),
+        "width": image_data.get("width"),
+        "height": image_data.get("height"),
         "thumbnail_available": True,
         "last_seen_at": utc_now_iso(),
     }
@@ -643,7 +646,7 @@ class RoadplannerExperienceManager:
             return await self.onedrive.async_thumbnail_url(str(media["provider_item_id"]), "large")
         return await self.onedrive.async_download_url(str(media["provider_item_id"]))
 
-    async def async_panel_payload(self, trip_id: str) -> dict[str, Any]:
+    async def async_panel_payload(self, trip_id: str, *, days: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not trip_id:
             return {"decisions": [], "media": [], "destination_galleries": {}, "stats": {}, "by_day": {}, "by_stop": {}, "onedrive": self.onedrive.status()}
         state = await self.hass.async_add_executor_job(self.store.load, trip_id)
@@ -662,10 +665,35 @@ class RoadplannerExperienceManager:
                 by_stop.setdefault(str(item["linked_stop_id"]), []).append(media_id)
         decisions = resolve_decision_media_references(state["decisions"], media)
         destination_galleries = deepcopy(state.get("destination_galleries") or {})
+        presentation = build_media_presentation(media)
+        if days is None:
+            try:
+                payload = await self.manager.async_get_assistant_payload(trip_id)
+                days = list(payload.get("days", {}).get("days", []) or [])
+            except RoadplannerError:
+                days = []
+        planning_day_covers: dict[str, dict[str, Any]] = {}
+        for day in days or []:
+            day_id = str(day.get("id") or "")
+            if not day_id or day_id in presentation.get("day_covers", {}):
+                continue
+            for stop in _stops(day):
+                gallery = destination_galleries.get(str(stop.get("id") or ""))
+                if not isinstance(gallery, dict):
+                    continue
+                images = list(gallery.get("images") or [])
+                if not images:
+                    continue
+                primary_id = str(gallery.get("primary_image_id") or "")
+                primary = next((item for item in images if str(item.get("id") or "") == primary_id), images[0])
+                planning_day_covers[day_id] = deepcopy(primary)
+                break
+        presentation["planning_day_covers"] = planning_day_covers
         return {
             "decisions": decisions,
             "media": media,
             "destination_galleries": destination_galleries,
+            "presentation": presentation,
             "by_day": by_day,
             "by_stop": by_stop,
             "stats": {
@@ -682,6 +710,18 @@ class RoadplannerExperienceManager:
                 "destination_gallery_error_count": sum(
                     1 for item in destination_galleries.values()
                     if isinstance(item, dict) and item.get("status") == "error"
+                ),
+                "media_duplicate_count": int(
+                    presentation.get("curation", {}).get("duplicate_count", 0)
+                ),
+                "media_burst_suppressed_count": int(
+                    presentation.get("curation", {}).get("burst_suppressed_count", 0)
+                ),
+                "featured_stop_count": int(
+                    presentation.get("curation", {}).get("featured_stop_count", 0)
+                ),
+                "featured_day_count": int(
+                    presentation.get("curation", {}).get("featured_day_count", 0)
                 ),
             },
             "onedrive": {
@@ -1685,9 +1725,15 @@ class RoadplannerExperienceManager:
             stop_id = str(option.get("existing_stop_id") or "")
             if not stop_id:
                 continue
+            featured_ids = experience_payload.get("presentation", {}).get("stop_highlights", {}).get(stop_id)
+            media_ids = (
+                featured_ids
+                if isinstance(featured_ids, list) and featured_ids
+                else experience_payload.get("by_stop", {}).get(stop_id, [])
+            )
             own_media = [
                 media_by_id[media_id]
-                for media_id in experience_payload.get("by_stop", {}).get(stop_id, [])
+                for media_id in media_ids
                 if media_id in media_by_id
             ][:3]
             if own_media:

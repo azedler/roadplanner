@@ -2,6 +2,11 @@
 
 This directory contains the canonical project documentation. Root-level files remain short entry points for GitHub visitors; detailed contracts and procedures live here.
 
+## Product
+
+- [Product documentation index](product/README.md)
+- [Roadplanner 3.0 Vision & UX Blueprint](product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md)
+
 ## Architecture
 
 - [Architecture overview](../ARCHITECTURE.md)

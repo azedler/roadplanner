@@ -6,12 +6,12 @@ Roadplanner 3.0 is migrating historical release checks into stable repository te
 
 - repository and packaging contracts,
 - Roadbook and ChangeSet contracts,
-- canonical stop ordering and overnight continuity,
+- canonical stop and canonical day ordering with overnight continuity,
 - assistant and change basket,
 - routing and ferry segments,
 - documents, expenses, and todos,
 - decisions,
-- OneDrive/media assignment,
+- OneDrive/media assignment, deterministic duplicate reduction and highlight selection,
 - universal import,
 - migrations,
 - mobile panel smoke tests.
@@ -32,10 +32,11 @@ Repository validation:
 python tools/validate_repository.py
 ```
 
-Python unit tests as coverage is added:
+Current dependency-light contract tests:
 
 ```bash
-python -m unittest discover -s tests -p 'test_*.py'
+for test in tests/*.py; do python "$test"; done
+for test in tests/*.mjs; do node "$test"; done
 ```
 
 See [Test strategy](../docs/development/TEST_STRATEGY.md).

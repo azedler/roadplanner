@@ -12,7 +12,7 @@ package = types.ModuleType(PACKAGE_NAME)
 package.__path__ = [str(PACKAGE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
-for name in ("stop_ordering",):
+for name in ("stop_ordering", "canonical_day"):
     spec = spec_from_file_location(f"{PACKAGE_NAME}.{name}", PACKAGE_ROOT / f"{name}.py")
     assert spec and spec.loader
     loaded = module_from_spec(spec)
