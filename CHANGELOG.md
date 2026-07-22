@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-07-22
+
 ### Added
 
 - Trip-wide travel-integrity report with scores for stop order, GPS completeness, routes and visual readiness.
