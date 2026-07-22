@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Assistant operation payloads now normalize lossless structured-output variants before strict Roadbook validation.
+- The compile prompt explicitly requires `changes` to be one JSON object and `{}` for move/remove operations.
+
+### Fixed
+
+- `assistant_prepare` no longer fails when Gemini returns `changes` as a one-item object list, a list of disjoint field fragments, field/value records, simple JSON-Patch records, or a JSON-encoded object.
+- Move operations with omitted, empty, or explanatory `changes` values are normalized to an empty object instead of raising `changes muss ein JSON-Objekt sein`.
+- Conflicting change fragments and accidentally nested multiple operations remain rejected instead of being guessed or merged.
+
 ## [3.2.0] - 2026-07-22
 
 ### Added
