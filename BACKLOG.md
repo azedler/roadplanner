@@ -16,23 +16,25 @@
 - Multi-image decision slides and OneDrive-photo preference.
 - Structured Gemini output normalization and bounded repair.
 
+
+## Completed in Roadplanner 3.0.0
+
+- RP-401: Canonical Day Model shared by all travel-day consumers.
+- RP-402: Visual planning day covers and automatic planning-image presentation.
+- RP-403: Personal-memory prioritization with local duplicate and burst reduction.
+- RP-404: Phase-oriented navigation, dashboard and Roadplanner 3.0 mobile UX foundation.
+
 ## Next — correctness
-
-### RP-304: Derived day route consistency
-
-- Build the schematic day flow from effective ordered route elements only.
-- Remove legacy start/end duplication from derived views.
-- Share route elements between panel, routing, and exports.
 
 ## Next — planning UX
 
-### RP-305: Phase-aware overview and planning distance
+### RP-405: Planning distance and readiness refinement
 
 - Estimated full-trip distance before detailed GPS stops exist.
 - Separate estimated and calculated distance.
 - Planning completeness, open decisions, due tasks, and document readiness.
 
-### RP-306: Assistant conversation compaction
+### RP-406: Assistant conversation compaction
 
 - Summarize old text context.
 - Prune obsolete attachments and image context.
@@ -40,7 +42,7 @@
 
 ## Next — expenses
 
-### RP-307: EUR reference conversion
+### RP-407: EUR reference conversion
 
 - Preserve original amount and currency.
 - Store EUR reference amount with rate source, date, and policy.
@@ -48,14 +50,13 @@
 
 ## Next — Media Intelligence
 
-### RP-308: Local media deduplication and quality selection
+### RP-408: Perceptual media quality refinement
 
-- File/perceptual-hash duplicate groups.
-- Burst grouping.
-- Technical quality scoring.
-- Representative image and manual override.
+- Add perceptual hashes for visually identical files with different metadata.
+- Add blur and exposure measurements from image bytes.
+- Preserve manual cover and assignment overrides.
 
-### RP-309: Optional AI highlight curation
+### RP-409: Optional AI highlight curation
 
 - Analyze only locally reduced candidates.
 - Top images per stop/day.
@@ -64,7 +65,7 @@
 ## Later — architecture and delivery
 
 - Public-source and third-party license audit.
-- First stable GitHub release and HACS installation test.
+- Automated, explicitly approved GitHub release pipeline.
 - Provider interfaces v1.
 - Roadbook schema v1 and migration harness.
 - Incremental separation of domain, Home Assistant adapter, and UI.

@@ -147,3 +147,14 @@ Providers may supply context or enrich a validated proposal. They may not apply 
 7. Introduce Media Intelligence with local deduplication and optional AI highlight selection.
 8. Keep HACS-compatible repository structure.
 9. Prepare gradual extraction of Roadplanner Core without a big-bang rewrite.
+
+## 9. Roadplanner 3.0 experience services
+
+Roadplanner 3.0 introduces shared derived services instead of duplicating business logic in panel cards:
+
+- `CanonicalDayService` supplies one day model to maps, route flow, navigation, decisions and assistant context.
+- `MediaSelectionService` performs deterministic local deduplication, burst suppression and highlight selection.
+- `ImageProviderService` keeps planning images separate from personal travel photos.
+- panel view-models prefer personal travel media after a visit and fall back to attributed planning images before it.
+
+The product target is documented in [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md).

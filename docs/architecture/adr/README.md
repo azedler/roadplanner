@@ -32,3 +32,5 @@ ADR-NNN-short-kebab-case-title.md
 | [ADR-004](ADR-004-canonical-stop-ordering.md) | Canonical stop ordering | Accepted |
 | [ADR-005](ADR-005-derived-views-use-domain-services.md) | Derived views use shared domain services | Accepted |
 | [ADR-006](ADR-006-money-preserves-original-currency.md) | Money preserves original currency and adds EUR reference values | Accepted; implementation pending |
+| [ADR-007](ADR-007-planning-and-travel-image-precedence.md) | Planning and travel image precedence | Accepted |
+| [ADR-008](ADR-008-phase-oriented-primary-navigation.md) | Phase-oriented primary navigation | Accepted |

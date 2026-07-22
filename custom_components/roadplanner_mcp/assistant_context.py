@@ -17,7 +17,7 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .stop_ordering import canonical_order_stops
+from .canonical_day import canonical_roadbook_stops, decorate_canonical_days
 
 MAX_CONTEXT_CHARACTERS = 120_000
 MAX_INDEX_DAYS = 180
@@ -61,64 +61,30 @@ def _clean_text(value: Any, *, maximum: int = 4_000) -> str:
     return " ".join(str(value or "").split())[:maximum]
 
 
-def _coordinate(location: dict[str, Any], *names: str) -> float:
-    for name in names:
-        value = location.get(name)
-        if value is not None and value != "":
-            return float(value)
-    raise ValueError("coordinate missing")
-
-
-def same_place(first: dict[str, Any], second: dict[str, Any]) -> bool:
-    """Return whether two stop-like objects refer to the same place."""
-    if first.get("id") and first.get("id") == second.get("id"):
-        return True
-    first_name = _clean_text(first.get("name"), maximum=500).casefold()
-    second_name = _clean_text(second.get("name"), maximum=500).casefold()
-    if first_name and first_name == second_name:
-        return True
-    first_location = first.get("location") if isinstance(first.get("location"), dict) else {}
-    second_location = second.get("location") if isinstance(second.get("location"), dict) else {}
-    try:
-        first_lat = _coordinate(first_location, "latitude", "lat")
-        first_lon = _coordinate(first_location, "longitude", "lon", "lng")
-        second_lat = _coordinate(second_location, "latitude", "lat")
-        second_lon = _coordinate(second_location, "longitude", "lon", "lng")
-    except (TypeError, ValueError):
-        return False
-    return abs(first_lat - second_lat) < 0.00005 and abs(first_lon - second_lon) < 0.00005
-
-
 def with_overnight_continuity(days: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Annotate the logical start inherited from the prior overnight stop."""
+    """Return copies decorated by the shared canonical day service."""
     result = deepcopy(days)
-    previous: dict[str, Any] | None = None
+    payload = {"days": result}
+    decorate_canonical_days(payload)
     for day in result:
-        raw_stops = day.get("stops") if isinstance(day.get("stops"), list) else []
-        stops = canonical_order_stops(raw_stops)
-        day["stops"] = stops
-        inherited = None
-        if previous is not None:
-            previous_raw_stops = previous.get("stops") if isinstance(previous.get("stops"), list) else []
-            previous_stops = canonical_order_stops(previous_raw_stops)
-            if previous_stops:
-                last_stop = previous_stops[-1]
-                if str(last_stop.get("type") or "").casefold() in OVERNIGHT_STOP_TYPES:
-                    first_stop = stops[0] if stops else None
-                    if not isinstance(first_stop, dict) or not same_place(last_stop, first_stop):
-                        inherited = {
-                            "source_day_id": previous.get("id"),
-                            "source_stop_id": last_stop.get("id"),
-                            "name": last_stop.get("name"),
-                            "type": last_stop.get("type"),
-                            "location": deepcopy(last_stop.get("location") or {}),
-                            "departure_time": None,
-                            "read_only": True,
-                        }
-        day["inherited_start_stop"] = inherited
-        previous = day
+        canonical = day.get("canonical") if isinstance(day.get("canonical"), dict) else {}
+        route_nodes = canonical.get("route_nodes") if isinstance(canonical.get("route_nodes"), list) else []
+        inherited = route_nodes[0] if route_nodes and route_nodes[0].get("_inherited") else None
+        day["inherited_start_stop"] = (
+            {
+                "source_day_id": inherited.get("_source_day_id"),
+                "source_stop_id": inherited.get("id"),
+                "name": inherited.get("name"),
+                "type": inherited.get("type"),
+                "location": deepcopy(inherited.get("location") or {}),
+                "departure_time": inherited.get("departure_time"),
+                "read_only": True,
+            }
+            if inherited
+            else None
+        )
+        day["stops"] = canonical_roadbook_stops(day)
     return result
-
 
 def _parse_day_date(value: Any) -> date | None:
     text = str(value or "").strip()
@@ -185,7 +151,7 @@ def _trim_day(day: dict[str, Any], *, aggressive: bool = False) -> dict[str, Any
     value["notes"] = str(value.get("notes") or "")[: (1_000 if aggressive else 3_000)]
     value["details"] = _trim_details(value.get("details"), entity="day")
     stops: list[dict[str, Any]] = []
-    for raw_stop in canonical_order_stops(value.get("stops", [])):
+    for raw_stop in canonical_roadbook_stops(value):
         if not isinstance(raw_stop, dict):
             continue
         stop = deepcopy(raw_stop)
@@ -193,11 +159,12 @@ def _trim_day(day: dict[str, Any], *, aggressive: bool = False) -> dict[str, Any
         stop["details"] = _trim_details(stop.get("details"), entity="stop")
         stops.append(stop)
     value["stops"] = stops
+    value.pop("canonical", None)
     return value
 
 
 def _day_index(day: dict[str, Any]) -> dict[str, Any]:
-    stops = canonical_order_stops(day.get("stops", []))
+    stops = canonical_roadbook_stops(day)
     overnight = None
     if stops and str(stops[-1].get("type") or "").casefold() in OVERNIGHT_STOP_TYPES:
         overnight = {
@@ -236,7 +203,7 @@ def _id_catalog(days: list[dict[str, Any]], trip: dict[str, Any]) -> dict[str, A
         day_ids.append(day_id)
         stop_ids[day_id] = [
             str(stop.get("id"))
-            for stop in canonical_order_stops(day.get("stops", []))
+            for stop in canonical_roadbook_stops(day)
             if stop.get("id")
         ]
         day_details = day.get("details") if isinstance(day.get("details"), dict) else {}
@@ -304,7 +271,7 @@ class AssistantContextBuilder:
             day_date = str(day.get("date") or "")
             stop_ids = {
                 str(stop.get("id"))
-                for stop in canonical_order_stops(day.get("stops", []))
+                for stop in canonical_roadbook_stops(day)
                 if stop.get("id")
             }
             for item in basket:
@@ -336,7 +303,7 @@ class AssistantContextBuilder:
             ]
             candidates.extend(
                 stop.get("name")
-                for stop in canonical_order_stops(day.get("stops", []))
+                for stop in canonical_roadbook_stops(day)
             )
             for candidate in candidates:
                 label = " ".join(str(candidate or "").casefold().split())

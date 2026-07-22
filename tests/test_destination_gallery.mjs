@@ -38,7 +38,7 @@ panel._data = {
 const gallery = panel._destinationGalleryForStop("stop-1");
 assert.equal(panel._destinationGalleryPrimary(gallery).id, "img-2");
 const preview = panel._renderDestinationGalleryPreview(gallery, { dayId: "day-1", stopId: "stop-1", compact: true });
-assert.match(preview, /3 Bilder/);
+assert.match(preview, /Planungsbilder · 3/);
 assert.match(preview, /2-thumb\.jpg/);
 assert.match(preview, /destination-gallery-thumbs/);
 

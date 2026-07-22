@@ -10,6 +10,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .canonical_day import decorate_canonical_days
 from .handoff import HandoffStore
 from .navigation import decorate_panel_navigation
 from .roadplanner import (
@@ -226,6 +227,7 @@ class RoadplannerManager:
                 limit=60,
                 include_stops=True,
             )
+            decorate_canonical_days(days, today=dt_util.now().date())
             decorate_panel_navigation(days)
             if summary["revision"] == days["revision"]:
                 all_handoffs = self.handoff_store.list_pending(limit=100)
@@ -302,6 +304,8 @@ class RoadplannerManager:
                     "days": combined_days[:180],
                     "has_more": has_more or total > len(combined_days[:180]),
                 }
+                decorate_canonical_days(days, today=dt_util.now().date())
+                decorate_panel_navigation(days)
                 return {
                     "summary": summary,
                     "days": days,

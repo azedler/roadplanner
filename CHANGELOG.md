@@ -4,26 +4,32 @@ All notable changes to Roadplanner will be documented here.
 
 The project follows Semantic Versioning for public releases.
 
-## [Unreleased] — Roadplanner 3.0
+## [Unreleased]
+
+## [3.0.0] - 2026-07-22
+
+### Added
+
+- Canonical day view-model shared by maps, stop cards, schematic day flow, navigation, decisions and assistant context.
+- Phase-oriented Roadplanner navigation: Reise, Heute, Erinnerungen and Reisebegleiter.
+- Roadplanner 3.0 dashboard with planning progress, open decisions, urgent tasks, visual readiness and the next travel day.
+- Deterministic local media curation with duplicate collapse, burst suppression and per-stop/per-day highlights.
+- Automatic day covers that prefer personal OneDrive travel photos and fall back to attributed planning images.
+- Roadplanner 3.0 Vision & UX Blueprint as the product contract for subsequent work.
 
 ### Changed
 
-- Added the Roadplanner repository governance and development handbook.
-- Added a single documented specification/patch/validation/merge workflow.
-- Added Definition of Done, test strategy, repository structure, commit conventions, release checklist, and publication checklist.
-- Strengthened repository validation and release packaging contracts.
-- Added a standard pull-request template.
-- Licensed Roadplanner under Apache-2.0.
-- Added the AI-to-Git patch workflow for iPad and Codespaces.
-- Removed the requirement for a repository-specific devcontainer during the initial 3.0 phase.
+- Inherited overnight stops are displayed as a shared start marker without renumbering Roadbook-owned stops.
+- Legacy `day.start` and `day.end` values remain contextual metadata but no longer appear as pseudo-stops when real stops exist.
+- Decision cards prefer locally curated personal travel-photo highlights before external planning images.
+- Stop cards show a curated highlight strip while the full OneDrive album remains accessible.
+- Technical tools move into a secondary menu so the primary navigation follows the travel lifecycle.
 
-### Planned
+### Fixed
 
-- GitHub and HACS delivery foundation.
-- Planning-distance estimates and phase-aware overview.
-- Media Intelligence with local deduplication and optional AI highlights.
-- Long-conversation compaction and attachment pruning.
-- Provider and Roadbook architecture contracts.
+- Map markers, route flow, stop cards, Google Maps handoff and assistant context no longer use divergent day sequences.
+- Legacy targets such as a stale `Riga` day-end label no longer appear in the graphical route unless a real Roadbook stop exists.
+- Personal-photo duplicates and short bursts no longer dominate stop and day covers.
 
 ## [2.8.0] - 2026-07-21
 

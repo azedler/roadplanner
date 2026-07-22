@@ -2,23 +2,14 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 from urllib.parse import urlencode
 
+from .canonical_day import canonical_day_model, canonical_day_stops
 from .routing import coordinate_from_location
-from .stop_ordering import canonical_order_stops
 
 _GOOGLE_MAPS_SEARCH = "https://www.google.com/maps/search/"
 _GOOGLE_MAPS_DIRECTIONS = "https://www.google.com/maps/dir/"
-_OVERNIGHT_TYPES = {
-    "overnight",
-    "campsite",
-    "camping",
-    "stellplatz",
-    "wildcamp",
-    "accommodation",
-}
 _MAX_MOBILE_WAYPOINTS = 3
 
 
@@ -26,42 +17,10 @@ def _coordinate_text(latitude: float, longitude: float) -> str:
     return f"{latitude:.7f},{longitude:.7f}"
 
 
-def _is_overnight(stop: Any) -> bool:
-    return isinstance(stop, dict) and str(stop.get("type") or "").casefold() in _OVERNIGHT_TYPES
-
-
-def _same_place(first: Any, second: Any) -> bool:
-    if not isinstance(first, dict) or not isinstance(second, dict):
-        return False
-    if first.get("id") and first.get("id") == second.get("id"):
-        return True
-    first_coordinate = coordinate_from_location(first.get("location"))
-    second_coordinate = coordinate_from_location(second.get("location"))
-    if first_coordinate and second_coordinate:
-        return (
-            abs(first_coordinate[0] - second_coordinate[0]) < 0.00005
-            and abs(first_coordinate[1] - second_coordinate[1]) < 0.00005
-        )
-    first_name = str(first.get("name") or "").casefold().strip()
-    second_name = str(second.get("name") or "").casefold().strip()
-    return bool(first_name and first_name == second_name)
-
-
 def effective_day_stops(days: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
-    """Return canonical stops plus the prior overnight start when applicable."""
-    canonical = canonical_order_stops(days[index].get("stops") or [])
-    if index <= 0:
-        return canonical
-    previous = canonical_order_stops(days[index - 1].get("stops") or [])
-    overnight = previous[-1] if previous else None
-    if not _is_overnight(overnight):
-        return canonical
-    if canonical and _same_place(overnight, canonical[0]):
-        return canonical
-    inherited = deepcopy(overnight)
-    inherited["_inherited"] = True
-    inherited["_source_day_id"] = days[index - 1].get("id")
-    return [inherited, *canonical]
+    """Return the canonical shared stop sequence for one day."""
+    model = canonical_day_model(days, index)
+    return [stop for stop in model.get("route_nodes", []) if isinstance(stop, dict)]
 
 
 def google_maps_search_url(stop: dict[str, Any]) -> str | None:
@@ -161,7 +120,7 @@ def decorate_panel_navigation(days_payload: dict[str, Any]) -> None:
     if not isinstance(days, list):
         return
     for day in days:
-        for stop in canonical_order_stops(day.get("stops") or []):
+        for stop in canonical_day_stops(day):
             if isinstance(stop, dict):
                 decorate_stop_navigation(stop)
     for index, day in enumerate(days):
