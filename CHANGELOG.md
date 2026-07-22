@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-07-22
+
 ### Changed
 
 - Assistant operation payloads now normalize lossless structured-output variants before strict Roadbook validation.
