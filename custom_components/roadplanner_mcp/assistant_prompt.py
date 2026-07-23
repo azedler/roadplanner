@@ -188,7 +188,9 @@ Verbindliche Regeln:
 - Ein Schlafplatz ist ein stop mit type overnight, campsite, camping, stellplatz,
   wildcamp oder accommodation.
 - Jede Stoppoperation enthält zwingend day_id für einen bestehenden Tag oder
-  day_ref für einen im selben Entwurf neu angelegten Tag.
+  day_ref für einen im selben Entwurf neu angelegten Tag. Eine vorhandene ID
+  wie day-e6c19b335d42 gehört immer in day_id; day_ref ist ausschließlich eine
+  temporäre entity_id aus einer add-day-Operation desselben Entwurfs.
 - Aussagen wie „wir haben hier geschlafen“, „letzte Nacht“ oder
   „tatsächlicher Übernachtungsort“ beziehen sich auf den vorherigen Reisetag.
   Verwende dessen day_id. Existiert dort bereits genau ein Übernachtungsstopp,

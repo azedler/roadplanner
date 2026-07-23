@@ -6,6 +6,25 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Structured address parsing and controlled multi-variant Nominatim searches with explicit house, street, locality and mismatch quality levels.
+- Reviewable weak place candidates instead of an immediate dead end when only a street, locality or partial address can be resolved.
+- Optional AI place-text cleanup that can normalize names and address fields without receiving, producing or verifying coordinates.
+- Manual WGS84 place confirmation with explicit non-provider-verified provenance and separate confirmation for AI-suggested stop renames.
+- Safe local `tools/dev.py` commands for repository status, full checks, reviewed patch application and binary-safe staged patch export.
+
+### Changed
+
+- Place completion now separates text normalization, provider geocoding and user confirmation so AI suggestions can never silently become map coordinates.
+- Place-review dialogs expose match quality, search provenance, manual fallback and optional AI cleanup while preserving the existing ChangeSet review boundary.
+- Technical `assistant_prepare` diagnostics remain available, while the visible dialog explains day-assignment failures in user-facing language.
+
+### Fixed
+
+- Existing Roadbook day IDs returned by the assistant in `day_ref`, including `day-e6c19b335d42`, are losslessly normalized to `day_id`; true new-day references remain strict.
+- Place completion no longer requires an exact provider result before showing useful review candidates or allowing an intentional manual map point.
+
 ## [3.4.0] - 2026-07-23
 
 ### Added

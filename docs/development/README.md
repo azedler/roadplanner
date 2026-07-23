@@ -17,6 +17,7 @@ Roadplanner uses a specification-first, patch-based workflow designed to work fr
 - [Branching](BRANCHING.md)
 - [Commit conventions](COMMIT_CONVENTIONS.md)
 - [Testing](TEST_STRATEGY.md)
+- [Automated patch workflow](PATCH_WORKFLOW.md#safe-local-helper)
 - [Release process](RELEASE_PROCESS.md)
 - [Release automation](RELEASE_AUTOMATION.md)
 - [Release checklist](RELEASE_CHECKLIST.md)

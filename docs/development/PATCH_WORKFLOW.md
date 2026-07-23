@@ -13,7 +13,28 @@ A task delivery includes:
 - migration and changelog notes when relevant
 - the exact base commit or branch state used to generate the patch
 
-The patch contains one logical task only.
+The patch contains one logical task only. A consolidated release candidate may contain several tightly coupled fixes only when they are validated and delivered as one atomic package.
+
+## Safe local helper
+
+Roadplanner includes a repository-local helper that automates the repeatable parts without writing to GitHub:
+
+```bash
+python tools/dev.py status
+python tools/dev.py check
+python tools/dev.py apply ../RP-XXX-delivery/RP-XXX.patch
+```
+
+`apply` requires a clean worktree, runs `git apply --check --whitespace=error-all`, applies the patch and then runs the canonical release check. The patch should live outside the repository so it does not make the worktree dirty.
+
+To export reviewed staged changes without committing them:
+
+```bash
+git add -A
+python tools/dev.py export ../RP-XXX.patch
+```
+
+The helper never commits, pushes, merges, tags, opens pull requests or changes remotes. Branch creation and every GitHub write remain deliberate user actions.
 
 ## Preferred upload path
 
@@ -36,26 +57,20 @@ git rev-parse --short HEAD
 
 The working tree must be clean.
 
-Check the patch:
+Apply and validate with the helper when the patch is outside the repository:
 
 ```bash
-git apply --check RP-XXX.patch
+python tools/dev.py apply ../RP-XXX-delivery/RP-XXX.patch
 ```
 
-Apply and remove the temporary file:
+The equivalent manual sequence remains supported:
 
 ```bash
-git apply RP-XXX.patch
-rm RP-XXX.patch
-```
-
-Review and validate:
-
-```bash
+git apply --check --whitespace=error-all RP-XXX.patch
+git apply --whitespace=error-all RP-XXX.patch
 git diff --stat
 git diff --check
-python tools/validate_repository.py
-git status --short
+python tools/release.py check
 ```
 
 Commit only the intended repository changes:

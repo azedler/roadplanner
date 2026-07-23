@@ -20,7 +20,7 @@ This directory contains the canonical project documentation. Root-level files re
 - [Development index](development/README.md)
 - [Repository structure](development/REPOSITORY_STRUCTURE.md)
 - [Development workflow](development/DEVELOPMENT_WORKFLOW.md)
-- [Patch workflow](development/PATCH_WORKFLOW.md)
+- [Patch workflow and local automation](development/PATCH_WORKFLOW.md)
 - [Branching model](development/BRANCHING.md)
 - [Commit conventions](development/COMMIT_CONVENTIONS.md)
 - [Definition of Done](development/DEFINITION_OF_DONE.md)

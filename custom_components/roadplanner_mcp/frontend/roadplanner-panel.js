@@ -554,13 +554,19 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
-  async _preparePlaceEnrichment({ dayId = "", stopId = "" } = {}) {
-    const retry = () => this._preparePlaceEnrichment({ dayId, stopId });
+  async _preparePlaceEnrichment({ dayId = "", stopId = "", useAiCleanup = false } = {}) {
+    const scope = {
+      dayId: cleanText(dayId),
+      stopId: cleanText(stopId),
+      useAiCleanup: Boolean(useAiCleanup),
+    };
+    const retry = () => this._preparePlaceEnrichment(scope);
     const result = await this._runAction("prepare_place_enrichment", {
       trip_id: this._selectedTripId,
-      day_id: cleanText(dayId),
-      stop_id: cleanText(stopId),
-      limit: stopId ? 1 : (dayId ? 12 : 20),
+      day_id: scope.dayId,
+      stop_id: scope.stopId,
+      limit: scope.stopId ? 1 : (scope.dayId ? 12 : 20),
+      use_ai_cleanup: scope.useAiCleanup,
     }, "", {
       refresh: false,
       errorMode: "dialog",
@@ -582,6 +588,9 @@ class RoadplannerPanel extends HTMLElement {
       type: "place-enrichment",
       preview,
       selections,
+      manualEntries: {},
+      cleanupConfirmations: {},
+      scope,
     };
     this._render({ preserveScroll: true });
     return result;
@@ -596,6 +605,8 @@ class RoadplannerPanel extends HTMLElement {
       trip_id: this._selectedTripId,
       preview_id: dialog.preview?.id,
       selections,
+      manual_entries: dialog.manualEntries || {},
+      cleanup_confirmations: dialog.cleanupConfirmations || {},
     }, "", {
       refresh: false,
       errorMode: "dialog",
@@ -714,14 +725,21 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _showActionError(message, { title = "Roadplanner-Aktion fehlgeschlagen", action = "", retry = null } = {}) {
-    const text = cleanText(message) || "Unbekannter Roadplanner-Fehler";
+    const technicalMessage = cleanText(this._errorMessage(message)) || "Unbekannter Roadplanner-Fehler";
+    const normalizedAction = cleanText(action);
+    const referenceFailure = normalizedAction === "assistant_prepare"
+      && /(day_ref|day_id|Tages-ID|Tagesreferenz|Reisetag)/i.test(technicalMessage);
+    const visibleMessage = referenceFailure
+      ? "Die Zuordnung eines Reisetags war nicht eindeutig. Bitte versuche es erneut oder bearbeite den betreffenden Stopp."
+      : technicalMessage;
     this._actionErrorRetry = typeof retry === "function" ? retry : null;
     this._dialog = {
       type: "action-error",
       title: cleanText(title) || "Roadplanner-Aktion fehlgeschlagen",
-      message: text,
-      requestId: this._requestIdFromMessage(text),
-      action: cleanText(action),
+      message: visibleMessage,
+      technicalMessage,
+      requestId: this._requestIdFromMessage(technicalMessage),
+      action: normalizedAction,
     };
     this._render({ preserveScroll: true });
   }
@@ -731,7 +749,7 @@ class RoadplannerPanel extends HTMLElement {
     if (!dialog) return;
     const text = [
       dialog.title,
-      dialog.message,
+      dialog.technicalMessage || dialog.message,
       dialog.requestId ? `Anfrage: ${dialog.requestId}` : "",
       dialog.action ? `Aktion: ${dialog.action}` : "",
     ].filter(Boolean).join("\n");
@@ -1907,6 +1925,43 @@ class RoadplannerPanel extends HTMLElement {
       this._dialog.selections = {
         ...(this._dialog.selections || {}),
         [selectedStopId]: candidateId,
+      };
+      this._render({ preserveScroll: true });
+    } else if (action === "place-enrichment-ai-retry") {
+      if (this._dialog?.type !== "place-enrichment") return;
+      const scope = this._dialog.scope || {};
+      void this._preparePlaceEnrichment({
+        dayId: scope.dayId,
+        stopId: scope.stopId,
+        useAiCleanup: true,
+      });
+    } else if (action === "place-cleanup-toggle") {
+      if (this._dialog?.type !== "place-enrichment") return;
+      const selectedStopId = cleanText(target.dataset.stopId);
+      if (!selectedStopId) return;
+      const current = Boolean(this._dialog.cleanupConfirmations?.[selectedStopId]);
+      this._dialog.cleanupConfirmations = {
+        ...(this._dialog.cleanupConfirmations || {}),
+        [selectedStopId]: !current,
+      };
+      this._render({ preserveScroll: true });
+    } else if (action === "place-manual-select") {
+      if (this._dialog?.type !== "place-enrichment") return;
+      const form = target.closest("form[data-place-manual-form]");
+      const selectedStopId = cleanText(target.dataset.stopId || form?.dataset.stopId);
+      if (!form || !selectedStopId) return;
+      const values = Object.fromEntries(new FormData(form).entries());
+      if (!cleanText(values.latitude) || !cleanText(values.longitude)) {
+        this._showToast("Breiten- und Längengrad werden für den manuellen Kartenpunkt benötigt", "error", 5000);
+        return;
+      }
+      this._dialog.manualEntries = {
+        ...(this._dialog.manualEntries || {}),
+        [selectedStopId]: values,
+      };
+      this._dialog.selections = {
+        ...(this._dialog.selections || {}),
+        [selectedStopId]: "__manual__",
       };
       this._render({ preserveScroll: true });
     } else if (action === "place-enrichment-submit") {
@@ -4925,11 +4980,22 @@ class RoadplannerPanel extends HTMLElement {
     const preview = dialog?.preview || {};
     const items = Array.isArray(preview.items) ? preview.items : [];
     const selections = dialog?.selections || {};
+    const manualEntries = dialog?.manualEntries || {};
+    const cleanupConfirmations = dialog?.cleanupConfirmations || {};
     const selectedCount = Object.values(selections).filter(Boolean).length;
+    const assistantConfigured = Boolean(this._data?.settings?.assistant_configured);
+    const cleanupDiagnostics = preview.ai_cleanup || {};
+    const cleanupRequested = Boolean(preview.use_ai_cleanup || cleanupDiagnostics.requested);
+    const cleanupControl = assistantConfigured && !cleanupRequested
+      ? `<button class="secondary-button" type="button" data-action="place-enrichment-ai-retry"><ha-icon icon="mdi:creation-outline"></ha-icon>Orte mit KI aufräumen</button>`
+      : cleanupRequested
+        ? `<span class="status-pill ${cleanupDiagnostics.error ? "status-warning" : "status-resolved"}"><ha-icon icon="mdi:creation-outline"></ha-icon>${cleanupDiagnostics.error ? escapeHtml(cleanupDiagnostics.error) : `${Number(cleanupDiagnostics.suggested_count || 0)} KI-Vorschläge`}</span>`
+        : "";
     const cards = items.map((item) => {
       const current = item?.current || {};
       const stopId = cleanText(current.stop_id);
       const currentLocation = current.location || {};
+      const structured = item?.structured_address || {};
       const candidates = Array.isArray(item?.candidates) ? item.candidates : [];
       const selectedId = cleanText(selections[stopId]);
       const currentSummary = [
@@ -4938,6 +5004,22 @@ class RoadplannerPanel extends HTMLElement {
           ? `${Number(currentLocation.latitude).toFixed(5)}, ${Number(currentLocation.longitude).toFixed(5)}`
           : "",
       ].filter(Boolean).join(" · ");
+      const cleanup = item?.ai_cleanup && typeof item.ai_cleanup === "object" ? item.ai_cleanup : null;
+      const cleanupAccepted = Boolean(cleanupConfirmations[stopId]);
+      const cleanupAddress = cleanup?.address || {};
+      const cleanupParts = [
+        [cleanupAddress.street, cleanupAddress.house_number].filter(Boolean).join(" "),
+        [cleanupAddress.postal_code, cleanupAddress.city].filter(Boolean).join(" "),
+        cleanupAddress.district,
+        cleanupAddress.state,
+        cleanupAddress.country || cleanupAddress.country_code,
+      ].filter(Boolean);
+      const cleanupCard = cleanup
+        ? `<div class="place-cleanup-suggestion ${cleanupAccepted ? "selected" : ""}">
+            <div><span class="eyebrow">KI-Vorschlag · ohne Koordinaten</span><strong>${escapeHtml(cleanup.name || current.stop_name || "Ortsname beibehalten")}</strong><small>${escapeHtml(cleanupParts.join(", ") || cleanup.reason || "Schreibweise und Adressbestandteile normalisiert")}</small></div>
+            <button class="${cleanupAccepted ? "secondary-button" : "text-button"}" type="button" data-action="place-cleanup-toggle" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="${cleanupAccepted ? "mdi:check-circle" : "mdi:checkbox-blank-circle-outline"}"></ha-icon>${cleanupAccepted ? "Umbenennung wird übernommen" : "Namensvorschlag separat übernehmen"}</button>
+          </div>`
+        : "";
       const candidateCards = candidates.length
         ? candidates.map((candidate) => {
           const candidateId = cleanText(candidate.id);
@@ -4948,9 +5030,16 @@ class RoadplannerPanel extends HTMLElement {
           const coordinate = Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))
             ? `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`
             : "—";
+          const variantLabel = {
+            structured: "Strukturierte Adresse",
+            district_text: "Ortsteil-Suche",
+            free_text: "Freitext-Suche",
+          }[candidate.search_variant] || candidate.search_variant;
           const chips = [
+            candidate.match_label,
             candidate.category,
             candidate.confidence_label ? `${candidate.confidence_label} · ${Number(candidate.confidence || 0)} %` : "",
+            variantLabel,
             contact.opening_hours ? `Öffnungszeiten: ${contact.opening_hours}` : "",
           ].filter(Boolean);
           return `<article class="place-candidate ${selected ? "selected" : ""}">
@@ -4961,7 +5050,7 @@ class RoadplannerPanel extends HTMLElement {
             ${images.length ? `<div class="place-image-strip">${images.map((image) => `<img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || candidate.name || "Ort")}">`).join("")}</div>` : `<div class="place-image-empty"><ha-icon icon="mdi:image-off-outline"></ha-icon><span>Noch kein passendes Planungsbild</span></div>`}
             <div class="place-candidate-details">
               <div><span>Koordinaten</span><strong>${escapeHtml(coordinate)}</strong></div>
-              <div><span>Kategorie</span><strong>${escapeHtml(candidate.category || "Ort")}</strong></div>
+              <div><span>Treffertyp</span><strong>${escapeHtml(candidate.match_label || candidate.category || "Ort")}</strong></div>
               <div><span>Vertrauen</span><strong>${escapeHtml(candidate.confidence_label || "Offen")}${candidate.confidence != null ? ` · ${Number(candidate.confidence || 0)} %` : ""}</strong></div>
               ${candidate.website ? `<div><span>Website</span><a href="${escapeHtml(this._safeUrl(candidate.website))}" target="_blank" rel="noopener noreferrer">Öffnen</a></div>` : ""}
               ${candidate.phone ? `<div><span>Telefon</span><strong>${escapeHtml(candidate.phone)}</strong></div>` : ""}
@@ -4974,15 +5063,38 @@ class RoadplannerPanel extends HTMLElement {
             </div>
           </article>`;
         }).join("")
-        : `<div class="place-no-match"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><div><strong>Kein verlässlicher Ort gefunden</strong><span>${escapeHtml(item?.message || "Ergänze Name, Ort oder Land und versuche es erneut.")}</span></div></div>`;
+        : `<div class="place-no-match"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><div><strong>Kein Provider-Treffer gefunden</strong><span>${escapeHtml(item?.message || "Adresse und Kartenpunkt können manuell bestätigt werden.")}</span></div></div>`;
+      const storedManual = manualEntries[stopId] || {};
+      const defaultAddress = cleanText(currentLocation.address) || [
+        [structured.street, structured.house_number].filter(Boolean).join(" "),
+        [structured.postal_code, structured.city].filter(Boolean).join(" "),
+        structured.district,
+        structured.state,
+        structured.country,
+      ].filter(Boolean).join(", ");
+      const manualSelected = selectedId === "__manual__";
+      const manualForm = `<form class="place-manual-form ${manualSelected ? "selected" : ""}" data-place-manual-form data-stop-id="${escapeHtml(stopId)}">
+        <div class="place-manual-heading"><div><span class="eyebrow">Manueller Fallback</span><strong>Adresse und WGS84-Kartenpunkt bewusst bestätigen</strong><small>Diese Werte werden als manuell bestätigt und nicht als Provider-verifiziert gespeichert.</small></div>${manualSelected ? `<span class="status-pill status-resolved">Ausgewählt</span>` : ""}</div>
+        <div class="form-grid compact-form-grid">
+          ${this._field("name", "Name", storedManual.name ?? current.stop_name ?? "", "text", false, "full")}
+          ${this._field("address", "Adresse", storedManual.address ?? defaultAddress, "text", false, "full")}
+          ${this._field("city", "Ort", storedManual.city ?? currentLocation.city ?? structured.city ?? "")}
+          ${this._field("country_code", "Ländercode", storedManual.country_code ?? currentLocation.country_code ?? structured.country_code ?? "")}
+          ${this._field("latitude", "Breitengrad", storedManual.latitude ?? currentLocation.latitude ?? "", "text", true, "", "", "")}
+          ${this._field("longitude", "Längengrad", storedManual.longitude ?? currentLocation.longitude ?? "", "text", true, "", "", "")}
+        </div>
+        <button class="secondary-button" type="button" data-action="place-manual-select" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Manuellen Kartenpunkt bestätigen</button>
+      </form>`;
       return `<section class="place-enrichment-item">
         <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml(currentSummary || "Noch kein bestätigtes Ortsprofil")}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
+        ${cleanupCard}
         <div class="place-candidates">${candidateCards}</div>
+        ${manualForm}
       </section>`;
     }).join("");
     return `${this._renderModalHeader("Orte vervollständigen", `${items.length} ${items.length === 1 ? "Stopp" : "Stopps"} · Kartenpunkt, Adresse, Kontaktdaten und Planungsbilder prüfen`)}
       <div class="place-enrichment-body">
-        <div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Einmal vollständig prüfen</strong><span>Roadplanner übernimmt nur die von dir ausgewählten Ortsprofile. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>
+        <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Einmal vollständig prüfen</strong><span>Roadplanner übernimmt nur ausgewählte Provider-Treffer oder ausdrücklich bestätigte manuelle Werte. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>${cleanupControl}</div>
         ${cards || `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><h2>Keine offenen Ortsprofile</h2></div>`}
       </div>
       <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Ort" : "Orte"} an Änderungsübersicht übergeben</button></div>`;
@@ -4992,10 +5104,13 @@ class RoadplannerPanel extends HTMLElement {
     const requestLine = dialog.requestId
       ? `<div class="action-error-request"><span>Anfrage</span><code>${escapeHtml(dialog.requestId)}</code></div>`
       : "";
+    const technicalDetails = dialog.technicalMessage && dialog.technicalMessage !== dialog.message
+      ? `<details class="action-error-details"><summary>Technische Details</summary><code>${escapeHtml(dialog.technicalMessage)}</code></details>`
+      : "";
     return `${this._renderModalHeader(dialog.title || "Roadplanner-Aktion fehlgeschlagen", "Die Meldung bleibt geöffnet, bis du sie schließt.")}
       <div class="action-error-body">
         <div class="action-error-icon"><ha-icon icon="mdi:alert-circle-outline"></ha-icon></div>
-        <div><p>${escapeHtml(dialog.message || "Unbekannter Roadplanner-Fehler")}</p>${requestLine}</div>
+        <div><p>${escapeHtml(dialog.message || "Unbekannter Roadplanner-Fehler")}</p>${requestLine}${technicalDetails}</div>
       </div>
       <div class="modal-actions action-error-actions">
         <button class="secondary-button" type="button" data-action="copy-action-error"><ha-icon icon="mdi:content-copy"></ha-icon>Details kopieren</button>
@@ -5842,6 +5957,8 @@ class RoadplannerPanel extends HTMLElement {
       .toast.success { background: var(--success-color, #2e7d32); }
       .toast.error { background: var(--error-color, #d32f2f); }
       .place-enrichment-body { display: grid; gap: 16px; padding: 8px 22px 4px; }
+      .place-enrichment-toolbar { display: grid; gap: 10px; }
+      .place-enrichment-toolbar > .secondary-button, .place-enrichment-toolbar > .status-pill { justify-self: start; }
       .place-enrichment-item { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--divider-color); border-radius: 18px; background: var(--card-background-color); }
       .place-enrichment-item > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
       .place-enrichment-item h3 { margin: 3px 0 2px; }
@@ -5864,6 +5981,15 @@ class RoadplannerPanel extends HTMLElement {
       .place-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 13px; }
       .place-chips span { padding: 5px 8px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 9%, var(--card-background-color)); font-size: 11px; }
       .compact-row { padding: 8px 13px 13px; }
+      .place-cleanup-suggestion { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px dashed var(--divider-color); border-radius: 14px; background: color-mix(in srgb, var(--primary-color) 5%, var(--card-background-color)); }
+      .place-cleanup-suggestion.selected { border-color: var(--primary-color); }
+      .place-cleanup-suggestion > div, .place-manual-heading > div { min-width: 0; display: grid; gap: 3px; }
+      .place-cleanup-suggestion small, .place-manual-heading small { color: var(--secondary-text-color); line-height: 1.4; }
+      .place-manual-form { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--secondary-background-color); }
+      .place-manual-form.selected { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 14%, transparent); }
+      .place-manual-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+      .compact-form-grid { padding: 0; gap: 10px; }
+      .place-manual-form > .secondary-button { justify-self: start; }
       .place-enrichment-actions { position: sticky; bottom: 0; background: var(--card-background-color); z-index: 2; }
 
       .modal-backdrop { position: absolute; inset: 0; z-index: 25; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
@@ -5877,6 +6003,9 @@ class RoadplannerPanel extends HTMLElement {
       .action-error-body p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
       .action-error-request { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--secondary-text-color); }
       .action-error-request code { user-select: all; max-width: 100%; overflow-wrap: anywhere; padding: 5px 8px; border-radius: 8px; background: var(--secondary-background-color); color: var(--primary-text-color); }
+      .action-error-details { margin-top: 12px; }
+      .action-error-details summary { cursor: pointer; color: var(--secondary-text-color); }
+      .action-error-details code { display: block; margin-top: 8px; padding: 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--secondary-background-color); }
       .action-error-actions { flex-wrap: wrap; }
       .action-error-actions .primary-button { margin-left: auto; }
       .form-grid { padding: 10px 22px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }

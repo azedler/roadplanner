@@ -1632,6 +1632,53 @@ def _prepare_compiled_operation_batch(
     return prepared_raw_operations, new_day_refs
 
 
+def _normalize_compiled_day_reference(
+    operation: dict[str, Any],
+    *,
+    day_ids: set[str],
+    new_day_refs: set[str],
+) -> tuple[str, str]:
+    """Normalize a model's day_id/day_ref field without guessing by prefix.
+
+    Existing Roadbook IDs belong in ``day_id``. Temporary IDs created by an
+    add-day operation in the same compiled batch belong in ``day_ref``. The
+    rewrite is allowed only when the exact value is present in one authoritative
+    catalog; unknown and contradictory references remain validation errors.
+    """
+
+    day_id = _clean_text(operation.get("day_id"), maximum=200)
+    day_ref = _clean_text(operation.get("day_ref"), maximum=200)
+
+    if day_id and day_ref:
+        if day_id != day_ref:
+            raise ValidationError(
+                "Widersprüchliche Tagesreferenzen: "
+                f"day_id={day_id}, day_ref={day_ref}"
+            )
+        if day_id in day_ids:
+            operation["day_id"] = day_id
+            operation.pop("day_ref", None)
+            return day_id, ""
+        if day_id in new_day_refs:
+            operation.pop("day_id", None)
+            operation["day_ref"] = day_id
+            return "", day_id
+        # Keep one field so the established unknown-ID validation below emits
+        # the precise, user-facing error instead of silently accepting it.
+        operation.pop("day_ref", None)
+        return day_id, ""
+
+    if day_ref and day_ref in day_ids:
+        operation.pop("day_ref", None)
+        operation["day_id"] = day_ref
+        return day_ref, ""
+    if day_id and day_id in new_day_refs:
+        operation.pop("day_id", None)
+        operation["day_ref"] = day_id
+        return "", day_id
+    return day_id, day_ref
+
+
 def _with_overnight_continuity(days: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Annotate the logical start using the shared canonical day service."""
     result = deepcopy(days)
@@ -4180,6 +4227,11 @@ class RoadplannerAssistant:
                     f"Bestehende Tages-ID ist nicht im aktuellen Roadbook vorhanden: {entity_id or 'fehlt'}"
                 )
         elif entity_type == "stop":
+            day_id, day_ref = _normalize_compiled_day_reference(
+                operation,
+                day_ids=day_ids,
+                new_day_refs=new_day_refs,
+            )
             if day_id and day_ref:
                 raise ValidationError("Eine Stoppoperation darf nicht day_id und day_ref mischen")
             if not day_id and not day_ref:
@@ -4327,6 +4379,11 @@ class RoadplannerAssistant:
         else:  # preference
             operation.pop("position", None)
             operation.pop("place_query", None)
+            day_id, day_ref = _normalize_compiled_day_reference(
+                operation,
+                day_ids=day_ids,
+                new_day_refs=new_day_refs,
+            )
             if day_id and day_ref:
                 raise ValidationError("Eine Präferenz darf nicht day_id und day_ref mischen")
             if day_id and day_id not in day_ids:

@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import math
 import sys
 import types
 
@@ -68,6 +69,11 @@ class GeocodingCandidate:
     source_url: str = "https://www.openstreetmap.org/node/12345"
     resolution_mode: str = "search"
     distance_meters: float | None = None
+    match_type: str = "poi"
+    match_label: str = "POI"
+    search_variant: str = "free_text"
+    auto_selectable: bool = True
+    address_mismatches: tuple[str, ...] = ()
 
     @property
     def preferred_name(self) -> str:
@@ -95,15 +101,93 @@ class GeocodingCandidate:
         }
 
 
+
+
+@dataclass
+class StructuredAddress:
+    street: str = ""
+    house_number: str = ""
+    postal_code: str = ""
+    city: str = ""
+    district: str = ""
+    state: str = ""
+    country: str = ""
+    country_code: str = ""
+    name: str = ""
+
+    @property
+    def has_address_detail(self):
+        return bool(self.street or self.postal_code or self.city or self.district)
+
+    def as_dict(self):
+        return {
+            key: value
+            for key, value in self.__dict__.items()
+            if value
+        }
+
+    def merged(self, values):
+        data = self.as_dict()
+        data.update({key: value for key, value in (values or {}).items() if value})
+        return StructuredAddress(**{
+            key: value
+            for key, value in data.items()
+            if key in StructuredAddress.__dataclass_fields__
+        })
+
+    def full_query(self, fallback=""):
+        return ", ".join(
+            value
+            for value in (
+                self.name,
+                " ".join(value for value in (self.street, self.house_number) if value),
+                self.district,
+                self.city,
+                self.postal_code,
+                self.country or self.country_code,
+            )
+            if value
+        ) or fallback
+
+
+def parse_structured_address(**values):
+    return StructuredAddress(
+        name=str(values.get("name") or ""),
+        city=str(values.get("city") or ""),
+        country_code=str(values.get("country_code") or ""),
+    )
+
+
+def parse_coordinate_pair(value):
+    try:
+        left, right = str(value).split(";", 1)
+        latitude = float(left.replace(",", "."))
+        longitude = float(right.replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(latitude) or not math.isfinite(longitude):
+        raise ValidationError("GPS-Koordinaten müssen endliche Zahlen sein")
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise ValidationError("GPS-Koordinaten liegen außerhalb des gültigen Bereichs")
+    return latitude, longitude
+
 geocoding = types.ModuleType(f"{PACKAGE_NAME}.geocoding")
 geocoding.GeocodingCandidate = GeocodingCandidate
 geocoding.GeocodingError = GeocodingError
 geocoding.NominatimGeocoder = object
+geocoding.GeocodingProvider = object
+geocoding.StructuredAddress = StructuredAddress
+geocoding.parse_structured_address = parse_structured_address
+geocoding.parse_coordinate_pair = parse_coordinate_pair
 sys.modules[geocoding.__name__] = geocoding
 
 images = types.ModuleType(f"{PACKAGE_NAME}.destination_images")
 images.DestinationImageProvider = object
 sys.modules[images.__name__] = images
+
+cleanup = types.ModuleType(f"{PACKAGE_NAME}.place_cleanup")
+cleanup.PlaceCleanupService = object
+sys.modules[cleanup.__name__] = cleanup
 
 spec = spec_from_file_location(
     f"{PACKAGE_NAME}.place_enrichment",
@@ -116,8 +200,9 @@ spec.loader.exec_module(module)
 
 
 class FakeGeocoder:
-    async def async_resolve(self, query, *, language):
-        assert "Fährterminal Tallinn" in query
+    async def async_resolve(self, query, *, structured_address=None, language):
+        assert "Fährterminal" in query
+        assert "Tallinn" in query
         assert language == "de"
         candidate = GeocodingCandidate(
             display_name="Tallinn Terminal D, Lootsi 13, Tallinn, Estonia",
@@ -133,6 +218,38 @@ class FakeGeocoder:
             longitude=longitude,
             resolution_mode="reverse",
             distance_meters=15.0,
+        )
+
+
+class FakeCleanup:
+    available = True
+
+    async def async_suggest_many(self, items):
+        items = list(items)
+        assert len(items) == 1
+        assert "latitude" not in items[0]
+        assert "longitude" not in items[0]
+        return (
+            {
+                "stop-terminal": {
+                    "stop_id": "stop-terminal",
+                    "name": "Tallinn Fährterminal",
+                    "address": {"city": "Tallinn", "country_code": "EE"},
+                    "confidence": 0.93,
+                    "reason": "Schreibweise vereinheitlicht.",
+                    "changed_fields": ["name", "city", "country_code"],
+                    "provider": "gemini",
+                    "model": "gemini-test",
+                    "coordinate_policy": "not_provided_not_accepted",
+                }
+            },
+            {
+                "requested": True,
+                "available": True,
+                "item_count": 1,
+                "suggested_count": 1,
+                "error": None,
+            },
         )
 
 
@@ -250,6 +367,95 @@ async def main() -> None:
         pass
     else:
         raise AssertionError("Preview ownership must be enforced")
+
+
+    manual_preview = await service.async_prepare(
+        user_id="user-1",
+        trip_id="trip-1",
+        days=[day],
+    )
+    manual_operations, manual_galleries = await service.resolve_selections(
+        user_id="user-1",
+        trip_id="trip-1",
+        preview_id=manual_preview["id"],
+        selections={"stop-terminal": "__manual__"},
+        manual_entries={
+            "stop-terminal": {
+                "name": "Krumhermsdorf Übernachtung",
+                "address": "Neuhäuser 40, 01844 Neustadt in Sachsen",
+                "city": "Neustadt in Sachsen",
+                "country_code": "DE",
+                "latitude": "50,9500",
+                "longitude": "14,2000",
+            }
+        },
+    )
+    assert manual_galleries == []
+    manual_changes = manual_operations[0]["changes"]
+    assert manual_changes["location"]["latitude"] == 50.95
+    assert manual_changes["location"]["longitude"] == 14.2
+    assert manual_changes["name"] == "Krumhermsdorf Übernachtung"
+    assert manual_changes["details"]["geocoding"]["status"] == "manual_confirmed"
+    assert manual_changes["details"]["geocoding"]["provider_verified"] is False
+    assert manual_changes["details"]["place_profile"]["provider_verified"] is False
+
+    try:
+        await service.resolve_selections(
+            user_id="user-1",
+            trip_id="trip-1",
+            preview_id=manual_preview["id"],
+            selections={"stop-terminal": "__manual__"},
+            manual_entries={
+                "stop-terminal": {
+                    "name": "Ungültiger Ort",
+                    "latitude": "91",
+                    "longitude": "14,2",
+                }
+            },
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("Out-of-range manual coordinates must be rejected")
+
+    cleanup_service = module.PlaceEnrichmentService(
+        FakeGeocoder(),
+        FakeImages(),
+        cleanup_service=FakeCleanup(),
+    )
+    cleanup_preview = await cleanup_service.async_prepare(
+        user_id="user-1",
+        trip_id="trip-1",
+        days=[day],
+        use_ai_cleanup=True,
+    )
+    cleanup_item = cleanup_preview["items"][0]
+    assert cleanup_item["ai_cleanup"]["name"] == "Tallinn Fährterminal"
+    cleanup_candidate = cleanup_item["candidates"][0]
+
+    operations_without_rename, _ = await cleanup_service.resolve_selections(
+        user_id="user-1",
+        trip_id="trip-1",
+        preview_id=cleanup_preview["id"],
+        selections={"stop-terminal": cleanup_candidate["id"]},
+        cleanup_confirmations={"stop-terminal": False},
+    )
+    assert "name" not in operations_without_rename[0]["changes"]
+
+    operations_with_rename, _ = await cleanup_service.resolve_selections(
+        user_id="user-1",
+        trip_id="trip-1",
+        preview_id=cleanup_preview["id"],
+        selections={"stop-terminal": cleanup_candidate["id"]},
+        cleanup_confirmations={"stop-terminal": True},
+    )
+    renamed_changes = operations_with_rename[0]["changes"]
+    assert renamed_changes["name"] == "Tallinn Fährterminal"
+    assert renamed_changes["details"]["place_cleanup"]["status"] == "confirmed"
+    assert (
+        renamed_changes["details"]["place_cleanup"]["coordinate_policy"]
+        == "not_provided_not_accepted"
+    )
 
 
 asyncio.run(main())
