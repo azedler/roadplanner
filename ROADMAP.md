@@ -101,20 +101,33 @@
 - [x] Release publication starts automatically after the prepared pull request is merged into `main`.
 - [x] GitHub publishes the release assets and fast-forwards `develop` when safe.
 
-## Roadplanner 3.3 — Travel Story
+## Roadplanner 3.4 — Complete Places & Vision Smart Media
+
+- [x] Reviewable full-place profiles instead of GPS-only drafts.
+- [x] Concrete server-generated ChangeSets from explicitly selected place candidates.
+- [x] Candidate previews with map, address, category, contact/opening information, confidence and images.
+- [x] Smarter representative planning-image selection from Wikimedia Commons/Openverse.
+- [x] Deterministic best-of selection for personal OneDrive photos.
+- [x] Automatic planning-image-before-visit / personal-photo-after-visit presentation policy.
+- [x] Local deterministic prefilter before any external Vision request.
+- [x] Optional Gemini Vision selection for representative planning images and personal travel-photo highlights.
+- [x] Manual cover selections always override semantic curation.
+- [x] Fingerprint cache, per-trip daily limit and local fallback for every provider or quota failure.
+
+## Roadplanner 3.5 — Travel Story
 
 - Trip-wide highlight selection.
 - Story chapters per day and stop.
 - Travel Movie export contract.
 - Photo-book/export metadata.
 
-## Roadplanner 3.4 — Media providers
+## Roadplanner 3.6 — Media providers
 
 - Apple Photos bridge or native companion sync.
 - Multi-account OneDrive support.
 - Optional Google Photos, Immich, and NAS providers.
 
-## Roadplanner 3.5 — Automation and mobility
+## Roadplanner 3.7 — Automation and mobility
 
 - EVCC-aware charging plans.
 - Weather-aware proactive suggestions.

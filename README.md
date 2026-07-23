@@ -39,6 +39,16 @@ See the [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VIS
 - Personal OneDrive photos take precedence over external planning images.
 - Merging a prepared release pull request automatically validates, tags and publishes the HACS release.
 
+## Roadplanner 3.4 complete places and Vision smart media
+
+- “Orte vervollständigen” resolves incomplete stops to reviewable place profiles instead of proposing GPS-only updates.
+- Candidate previews include map position, address, category, available contact/opening information, confidence and representative planning images.
+- Confirmed candidates become concrete review-only ChangeSets; selected values are not sent through Gemini a second time.
+- Before a visit, attributed Wikimedia Commons/Openverse planning images are shown. After a visit, a deterministic best-of selection from personal OneDrive photos takes precedence.
+- Planning and travel images remain separate, so original previews are retained while personal memories become the normal presentation.
+- Image curation is local-first: deterministic filtering removes duplicates, bursts and weak candidates before an optional Gemini Vision step selects the most representative cover and highlights.
+- Existing installations default to local-only curation; hybrid Vision must be enabled explicitly and is protected by candidate and daily-call limits.
+
 ## Core principles
 
 - Canonical Roadbook and domain sidecars have explicit ownership boundaries.

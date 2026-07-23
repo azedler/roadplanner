@@ -171,6 +171,7 @@ def build_travel_integrity(
                 "missing_location_count": 0,
                 "ambiguous_location_count": 0,
                 "unverified_location_count": 0,
+                "unreviewed_place_count": 0,
                 "route_issue_count": 0,
                 "visual_missing_count": 0,
                 "visualized_stop_count": 0,
@@ -196,6 +197,7 @@ def build_travel_integrity(
     missing_locations = 0
     ambiguous_locations = 0
     unverified_locations = 0
+    unreviewed_places = 0
     visualized_stops = 0
     own_photo_stops = 0
     schedule_hint_count = 0
@@ -236,14 +238,41 @@ def build_travel_integrity(
         day_missing = 0
         day_ambiguous = 0
         day_unverified = 0
+        day_unreviewed = 0
         day_visuals = 0
         day_own_photos = 0
         day_schedule_hints = 0
         for stop in stops:
             stop_id = _text(stop.get("id"))
             status = _text(stop.get("location_status")) or location_status(stop)
-            if status == "resolved":
+            details = _dict(stop.get("details"))
+            place_profile = _dict(details.get("place_profile"))
+            place_confirmed = bool(_text(place_profile.get("confirmed_at")))
+            if status == "resolved" and place_confirmed:
                 resolved_locations += 1.0
+            elif status == "resolved":
+                # A coordinate alone is not enough for a trustworthy stop. Keep
+                # routing available, but ask the user to confirm the actual
+                # place, address and provider identity once.
+                resolved_locations += 0.75
+                attention_locations += 1
+                unreviewed_places += 1
+                day_unreviewed += 1
+                issues.append(
+                    _issue(
+                        code="place_profile_unreviewed",
+                        severity="warning",
+                        category="location",
+                        title=f"Ort für {_text(stop.get('name')) or 'Stopp'} vervollständigen",
+                        message=(
+                            "Koordinaten sind vorhanden. Bestätige zusätzlich Name, Adresse, "
+                            "Kategorie, Quelle und verfügbare Kontaktdaten."
+                        ),
+                        day=day,
+                        stop=stop,
+                        action="repair_location",
+                    )
+                )
             elif status == "unverified":
                 resolved_locations += 0.5
                 attention_locations += 1
@@ -254,8 +283,8 @@ def build_travel_integrity(
                         code="location_unverified",
                         severity="warning",
                         category="location",
-                        title=f"GPS für {_text(stop.get('name')) or 'Stopp'} prüfen",
-                        message="Koordinaten sind vorhanden, aber noch nicht eindeutig bestätigt.",
+                        title=f"Ort für {_text(stop.get('name')) or 'Stopp'} prüfen",
+                        message="Koordinaten sind vorhanden, der konkrete Ort ist aber noch nicht eindeutig bestätigt.",
                         day=day,
                         stop=stop,
                         action="repair_location",
@@ -271,7 +300,7 @@ def build_travel_integrity(
                         severity="error",
                         category="location",
                         title=f"Ort für {_text(stop.get('name')) or 'Stopp'} auswählen",
-                        message="Mehrere mögliche Kartenpunkte wurden gefunden.",
+                        message="Mehrere mögliche Ortsprofile wurden gefunden.",
                         day=day,
                         stop=stop,
                         action="repair_location",
@@ -286,8 +315,11 @@ def build_travel_integrity(
                         code="location_missing",
                         severity="error",
                         category="location",
-                        title=f"GPS für {_text(stop.get('name')) or 'Stopp'} fehlt",
-                        message="Der Stopp bleibt im Tagesablauf, kann aber noch nicht vollständig geroutet werden.",
+                        title=f"Ort für {_text(stop.get('name')) or 'Stopp'} fehlt",
+                        message=(
+                            "Der Stopp bleibt im Tagesablauf, benötigt aber einen bestätigten "
+                            "Kartenpunkt und ein überprüfbares Ortsprofil."
+                        ),
                         day=day,
                         stop=stop,
                         action="repair_location",
@@ -393,6 +425,7 @@ def build_travel_integrity(
                 "missing_location_count": day_missing,
                 "ambiguous_location_count": day_ambiguous,
                 "unverified_location_count": day_unverified,
+                "unreviewed_place_count": day_unreviewed,
                 "visual_count": day_visuals,
                 "own_photo_stop_count": day_own_photos,
                 "schedule_hint_count": day_schedule_hints,
@@ -427,7 +460,7 @@ def build_travel_integrity(
     )
     status = (
         "ready"
-        if total_stops and overall_score >= 90 and not missing_locations and not ambiguous_locations
+        if total_stops and overall_score >= 90 and not attention_locations
         else "attention"
         if total_stops and overall_score >= 70
         else "incomplete"
@@ -461,13 +494,14 @@ def build_travel_integrity(
             "missing_location_count": missing_locations,
             "ambiguous_location_count": ambiguous_locations,
             "unverified_location_count": unverified_locations,
+            "unreviewed_place_count": unreviewed_places,
             "route_issue_count": sum(1 for item in issues if item["category"] == "route"),
             "visual_missing_count": max(0, total_stops - visualized_stops),
             "visualized_stop_count": visualized_stops,
             "own_photo_stop_count": own_photo_stops,
             "schedule_hint_count": schedule_hint_count,
             "overnight_missing_day_count": overnight_missing_days,
-            "repairable_location_count": missing_locations + ambiguous_locations + unverified_locations,
+            "repairable_location_count": attention_locations,
             "trip_route_status": _text(route_metrics.get("status")) or None,
         },
         "days": day_reports,

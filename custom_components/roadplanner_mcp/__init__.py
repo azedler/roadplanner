@@ -38,6 +38,10 @@ from .const import (
     CONF_GEMINI_API_KEY,
     CONF_GEMINI_FALLBACK_MODEL,
     CONF_GEMINI_MODEL,
+    CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
+    CONF_MEDIA_VISION_MAX_CANDIDATES,
+    CONF_MEDIA_VISION_DAILY_LIMIT,
+    CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
     CONF_ROUTING_ENABLED,
@@ -88,6 +92,10 @@ from .const import (
     DEFAULT_GEMINI_API_KEY,
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
+    DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
+    DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+    DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
     DEFAULT_ROUTING_ENABLED,
@@ -425,6 +433,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         geocoder=geocoder,
         router=router,
         image_provider=image_provider,
+        media_curation_mode=str(
+            options.get(CONF_MEDIA_CURATION_MODE, DEFAULT_MEDIA_CURATION_MODE)
+        ),
+        media_vision_max_candidates=int(
+            options.get(
+                CONF_MEDIA_VISION_MAX_CANDIDATES,
+                DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
+            )
+        ),
+        media_vision_max_highlights=int(
+            options.get(
+                CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
+                DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
+            )
+        ),
+        media_vision_daily_limit=int(
+            options.get(
+                CONF_MEDIA_VISION_DAILY_LIMIT,
+                DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+            )
+        ),
         folder_path=str(
             options.get(CONF_ONEDRIVE_PHOTO_FOLDER, DEFAULT_ONEDRIVE_PHOTO_FOLDER)
         ),

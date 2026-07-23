@@ -34,6 +34,23 @@ _PROVIDER_RESULT_LIMIT = 12
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 _SPACE_PATTERN = re.compile(r"\s+")
 _WORD_PATTERN = re.compile(r"[\wÀ-ž]{3,}", re.UNICODE)
+_NEGATIVE_IMAGE_MARKERS = (
+    "logo",
+    "flag",
+    "karte",
+    "map",
+    "diagram",
+    "diagramm",
+    "coat of arms",
+    "wappen",
+    "poster",
+    "ticket",
+    "screenshot",
+    "sign",
+    "schild",
+    "floor plan",
+    "grundriss",
+)
 
 
 def _plain_text(value: Any, *, max_length: int = 500) -> str:
@@ -243,32 +260,81 @@ def _query_tokens(query: str) -> set[str]:
     return {token.casefold() for token in _WORD_PATTERN.findall(query)}
 
 
-def _score_image(image: dict[str, Any], query_tokens: set[str]) -> float:
-    text = " ".join(
-        str(image.get(key) or "")
-        for key in ("title", "alt", "attribution")
-    ).casefold()
-    matches = sum(1 for token in query_tokens if token in text)
-    score = min(matches, 6) * 2.0
+def _selection_scores(
+    image: dict[str, Any],
+    query_tokens: set[str],
+) -> tuple[float, float, float, str]:
+    """Return relevance, technical quality, total score and a short reason."""
+    title = str(image.get("title") or "")
+    alt = str(image.get("alt") or "")
+    searchable = f"{title} {alt}".casefold()
+    candidate_tokens = _query_tokens(f"{title} {alt}")
+    matches = len(query_tokens & candidate_tokens)
+    coverage = matches / max(1, len(query_tokens))
+    relevance = min(matches, 8) * 2.5 + coverage * 8.0
+    reasons: list[str] = []
+    if matches:
+        reasons.append(f"{matches} Suchbegriffe passen")
     if image.get("proximity_match"):
-        score += 8.0
+        relevance += 12.0
+        reasons.append("nahe am Kartenpunkt")
     if image.get("provider") == "wikimedia_commons":
-        score += 0.5
+        relevance += 0.8
+    if any(marker in searchable for marker in _NEGATIVE_IMAGE_MARKERS):
+        relevance -= 18.0
+        reasons.append("weniger repräsentatives Motiv")
+
+    quality = 0.0
     width = _integer(image.get("width"))
     height = _integer(image.get("height"))
     if width and height:
-        if width >= 1_200 and height >= 675:
-            score += 2.0
-        elif width >= 640 and height >= 360:
-            score += 1.0
+        pixels = width * height
+        if pixels >= 3_000_000:
+            quality += 8.0
+        elif pixels >= 1_000_000:
+            quality += 5.0
+        elif pixels >= 400_000:
+            quality += 2.0
         else:
-            score -= 2.0
+            quality -= 6.0
         ratio = width / height
-        if 1.15 <= ratio <= 2.2:
-            score += 1.0
+        if 1.15 <= ratio <= 2.1:
+            quality += 5.0
+            reasons.append("gut als Titelbild geeignet")
+        elif 0.75 <= ratio <= 2.8:
+            quality += 2.0
+        elif ratio >= 4.0 or ratio <= 0.25:
+            quality -= 5.0
+    else:
+        quality -= 2.0
     if image.get("license") and image.get("source_url"):
-        score += 0.5
-    return score
+        quality += 2.0
+    if image.get("author"):
+        quality += 0.5
+    total = relevance + quality
+    reason = "; ".join(reasons[:3]) or "repräsentatives Planungsbild"
+    return relevance, quality, total, reason
+
+
+def _image_similarity_key(image: dict[str, Any]) -> tuple[str, frozenset[str]]:
+    provider = str(image.get("provider") or "").casefold()
+    title_tokens = frozenset(_query_tokens(str(image.get("title") or image.get("alt") or "")))
+    return provider, title_tokens
+
+
+def _too_similar(
+    candidate: dict[str, Any],
+    selected: list[dict[str, Any]],
+) -> bool:
+    provider, tokens = _image_similarity_key(candidate)
+    if not tokens:
+        return False
+    for existing in selected:
+        existing_provider, existing_tokens = _image_similarity_key(existing)
+        overlap = len(tokens & existing_tokens) / max(1, min(len(tokens), len(existing_tokens)))
+        if overlap >= 0.82 and (provider == existing_provider or overlap >= 0.95):
+            return True
+    return False
 
 
 def _deduplicate_and_rank(
@@ -281,15 +347,44 @@ def _deduplicate_and_rank(
     seen: set[str] = set()
     ranked: list[tuple[float, int, dict[str, Any]]] = []
     for index, image in enumerate(images):
-        identity = str(image.get("source_url") or image.get("original_url") or image.get("image_url") or "").casefold()
+        identity = str(
+            image.get("source_url")
+            or image.get("original_url")
+            or image.get("image_url")
+            or ""
+        ).casefold()
         if not identity or identity in seen:
             continue
         seen.add(identity)
         candidate = dict(image)
-        candidate["score"] = round(_score_image(candidate, tokens), 2)
-        ranked.append((float(candidate["score"]), index, candidate))
+        relevance, quality, total, reason = _selection_scores(candidate, tokens)
+        candidate.update(
+            {
+                "relevance_score": round(relevance, 2),
+                "quality_score": round(quality, 2),
+                "selection_score": round(total, 2),
+                "selection_reason": reason,
+                # Keep the legacy score for older panel consumers.
+                "score": round(total, 2),
+            }
+        )
+        ranked.append((float(total), index, candidate))
     ranked.sort(key=lambda item: (-item[0], item[1]))
-    return [candidate for _, _, candidate in ranked[:limit]]
+
+    selected: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    for _score, _index, candidate in ranked:
+        if _too_similar(candidate, selected):
+            deferred.append(candidate)
+            continue
+        selected.append(candidate)
+        if len(selected) >= limit:
+            break
+    if len(selected) < limit:
+        selected.extend(deferred[: limit - len(selected)])
+    for rank, candidate in enumerate(selected, start=1):
+        candidate["rank"] = rank
+    return selected[:limit]
 
 
 @dataclass(slots=True)

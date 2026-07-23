@@ -67,6 +67,8 @@ _ACTIONS = {
     "assistant_prepare",
     "assistant_prepare_locations",
     "assistant_prepare_trip_locations",
+    "prepare_place_enrichment",
+    "submit_place_enrichment",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -95,6 +97,8 @@ _ACTIONS = {
     "onedrive_sync",
     "media_update_assignment",
     "media_delete",
+    "media_curate_stop",
+    "media_curate_trip",
     "universal_import_analyze",
     "universal_import_transfer",
     "universal_import_discuss",
@@ -118,6 +122,8 @@ _EDIT_ACTIONS = {
     "auto_populate_destination_galleries",
     "assistant_prepare_locations",
     "assistant_prepare_trip_locations",
+    "prepare_place_enrichment",
+    "submit_place_enrichment",
     "archive_create_upload_ticket",
     "archive_analyze_document",
     "archive_confirm_document",
@@ -138,6 +144,8 @@ _EDIT_ACTIONS = {
     "onedrive_sync",
     "media_update_assignment",
     "media_delete",
+    "media_curate_stop",
+    "media_curate_trip",
     "universal_import_analyze",
     "universal_import_transfer",
     "universal_import_discuss",
@@ -158,6 +166,8 @@ _ASSISTANT_ACTIONS = {
     "assistant_prepare",
     "assistant_prepare_locations",
     "assistant_prepare_trip_locations",
+    "prepare_place_enrichment",
+    "submit_place_enrichment",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -397,6 +407,38 @@ async def _execute_action(
             trip_id=trip_id,
         )
 
+    if action == "prepare_place_enrichment":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError(
+                "Für die Ortsvervollständigung wurde keine Reise ausgewählt"
+            )
+        return await runtime.experience.async_prepare_place_enrichment(
+            user_id=user_id,
+            trip_id=trip_id,
+            day_id=str(data.get("day_id") or "").strip() or None,
+            stop_id=str(data.get("stop_id") or "").strip() or None,
+            limit=_optional_int(data.get("limit")) or 20,
+        )
+
+    if action == "submit_place_enrichment":
+        trip_id = str(data.get("trip_id") or "").strip()
+        preview_id = str(data.get("preview_id") or "").strip()
+        selections = data.get("selections")
+        if not trip_id or not preview_id:
+            raise ValidationError(
+                "Reise und Ortsvorschau werden für die Übergabe benötigt"
+            )
+        if not isinstance(selections, dict):
+            raise ValidationError("Die ausgewählten Orte sind unvollständig")
+        return await runtime.experience.async_submit_place_enrichment(
+            user_id=user_id,
+            actor=actor,
+            trip_id=trip_id,
+            preview_id=preview_id,
+            selections={str(key): str(value) for key, value in selections.items()},
+        )
+
     if action == "assistant_test":
         trip_id = str(data.get("trip_id") or "").strip()
         if not trip_id:
@@ -489,6 +531,29 @@ async def _execute_action(
         return await runtime.experience.async_auto_populate_destination_galleries(
             str(data.get("trip_id") or ""),
             limit=_optional_int(data.get("limit")) or 6,
+        )
+
+    if action == "media_curate_stop":
+        trip_id = str(data.get("trip_id") or "").strip()
+        day_id = str(data.get("day_id") or "").strip()
+        stop_id = str(data.get("stop_id") or "").strip()
+        if not trip_id or not day_id or not stop_id:
+            raise ValidationError("Reise, Reisetag und Stopp werden für die Bildauswahl benötigt")
+        return await runtime.experience.async_curate_stop_media(
+            trip_id,
+            day_id,
+            stop_id,
+            force=bool(data.get("force", False)),
+        )
+
+    if action == "media_curate_trip":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError("Für die Bildauswahl wurde keine Reise ausgewählt")
+        return await runtime.experience.async_auto_curate_media(
+            trip_id,
+            limit=_optional_int(data.get("limit")) or 3,
+            force=bool(data.get("force", False)),
         )
 
     if action == "onedrive_configure":
@@ -937,7 +1002,7 @@ async def websocket_get_panel_data(
             days=list(payload.get("days", {}).get("days", []) or []),
         )
         if selected_trip_id
-        else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "onedrive": runtime.experience.onedrive.status()}
+        else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "vision": {}, "onedrive": runtime.experience.onedrive.status()}
     )
     summary_state = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     integrity_state = build_travel_integrity(
@@ -974,6 +1039,11 @@ async def websocket_get_panel_data(
                 "destination_image_provider": "wikimedia_commons+openverse",
                 "destination_image_gallery_size": 3,
                 "destination_image_auto_fill": True,
+                "media_curation_mode": runtime.experience.media_curation_mode,
+                "media_vision_enabled": runtime.experience.vision_enabled,
+                "media_vision_max_candidates": runtime.experience.media_vision_max_candidates,
+                "media_vision_max_highlights": runtime.experience.media_vision_max_highlights,
+                "media_vision_daily_limit": runtime.experience.media_vision_daily_limit,
                 "assistant_configured": runtime.assistant.configured,
                 "assistant_provider": runtime.assistant.provider_name,
                 "assistant_model": runtime.assistant.model,

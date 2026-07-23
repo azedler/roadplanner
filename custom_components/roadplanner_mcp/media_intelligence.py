@@ -1,9 +1,9 @@
 """Local, deterministic media curation for Roadplanner 3.0.
 
-The module deliberately avoids downloading image bytes.  It ranks and
-suppresses obvious duplicates using OneDrive metadata that is already available
-in the private experience sidecar.  Optional vision-based curation can be added
-later without changing the panel contract.
+The module deliberately avoids downloading image bytes. It performs the
+mandatory deterministic first stage (assignment, metadata quality, duplicate
+and burst suppression). A persisted optional Vision selection may then reorder
+only those locally preselected IDs; it can never introduce or delete photos.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ _SCREENSHOT_MARKERS = (
 )
 _BURST_SECONDS = 4
 _BURST_DISTANCE_M = 30.0
+_DIVERSITY_BUCKET_SECONDS = 10 * 60
 
 
 def _text(value: Any) -> str:
@@ -172,6 +173,55 @@ def _same_burst(first: dict[str, Any], second: dict[str, Any]) -> bool:
     return True
 
 
+def _diversity_bucket(item: dict[str, Any]) -> str:
+    timestamp = _parse_datetime(item.get("taken_at") or item.get("created_at"))
+    if timestamp is None:
+        return "unknown"
+    bucket = int(timestamp.timestamp()) // _DIVERSITY_BUCKET_SECONDS
+    return str(bucket)
+
+
+def _diverse_selection(
+    ranked: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Prefer strong photos from different moments before filling gaps."""
+    if not ranked:
+        return []
+    selected: list[dict[str, Any]] = []
+    used_buckets: set[str] = set()
+    # Manual covers are explicit user intent and always win.
+    manual = [
+        item
+        for item in ranked
+        if item.get("is_cover") or item.get("assignment_status") == "manual"
+    ]
+    for item in manual:
+        if item in selected:
+            continue
+        selected.append(item)
+        used_buckets.add(_diversity_bucket(item))
+        if len(selected) >= limit:
+            return selected
+    for item in ranked:
+        if item in selected:
+            continue
+        bucket = _diversity_bucket(item)
+        if bucket in used_buckets and bucket != "unknown":
+            continue
+        selected.append(item)
+        used_buckets.add(bucket)
+        if len(selected) >= limit:
+            return selected
+    for item in ranked:
+        if item not in selected:
+            selected.append(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def select_media_highlights(
     media: Iterable[dict[str, Any]],
     *,
@@ -213,14 +263,20 @@ def select_media_highlights(
             continue
         burst_representatives.append(candidate)
 
-    selected = burst_representatives[: max(1, min(int(limit), 12))]
+    selection_limit = max(1, min(int(limit), 15))
+    selected = _diverse_selection(
+        burst_representatives,
+        limit=selection_limit,
+    )
     for position, item in enumerate(selected, start=1):
         item["highlight_position"] = position
-        item["selection_reason"] = (
-            "manuell gewählt"
-            if item.get("is_cover") or item.get("assignment_status") == "manual"
-            else "lokal vorausgewählt"
-        )
+        if item.get("is_cover") or item.get("assignment_status") == "manual":
+            reason = "manuell gewählt"
+        elif position == 1:
+            reason = "bestes lokales Titelbild nach Zuordnung, Qualität und Nähe"
+        else:
+            reason = "abwechslungsreiches Reisehighlight aus einem anderen Moment"
+        item["selection_reason"] = reason
 
     return selected, {
         "source_count": len(values),
@@ -231,10 +287,71 @@ def select_media_highlights(
     }
 
 
+def _ordered_from_curation(
+    items: list[dict[str, Any]],
+    local_selected: list[dict[str, Any]],
+    curation: dict[str, Any] | None,
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], str]:
+    """Apply a persisted semantic selection to known local candidates."""
+    by_id = {
+        _text(item.get("id")): item
+        for item in items
+        if _text(item.get("id"))
+    }
+    local_ids = [
+        _text(item.get("id"))
+        for item in local_selected
+        if _text(item.get("id")) in by_id
+    ]
+    manual_cover = next(
+        (
+            _text(item.get("id"))
+            for item in items
+            if item.get("is_cover") and _text(item.get("id"))
+        ),
+        "",
+    )
+    mode = "smart_local_metadata"
+    selected_ids: list[str] = []
+    if isinstance(curation, dict) and curation.get("status") == "ready":
+        for raw in list(curation.get("highlight_ids") or []):
+            image_id = _text(raw)
+            if image_id in by_id and image_id not in selected_ids:
+                selected_ids.append(image_id)
+            if len(selected_ids) >= limit:
+                break
+        if selected_ids:
+            mode = "hybrid_vision"
+    if manual_cover:
+        if manual_cover in selected_ids:
+            selected_ids.remove(manual_cover)
+        selected_ids.insert(0, manual_cover)
+        mode = "manual_cover+" + mode
+    for image_id in local_ids:
+        if image_id not in selected_ids:
+            selected_ids.append(image_id)
+        if len(selected_ids) >= limit:
+            break
+    if not selected_ids:
+        selected_ids = list(by_id)[:limit]
+    selected = [deepcopy(by_id[image_id]) for image_id in selected_ids[:limit]]
+    reasons = curation.get("reasons") if isinstance(curation, dict) and isinstance(curation.get("reasons"), dict) else {}
+    for position, item in enumerate(selected, start=1):
+        image_id = _text(item.get("id"))
+        item["highlight_position"] = position
+        if image_id in reasons:
+            item["selection_reason"] = _text(reasons[image_id])[:1_000]
+        item["selection_mode"] = mode
+    return selected, mode
+
+
 def build_featured_media_indexes(
     media: Iterable[dict[str, Any]],
     *,
     limit: int = 3,
+    curations: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build stable featured-media IDs for day and stop albums."""
     by_stop: dict[str, list[dict[str, Any]]] = {}
@@ -250,39 +367,65 @@ def build_featured_media_indexes(
 
     featured_by_stop: dict[str, list[str]] = {}
     featured_by_day: dict[str, list[str]] = {}
+    selection_mode_by_stop: dict[str, str] = {}
     stats = {
         "duplicate_count": 0,
         "burst_suppressed_count": 0,
         "featured_stop_count": 0,
         "featured_day_count": 0,
+        "vision_curated_stop_count": 0,
     }
+    curations = curations if isinstance(curations, dict) else {}
     for stop_id, items in by_stop.items():
-        selected, group_stats = select_media_highlights(items, limit=limit)
-        featured_by_stop[stop_id] = [_text(item.get("id")) for item in selected if _text(item.get("id"))]
+        local_selected, group_stats = select_media_highlights(items, limit=max(limit, 12))
+        selected, mode = _ordered_from_curation(
+            items,
+            local_selected,
+            curations.get(stop_id),
+            limit=limit,
+        )
+        featured_by_stop[stop_id] = [
+            _text(item.get("id")) for item in selected if _text(item.get("id"))
+        ]
+        selection_mode_by_stop[stop_id] = mode
         stats["duplicate_count"] += group_stats["duplicate_count"]
         stats["burst_suppressed_count"] += group_stats["burst_suppressed_count"]
         if selected:
             stats["featured_stop_count"] += 1
+        if "hybrid_vision" in mode:
+            stats["vision_curated_stop_count"] += 1
     for day_id, items in by_day.items():
         selected, _group_stats = select_media_highlights(items, limit=limit)
-        featured_by_day[day_id] = [_text(item.get("id")) for item in selected if _text(item.get("id"))]
+        featured_by_day[day_id] = [
+            _text(item.get("id")) for item in selected if _text(item.get("id"))
+        ]
         if selected:
             stats["featured_day_count"] += 1
 
     return {
         "featured_by_stop": featured_by_stop,
         "featured_by_day": featured_by_day,
+        "selection_mode_by_stop": selection_mode_by_stop,
         "stats": stats,
     }
 
 
-def build_media_presentation(media: Iterable[dict[str, Any]], *, limit: int = 3) -> dict[str, Any]:
+def build_media_presentation(
+    media: Iterable[dict[str, Any]],
+    *,
+    limit: int = 5,
+    curations: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Return the stable panel contract for personal travel-photo highlights."""
-    indexes = build_featured_media_indexes(media, limit=limit)
+    indexes = build_featured_media_indexes(
+        media,
+        limit=limit,
+        curations=curations,
+    )
     stop_highlights = indexes["featured_by_stop"]
     day_highlights = indexes["featured_by_day"]
     return {
-        "version": 1,
+        "version": 2,
         "stop_highlights": stop_highlights,
         "day_highlights": day_highlights,
         "stop_covers": {
@@ -296,6 +439,13 @@ def build_media_presentation(media: Iterable[dict[str, Any]], *, limit: int = 3)
             if values
         },
         "planning_day_covers": {},
+        "display_source_by_stop": {
+            key: "travel_images" for key, values in stop_highlights.items() if values
+        },
+        "display_source_by_day": {
+            key: "travel_images" for key, values in day_highlights.items() if values
+        },
+        "selection_mode_by_stop": indexes["selection_mode_by_stop"],
         "curation": indexes["stats"],
-        "selection_mode": "local_metadata",
+        "selection_mode": "hybrid_local_first",
     }

@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory() as tmp:
     result = store.upsert_destination_galleries("trip-1", [gallery])
     assert result == {"updated": 1, "total": 1}
     loaded = store.load("trip-1")
-    assert loaded["schema_version"] == 2
+    assert loaded["schema_version"] == 3
     assert loaded["destination_galleries"]["stop-1"]["primary_image_id"] == gallery["primary_image_id"]
     updated = store.update_destination_gallery(
         "trip-1",
@@ -139,6 +139,25 @@ with tempfile.TemporaryDirectory() as tmp:
         {"primary_image_id": gallery["images"][1]["id"]},
     )
     assert updated["primary_image_id"] == gallery["images"][1]["id"]
+    curation = store.upsert_media_curation(
+        "trip-1",
+        {
+            "stop_id": "stop-1",
+            "status": "ready",
+            "mode": "hybrid_vision",
+            "fingerprint": "abc",
+            "candidate_ids": ["photo-1", "photo-2"],
+            "cover_id": "photo-2",
+            "highlight_ids": ["photo-2", "photo-1"],
+            "reasons": {"photo-2": "best cover"},
+        },
+    )
+    assert curation["mode"] == "hybrid_vision"
+    assert store.load("trip-1")["media_curations"]["stop-1"]["cover_id"] == "photo-2"
+    first = store.reserve_vision_call("trip-1", "2026-07-23", 1)
+    second = store.reserve_vision_call("trip-1", "2026-07-23", 1)
+    assert first["reserved"] is True
+    assert second["reserved"] is False
     store.delete_destination_gallery("trip-1", "stop-1")
     assert store.load("trip-1")["destination_galleries"] == {}
 

@@ -162,7 +162,11 @@
           "onedrive_auto_assign": "Automatically assign photos by date and GPS",
           "onedrive_recursive": "Scan subfolders recursively",
           "onedrive_date_buffer_days": "Buffer before and after the trip (days)",
-          "onedrive_max_items_per_run": "Maximum OneDrive entries per run"
+          "onedrive_max_items_per_run": "Maximum OneDrive entries per run",
+          "media_curation_mode": "Photo highlight selection",
+          "media_vision_max_candidates": "Maximum locally preselected images per stop",
+          "media_vision_max_highlights": "Maximum highlights per stop",
+          "media_vision_daily_limit": "Maximum Gemini Vision selections per day"
         },
         "data_description": {
           "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
@@ -209,7 +213,11 @@
           "onedrive_auto_assign": "Uses photo capture time and GPS metadata to suggest or automatically create stop/day album assignments.",
           "onedrive_recursive": "Traverses subfolders. Year folders outside the trip window and hidden thumbnail folders are skipped.",
           "onedrive_date_buffer_days": "Roadplanner includes photos this many days before the trip starts and after it ends. Range: 0 to 30 days.",
-          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000."
+          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000.",
+          "media_curation_mode": "local keeps every image on-device and uses deterministic metadata quality, duplicate and burst filtering. hybrid performs the same local prefilter first and then sends only the bounded candidates to the configured Gemini model for semantic cover and highlight selection. Existing installations default to local until explicitly changed.",
+          "media_vision_max_candidates": "Maximum number of locally filtered thumbnails that may be sent in one hybrid Vision request. Range: 3 to 15. Recommended: 12.",
+          "media_vision_max_highlights": "Maximum cover/highlight selection shown for one stop. Range: 1 to 8. Recommended: 5.",
+          "media_vision_daily_limit": "Per-trip UTC daily limit for external Vision calls. Zero disables Vision calls. Repeated unchanged candidate sets are cached and do not consume another call. Recommended: 5."
         }
       }
     },

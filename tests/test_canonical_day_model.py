@@ -35,6 +35,8 @@ def stop(stop_id, name, position, stop_type="waypoint", *, lat=None, lon=None, a
         value["arrival_time"] = arrival
     if geocoding_status:
         value["details"] = {"geocoding": {"status": geocoding_status, "query": name}}
+    elif lat is not None and lon is not None:
+        value["details"] = {"place_profile": {"confirmed_at": "2026-07-20T08:00:00Z"}}
     return value
 
 
@@ -134,6 +136,8 @@ assert partial_model["missing_location_nodes"] == [
         "marker_label": "2",
         "inherited": False,
         "status": "missing",
+        "place_profile_status": "unreviewed",
+        "message": "Kartenpunkt und Ortsprofil fehlen",
         "query": "Apotheke",
     }
 ]
@@ -143,7 +147,27 @@ assert partial_model["route_complete"] is False
 assert partial_model["data_quality"] == {"sequence": "complete", "locations": "partial", "score": 67}
 assert partial_model["stops"][1]["location_status"] == "missing"
 assert partial_model["stops"][1]["location_requires_attention"] is True
-assert partial_model["stops"][1]["location_message"] == "GPS-Koordinaten fehlen"
+assert partial_model["stops"][1]["location_message"] == "Kartenpunkt und Ortsprofil fehlen"
+
+# A routable coordinate without a confirmed place profile remains visible as
+# an unreviewed place, while the physical route can still use it.
+coordinate_only = {
+    "id": "coordinate-only",
+    "name": "Nur GPS",
+    "position": 1,
+    "type": "waypoint",
+    "location": {"latitude": 59.4, "longitude": 24.7},
+}
+coordinate_only_model = module.canonical_day_model(
+    [{"id": "coordinate-only-day", "stops": [coordinate_only]}],
+    0,
+)
+assert coordinate_only_model["stops"][0]["location_status"] == "resolved"
+assert coordinate_only_model["stops"][0]["place_profile_status"] == "unreviewed"
+assert coordinate_only_model["stops"][0]["location_requires_attention"] is True
+assert coordinate_only_model["stops"][0]["location_message"] == "GPS vorhanden, Ortsprofil noch nicht bestätigt"
+assert coordinate_only_model["route_complete"] is True
+assert coordinate_only_model["location_complete"] is False
 
 # Coordinates with unresolved provider provenance remain routable but visible as
 # unverified location data.

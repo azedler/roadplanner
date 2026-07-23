@@ -147,6 +147,39 @@ ranked = module._deduplicate_and_rank(
 assert len(ranked) == 2
 assert ranked[0]["provider"] == "wikimedia_commons", "coordinate matches must rank first"
 assert all("score" in item for item in ranked)
+assert all("selection_score" in item for item in ranked)
+assert all("quality_score" in item for item in ranked)
+assert all("relevance_score" in item for item in ranked)
+assert all("selection_reason" in item for item in ranked)
+assert [item["rank"] for item in ranked] == [1, 2]
+
+# Representative landscape photos must outrank logos and near-identical results.
+logo = {
+    **openverse[0],
+    "id": "logo",
+    "title": "Hill of Crosses logo map poster",
+    "source_url": "https://example.org/photo/logo",
+    "original_url": "https://images.openverse.org/logo.jpg",
+    "width": 400,
+    "height": 400,
+}
+similar = {
+    **commons[0],
+    "id": "commons-similar",
+    "title": "Hill of Crosses near Domantai Lithuania panorama",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Hill_of_Crosses_panorama.jpg",
+    "original_url": "https://upload.wikimedia.org/panorama.jpg",
+}
+representative = module._deduplicate_and_rank(
+    [logo, commons[0], similar, openverse[0]],
+    query="Berg der Kreuze Domantai Litauen",
+    limit=4,
+)
+assert representative[0]["provider"] == "wikimedia_commons"
+assert representative[0]["selection_score"] > next(
+    item["selection_score"] for item in representative if item["id"] == "logo"
+)
+assert len(representative) == 4
 
 
 async def test_fail_open() -> None:
