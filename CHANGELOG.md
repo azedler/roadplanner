@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-07-23
+
 ### Added
 
 - Structured address parsing and controlled multi-variant Nominatim searches with explicit house, street, locality and mismatch quality levels.
