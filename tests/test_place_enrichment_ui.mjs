@@ -17,6 +17,15 @@ for (const required of [
   'OpenStreetMap',
   'Öffnungszeiten',
   'Vertrauen',
+  'use_ai_cleanup',
+  'manual_entries',
+  'cleanup_confirmations',
+  'data-action="place-enrichment-ai-retry"',
+  'data-action="place-manual-select"',
+  'data-action="place-cleanup-toggle"',
+  '__manual__',
+  'Die Zuordnung eines Reisetags war nicht eindeutig.',
+  'technicalMessage',
 ]) {
   if (!source.includes(required)) {
     throw new Error(`Missing place-enrichment UI contract: ${required}`);

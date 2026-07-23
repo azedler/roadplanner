@@ -43,6 +43,7 @@ from .experience_store import (
 from .geocoding import NominatimGeocoder
 from .manager import RoadplannerManager
 from .onedrive_media import OneDrivePersonalClient, normalize_onedrive_folder_path
+from .place_cleanup import PlaceCleanupService
 from .place_enrichment import PlaceEnrichmentService
 from .media_vision import (
     VISION_SELECTION_SCHEMA,
@@ -463,7 +464,11 @@ class RoadplannerExperienceManager:
         self.media_vision_max_highlights = max(1, min(int(media_vision_max_highlights), 8))
         self.media_vision_daily_limit = max(0, min(int(media_vision_daily_limit), 50))
         self.place_enrichment = (
-            PlaceEnrichmentService(geocoder, image_provider)
+            PlaceEnrichmentService(
+                geocoder,
+                image_provider,
+                cleanup_service=PlaceCleanupService(provider),
+            )
             if geocoder is not None and geocoder.enabled
             else None
         )
@@ -2116,6 +2121,7 @@ class RoadplannerExperienceManager:
         day_id: str | None = None,
         stop_id: str | None = None,
         limit: int = 20,
+        use_ai_cleanup: bool = False,
     ) -> dict[str, Any]:
         """Return a reviewable full-place preview for incomplete stops."""
         if self.place_enrichment is None:
@@ -2135,6 +2141,7 @@ class RoadplannerExperienceManager:
             day_id=day_id,
             stop_id=stop_id,
             limit=limit,
+            use_ai_cleanup=use_ai_cleanup,
         )
         return {
             "preview": preview,
@@ -2149,6 +2156,8 @@ class RoadplannerExperienceManager:
         trip_id: str,
         preview_id: str,
         selections: dict[str, str],
+        manual_entries: dict[str, dict[str, Any]] | None = None,
+        cleanup_confirmations: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         """Create one concrete, review-only ChangeSet from selected places."""
         if self.place_enrichment is None:
@@ -2165,6 +2174,8 @@ class RoadplannerExperienceManager:
             trip_id=trip_id,
             preview_id=preview_id,
             selections={str(key): str(value) for key, value in selections.items()},
+            manual_entries=manual_entries,
+            cleanup_confirmations=cleanup_confirmations,
         )
         summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
         trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}

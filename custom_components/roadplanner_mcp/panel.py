@@ -419,24 +419,44 @@ async def _execute_action(
             day_id=str(data.get("day_id") or "").strip() or None,
             stop_id=str(data.get("stop_id") or "").strip() or None,
             limit=_optional_int(data.get("limit")) or 20,
+            use_ai_cleanup=data.get("use_ai_cleanup") is True,
         )
 
     if action == "submit_place_enrichment":
         trip_id = str(data.get("trip_id") or "").strip()
         preview_id = str(data.get("preview_id") or "").strip()
         selections = data.get("selections")
+        manual_entries = data.get("manual_entries")
+        cleanup_confirmations = data.get("cleanup_confirmations")
         if not trip_id or not preview_id:
             raise ValidationError(
                 "Reise und Ortsvorschau werden für die Übergabe benötigt"
             )
         if not isinstance(selections, dict):
             raise ValidationError("Die ausgewählten Orte sind unvollständig")
+        if manual_entries is not None and not isinstance(manual_entries, dict):
+            raise ValidationError("Die manuellen Ortsdaten sind ungültig")
+        if cleanup_confirmations is not None and not isinstance(
+            cleanup_confirmations, dict
+        ):
+            raise ValidationError("Die KI-Bestätigungen sind ungültig")
+        safe_manual_entries = {
+            str(key): value
+            for key, value in (manual_entries or {}).items()
+            if isinstance(value, dict)
+        }
+        safe_cleanup_confirmations = {
+            str(key): value is True
+            for key, value in (cleanup_confirmations or {}).items()
+        }
         return await runtime.experience.async_submit_place_enrichment(
             user_id=user_id,
             actor=actor,
             trip_id=trip_id,
             preview_id=preview_id,
             selections={str(key): str(value) for key, value in selections.items()},
+            manual_entries=safe_manual_entries,
+            cleanup_confirmations=safe_cleanup_confirmations,
         )
 
     if action == "assistant_test":
