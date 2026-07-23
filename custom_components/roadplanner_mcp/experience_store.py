@@ -20,17 +20,19 @@ import uuid
 
 from .roadplanner import StorageError, ValidationError, validate_identifier
 
-EXPERIENCE_SCHEMA_VERSION = 2
+EXPERIENCE_SCHEMA_VERSION = 3
 MAX_DECISIONS_PER_TRIP = 250
 MAX_MEDIA_PER_TRIP = 20_000
 MAX_OPTIONS_PER_DECISION = 5
 MAX_DESTINATION_GALLERIES_PER_TRIP = 2_000
 MAX_DESTINATION_IMAGES_PER_GALLERY = 3
+MAX_MEDIA_CURATIONS_PER_TRIP = 2_000
 
 _DECISION_STATUS = frozenset({"draft", "open", "selected", "transferred", "archived"})
 _ASSIGNMENT_STATUS = frozenset({"automatic", "suggested", "manual", "unassigned"})
 _MEDIA_TYPES = frozenset({"photo", "video"})
 _GALLERY_STATUS = frozenset({"ready", "empty", "partial", "error"})
+_CURATION_STATUS = frozenset({"ready", "local", "disabled", "quota_limited", "error"})
 
 
 def utc_now_iso() -> str:
@@ -129,10 +131,17 @@ def _normalize_image(value: Any) -> dict[str, Any]:
         )
         if (text := _clean(source.get(key), 2_000))
     }
-    for key in ("width", "height"):
+    for key in ("width", "height", "rank"):
         raw = source.get(key)
         if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
             result[key] = raw
+    for key in ("selection_score", "quality_score", "relevance_score"):
+        raw = source.get(key)
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            result[key] = round(float(raw), 3)
+    reason = _clean(source.get("selection_reason"), 1_000)
+    if reason:
+        result["selection_reason"] = reason
     return result
 
 
@@ -175,10 +184,68 @@ def normalize_destination_gallery(raw: dict[str, Any]) -> dict[str, Any]:
         "images": images,
         "primary_image_id": primary_image_id or None,
         "provider_errors": _json_safe(provider_errors),
+        "curation": _json_safe(raw.get("curation") if isinstance(raw.get("curation"), dict) else {}),
         "attempted_at": _clean(raw.get("attempted_at"), 100) or utc_now_iso(),
         "updated_at": _clean(raw.get("updated_at"), 100) or utc_now_iso(),
     }
 
+
+
+def normalize_media_curation(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one persisted semantic selection for personal travel photos."""
+    stop_id = validate_identifier(raw.get("stop_id"), "media_curation.stop_id")
+    status = str(raw.get("status") or "local")
+    if status not in _CURATION_STATUS:
+        status = "local"
+    candidate_ids = [
+        value
+        for item in list(raw.get("candidate_ids") or [])[:15]
+        if (value := _clean(item, 300))
+    ]
+    allowed = set(candidate_ids)
+    highlights: list[str] = []
+    for item in list(raw.get("highlight_ids") or [])[:8]:
+        value = _clean(item, 300)
+        if value and (not allowed or value in allowed) and value not in highlights:
+            highlights.append(value)
+    cover_id = _clean(raw.get("cover_id"), 300)
+    if cover_id and allowed and cover_id not in allowed:
+        cover_id = ""
+    if cover_id and cover_id not in highlights:
+        highlights.insert(0, cover_id)
+    if not cover_id and highlights:
+        cover_id = highlights[0]
+    reasons_raw = raw.get("reasons") if isinstance(raw.get("reasons"), dict) else {}
+    reasons = {
+        key: _clean(value, 1_000)
+        for key, value in reasons_raw.items()
+        if isinstance(key, str)
+        and key in set(highlights + list(allowed))
+        and _clean(value, 1_000)
+    }
+    usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+    return {
+        "stop_id": stop_id,
+        "kind": "travel",
+        "status": status,
+        "fingerprint": _clean(raw.get("fingerprint"), 200),
+        "selection_version": max(1, int(raw.get("selection_version") or 1)),
+        "mode": _clean(raw.get("mode"), 80) or "local",
+        "model": _clean(raw.get("model"), 200) or None,
+        "candidate_ids": candidate_ids,
+        "cover_id": cover_id or None,
+        "highlight_ids": highlights,
+        "rejected_ids": [
+            value
+            for item in list(raw.get("rejected_ids") or [])[:15]
+            if (value := _clean(item, 300)) and (not allowed or value in allowed)
+        ],
+        "reasons": reasons,
+        "summary": _clean(raw.get("summary"), 2_000),
+        "usage": _json_safe(usage),
+        "selected_at": _clean(raw.get("selected_at"), 100) or utc_now_iso(),
+        "error": _clean(raw.get("error"), 1_000) or None,
+    }
 
 def resolve_decision_media_references(
     decisions: list[dict[str, Any]],
@@ -384,6 +451,8 @@ class ExperienceStore:
             "decisions": [],
             "media": [],
             "media_sync": {},
+            "media_curations": {},
+            "vision_usage": {},
             "destination_galleries": {},
         }
 
@@ -429,6 +498,20 @@ class ExperienceStore:
                 galleries[gallery["stop_id"]] = gallery
                 if len(galleries) >= MAX_DESTINATION_GALLERIES_PER_TRIP:
                     break
+
+        curations: dict[str, dict[str, Any]] = {}
+        raw_curations = raw.get("media_curations")
+        if isinstance(raw_curations, dict):
+            for stop_id, item in raw_curations.items():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    curation = normalize_media_curation({**item, "stop_id": stop_id})
+                except ValidationError:
+                    continue
+                curations[curation["stop_id"]] = curation
+                if len(curations) >= MAX_MEDIA_CURATIONS_PER_TRIP:
+                    break
         return {
             "schema_version": EXPERIENCE_SCHEMA_VERSION,
             "trip_id": trip_id,
@@ -436,6 +519,8 @@ class ExperienceStore:
             "decisions": decisions[:MAX_DECISIONS_PER_TRIP],
             "media": media[:MAX_MEDIA_PER_TRIP],
             "media_sync": _json_safe(raw.get("media_sync") if isinstance(raw.get("media_sync"), dict) else {}),
+            "media_curations": curations,
+            "vision_usage": _json_safe(raw.get("vision_usage") if isinstance(raw.get("vision_usage"), dict) else {}),
             "destination_galleries": galleries,
         }
 
@@ -581,6 +666,48 @@ class ExperienceStore:
                 return
             state["destination_galleries"].pop(stop_id, None)
             self.write(state)
+
+
+    def upsert_media_curation(
+        self,
+        trip_id: str,
+        curation: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._lock:
+            state = self.load(trip_id)
+            normalized = normalize_media_curation(curation)
+            state.setdefault("media_curations", {})[normalized["stop_id"]] = normalized
+            self.write(state)
+            return deepcopy(normalized)
+
+    def delete_media_curation(self, trip_id: str, stop_id: str) -> None:
+        with self._lock:
+            state = self.load(trip_id)
+            stop_id = validate_identifier(stop_id, "stop_id")
+            state.setdefault("media_curations", {}).pop(stop_id, None)
+            self.write(state)
+
+    def reserve_vision_call(
+        self,
+        trip_id: str,
+        day_key: str,
+        daily_limit: int,
+    ) -> dict[str, Any]:
+        """Atomically reserve one bounded Vision call for this trip and UTC day."""
+        with self._lock:
+            state = self.load(trip_id)
+            usage = state.get("vision_usage") if isinstance(state.get("vision_usage"), dict) else {}
+            if str(usage.get("date") or "") != day_key:
+                usage = {"date": day_key, "count": 0}
+            count = max(0, int(usage.get("count") or 0))
+            limit = max(0, int(daily_limit))
+            if limit <= 0 or count >= limit:
+                return {"reserved": False, "date": day_key, "count": count, "limit": limit}
+            usage["count"] = count + 1
+            usage["updated_at"] = utc_now_iso()
+            state["vision_usage"] = usage
+            self.write(state)
+            return {"reserved": True, "date": day_key, "count": count + 1, "limit": limit}
 
     def update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:

@@ -6,6 +6,33 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-23
+
+### Added
+
+- Reviewable full-place enrichment for incomplete stops, including candidate name, address, coordinates, category, website, phone, e-mail, opening hours, source, map link, confidence and up to three planning images.
+- Direct review-only ChangeSet creation from explicitly selected place candidates, without routing the selected values through Gemini again.
+- Smart local best-of selection for personal OneDrive photos with duplicate collapse, burst suppression, screenshot penalties and time-diverse highlights.
+- Optional hybrid Gemini Vision curation after deterministic local preselection, with bounded candidates, structured image-ID selection and manual-cover priority.
+- Semantic selection for representative planning-image covers and personal OneDrive travel-photo highlights.
+- Persistent media-curation fingerprints and per-trip daily Vision limits to avoid repeated external analysis of unchanged candidate sets.
+
+### Changed
+
+- Travel integrity evaluates confirmed place profiles instead of treating coordinates alone as a fully complete stop.
+- The former GPS-only repair flow is replaced by “Orte vervollständigen”, so users confirm the actual place rather than isolated coordinates.
+- Planning-image ranking now separates relevance and technical quality, penalizes logos/maps/posters and prefers diverse representative photos.
+- Stop and day presentation explicitly prefers personal `travel_images` after a visit and falls back to attributed `planning_images` before it.
+- Media curation defaults to local-only for existing installations; hybrid Vision must be enabled explicitly in Roadplanner options.
+- Planning-image and travel-photo galleries label whether selection is local or Vision-curated.
+
+### Fixed
+
+- Place-completion drafts now contain the selected coordinates and place details instead of empty update operations.
+- A rejected or unavailable image provider no longer prevents another provider or the place profile from being reviewed.
+- Coordinate-only stops remain routable but are visibly flagged until their place identity has been confirmed.
+- Any Gemini Vision timeout, invalid output, unavailable thumbnail or exhausted daily limit now keeps the deterministic local best-of selection instead of blocking the stop or album.
+
 ## [3.2.1] - 2026-07-22
 
 ### Changed

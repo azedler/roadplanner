@@ -177,3 +177,28 @@ Schedule times remain descriptive and are not integrity or ordering inputs. Repa
 Planning images are enriched by a bounded backend scheduler for the active trip. The scheduler prioritizes current and upcoming days, skips stops with personal OneDrive media, persists provider results, and isolates provider failures. The panel may start one small best-effort batch for immediate visible content, but no longer scans the whole trip on each load.
 
 Release publication is triggered by the merge commit reaching `main`. The GitHub workflow validates that exact commit, builds artifacts, creates an immutable lower-case tag and release, and fast-forwards `develop` only when no unpublished work would be overwritten.
+## Complete places and Vision smart media (3.4)
+
+A stop is considered location-complete only after the user confirms a concrete place profile. Coordinates alone remain useful for routing, but they are not sufficient proof that the intended terminal, campsite, pharmacy, restaurant or attraction was selected.
+
+The place-enrichment path is:
+
+```text
+Incomplete stop
+→ conservative Nominatim candidates
+→ representative planning images
+→ explicit user selection
+→ concrete review-only ChangeSet
+→ normal Roadplanner apply path
+```
+
+The selected coordinates and place metadata are inserted into the ChangeSet directly by the server. They are not translated through Gemini again. The profile stores provider provenance, source URL, confidence and available public contact/opening information.
+
+Media presentation keeps two independent collections:
+
+```text
+planning_images  → attributed external preview before the visit
+travel_images    → personal OneDrive memories after the visit
+```
+
+The UI automatically prefers curated personal travel photos when available. Planning images remain stored and can still be inspected. Local curation uses deterministic metadata, duplicate collapse, burst suppression, screenshot penalties, assignment confidence, distance, dimensions and time diversity. Optional semantic/Vision curation operates only on this reduced candidate set and never on the complete unfiltered album. The default mode remains local-only. In hybrid mode Roadplanner sends bounded thumbnails plus opaque Roadplanner media IDs to the configured Gemini model, validates the structured selection, caches it by candidate fingerprint, and falls back to the deterministic local order after any timeout, quota or provider error. Manual cover choices always have priority and no provider file is deleted or changed.

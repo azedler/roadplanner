@@ -20,17 +20,23 @@ assert 'operation["position"] = insert_at + 1' in assistant
 assert "Zeiten beschreiben nur den Tagesablauf und dürfen niemals zur Sortierung" in prompt
 assert "Jede neue Stoppoperation enthält eine positive position" in prompt
 
-# GPS completion remains review-only and uses existing geocoding enrichment.
-assert "async_add_location_drafts" in assistant
-assert "async_add_trip_location_drafts" in assistant
-assert "_build_location_drafts" in assistant
-assert '"action": "update"' in assistant
-assert '"place_query": place_query' in assistant
-assert 'stop.get("_source_day_id") if stop.get("_inherited") else day_id' in assistant
-assert '"assistant_prepare_locations"' in panel
-assert '"assistant_prepare_trip_locations"' in panel
+# Place completion remains review-only, keeps existing IDs and submits concrete
+# selected profiles through the normal handoff/ChangeSet path.
+experience = (ROOT / "experience_manager.py").read_text(encoding="utf-8")
+place_enrichment = (ROOT / "place_enrichment.py").read_text(encoding="utf-8")
+assert "async_prepare_place_enrichment" in experience
+assert "async_submit_place_enrichment" in experience
+assert "async_ingest_external_changeset" in experience
+assert '"action": "update"' in place_enrichment
+assert '"entity_type": "stop"' in place_enrichment
+assert '"location": deepcopy(candidate.get("location") or {})' in place_enrichment
+assert '"place_profile"' in place_enrichment
+assert 'stop.get("_source_day_id") if stop.get("_inherited") else day.get("id")' in place_enrichment
+assert '"prepare_place_enrichment"' in panel
+assert '"submit_place_enrichment"' in panel
 assert 'data-action="complete-day-locations"' in frontend
-assert "GPS prüfen/ergänzen" in frontend
+assert "Orte vervollständigen" in frontend
 assert 'data-action="integrity-prepare-locations"' in frontend
+assert 'data-action="complete-stop-place"' in frontend
 
 print("Canonical day plan integrity contract tests passed.")

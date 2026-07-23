@@ -17,6 +17,17 @@ class AssistantSource:
         return {"title": self.title, "url": self.url}
 
 
+
+
+@dataclass(slots=True)
+class AssistantImageInput:
+    """One bounded image supplied to a multimodal provider call."""
+
+    image_id: str
+    data: bytes
+    mime_type: str
+    label: str = ""
+
 @dataclass(slots=True)
 class AssistantTextResult:
     """Natural-language result plus optional grounding and call diagnostics."""
@@ -79,6 +90,18 @@ class AssistantProvider(Protocol):
         temperature: float = 0.1,
     ) -> AssistantJsonResult:
         """Generate one JSON object plus provider metadata."""
+
+
+    async def async_analyze_images(
+        self,
+        *,
+        system_instruction: str,
+        prompt: str,
+        images: list[AssistantImageInput],
+        schema: dict[str, Any],
+        max_output_tokens: int = 4096,
+    ) -> AssistantJsonResult:
+        """Analyze several locally preselected images and return JSON."""
 
     async def async_generate_json(
         self,

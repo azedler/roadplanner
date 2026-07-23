@@ -27,6 +27,7 @@ parking = {
     "position": 1,
     "type": "parking",
     "location": {"latitude": 59.4, "longitude": 24.7},
+    "details": {"place_profile": {"confirmed_at": "2026-07-22T08:00:00Z"}},
 }
 pharmacy = {
     "id": "pharmacy",
@@ -42,6 +43,7 @@ ferry = {
     "type": "ferry",
     "arrival_time": "19:30",
     "location": {"latitude": 59.45, "longitude": 24.76},
+    "details": {"place_profile": {"confirmed_at": "2026-07-22T08:00:00Z"}},
 }
 camp = {
     "id": "camp",
@@ -111,6 +113,37 @@ assert any(item["code"] == "location_unverified" and item["stop_id"] == "camp" f
 assert any(item["code"] == "visual_missing" and item["stop_id"] == "pharmacy" for item in report["issues"])
 # Missing schedule times remain informational and do not create integrity issues.
 assert not any(item["category"] == "schedule" for item in report["issues"])
+
+# Coordinates alone remain routable, but do not count as a fully reviewed place.
+unreviewed = {
+    "id": "unreviewed",
+    "name": "Koordinatenpunkt",
+    "position": 1,
+    "type": "waypoint",
+    "location": {"latitude": 58.0, "longitude": 24.0},
+}
+unreviewed_report = module.build_travel_integrity([
+    {
+        "id": "day-unreviewed",
+        "date": "2026-07-25",
+        "title": "Noch zu prüfender Ort",
+        "stops": [unreviewed],
+        "canonical": {
+            "stops": [unreviewed],
+            "route_nodes": [unreviewed],
+            "coordinate_count": 1,
+            "missing_coordinate_count": 0,
+        },
+        "routing": {"status": "not_required"},
+    }
+])
+assert unreviewed_report["stats"]["unreviewed_place_count"] == 1
+assert unreviewed_report["stats"]["repairable_location_count"] == 1
+assert any(
+    item["code"] == "place_profile_unreviewed"
+    and item["stop_id"] == "unreviewed"
+    for item in unreviewed_report["issues"]
+)
 
 empty_report = module.build_travel_integrity([])
 assert empty_report["status"] == "incomplete"

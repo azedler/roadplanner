@@ -162,7 +162,11 @@
           "onedrive_auto_assign": "Fotos automatisch nach Datum und GPS zuordnen",
           "onedrive_recursive": "Unterordner rekursiv durchsuchen",
           "onedrive_date_buffer_days": "Puffer vor und nach der Reise (Tage)",
-          "onedrive_max_items_per_run": "Maximale OneDrive-Einträge je Lauf"
+          "onedrive_max_items_per_run": "Maximale OneDrive-Einträge je Lauf",
+          "media_curation_mode": "Auswahl der Foto-Highlights",
+          "media_vision_max_candidates": "Maximal lokal vorausgewählte Bilder je Stopp",
+          "media_vision_max_highlights": "Maximale Highlights je Stopp",
+          "media_vision_daily_limit": "Maximale Gemini-Vision-Auswahlen pro Tag"
         },
         "data_description": {
           "roadbook_path": "Pfad relativ zu /config. Standard: www/roadbook. active_trip.json bleibt der Zeiger auf die aktive Reise.",
@@ -209,7 +213,11 @@
           "onedrive_auto_assign": "Ordnet Fotos anhand von Aufnahmezeit und GPS automatisch oder als prüfbaren Vorschlag einem Tag und Stopp zu.",
           "onedrive_recursive": "Durchsucht Unterordner. Jahresordner außerhalb des Reisezeitraums und versteckte Vorschaubildordner werden übersprungen.",
           "onedrive_date_buffer_days": "Roadplanner berücksichtigt Fotos in diesem Zeitraum vor Reisebeginn und nach Reiseende. Bereich: 0 bis 30 Tage.",
-          "onedrive_max_items_per_run": "Begrenzt die Metadateneinträge pro Synchronisationslauf. Große Archive werden automatisch über mehrere Läufe fortgesetzt. Bereich: 100 bis 5000."
+          "onedrive_max_items_per_run": "Begrenzt die Metadateneinträge pro Synchronisationslauf. Große Archive werden automatisch über mehrere Läufe fortgesetzt. Bereich: 100 bis 5000.",
+          "media_curation_mode": "local verarbeitet Bilder ausschließlich lokal anhand von Metadaten, Qualität, Dubletten und Serien. hybrid führt dieselbe lokale Vorauswahl zuerst aus und sendet anschließend nur die begrenzten Kandidaten an das konfigurierte Gemini-Modell, um Titelbild und Highlights semantisch auszuwählen. Bestehende Installationen bleiben bis zur ausdrücklichen Umstellung auf local.",
+          "media_vision_max_candidates": "Maximale Zahl lokal gefilterter Vorschaubilder pro hybrider Vision-Anfrage. Bereich: 3 bis 15. Empfehlung: 12.",
+          "media_vision_max_highlights": "Maximale Zahl von Titelbild und Highlights pro Stopp. Bereich: 1 bis 8. Empfehlung: 5.",
+          "media_vision_daily_limit": "UTC-Tageslimit je Reise für externe Vision-Aufrufe. Null deaktiviert Vision-Aufrufe. Unveränderte Kandidatensätze werden nicht erneut analysiert. Empfehlung: 5."
         }
       }
     },

@@ -28,6 +28,7 @@ from .const import INTEGRATION_VERSION
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import (
+    AssistantImageInput,
     AssistantJsonResult,
     AssistantSource,
     AssistantTextResult,
@@ -1096,6 +1097,182 @@ class GeminiClient:
             diagnostics=diagnostics,
         )
 
+
+
+    async def async_analyze_images(
+        self,
+        *,
+        system_instruction: str,
+        prompt: str,
+        images: list[AssistantImageInput],
+        schema: dict[str, Any],
+        max_output_tokens: int = 4096,
+    ) -> AssistantJsonResult:
+        """Analyze several bounded image thumbnails after local preselection.
+
+        The caller is responsible for local duplicate/quality filtering before
+        invoking this method. Image IDs are included as adjacent text parts so
+        the model can return stable references without inventing filenames.
+        """
+        if not isinstance(images, list) or not images:
+            raise ValidationError("Für die Bildauswahl fehlen Kandidaten")
+        if len(images) > 15:
+            raise ValidationError("Für eine Bildauswahl sind maximal 15 Kandidaten erlaubt")
+
+        normalized: list[AssistantImageInput] = []
+        total_bytes = 0
+        seen_ids: set[str] = set()
+        for item in images:
+            if not isinstance(item, AssistantImageInput):
+                raise ValidationError("Bildkandidat hat ein ungültiges Format")
+            image_id = str(item.image_id or "").strip()[:300]
+            mime_type = str(item.mime_type or "").strip().casefold()
+            if not image_id or image_id in seen_ids:
+                raise ValidationError("Bildkandidaten benötigen eindeutige IDs")
+            if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+                raise ValidationError(f"Nicht unterstütztes Bildformat: {mime_type or 'unbekannt'}")
+            data = bytes(item.data or b"")
+            if not data:
+                continue
+            if len(data) > 1_500_000:
+                raise ValidationError("Ein Bildkandidat ist für die Vision-Auswahl zu groß")
+            total_bytes += len(data)
+            if total_bytes > 10_000_000:
+                raise ValidationError("Die Vision-Auswahl überschreitet das sichere Bildlimit")
+            seen_ids.add(image_id)
+            normalized.append(
+                AssistantImageInput(
+                    image_id=image_id,
+                    data=data,
+                    mime_type=mime_type,
+                    label=str(item.label or "").strip()[:1_000],
+                )
+            )
+        if not normalized:
+            raise ValidationError("Für die Bildauswahl konnten keine Bilddaten geladen werden")
+
+        def content_parts(extra_instruction: str = "") -> list[dict[str, Any]]:
+            parts: list[dict[str, Any]] = [
+                {
+                    "text": (
+                        str(prompt or "").strip()
+                        + ("\n\n" + extra_instruction if extra_instruction else "")
+                        + "\n\nVerwende ausschließlich die folgenden Bild-IDs."
+                    )
+                }
+            ]
+            for index, item in enumerate(normalized, start=1):
+                parts.append(
+                    {
+                        "text": (
+                            f"Bild {index} · ID: {item.image_id}"
+                            + (f" · Kontext: {item.label}" if item.label else "")
+                        )
+                    }
+                )
+                parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": item.mime_type,
+                            "data": base64.b64encode(item.data).decode("ascii"),
+                        }
+                    }
+                )
+            return parts
+
+        def body_for_model(model: str) -> list[BodyVariant]:
+            max_tokens = max(256, min(int(max_output_tokens), 16_384))
+            base_config: dict[str, Any] = {
+                "maxOutputTokens": max_tokens,
+                "responseMimeType": "application/json",
+            }
+            if not model.casefold().startswith("gemini-3"):
+                base_config["temperature"] = 0.1
+            base = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"role": "user", "parts": content_parts()}],
+            }
+            return [
+                (
+                    "vision_schema",
+                    {
+                        **base,
+                        "generationConfig": {
+                            **base_config,
+                            "responseJsonSchema": self._supported_schema(schema),
+                        },
+                    },
+                ),
+                (
+                    "vision_json_mime",
+                    {
+                        "systemInstruction": base["systemInstruction"],
+                        "contents": [
+                            {
+                                "role": "user",
+                                "parts": content_parts(
+                                    "Antworte ausschließlich mit genau einem gültigen JSON-Objekt."
+                                ),
+                            }
+                        ],
+                        "generationConfig": base_config,
+                    },
+                ),
+            ]
+
+        payload, diagnostics = await self._post(
+            body_for_model,
+            search_requested=False,
+        )
+        candidate = self._candidate(payload)
+        text = self._text(candidate)
+        usage = self._usage(payload)
+        model_version = str(payload.get("modelVersion") or "") or None
+        try:
+            value, normalization = parse_structured_object(text, schema)
+        except StructuredOutputError:
+            try:
+                value, repair_diagnostics, repair_usage, repair_model = (
+                    await self._repair_structured_output(
+                        invalid_text=text,
+                        schema=schema,
+                        max_output_tokens=max_output_tokens,
+                    )
+                )
+            except (StructuredOutputError, GeminiApiError) as repair_err:
+                raise GeminiApiError(
+                    "Gemini hat keine zuverlässig lesbare Bildauswahl geliefert.",
+                    code="invalid_vision_output",
+                    provider_detail=str(repair_err)[:500],
+                ) from repair_err
+            diagnostics = {
+                **diagnostics,
+                "structured_output_repaired": True,
+                "structured_output_normalization": repair_diagnostics.get(
+                    "structured_output_normalization", "repair_object"
+                ),
+            }
+            usage = self._merge_usage(usage, repair_usage)
+            model_version = repair_model or model_version
+        else:
+            diagnostics = {
+                **diagnostics,
+                "structured_output_repaired": False,
+                "structured_output_normalization": normalization,
+            }
+        diagnostics.update(
+            {
+                "vision_image_count": len(normalized),
+                "vision_input_bytes": total_bytes,
+            }
+        )
+        return AssistantJsonResult(
+            value=value,
+            sources=[],
+            model_version=model_version,
+            usage=usage,
+            diagnostics=diagnostics,
+        )
 
     async def async_analyze_binary(
         self,

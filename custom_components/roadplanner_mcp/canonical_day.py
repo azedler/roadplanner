@@ -122,16 +122,28 @@ def _location_query(stop: Any) -> str:
 
 def _decorate_location_state(stop: dict[str, Any]) -> dict[str, Any]:
     status = location_status(stop)
+    details = stop.get("details") if isinstance(stop.get("details"), dict) else {}
+    place_profile = (
+        details.get("place_profile")
+        if isinstance(details.get("place_profile"), dict)
+        else {}
+    )
+    place_confirmed = bool(_text(place_profile.get("confirmed_at")))
     stop["location_status"] = status
     stop["has_coordinates"] = _coordinate(stop) is not None
     stop["location_query"] = _location_query(stop)
-    stop["location_requires_attention"] = status != "resolved"
-    stop["location_message"] = {
-        "resolved": "GPS vorhanden",
-        "unverified": "GPS vorhanden, aber noch nicht bestätigt",
-        "ambiguous": "GPS-Zuordnung ist mehrdeutig",
-        "missing": "GPS-Koordinaten fehlen",
-    }[status]
+    stop["place_profile_status"] = "confirmed" if place_confirmed else "unreviewed"
+    stop["location_requires_attention"] = status != "resolved" or not place_confirmed
+    if status == "resolved" and not place_confirmed:
+        message = "GPS vorhanden, Ortsprofil noch nicht bestätigt"
+    else:
+        message = {
+            "resolved": "Ort und GPS bestätigt",
+            "unverified": "GPS vorhanden, aber noch nicht bestätigt",
+            "ambiguous": "Ortszuordnung ist mehrdeutig",
+            "missing": "Kartenpunkt und Ortsprofil fehlen",
+        }[status]
+    stop["location_message"] = message
     return stop
 
 
@@ -317,11 +329,19 @@ def canonical_day_model(
         "ambiguous": 0,
         "missing": 0,
     }
+    place_profile_counts = {
+        "confirmed": 0,
+        "unreviewed": 0,
+    }
     for node in route_nodes:
         status = _text(node.get("location_status")) or location_status(node)
         if status not in location_counts:
             status = "missing"
         location_counts[status] += 1
+        place_status = _text(node.get("place_profile_status")) or "unreviewed"
+        if place_status not in place_profile_counts:
+            place_status = "unreviewed"
+        place_profile_counts[place_status] += 1
 
     def location_node_payload(node: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -331,6 +351,8 @@ def canonical_day_model(
             "marker_label": node.get("marker_label"),
             "inherited": bool(node.get("_inherited")),
             "status": _text(node.get("location_status")) or location_status(node),
+            "place_profile_status": _text(node.get("place_profile_status")) or "unreviewed",
+            "message": _text(node.get("location_message")),
             "query": _text(node.get("location_query")) or _location_query(node),
         }
 
@@ -342,10 +364,11 @@ def canonical_day_model(
     location_attention_nodes = [
         location_node_payload(node)
         for node in route_nodes
-        if (
-            _text(node.get("location_status")) or location_status(node)
-        ) != "resolved"
+        if bool(node.get("location_requires_attention"))
     ]
+    confirmed_location_count = sum(
+        1 for node in route_nodes if not bool(node.get("location_requires_attention"))
+    )
     stop_ids = [
         _text(stop.get("id"))
         for stop in roadbook_stops
@@ -394,6 +417,7 @@ def canonical_day_model(
         "coordinate_count": len(map_nodes),
         "missing_coordinate_count": len(missing_location_nodes),
         "location_counts": location_counts,
+        "place_profile_counts": place_profile_counts,
         "missing_location_nodes": missing_location_nodes,
         "location_attention_nodes": location_attention_nodes,
         "location_complete": not location_attention_nodes,
@@ -410,7 +434,7 @@ def canonical_day_model(
             "score": (
                 100
                 if not route_nodes
-                else round(100 * location_counts["resolved"] / len(route_nodes))
+                else round(100 * confirmed_location_count / len(route_nodes))
             ),
         },
         "warnings": warnings,

@@ -58,6 +58,25 @@ presentation = module.build_media_presentation(media, limit=3)
 assert presentation["stop_covers"]["stop-1"] == "cover"
 assert presentation["day_covers"]["day-1"] == "cover"
 assert len(presentation["stop_highlights"]["stop-1"]) == 3
-assert presentation["selection_mode"] == "local_metadata"
+assert presentation["selection_mode"] == "hybrid_local_first"
+assert presentation["display_source_by_stop"]["stop-1"] == "travel_images"
+assert presentation["display_source_by_day"]["day-1"] == "travel_images"
+assert all(item.get("selection_reason") for item in selected)
+# The diversity pass must not pick all highlights from the same short moment.
+selected_times = {item.get("taken_at") for item in selected}
+assert len(selected_times) >= 2
+
+curation = {
+    "stop-1": {
+        "status": "ready",
+        "highlight_ids": ["portrait", "cover", "duplicate-a"],
+        "cover_id": "portrait",
+        "reasons": {"portrait": "abwechslungsreiches eigenes Reisefoto"},
+    }
+}
+vision_presentation = module.build_media_presentation(media, limit=3, curations=curation)
+assert vision_presentation["stop_covers"]["stop-1"] == "cover", "manual cover must override Vision"
+assert "hybrid_vision" in vision_presentation["selection_mode_by_stop"]["stop-1"]
+assert vision_presentation["curation"]["vision_curated_stop_count"] == 1
 
 print("Media intelligence tests passed.")

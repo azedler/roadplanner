@@ -46,6 +46,20 @@
 - Automatic GitHub release creation after the release PR merge.
 - Automatic safe synchronization of `develop` after publication.
 
+## Prepared for Roadplanner 3.4.0 — Complete Places & Vision Smart Media
+
+- Full place profiles with address, coordinates, category, source, confidence, contact/opening information and planning-image previews.
+- Explicit candidate selection before a review-only ChangeSet is created.
+- Concrete place values bypass a second Gemini transformation.
+- Travel integrity distinguishes routable coordinates from confirmed place identity.
+- Smart planning-image ranking and diversity across Wikimedia Commons/Openverse.
+- Deterministic OneDrive best-of selection with duplicate, burst and screenshot reduction.
+- Automatic display policy: planning images before the visit, personal travel images after the visit.
+- Local metadata, duplicate, burst and screenshot filtering always runs before Vision.
+- Optional Gemini Vision selection receives at most a bounded thumbnail candidate set.
+- Cached candidate fingerprints prevent repeated billing for unchanged albums.
+- Manual cover choices win; provider failures and quota exhaustion fall back to local selection.
+
 ## Next — correctness
 
 ## Next — planning UX

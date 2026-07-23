@@ -554,6 +554,63 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
+  async _preparePlaceEnrichment({ dayId = "", stopId = "" } = {}) {
+    const retry = () => this._preparePlaceEnrichment({ dayId, stopId });
+    const result = await this._runAction("prepare_place_enrichment", {
+      trip_id: this._selectedTripId,
+      day_id: cleanText(dayId),
+      stop_id: cleanText(stopId),
+      limit: stopId ? 1 : (dayId ? 12 : 20),
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "Ortsprofile konnten nicht vorbereitet werden",
+      retry,
+    });
+    const preview = result?.preview;
+    if (!preview || !Array.isArray(preview.items)) return null;
+    const selections = {};
+    for (const item of preview.items) {
+      const stopIdValue = cleanText(item?.current?.stop_id);
+      const candidateId = cleanText(item?.selected_candidate_id);
+      if (stopIdValue && candidateId) selections[stopIdValue] = candidateId;
+    }
+    if (result.experience && this._data) {
+      this._data = { ...this._data, experience: result.experience };
+    }
+    this._dialog = {
+      type: "place-enrichment",
+      preview,
+      selections,
+    };
+    this._render({ preserveScroll: true });
+    return result;
+  }
+
+  async _submitPlaceEnrichment() {
+    const dialog = this._dialog;
+    if (dialog?.type !== "place-enrichment") return null;
+    const selections = dialog.selections || {};
+    const retry = () => this._submitPlaceEnrichment();
+    const result = await this._runAction("submit_place_enrichment", {
+      trip_id: this._selectedTripId,
+      preview_id: dialog.preview?.id,
+      selections,
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "Ortsprofile konnten nicht übergeben werden",
+      retry,
+    });
+    if (!result) return null;
+    this._dialog = null;
+    this._activeTab = "handoffs";
+    await this._loadData({ silent: true, force: true });
+    this._showToast(`${Number(result.operation_count || 0)} Ortsprofile an die Änderungsübersicht übergeben`, "success", 5500);
+    this._render({ preserveScroll: false });
+    return result;
+  }
+
   async _prepareDayLocations(dayId) {
     const id = cleanText(dayId);
     if (!id) return null;
@@ -1841,7 +1898,19 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "integrity-refresh") {
       void this._loadData({ silent: true, force: true });
     } else if (action === "integrity-prepare-locations") {
-      void this._prepareTripLocations();
+      void this._preparePlaceEnrichment();
+    } else if (action === "place-enrichment-select") {
+      if (this._dialog?.type !== "place-enrichment") return;
+      const selectedStopId = cleanText(target.dataset.stopId);
+      const candidateId = cleanText(target.dataset.candidateId);
+      if (!selectedStopId || !candidateId) return;
+      this._dialog.selections = {
+        ...(this._dialog.selections || {}),
+        [selectedStopId]: candidateId,
+      };
+      this._render({ preserveScroll: true });
+    } else if (action === "place-enrichment-submit") {
+      void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {
       const selectedDayId = cleanText(target.dataset.dayId);
       if (selectedDayId) this._selectedDayId = selectedDayId;
@@ -2012,6 +2081,25 @@ class RoadplannerPanel extends HTMLElement {
       void this._refreshDestinationGallery(dayId, stopId);
     } else if (action === "destination-gallery-delete") {
       this._confirm("Bildergalerie entfernen?", "Die externen Originalbilder werden nicht gelöscht. Nur die gespeicherte Auswahl für diesen Stopp wird entfernt.", "Galerie entfernen", () => this._runAction("delete_destination_gallery", { trip_id: this._selectedTripId, stop_id: stopId }, "Bildergalerie entfernt"), true);
+    } else if (action === "media-curate-stop") {
+      void this._runAction("media_curate_stop", {
+        trip_id: this._selectedTripId,
+        day_id: target.dataset.dayId || "",
+        stop_id: target.dataset.stopId || "",
+        force: true,
+      }, "Bildauswahl aktualisiert", {
+        errorMode: "dialog",
+        errorTitle: "Bildauswahl konnte nicht aktualisiert werden",
+      });
+    } else if (action === "media-curate-trip") {
+      void this._runAction("media_curate_trip", {
+        trip_id: this._selectedTripId,
+        force: true,
+        limit: Number(target.dataset.limit || 5),
+      }, "Bildauswahl für die Reise aktualisiert", {
+        errorMode: "dialog",
+        errorTitle: "Bildauswahl konnte nicht aktualisiert werden",
+      });
     } else if (action === "media-open-album") {
       const dayId = target.dataset.dayId || "";
       const stopId = target.dataset.stopId || "";
@@ -2286,7 +2374,9 @@ class RoadplannerPanel extends HTMLElement {
         expected_revision: this._currentRevision(),
       }, "Stopp verschoben");
     } else if (action === "complete-day-locations" && this._canEdit()) {
-      void this._prepareDayLocations(dayId);
+      void this._preparePlaceEnrichment({ dayId });
+    } else if (action === "complete-stop-place" && this._canEdit()) {
+      void this._preparePlaceEnrichment({ dayId, stopId });
     } else if (action === "calculate-day-route" && this._canEdit()) {
       void this._calculateDayRoute(dayId, target.dataset.force === "true");
     } else if (action === "calculate-trip-routes" && this._canEdit()) {
@@ -3823,8 +3913,9 @@ class RoadplannerPanel extends HTMLElement {
     if (!images.length) return "";
     const primary = this._destinationGalleryPrimary(gallery) || images[0];
     const ordered = [primary, ...images.filter((image) => image.id !== primary.id)].slice(0, 3);
+    const curationLabel = gallery?.curation?.mode === "hybrid_vision" ? " · KI kuratiert" : " · lokal vorausgewählt";
     return `<div class="destination-gallery-preview ${compact ? "compact" : ""}">
-      <button class="destination-gallery-main" type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="0"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || primary.title || "Reiseziel")}"><span><ha-icon icon="mdi:image-multiple-outline"></ha-icon>Planungsbilder · ${images.length}</span></button>
+      <button class="destination-gallery-main" type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="0"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(primary.thumbnail_url || primary.image_url))}" alt="${escapeHtml(primary.alt || primary.title || "Reiseziel")}"><span><ha-icon icon="mdi:image-multiple-outline"></ha-icon>Planungsbilder · ${images.length}${escapeHtml(curationLabel)}</span></button>
       ${ordered.length > 1 ? `<div class="destination-gallery-thumbs">${ordered.slice(1).map((image, index) => `<button type="button" data-action="destination-gallery-open" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-image-index="${index + 1}"><img data-destination-image loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || "Reiseziel")}"></button>`).join("")}</div>` : ""}
     </div>`;
   }
@@ -3912,8 +4003,13 @@ class RoadplannerPanel extends HTMLElement {
     const highlights = media.slice(0, compact ? 3 : 5);
     const cover = media.find((item) => item.is_cover) || media[0];
     const count = Number.isInteger(Number(totalCount)) && Number(totalCount) > 0 ? Number(totalCount) : media.length;
+    const selectionMode = cleanText(this._experiencePresentation().selection_mode_by_stop?.[stopId]);
+    const modeLabel = selectionMode.includes("hybrid_vision")
+      ? "Lokal vorgefiltert · KI kuratiert"
+      : "Lokal nach Qualität, Dubletten und Serien ausgewählt";
+    const canVisionCurate = Boolean(stopId && this._canEdit() && this._data?.settings?.media_vision_enabled && count > 1);
     return `<section class="experience-album ${compact ? "compact" : ""}">
-      <div class="experience-album-heading"><div><span class="eyebrow">Unsere Fotos</span><strong>${escapeHtml(title)}</strong><small>${highlights.length} Highlights aus ${count} ${count === 1 ? "Foto" : "Fotos"}</small></div><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button></div>
+      <div class="experience-album-heading"><div><span class="eyebrow">Unsere Fotos</span><strong>${escapeHtml(title)}</strong><small>${highlights.length} Highlights aus ${count} ${count === 1 ? "Foto" : "Fotos"} · ${escapeHtml(modeLabel)}</small></div><div class="experience-album-actions"><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button>${canVisionCurate ? `<button class="text-button" type="button" data-action="media-curate-stop" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:creation-outline"></ha-icon>Neu bewerten</button>` : ""}</div></div>
       <div class="experience-album-strip">${highlights.map((item) => `<button class="experience-album-thumb ${item.is_cover ? "cover" : ""}" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(item.id)}"><img src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.caption || item.name || "Reisefoto")}" loading="lazy">${item.is_cover ? `<ha-icon icon="mdi:star"></ha-icon>` : ""}</button>`).join("")}</div>
     </section>`;
   }
@@ -4030,6 +4126,7 @@ class RoadplannerPanel extends HTMLElement {
     const experience = this._experienceData();
     const media = experience.media || [];
     const oneDrive = experience.onedrive || {};
+    const vision = experience.vision || {};
     const syncState = oneDrive.sync_state || {};
     const scanStats = syncState.scan_stats || {};
     const statusText = oneDrive.connected ? `${oneDrive.account_name || "OneDrive"} verbunden` : oneDrive.configured ? "Bereit zur Microsoft-Anmeldung" : "Noch nicht eingerichtet";
@@ -4049,13 +4146,20 @@ class RoadplannerPanel extends HTMLElement {
       : syncState.last_sync_at
         ? `<div class="notice neutral"><ha-icon icon="mdi:clock-check-outline"></ha-icon><div><strong>OneDrive-Delta aktiv</strong><span>Zuletzt synchronisiert: ${escapeHtml(this._formatTimestamp(syncState.last_sync_at))} · Reisezeitraum ${escapeHtml(syncState.trip_date_range || "")} · historische Bilder außerhalb des Zeitfensters werden nicht übernommen.</span></div></div>`
         : "";
+    const visionUsed = Number(vision.usage?.count || 0);
+    const visionLimit = Number(vision.daily_limit || 0);
+    const visionLabel = vision.enabled
+      ? `Hybrid · lokal vorgefiltert · Gemini Vision${visionLimit ? ` · ${visionUsed}/${visionLimit} heute` : ""}`
+      : "Lokal · keine Bilder werden an Gemini gesendet";
+    const visionNotice = `<div class="notice neutral"><ha-icon icon="${vision.enabled ? "mdi:creation-outline" : "mdi:shield-lock-outline"}"></ha-icon><div><strong>Smart-Media-Auswahl</strong><span>${escapeHtml(visionLabel)}</span>${vision.enabled ? `<small>Roadplanner sendet höchstens ${Number(vision.max_candidates || 12)} lokal ausgewählte Vorschaubilder je Stopp. Unveränderte Kandidatensätze werden nicht erneut analysiert.</small>` : `<small>Aktiviere den Hybrid-Modus bewusst in den Integrationsoptionen, um nach der lokalen Vorauswahl eine semantische Best-of-Auswahl zu verwenden.</small>`}</div></div>`;
     return `
       ${this._renderReadOnlyNotice()}
       <section class="panel-card media-toolbar">
         <div><span class="eyebrow">OneDrive Personal</span><h2>Reisefotos automatisch zuordnen</h2><p>Roadplanner liest den Ordner <strong>${escapeHtml(oneDrive.folder_path || "Pictures/Camera Roll")}</strong>${oneDrive.recursive_subfolders ? " einschließlich Unterordnern" : ""}, berücksichtigt nur den Zeitraum der ausgewählten Reise mit ${Number(oneDrive.date_buffer_days || 0)} Tagen Puffer und kopiert keine Originale nach Home Assistant.</p></div>
-        <div class="media-toolbar-actions"><span class="assistant-health ${oneDrive.connected ? "success" : "muted"}"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>${escapeHtml(statusText)}</span>${oneDrive.connected ? `<button class="secondary-button" type="button" data-action="onedrive-sync"><ha-icon icon="mdi:sync"></ha-icon>Jetzt synchronisieren</button><button class="text-button" type="button" data-action="onedrive-full-sync"><ha-icon icon="mdi:calendar-refresh-outline"></ha-icon>Neu ab Reisebeginn einlesen</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung</button><button class="text-button danger-text" type="button" data-action="onedrive-disconnect">Trennen</button>` : oneDrive.configured ? `<button class="primary-button" type="button" data-action="onedrive-connect"><ha-icon icon="mdi:login-variant"></ha-icon>Mit Microsoft anmelden</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung ändern</button>` : `<button class="primary-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>OneDrive einrichten</button>`}</div>
+        <div class="media-toolbar-actions"><span class="assistant-health ${oneDrive.connected ? "success" : "muted"}"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>${escapeHtml(statusText)}</span>${oneDrive.connected ? `<button class="secondary-button" type="button" data-action="onedrive-sync"><ha-icon icon="mdi:sync"></ha-icon>Jetzt synchronisieren</button><button class="text-button" type="button" data-action="onedrive-full-sync"><ha-icon icon="mdi:calendar-refresh-outline"></ha-icon>Neu ab Reisebeginn einlesen</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung</button><button class="text-button danger-text" type="button" data-action="onedrive-disconnect">Trennen</button>` : oneDrive.configured ? `<button class="primary-button" type="button" data-action="onedrive-connect"><ha-icon icon="mdi:login-variant"></ha-icon>Mit Microsoft anmelden</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung ändern</button>` : `<button class="primary-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>OneDrive einrichten</button>`}${vision.enabled && this._canEdit() ? `<button class="secondary-button" type="button" data-action="media-curate-trip" data-limit="5"><ha-icon icon="mdi:creation-outline"></ha-icon>Highlights neu bewerten</button>` : ""}</div>
       </section>
       ${syncNotice}
+      ${visionNotice}
       <section class="media-stat-grid">
         ${this._mediaStat("mdi:image-multiple-outline", "Fotos", experience.stats?.media_count || 0)}
         ${this._mediaStat("mdi:check-decagram-outline", "Automatisch", experience.stats?.automatic_count || 0)}
@@ -4223,7 +4327,7 @@ class RoadplannerPanel extends HTMLElement {
   _integrityDimensionLabel(key) {
     return {
       sequence: "Reihenfolge",
-      locations: "GPS",
+      locations: "Ortsprofile",
       routes: "Routen",
       visuals: "Bilder",
     }[key] || key;
@@ -4243,20 +4347,20 @@ class RoadplannerPanel extends HTMLElement {
         <div class="integrity-copy">
           <span class="eyebrow">Datenqualität</span>
           <h2>Reisequalität · ${escapeHtml(this._integrityStatusLabel(status))}</h2>
-          <p>${repairable ? `${repairable} GPS-Zuordnungen benötigen Aufmerksamkeit.` : "Die Standortdaten sind vollständig."} ${routeIssues ? `${routeIssues} Routen sind unvollständig oder veraltet.` : ""}</p>
+          <p>${repairable ? `${repairable} Ortsprofile benötigen Aufmerksamkeit.` : "Die Standortdaten sind vollständig."} ${routeIssues ? `${routeIssues} Routen sind unvollständig oder veraltet.` : ""}</p>
         </div>
       </div>
       <div class="integrity-dimensions">
         ${Object.entries(dimensions).map(([key, value]) => `<div><span>${escapeHtml(this._integrityDimensionLabel(key))}</span><strong>${Math.round(Number(value || 0))}%</strong><i><b style="width:${Math.max(0, Math.min(100, Number(value || 0)))}%"></b></i></div>`).join("")}
       </div>
       <div class="integrity-summary">
-        <span><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon>${repairable} GPS offen</span>
+        <span><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon>${repairable} Orte offen</span>
         <span><ha-icon icon="mdi:map-marker-path"></ha-icon>${routeIssues} Routen offen</span>
         <span><ha-icon icon="mdi:image-search-outline"></ha-icon>${visualMissing} Bilder offen</span>
       </div>
       <div class="button-row">
         <button class="primary-button" type="button" data-action="integrity-open"><ha-icon icon="mdi:shield-check-outline"></ha-icon> Details prüfen</button>
-        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> GPS ergänzen</button>` : ""}
+        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Orte vervollständigen</button>` : ""}
       </div>
     </section>`;
   }
@@ -4281,14 +4385,14 @@ class RoadplannerPanel extends HTMLElement {
       <div class="integrity-dialog-body">
         <div class="integrity-dialog-stats">
           <span><strong>${Number(stats.stop_count || 0)}</strong> Stopps</span>
-          <span><strong>${Number(stats.repairable_location_count || 0)}</strong> GPS offen</span>
+          <span><strong>${Number(stats.repairable_location_count || 0)}</strong> Orte offen</span>
           <span><strong>${Number(stats.route_issue_count || 0)}</strong> Routen offen</span>
           <span><strong>${Number(stats.visual_missing_count || 0)}</strong> Bilder offen</span>
         </div>
         <div class="integrity-issue-list">${rows}</div>
       </div>
       <div class="modal-actions integrity-dialog-actions">
-        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>GPS-Vervollständigung vorbereiten</button>` : ""}
+        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>Orte vervollständigen</button>` : ""}
         ${Number(stats.route_issue_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-recalculate-routes"><ha-icon icon="mdi:map-marker-path"></ha-icon>Routen neu berechnen</button>` : ""}
         ${Number(stats.visual_missing_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-auto-images"><ha-icon icon="mdi:image-sync-outline"></ha-icon>Planungsbilder ergänzen</button>` : ""}
         <button class="primary-button" type="button" data-action="close-dialog">Schließen</button>
@@ -4529,7 +4633,7 @@ class RoadplannerPanel extends HTMLElement {
           ${!routingConfigured ? '<div class="notice neutral">Straßenrouting ist in den Roadplanner-Optionen noch nicht aktiviert.</div>' : ""}
           ${day.notes ? `<p class="notes-block">${escapeHtml(day.notes)}</p>` : ""}
           <div class="button-row">
-            ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>GPS prüfen/ergänzen (${locationAttentionNodes.length})</button>` : ""}
+            ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>Orte vervollständigen (${locationAttentionNodes.length})</button>` : ""}
             ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-day-route" data-day-id="${escapeHtml(day.id)}" data-force="${day.routing ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${day.routing ? "Neu berechnen" : "Route berechnen"}</button>` : ""}
             ${this._externalLink(navigationUrl, "Tagesroute in Google Maps", "mdi:google-maps")}
             ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Tag bearbeiten</button><button class="secondary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopp</button>` : ""}
@@ -4656,14 +4760,14 @@ class RoadplannerPanel extends HTMLElement {
           ${location.city ? `<span><ha-icon icon="mdi:map-marker-outline"></ha-icon>${escapeHtml(location.city)}${location.country_code ? `, ${escapeHtml(location.country_code)}` : ""}</span>` : ""}
           ${coordinate ? `<span><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${coordinate.lat.toFixed(5)}, ${coordinate.lon.toFixed(5)}</span>` : ""}
         </div>
-        ${!coordinate ? `<div class="location-status warning"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon><div><strong>GPS fehlt</strong><span>${escapeHtml(stop.location_message || "Dieser Stopp erscheint noch nicht vollständig auf Karte und Route.")}</span></div></div>` : stop.location_status === "unverified" ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon><div><strong>GPS noch prüfen</strong><span>${escapeHtml(stop.location_message || "Koordinaten sind vorhanden, aber noch nicht bestätigt.")}</span></div></div>` : ""}
+        ${!coordinate ? `<div class="location-status warning"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon><div><strong>Ort fehlt</strong><span>${escapeHtml(stop.location_message || "Dieser Stopp benötigt noch einen bestätigten Kartenpunkt und ein Ortsprofil.")}</span></div></div>` : stop.location_status === "unverified" ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon><div><strong>Ort noch prüfen</strong><span>${escapeHtml(stop.location_message || "Koordinaten sind vorhanden, aber der konkrete Ort ist noch nicht bestätigt.")}</span></div></div>` : !stop?.details?.place_profile?.confirmed_at ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><div><strong>Ortsprofil vervollständigen</strong><span>GPS ist vorhanden. Bitte Name, Adresse, Kategorie, Quelle und verfügbare Kontaktdaten einmal bestätigen.</span></div></div>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         ${media?.attribution && !experienceCover && !destinationImages.length ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
         ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id)}
         ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name, totalCount: allExperienceMedia.length })}
         ${this._renderStopArchiveSummary(day, stop)}
         ${externalActions ? `<div class="button-row stop-actions">${externalActions}</div>` : ""}
-        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button><button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
+        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Ort vervollständigen</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
       </div>
     </article>`;
   }
@@ -4813,7 +4917,75 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "media-gallery") body = this._renderMediaGallery(this._dialog);
     else if (this._dialog.type === "destination-gallery") body = this._renderDestinationGallery(this._dialog);
     else if (this._dialog.type === "travel-integrity") body = this._renderTravelIntegrity(this._dialog);
+    else if (this._dialog.type === "place-enrichment") body = this._renderPlaceEnrichment(this._dialog);
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
+  }
+
+  _renderPlaceEnrichment(dialog) {
+    const preview = dialog?.preview || {};
+    const items = Array.isArray(preview.items) ? preview.items : [];
+    const selections = dialog?.selections || {};
+    const selectedCount = Object.values(selections).filter(Boolean).length;
+    const cards = items.map((item) => {
+      const current = item?.current || {};
+      const stopId = cleanText(current.stop_id);
+      const currentLocation = current.location || {};
+      const candidates = Array.isArray(item?.candidates) ? item.candidates : [];
+      const selectedId = cleanText(selections[stopId]);
+      const currentSummary = [
+        cleanText(currentLocation.label || currentLocation.address),
+        Number.isFinite(Number(currentLocation.latitude)) && Number.isFinite(Number(currentLocation.longitude))
+          ? `${Number(currentLocation.latitude).toFixed(5)}, ${Number(currentLocation.longitude).toFixed(5)}`
+          : "",
+      ].filter(Boolean).join(" · ");
+      const candidateCards = candidates.length
+        ? candidates.map((candidate) => {
+          const candidateId = cleanText(candidate.id);
+          const selected = candidateId === selectedId;
+          const contact = candidate.contact || {};
+          const images = Array.isArray(candidate.images) ? candidate.images.slice(0, 3) : [];
+          const location = candidate.location || {};
+          const coordinate = Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))
+            ? `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`
+            : "—";
+          const chips = [
+            candidate.category,
+            candidate.confidence_label ? `${candidate.confidence_label} · ${Number(candidate.confidence || 0)} %` : "",
+            contact.opening_hours ? `Öffnungszeiten: ${contact.opening_hours}` : "",
+          ].filter(Boolean);
+          return `<article class="place-candidate ${selected ? "selected" : ""}">
+            <button class="place-candidate-select" type="button" data-action="place-enrichment-select" data-stop-id="${escapeHtml(stopId)}" data-candidate-id="${escapeHtml(candidateId)}" aria-pressed="${selected ? "true" : "false"}">
+              <span class="place-radio"><ha-icon icon="${selected ? "mdi:radiobox-marked" : "mdi:radiobox-blank"}"></ha-icon></span>
+              <span><strong>${escapeHtml(candidate.name || candidate.display_name || "Ort")}</strong><small>${escapeHtml(candidate.display_name || candidate.address || "")}</small></span>
+            </button>
+            ${images.length ? `<div class="place-image-strip">${images.map((image) => `<img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || candidate.name || "Ort")}">`).join("")}</div>` : `<div class="place-image-empty"><ha-icon icon="mdi:image-off-outline"></ha-icon><span>Noch kein passendes Planungsbild</span></div>`}
+            <div class="place-candidate-details">
+              <div><span>Koordinaten</span><strong>${escapeHtml(coordinate)}</strong></div>
+              <div><span>Kategorie</span><strong>${escapeHtml(candidate.category || "Ort")}</strong></div>
+              <div><span>Vertrauen</span><strong>${escapeHtml(candidate.confidence_label || "Offen")}${candidate.confidence != null ? ` · ${Number(candidate.confidence || 0)} %` : ""}</strong></div>
+              ${candidate.website ? `<div><span>Website</span><a href="${escapeHtml(this._safeUrl(candidate.website))}" target="_blank" rel="noopener noreferrer">Öffnen</a></div>` : ""}
+              ${candidate.phone ? `<div><span>Telefon</span><strong>${escapeHtml(candidate.phone)}</strong></div>` : ""}
+              ${contact.email ? `<div><span>E-Mail</span><strong>${escapeHtml(contact.email)}</strong></div>` : ""}
+            </div>
+            ${chips.length ? `<div class="place-chips">${chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}</div>` : ""}
+            <div class="button-row compact-row">
+              ${candidate.map_url ? `<a class="secondary-button" href="${escapeHtml(this._safeUrl(candidate.map_url))}" target="_blank" rel="noopener noreferrer"><ha-icon icon="mdi:google-maps"></ha-icon>Karte prüfen</a>` : ""}
+              ${candidate.source_url ? `<a class="text-button" href="${escapeHtml(this._safeUrl(candidate.source_url))}" target="_blank" rel="noopener noreferrer">OpenStreetMap-Quelle</a>` : ""}
+            </div>
+          </article>`;
+        }).join("")
+        : `<div class="place-no-match"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><div><strong>Kein verlässlicher Ort gefunden</strong><span>${escapeHtml(item?.message || "Ergänze Name, Ort oder Land und versuche es erneut.")}</span></div></div>`;
+      return `<section class="place-enrichment-item">
+        <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml(currentSummary || "Noch kein bestätigtes Ortsprofil")}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
+        <div class="place-candidates">${candidateCards}</div>
+      </section>`;
+    }).join("");
+    return `${this._renderModalHeader("Orte vervollständigen", `${items.length} ${items.length === 1 ? "Stopp" : "Stopps"} · Kartenpunkt, Adresse, Kontaktdaten und Planungsbilder prüfen`)}
+      <div class="place-enrichment-body">
+        <div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Einmal vollständig prüfen</strong><span>Roadplanner übernimmt nur die von dir ausgewählten Ortsprofile. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>
+        ${cards || `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><h2>Keine offenen Ortsprofile</h2></div>`}
+      </div>
+      <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Ort" : "Orte"} an Änderungsübersicht übergeben</button></div>`;
   }
 
   _renderActionErrorDialog(dialog) {
@@ -5669,6 +5841,31 @@ class RoadplannerPanel extends HTMLElement {
       .toast { max-width: min(420px, calc(100vw - 32px)); padding: 13px 16px; border-radius: 15px; color: white; display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.22); pointer-events: auto; }
       .toast.success { background: var(--success-color, #2e7d32); }
       .toast.error { background: var(--error-color, #d32f2f); }
+      .place-enrichment-body { display: grid; gap: 16px; padding: 8px 22px 4px; }
+      .place-enrichment-item { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--divider-color); border-radius: 18px; background: var(--card-background-color); }
+      .place-enrichment-item > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+      .place-enrichment-item h3 { margin: 3px 0 2px; }
+      .place-enrichment-item p { margin: 0; color: var(--secondary-text-color); font-size: 12px; }
+      .place-candidates { display: grid; gap: 12px; }
+      .place-candidate { overflow: hidden; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--secondary-background-color); }
+      .place-candidate.selected { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent); }
+      .place-candidate-select { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 13px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+      .place-candidate-select span:last-child { min-width: 0; display: grid; gap: 3px; }
+      .place-candidate-select small { color: var(--secondary-text-color); line-height: 1.35; }
+      .place-radio ha-icon { color: var(--primary-color); --mdc-icon-size: 23px; }
+      .place-image-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; height: 132px; background: var(--divider-color); }
+      .place-image-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .place-image-empty, .place-no-match { display: flex; align-items: center; gap: 10px; padding: 14px; color: var(--secondary-text-color); background: var(--secondary-background-color); }
+      .place-image-empty ha-icon, .place-no-match ha-icon { --mdc-icon-size: 25px; }
+      .place-candidate-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 13px 4px; }
+      .place-candidate-details > div { min-width: 0; display: grid; gap: 2px; }
+      .place-candidate-details span { color: var(--secondary-text-color); font-size: 11px; }
+      .place-candidate-details strong, .place-candidate-details a { overflow-wrap: anywhere; font-size: 12px; }
+      .place-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 13px; }
+      .place-chips span { padding: 5px 8px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 9%, var(--card-background-color)); font-size: 11px; }
+      .compact-row { padding: 8px 13px 13px; }
+      .place-enrichment-actions { position: sticky; bottom: 0; background: var(--card-background-color); z-index: 2; }
+
       .modal-backdrop { position: absolute; inset: 0; z-index: 25; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
       .modal { width: min(760px, 100%); max-height: min(880px, calc(100% - 20px)); overflow: auto; border-radius: 24px; background: var(--card-background-color); color: var(--primary-text-color); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
       .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 22px 12px; position: sticky; top: 0; background: var(--card-background-color); z-index: 2; }
@@ -6019,6 +6216,7 @@ class RoadplannerPanel extends HTMLElement {
       .onedrive-auth-body > ha-icon { --mdc-icon-size: 58px; color: #0078d4; }
       .device-code { font-size: 31px; letter-spacing: .12em; font-weight: 900; padding: 14px 18px; border-radius: 14px; background: var(--secondary-background-color); user-select: all; }
       .experience-album { display: grid; gap: 10px; }
+      .experience-album-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
       .experience-album-heading { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
       .experience-album-heading > div { display: grid; gap: 2px; }
       .experience-album-heading small { color: var(--secondary-text-color); }
@@ -6175,6 +6373,12 @@ class RoadplannerPanel extends HTMLElement {
         .total-day-image { display: none; }
         .form-grid { grid-template-columns: 1fr; padding: 8px 16px 18px; }
         .form-field.full, .form-section.full, .modal-actions.full { grid-column: auto; }
+        .place-enrichment-body { padding-left: 12px; padding-right: 12px; }
+        .place-enrichment-item { padding: 12px; }
+        .place-enrichment-item > header { display: grid; }
+        .place-candidate-details { grid-template-columns: 1fr; }
+        .place-image-strip { height: 108px; }
+        .place-enrichment-actions { display: grid; grid-template-columns: 1fr; }
         .modal-backdrop { align-items: flex-end; padding: 0; }
         .modal { width: 100%; max-height: 92%; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom); }
         .modal-header { padding: 18px 16px 10px; }

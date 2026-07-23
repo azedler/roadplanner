@@ -39,6 +39,10 @@ from .const import (
     CONF_GEMINI_API_KEY,
     CONF_GEMINI_FALLBACK_MODEL,
     CONF_GEMINI_MODEL,
+    CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
+    CONF_MEDIA_VISION_MAX_CANDIDATES,
+    CONF_MEDIA_VISION_DAILY_LIMIT,
+    CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
     CONF_ROUTING_ENABLED,
@@ -78,6 +82,17 @@ from .const import (
     DEFAULT_GEMINI_API_KEY,
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_GEMINI_MODEL,
+    MAX_MEDIA_VISION_MAX_HIGHLIGHTS,
+    MIN_MEDIA_VISION_MAX_HIGHLIGHTS,
+    MAX_MEDIA_VISION_MAX_CANDIDATES,
+    MIN_MEDIA_VISION_MAX_CANDIDATES,
+    MAX_MEDIA_VISION_DAILY_LIMIT,
+    MIN_MEDIA_VISION_DAILY_LIMIT,
+    MEDIA_CURATION_MODES,
+    DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
+    DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
+    DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+    DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
     DEFAULT_ROUTING_ENABLED,
@@ -329,6 +344,52 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 ),
             ),
             vol.Required(
+                CONF_MEDIA_CURATION_MODE,
+                default=defaults.get(
+                    CONF_MEDIA_CURATION_MODE,
+                    DEFAULT_MEDIA_CURATION_MODE,
+                ),
+            ): vol.In(MEDIA_CURATION_MODES),
+            vol.Required(
+                CONF_MEDIA_VISION_MAX_CANDIDATES,
+                default=defaults.get(
+                    CONF_MEDIA_VISION_MAX_CANDIDATES,
+                    DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_MEDIA_VISION_MAX_CANDIDATES,
+                    max=MAX_MEDIA_VISION_MAX_CANDIDATES,
+                ),
+            ),
+            vol.Required(
+                CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
+                default=defaults.get(
+                    CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
+                    DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_MEDIA_VISION_MAX_HIGHLIGHTS,
+                    max=MAX_MEDIA_VISION_MAX_HIGHLIGHTS,
+                ),
+            ),
+            vol.Required(
+                CONF_MEDIA_VISION_DAILY_LIMIT,
+                default=defaults.get(
+                    CONF_MEDIA_VISION_DAILY_LIMIT,
+                    DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_MEDIA_VISION_DAILY_LIMIT,
+                    max=MAX_MEDIA_VISION_DAILY_LIMIT,
+                ),
+            ),
+            vol.Required(
                 CONF_GEOCODING_ENABLED,
                 default=defaults.get(
                     CONF_GEOCODING_ENABLED,
@@ -453,6 +514,11 @@ def _normalize_input(
         result[CONF_GEMINI_FALLBACK_MODEL] = ""
     if not result.get(CONF_ASSISTANT_COPILOT_ENABLED):
         result[CONF_ASSISTANT_COPILOT_AUTO_BRIEFING] = False
+    result[CONF_MEDIA_CURATION_MODE] = str(
+        result.get(CONF_MEDIA_CURATION_MODE) or DEFAULT_MEDIA_CURATION_MODE
+    ).strip().casefold()
+    if result[CONF_MEDIA_CURATION_MODE] not in MEDIA_CURATION_MODES:
+        result[CONF_MEDIA_CURATION_MODE] = DEFAULT_MEDIA_CURATION_MODE
     result[CONF_GEOCODING_URL] = normalize_geocoding_url(
         result.get(CONF_GEOCODING_URL, DEFAULT_GEOCODING_URL)
     )

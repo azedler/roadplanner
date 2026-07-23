@@ -52,7 +52,8 @@ panel._data = {
 const card = panel._renderIntegrityCard();
 assert.match(card, /Reisequalität/);
 assert.match(card, />78</);
-assert.match(card, /2 GPS offen/);
+assert.match(card, /2 Orte offen/);
+assert.match(card, /Ortsprofile/);
 assert.match(card, /data-action="integrity-open"/);
 assert.match(card, /data-action="integrity-prepare-locations"/);
 

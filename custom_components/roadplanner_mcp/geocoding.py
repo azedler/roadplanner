@@ -393,6 +393,9 @@ class GeocodingCandidate:
     category: str
     result_type: str
     address: dict[str, Any]
+    namedetails: dict[str, Any]
+    extratags: dict[str, Any]
+    boundingbox: tuple[float, float, float, float] | None = None
     core_token_match: float = 0.0
     country_match: bool | None = None
     category_match: bool | None = None
@@ -403,6 +406,15 @@ class GeocodingCandidate:
     matched_latitude: float | None = None
     matched_longitude: float | None = None
     distance_meters: float | None = None
+
+    @property
+    def preferred_name(self) -> str:
+        """Return the most useful provider name without replacing user labels."""
+        for key in ("name:de", "name:en", "name", "official_name", "short_name"):
+            value = str(self.namedetails.get(key) or "").strip()
+            if value:
+                return value[:500]
+        return self.display_name.split(",", 1)[0].strip()[:500]
 
     @property
     def source_url(self) -> str:
@@ -443,7 +455,35 @@ class GeocodingCandidate:
             "source_url": self.source_url,
             "attribution": "© OpenStreetMap contributors",
             "core_token_match": round(self.core_token_match, 4),
+            "preferred_name": self.preferred_name,
         }
+        contact = {
+            "website": str(
+                self.extratags.get("contact:website")
+                or self.extratags.get("website")
+                or self.extratags.get("url")
+                or ""
+            ).strip()[:1_000],
+            "phone": str(
+                self.extratags.get("contact:phone")
+                or self.extratags.get("phone")
+                or self.extratags.get("telephone")
+                or ""
+            ).strip()[:300],
+            "email": str(
+                self.extratags.get("contact:email")
+                or self.extratags.get("email")
+                or ""
+            ).strip()[:500],
+            "opening_hours": str(self.extratags.get("opening_hours") or "").strip()[:1_000],
+            "wikidata": str(self.extratags.get("wikidata") or "").strip()[:100],
+            "wikipedia": str(self.extratags.get("wikipedia") or "").strip()[:500],
+        }
+        contact = {key: value for key, value in contact.items() if value}
+        if contact:
+            result["contact"] = contact
+        if self.boundingbox is not None:
+            result["boundingbox"] = list(self.boundingbox)
         if self.country_match is not None:
             result["country_match"] = self.country_match
         if self.category_match is not None:
@@ -468,8 +508,9 @@ class GeocodingCandidate:
 class NominatimGeocoder:
     """Rate-limited, cached Nominatim search and reverse-geocoding client.
 
-    It is called only after the user presses "Änderungen prüfen". No background
-    bulk geocoding is performed.
+    It is called only after an explicit user action such as "Orte
+    vervollständigen" or a review preparation. No background bulk geocoding is
+    performed.
     """
 
     def __init__(
@@ -558,6 +599,20 @@ class NominatimGeocoder:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _boundingbox(value: Any) -> tuple[float, float, float, float] | None:
+        if not isinstance(value, (list, tuple)) or len(value) != 4:
+            return None
+        try:
+            south, north, west, east = (float(item) for item in value)
+        except (TypeError, ValueError):
+            return None
+        if not (-90 <= south <= 90 and -90 <= north <= 90):
+            return None
+        if not (-180 <= west <= 180 and -180 <= east <= 180):
+            return None
+        return south, north, west, east
+
     @classmethod
     def _candidate_from_item(
         cls,
@@ -641,6 +696,9 @@ class NominatimGeocoder:
             category=category,
             result_type=result_type,
             address=dict(address),
+            namedetails=dict(namedetails),
+            extratags=dict(extratags),
+            boundingbox=cls._boundingbox(item.get("boundingbox")),
             core_token_match=core_token_match,
             country_match=country_match,
             category_match=category_match,
