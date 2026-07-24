@@ -188,6 +188,11 @@ _ALLOWED_AI_KINDS = frozenset(_KIND_LABELS)
 def _clean(value: Any, maximum: int = 1_000) -> str:
     return _SPACE_RE.sub(" ", str(value or "").strip())[:maximum]
 
+def _host_matches(host: str, domain: str) -> bool:
+    host = host.casefold()
+    domain = domain.casefold()
+    return host == domain or host.endswith("." + domain)
+
 
 def _normalized(value: Any) -> str:
     decomposed = unicodedata.normalize("NFKD", str(value or ""))
@@ -281,19 +286,19 @@ def _source_hints(stop: dict[str, Any]) -> tuple[dict[str, str], ...]:
             path = parsed.path or ""
             kind = "link"
             identifier = ""
-            if "park4night" in host:
+            if _host_matches(host, "park4night.com"):
                 kind = "park4night"
                 match = re.search(r"/(?:lieu|place)/(\d+)", path, re.IGNORECASE)
                 identifier = match.group(1) if match else ""
-            elif "openstreetmap.org" in host:
+            elif _host_matches(host, "openstreetmap.org"):
                 kind = "openstreetmap"
                 match = re.search(r"/(node|way|relation)/(\d+)", path, re.IGNORECASE)
                 identifier = "/".join(match.groups()) if match else ""
-            elif "wikidata.org" in host:
+            elif _host_matches(host, "wikipedia.org"):
                 kind = "wikidata"
                 match = re.search(r"/(Q\d+)", path, re.IGNORECASE)
                 identifier = match.group(1).upper() if match else ""
-            elif "wikipedia.org" in host:
+            elif _host_matches(host, "wikipedia.org"):
                 kind = "wikipedia"
                 identifier = path.rsplit("/", 1)[-1]
             elif "google." in host or "goo.gl" in host:
