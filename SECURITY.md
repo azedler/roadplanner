@@ -2,7 +2,7 @@
 
 ## Never commit
 
-- API keys, tokens or passwords,
+- API keys, tokens or passwords, including Google Maps Platform and Gemini credentials,
 - Home Assistant `.storage` files,
 - Roadbook data from real trips,
 - booking documents and references,
@@ -18,6 +18,17 @@
 - AI output is untrusted until validated.
 - Changes remain review-only until explicitly applied.
 - Download and media links should be short-lived and unguessable.
+
+## Optional Google Places
+
+- Google Places is disabled until the Home Assistant operator explicitly enables it and stores an API key in the Roadplanner config entry.
+- The API key is backend-only and must never be exposed in the panel payload, logs, diagnostics, patches, or context exports.
+- Keys should be restricted to Places API (New) and to the strongest practical application or egress-IP restriction.
+- Google candidates remain review-only, carry visible attribution, and are treated as transient discovery content. Roadplanner persists only the Google Place ID as a source reference and derives durable place data from OpenStreetMap/Nominatim or explicit manual confirmation.
+- Google photos, reviews, ratings, and atmosphere fields are not requested in this release.
+- Roadplanner's local request counter is a soft guard only; Google Cloud quotas, budgets, and alerts remain the authoritative cost protection.
+
+See [Google Places setup](docs/development/GOOGLE_PLACES_SETUP.md) and [External services and privacy](docs/product/EXTERNAL_SERVICES_AND_PRIVACY.md).
 
 ## Reporting
 

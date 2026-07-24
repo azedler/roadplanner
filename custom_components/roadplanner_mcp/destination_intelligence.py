@@ -18,6 +18,12 @@ _MAX_GEOCODING_QUERY_LENGTH = 240
 _MAX_IMAGE_QUERY_LENGTH = 180
 _MAX_QUERY_VARIANTS = 3
 _URL_RE = re.compile(r"https://[^\s<>\]\[\)\(\"']+", re.IGNORECASE)
+_PARK4NIGHT_ID_RE = re.compile(
+    r"(?iu)(?:\(\s*)?p4n\s*(?:#|:|nr\.?\s*)?\s*(?P<id>\d{3,12})(?:\s*\))?"
+)
+_GOOGLE_MAPS_HOST_RE = re.compile(
+    r"(?i)^(?:(?:www|maps)\.)?google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$"
+)
 _SPACE_RE = re.compile(r"\s+")
 _TOKEN_RE = re.compile(r"[\wÀ-ÖØ-öø-ÿ]+", re.UNICODE)
 
@@ -194,6 +200,18 @@ def _host_matches(host: str, domain: str) -> bool:
     return host == domain or host.endswith("." + domain)
 
 
+def _google_maps_host(host: str) -> bool:
+    return bool(
+        _GOOGLE_MAPS_HOST_RE.fullmatch(host)
+        or _host_matches(host, "maps.app.goo.gl")
+        or _host_matches(host, "goo.gl")
+    )
+
+
+def _clean_park4night_suffix(value: Any) -> str:
+    return _clean(_PARK4NIGHT_ID_RE.sub(" ", str(value or "")).strip(" -–—,;:/"), 500)
+
+
 def _normalized(value: Any) -> str:
     decomposed = unicodedata.normalize("NFKD", str(value or ""))
     return "".join(
@@ -272,10 +290,29 @@ def _string_values(value: Any, *, depth: int = 0) -> Iterable[str]:
 
 
 def _source_hints(stop: dict[str, Any]) -> tuple[dict[str, str], ...]:
-    values = [stop.get("notes"), stop.get("details"), stop.get("location")]
+    values = [
+        stop.get("name"),
+        stop.get("notes"),
+        stop.get("details"),
+        stop.get("location"),
+    ]
     hints: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for text in _string_values(values):
+        for match in _PARK4NIGHT_ID_RE.finditer(text):
+            identifier = match.group("id")
+            fingerprint = ("park4night", identifier)
+            if fingerprint not in seen:
+                seen.add(fingerprint)
+                hints.append(
+                    {
+                        "provider": "park4night",
+                        "id": identifier,
+                        "url": f"https://park4night.com/lieu/{identifier}/",
+                    }
+                )
+                if len(hints) >= 6:
+                    return tuple(hints)
         for raw_url in _URL_RE.findall(text):
             url = raw_url.rstrip(".,;:")
             try:
@@ -294,14 +331,14 @@ def _source_hints(stop: dict[str, Any]) -> tuple[dict[str, str], ...]:
                 kind = "openstreetmap"
                 match = re.search(r"/(node|way|relation)/(\d+)", path, re.IGNORECASE)
                 identifier = "/".join(match.groups()) if match else ""
-            elif _host_matches(host, "wikipedia.org"):
+            elif _host_matches(host, "wikidata.org"):
                 kind = "wikidata"
                 match = re.search(r"/(Q\d+)", path, re.IGNORECASE)
                 identifier = match.group(1).upper() if match else ""
             elif _host_matches(host, "wikipedia.org"):
                 kind = "wikipedia"
                 identifier = path.rsplit("/", 1)[-1]
-            elif "google." in host or "goo.gl" in host:
+            elif _google_maps_host(host):
                 kind = "google_maps"
             fingerprint = (kind, identifier or url.casefold())
             if fingerprint in seen:
@@ -482,7 +519,7 @@ def analyze_destination(
 
     cleanup = cleanup_suggestion if isinstance(cleanup_suggestion, dict) else {}
     location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
-    name = _clean(cleanup.get("name") or stop.get("name"), 500)
+    name = _clean_park4night_suffix(cleanup.get("name") or stop.get("name"))
     stop_type = _clean(stop.get("type"), 200)
     notes = _clean(stop.get("notes"), 1_000)
     source_hints = _source_hints(stop)

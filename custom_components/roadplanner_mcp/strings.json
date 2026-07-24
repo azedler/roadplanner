@@ -50,7 +50,12 @@
           "onedrive_auto_assign": "Automatically assign photos by date and GPS",
           "onedrive_recursive": "Scan OneDrive subfolders recursively",
           "onedrive_date_buffer_days": "OneDrive trip date buffer (days)",
-          "onedrive_max_items_per_run": "Maximum OneDrive entries per run"
+          "onedrive_max_items_per_run": "Maximum OneDrive entries per run",
+          "google_places_enabled": "Enable Google Places destination search",
+          "google_places_api_key": "Google Places API key",
+          "google_places_mode": "Google Places provider priority",
+          "google_places_daily_limit": "Maximum Google Places searches per day",
+          "google_places_request_timeout": "Google Places request timeout (seconds)"
         },
         "data_description": {
           "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
@@ -97,7 +102,12 @@
           "onedrive_auto_assign": "Uses photo capture time and GPS metadata to suggest or automatically create stop/day album assignments.",
           "onedrive_recursive": "Traverses subfolders. Year folders outside the trip window and hidden thumbnail folders are skipped.",
           "onedrive_date_buffer_days": "Includes photos this many days before trip start and after trip end. Range: 0 to 30 days.",
-          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000."
+          "onedrive_max_items_per_run": "Limits metadata entries per synchronization run. Large archives continue automatically across multiple runs. Range: 100 to 5000.",
+          "google_places_enabled": "Enables the optional Google Places (New) provider. It is active only when an API key is configured and is used for reviewed destination candidates, never for silent route mutations.",
+          "google_places_api_key": "Server-side Google Maps Platform key with Places API (New) enabled. The key stays in the Home Assistant config entry and is never sent to the browser. Leave blank in options to keep the existing key.",
+          "google_places_mode": "fallback uses OpenStreetMap first and calls Google only when no safe concrete result exists. preferred asks Google first and keeps OpenStreetMap as fallback.",
+          "google_places_daily_limit": "Roadplanner-side request limit for billable Google Places Text Search calls. Identical searches reused from the short in-memory cache do not consume another request. Zero disables Google requests. Google Cloud quotas and budgets remain authoritative.",
+          "google_places_request_timeout": "Maximum time for one Google Places request. Range: 5 to 60 seconds."
         }
       }
     },

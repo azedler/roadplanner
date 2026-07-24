@@ -178,28 +178,28 @@ _CATEGORY_RESULT_TOKENS: dict[str, frozenset[str]] = {
             "parking_space",
         }
     ),
-    "camping": frozenset({"camp_site", "camping", "caravan_site"}),
+    "camping": frozenset({"camp_site", "campground", "camping", "caravan_site", "rv_park"}),
     "restaurant": frozenset({"restaurant"}),
     "ferry": frozenset({"ferry", "ferry_terminal", "harbour", "port", "terminal"}),
     "transport": frozenset(
-        {"aerodrome", "airport", "bus_station", "railway", "station", "terminal"}
+        {"aerodrome", "airport", "bus_station", "railway", "station", "terminal", "train_station", "transit_station"}
     ),
     "hiking": frozenset(
-        {"footway", "hiking", "nature_reserve", "path", "route", "trail", "walking"}
+        {"footway", "hiking", "hiking_area", "nature_reserve", "path", "route", "trail", "walking"}
     ),
     "nature_center": frozenset(
         {"education", "information", "museum", "nature_reserve", "visitor_centre", "visitor_center"}
     ),
     "attraction": frozenset(
-        {"archaeological_site", "attraction", "castle", "historic", "memorial", "monument", "museum", "tourism", "viewpoint"}
+        {"archaeological_site", "attraction", "castle", "historical_landmark", "historic", "memorial", "monument", "museum", "tourism", "tourist_attraction", "viewpoint"}
     ),
     "retail": frozenset(
-        {"department_store", "mall", "shop", "sports", "store", "supermarket"}
+        {"department_store", "mall", "shop", "shopping_mall", "sporting_goods_store", "sports", "store", "supermarket"}
     ),
-    "fuel": frozenset({"fuel"}),
-    "charging": frozenset({"charging_station"}),
+    "fuel": frozenset({"fuel", "gas_station"}),
+    "charging": frozenset({"charging_station", "electric_vehicle_charging_station"}),
     "accommodation": frozenset(
-        {"alpine_hut", "guest_house", "hostel", "hotel", "motel", "shelter"}
+        {"alpine_hut", "guest_house", "hostel", "hotel", "lodging", "motel", "shelter"}
     ),
 }
 _COORDINATE_LABEL_RE = re.compile(
@@ -1082,6 +1082,10 @@ class GeocodingCandidate:
     city_match: bool | None = None
     district_match: bool | None = None
     address_mismatches: tuple[str, ...] = ()
+    provider: str = "nominatim"
+    provider_id: str | None = None
+    provider_source_url: str | None = None
+    provider_attribution: str = "© OpenStreetMap contributors"
 
     @property
     def preferred_name(self) -> str:
@@ -1094,9 +1098,20 @@ class GeocodingCandidate:
 
     @property
     def source_url(self) -> str:
+        if self.provider_source_url:
+            return self.provider_source_url
         if self.osm_type in {"node", "way", "relation"} and self.osm_id:
             return f"https://www.openstreetmap.org/{self.osm_type}/{self.osm_id}"
         return "https://www.openstreetmap.org/"
+
+    @property
+    def canonical_provider_id(self) -> str | None:
+        """Return a provider-scoped stable identifier when available."""
+        if self.provider_id:
+            return self.provider_id
+        if self.osm_type and self.osm_id is not None:
+            return f"{self.osm_type}/{self.osm_id}"
+        return None
 
     def as_location(self) -> dict[str, Any]:
         address = self.address
@@ -1119,7 +1134,8 @@ class GeocodingCandidate:
 
     def as_provenance(self) -> dict[str, Any]:
         result: dict[str, Any] = {
-            "provider": "nominatim",
+            "provider": self.provider,
+            "provider_id": self.canonical_provider_id,
             "resolution_mode": self.resolution_mode,
             "display_name": self.display_name,
             "score": round(self.score, 4),
@@ -1129,7 +1145,7 @@ class GeocodingCandidate:
             "category": self.category,
             "result_type": self.result_type,
             "source_url": self.source_url,
-            "attribution": "© OpenStreetMap contributors",
+            "attribution": self.provider_attribution,
             "core_token_match": round(self.core_token_match, 4),
             "preferred_name": self.preferred_name,
             "search_variant": self.search_variant,
@@ -1210,6 +1226,7 @@ class GeocodingProvider(Protocol):
         *,
         structured_address: StructuredAddress | None = None,
         language: str = "de",
+        location_bias: tuple[float, float] | None = None,
     ) -> tuple[GeocodingCandidate | None, list[GeocodingCandidate]]:
         """Return an optional safe default and all reviewable candidates."""
         ...
@@ -1748,6 +1765,7 @@ class NominatimGeocoder:
         *,
         structured_address: StructuredAddress | None = None,
         language: str = "de",
+        location_bias: tuple[float, float] | None = None,
     ) -> tuple[GeocodingCandidate | None, list[GeocodingCandidate]]:
         coordinates = parse_coordinate_pair(query)
         if coordinates is not None:

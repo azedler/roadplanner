@@ -44,6 +44,11 @@ from .const import (
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
+    CONF_GOOGLE_PLACES_API_KEY,
+    CONF_GOOGLE_PLACES_DAILY_LIMIT,
+    CONF_GOOGLE_PLACES_ENABLED,
+    CONF_GOOGLE_PLACES_MODE,
+    CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -98,6 +103,11 @@ from .const import (
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
+    DEFAULT_GOOGLE_PLACES_API_KEY,
+    DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
+    DEFAULT_GOOGLE_PLACES_ENABLED,
+    DEFAULT_GOOGLE_PLACES_MODE,
+    DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
     DEFAULT_ROUTING_ENABLED,
     DEFAULT_ROUTING_PROVIDER,
     DEFAULT_ROUTING_URL,
@@ -130,6 +140,7 @@ from .experience_manager import RoadplannerExperienceManager
 from .experience_store import ExperienceStore
 from .gemini_client import GeminiClient
 from .geocoding import NominatimGeocoder
+from .google_places import GooglePlacesClient
 from .drive_import import async_register_drive_import_view
 from .handoff import HandoffStore
 from .llm_api import RoadplannerAPI
@@ -141,6 +152,7 @@ from .panel import (
     async_setup_panel_support,
 )
 from .path_utils import resolve_config_path
+from .place_providers import CompositePlaceProvider
 from .roadplanner import RoadplannerStore
 from .routing import OSRMRoutingClient
 from .travel_archive import TravelArchiveStore
@@ -367,12 +379,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await travel_archive.async_initialize()
 
-    geocoder = NominatimGeocoder(
+    nominatim = NominatimGeocoder(
         hass,
         enabled=bool(
             options.get(CONF_GEOCODING_ENABLED, DEFAULT_GEOCODING_ENABLED)
         ),
         base_url=str(options.get(CONF_GEOCODING_URL, DEFAULT_GEOCODING_URL)),
+    )
+    google_places = GooglePlacesClient(
+        hass,
+        api_key=str(
+            options.get(
+                CONF_GOOGLE_PLACES_API_KEY,
+                DEFAULT_GOOGLE_PLACES_API_KEY,
+            )
+        ),
+        enabled=bool(
+            options.get(
+                CONF_GOOGLE_PLACES_ENABLED,
+                DEFAULT_GOOGLE_PLACES_ENABLED,
+            )
+        ),
+        daily_limit=int(
+            options.get(
+                CONF_GOOGLE_PLACES_DAILY_LIMIT,
+                DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
+            )
+        ),
+        request_timeout=int(
+            options.get(
+                CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
+            )
+        ),
+    )
+    geocoder = CompositePlaceProvider(
+        nominatim,
+        google_places,
+        mode=str(
+            options.get(
+                CONF_GOOGLE_PLACES_MODE,
+                DEFAULT_GOOGLE_PLACES_MODE,
+            )
+        ),
     )
     assistant = RoadplannerAssistant(
         manager,
@@ -677,6 +726,26 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_GEOCODING_URL: effective.get(
             CONF_GEOCODING_URL,
             DEFAULT_GEOCODING_URL,
+        ),
+        CONF_GOOGLE_PLACES_ENABLED: effective.get(
+            CONF_GOOGLE_PLACES_ENABLED,
+            DEFAULT_GOOGLE_PLACES_ENABLED,
+        ),
+        CONF_GOOGLE_PLACES_API_KEY: effective.get(
+            CONF_GOOGLE_PLACES_API_KEY,
+            DEFAULT_GOOGLE_PLACES_API_KEY,
+        ),
+        CONF_GOOGLE_PLACES_MODE: effective.get(
+            CONF_GOOGLE_PLACES_MODE,
+            DEFAULT_GOOGLE_PLACES_MODE,
+        ),
+        CONF_GOOGLE_PLACES_DAILY_LIMIT: effective.get(
+            CONF_GOOGLE_PLACES_DAILY_LIMIT,
+            DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
+        ),
+        CONF_GOOGLE_PLACES_REQUEST_TIMEOUT: effective.get(
+            CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+            DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
         ),
         CONF_ROUTING_ENABLED: effective.get(
             CONF_ROUTING_ENABLED,

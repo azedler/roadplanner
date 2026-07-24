@@ -50,7 +50,12 @@
           "onedrive_auto_assign": "Fotos automatisch nach Datum und GPS zuordnen",
           "onedrive_recursive": "Unterordner rekursiv durchsuchen",
           "onedrive_date_buffer_days": "Puffer vor und nach der Reise (Tage)",
-          "onedrive_max_items_per_run": "Maximale OneDrive-Einträge je Lauf"
+          "onedrive_max_items_per_run": "Maximale OneDrive-Einträge je Lauf",
+          "google_places_enabled": "Google Places für die Ortssuche verwenden",
+          "google_places_api_key": "Google-Places-API-Schlüssel",
+          "google_places_mode": "Priorität von Google Places",
+          "google_places_daily_limit": "Maximale Google-Places-Suchen pro Tag",
+          "google_places_request_timeout": "Zeitlimit für Google Places (Sekunden)"
         },
         "data_description": {
           "roadbook_path": "Pfad relativ zu /config. Standard: www/roadbook. active_trip.json bleibt der Zeiger auf die aktive Reise.",
@@ -97,7 +102,12 @@
           "onedrive_auto_assign": "Ordnet Fotos anhand von Aufnahmezeit und GPS automatisch oder als prüfbaren Vorschlag einem Tag und Stopp zu.",
           "onedrive_recursive": "Durchsucht Unterordner. Jahresordner außerhalb des Reisezeitraums und versteckte Vorschaubildordner werden übersprungen.",
           "onedrive_date_buffer_days": "Roadplanner berücksichtigt Fotos in diesem Zeitraum vor Reisebeginn und nach Reiseende. Bereich: 0 bis 30 Tage.",
-          "onedrive_max_items_per_run": "Begrenzt die Metadateneinträge pro Synchronisationslauf. Große Archive werden automatisch über mehrere Läufe fortgesetzt. Bereich: 100 bis 5000."
+          "onedrive_max_items_per_run": "Begrenzt die Metadateneinträge pro Synchronisationslauf. Große Archive werden automatisch über mehrere Läufe fortgesetzt. Bereich: 100 bis 5000.",
+          "google_places_enabled": "Aktiviert Google Places (New) als optionalen Ortsprovider. Ohne hinterlegten API-Schlüssel bleibt Google inaktiv. Jeder Treffer wird vor einer Änderung geprüft und bestätigt.",
+          "google_places_api_key": "Serverseitiger Google-Maps-Platform-Schlüssel mit aktivierter Places API (New). Der Schlüssel bleibt im Home-Assistant-Config-Entry und wird nie an den Browser gesendet. Leer lassen, um den vorhandenen Schlüssel zu behalten.",
+          "google_places_mode": "fallback fragt zuerst OpenStreetMap und nutzt Google nur, wenn kein sicherer konkreter Treffer vorliegt. preferred fragt zuerst Google und behält OpenStreetMap als Rückfall.",
+          "google_places_daily_limit": "Roadplanner-eigenes Tageslimit für kostenpflichtige Google-Places-Text-Search-Aufrufe. Identische Suchen aus dem kurzlebigen Arbeitsspeicher-Cache zählen nicht erneut. Null deaktiviert Google-Anfragen. Maßgeblich bleiben die Google-Cloud-Kontingente und Budgets.",
+          "google_places_request_timeout": "Maximale Laufzeit einer Google-Places-Anfrage. Bereich: 5 bis 60 Sekunden."
         }
       }
     },

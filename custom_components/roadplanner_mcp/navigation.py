@@ -17,6 +17,29 @@ def _coordinate_text(latitude: float, longitude: float) -> str:
     return f"{latitude:.7f},{longitude:.7f}"
 
 
+def _access_coordinate(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, dict):
+        return None
+    return coordinate_from_location(
+        {
+            "latitude": value.get("navigation_latitude"),
+            "longitude": value.get("navigation_longitude"),
+        }
+    )
+
+
+def _day_access_points(day: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    routing = day.get("routing") if isinstance(day.get("routing"), dict) else {}
+    values = routing.get("access_points")
+    if not isinstance(values, list):
+        return {}
+    return {
+        str(item.get("stop_id") or ""): item
+        for item in values
+        if isinstance(item, dict) and str(item.get("stop_id") or "")
+    }
+
+
 def effective_day_stops(days: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
     """Return the canonical shared stop sequence for one day."""
     model = canonical_day_model(days, index)
@@ -44,8 +67,13 @@ def google_maps_search_url(stop: dict[str, Any]) -> str | None:
     return f"{_GOOGLE_MAPS_SEARCH}?{urlencode({'api': 1, 'query': query})}"
 
 
-def google_maps_navigation_url(stop: dict[str, Any]) -> str | None:
-    coordinate = coordinate_from_location(stop.get("location"))
+def google_maps_navigation_url(
+    stop: dict[str, Any],
+    access_point: dict[str, Any] | None = None,
+) -> str | None:
+    coordinate = _access_coordinate(access_point) or coordinate_from_location(
+        stop.get("location")
+    )
     if not coordinate:
         return None
     return f"{_GOOGLE_MAPS_DIRECTIONS}?{urlencode({
@@ -56,28 +84,44 @@ def google_maps_navigation_url(stop: dict[str, Any]) -> str | None:
     })}"
 
 
-def decorate_stop_navigation(stop: dict[str, Any]) -> None:
+def decorate_stop_navigation(
+    stop: dict[str, Any],
+    access_point: dict[str, Any] | None = None,
+) -> None:
     search_url = google_maps_search_url(stop)
-    navigation_url = google_maps_navigation_url(stop)
+    navigation_url = google_maps_navigation_url(stop, access_point)
+    access_coordinate = _access_coordinate(access_point)
     stop["navigation"] = {
         "google_maps_search_url": search_url,
         "google_maps_navigation_url": navigation_url,
         "has_coordinates": bool(coordinate_from_location(stop.get("location"))),
+        "uses_access_point": bool(access_coordinate),
+        "access_point": dict(access_point) if access_coordinate else None,
     }
 
 
-def _selected_day_points(stops: list[dict[str, Any]]) -> list[tuple[dict[str, Any], tuple[float, float]]]:
+def _selected_day_points(
+    stops: list[dict[str, Any]],
+    access_points: dict[str, dict[str, Any]] | None = None,
+) -> list[tuple[dict[str, Any], tuple[float, float]]]:
     result: list[tuple[dict[str, Any], tuple[float, float]]] = []
+    access_points = access_points or {}
     for stop in stops:
-        coordinate = coordinate_from_location(stop.get("location"))
+        access = access_points.get(str(stop.get("id") or ""))
+        coordinate = _access_coordinate(access) or coordinate_from_location(
+            stop.get("location")
+        )
         if coordinate:
             result.append((stop, coordinate))
     return result
 
 
-def build_day_navigation(stops: list[dict[str, Any]]) -> dict[str, Any]:
+def build_day_navigation(
+    stops: list[dict[str, Any]],
+    access_points: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Build a mobile-safe Google Maps directions URL for one day."""
-    points = _selected_day_points(stops)
+    points = _selected_day_points(stops, access_points)
     if len(points) < 2:
         return {
             "google_maps_directions_url": None,
@@ -120,9 +164,14 @@ def decorate_panel_navigation(days_payload: dict[str, Any]) -> None:
     if not isinstance(days, list):
         return
     for day in days:
+        access_points = _day_access_points(day)
         for stop in canonical_day_stops(day):
             if isinstance(stop, dict):
-                decorate_stop_navigation(stop)
+                decorate_stop_navigation(
+                    stop,
+                    access_points.get(str(stop.get("id") or "")),
+                )
     for index, day in enumerate(days):
         effective = effective_day_stops(days, index)
-        day["navigation"] = build_day_navigation(effective)
+        access_points = _day_access_points(day)
+        day["navigation"] = build_day_navigation(effective, access_points)

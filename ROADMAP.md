@@ -3,8 +3,39 @@
 ## Current baseline
 
 - Latest public feature release: [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest)
-- Active major development: **Roadplanner 3.x**
+- Active major development: **Roadplanner 4.0**
 - Technical domain: `roadplanner_mcp`
+
+## Roadplanner 4.0 — Destination & Media Intelligence
+
+### Destination identity and providers
+
+- [x] Provider-neutral `place_profile` schema version 2.
+- [x] OpenStreetMap/Nominatim remains the open default and durable place source.
+- [x] Optional backend-only Google Places (New) discovery with fallback and preferred modes.
+- [x] Visible Google Maps attribution and review-only candidate selection.
+- [x] Google Place IDs retained as source references while transient Google content is not copied into the durable Roadbook profile.
+- [x] Park4Night, OpenStreetMap, Wikidata, Wikipedia and Google Maps IDs/links remain traceable source hints without unofficial scraping.
+- [x] Actual destination point separated from a derived drivable parking/access point.
+- [x] Manual stop deletion with explicit confirmation and retained media/documents.
+- [ ] Live acceptance with the known destination regression set on Home Assistant.
+
+### Media intelligence
+
+- [x] Personal photos, planning images and external-provider failures have separate states.
+- [x] Trip, day and stop covers use independent explicit selections.
+- [x] Date-only photo suggestions cannot become automatic trip covers.
+- [x] Existing personal photos prevent a misleading generic no-images error.
+- [x] Concise destination-profile queries are available without requiring a complete provider profile.
+- [x] Deterministic local selection remains authoritative when optional Vision fails or is disabled.
+- [ ] Live acceptance for Weiße Düne, Restorāns Meke and trip-cover selection.
+
+### Reproducible AI and patch delivery
+
+- [x] Multi-patch preflight in an isolated temporary worktree.
+- [x] Filtered repository context export with Git status, log, diff and optional check evidence.
+- [x] Secret, Home Assistant storage, personal travel data, media and archive exclusions.
+- [ ] Independent review of one exported package and documentation of findings.
 
 ## Roadplanner 3.0 — Product foundation
 
@@ -114,25 +145,26 @@
 - [x] Manual cover selections always override semantic curation.
 - [x] Fingerprint cache, per-trip daily limit and local fallback for every provider or quota failure.
 
-## Roadplanner 3.5 — Travel Story
+## Roadplanner 3.5 — Reliable places and cleanup
 
-- Trip-wide highlight selection.
-- Story chapters per day and stop.
-- Travel Movie export contract.
-- Photo-book/export metadata.
+- [x] Structured address parsing and bounded Nominatim variants.
+- [x] Reviewable weak candidates and manual WGS84 confirmation.
+- [x] Optional AI text cleanup without AI-generated coordinates.
+- [x] Existing-day `day_ref` normalization.
+- [x] Repository-local patch helper.
 
-## Roadplanner 3.6 — Media providers
+## Roadplanner 3.6 — Smart destination enrichment and stop order
 
-- Apple Photos bridge or native companion sync.
-- Multi-account OneDrive support.
-- Optional Google Photos, Immich, and NAS providers.
+- [x] Type-aware destination queries and provider/source hints.
+- [x] Concise image queries derived from destination identity.
+- [x] Safe gallery refresh after a stale day reference.
+- [x] Touch-friendly manual stop ordering with one canonical persisted sequence.
 
-## Roadplanner 3.7 — Automation and mobility
+## Later product themes
 
-- EVCC-aware charging plans.
-- Weather-aware proactive suggestions.
-- Improved offline mode.
-- Background mobile notifications.
+- Trip-wide travel-story chapters, movie and photo-book exports.
+- Apple Photos, Google Photos, Immich, NAS and additional OneDrive providers.
+- EVCC-aware charging, weather-aware suggestions, improved offline mode and mobile notifications.
 
 ## Planning policy
 

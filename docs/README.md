@@ -6,6 +6,8 @@ This directory contains the canonical project documentation. Root-level files re
 
 - [Product documentation index](product/README.md)
 - [Roadplanner 3.0 Vision & UX Blueprint](product/ROADPLANNER_3_0_VISION_UX_BLUEPRINT.md)
+- [Roadplanner 4.0 Destination & Media Intelligence](product/ROADPLANNER_4_0_INTELLIGENCE.md)
+- [External services and privacy](product/EXTERNAL_SERVICES_AND_PRIVACY.md)
 
 ## Architecture
 
@@ -21,6 +23,7 @@ This directory contains the canonical project documentation. Root-level files re
 - [Repository structure](development/REPOSITORY_STRUCTURE.md)
 - [Development workflow](development/DEVELOPMENT_WORKFLOW.md)
 - [Patch workflow and local automation](development/PATCH_WORKFLOW.md)
+- [Google Places setup](development/GOOGLE_PLACES_SETUP.md)
 - [Branching model](development/BRANCHING.md)
 - [Commit conventions](development/COMMIT_CONVENTIONS.md)
 - [Definition of Done](development/DEFINITION_OF_DONE.md)

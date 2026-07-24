@@ -60,6 +60,19 @@
 - Cached candidate fingerprints prevent repeated billing for unchanged albums.
 - Manual cover choices win; provider failures and quota exhaustion fall back to local selection.
 
+## Prepared for Roadplanner 4.0.0 — Destination & Media Intelligence
+
+- Optional Google Places (New) destination discovery configured in the Home Assistant options flow.
+- Backend-only API key, bounded field mask, short-lived in-memory cache, soft daily request guard and provider diagnostics.
+- Provider-neutral destination profiles with durable OpenStreetMap provenance and Google Place ID discovery references.
+- Actual target point plus a separate derived drivable parking/access point.
+- Explicit stop deletion without deleting linked documents or personal media.
+- Correct gallery status when personal photos already exist.
+- Independent trip/day/stop covers and rejection of date-only photos as automatic trip heroes.
+- Multi-patch preflight and filtered AI/reviewer context export in `tools/dev.py`.
+- Google setup, privacy, attribution and provider-neutral architecture documentation.
+- Live acceptance remains required for destination discovery, access-point routing, stop deletion and media-cover behavior.
+
 ## Next — correctness
 
 ## Next — planning UX

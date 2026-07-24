@@ -73,4 +73,20 @@ payload = {"days": days}
 module.decorate_panel_navigation(payload)
 assert payload["days"][1]["navigation"]["included_stop_ids"] == ["camp", "first", "second", "third"]
 
+# When routing derives a nearest drivable access point, navigation uses it but
+# the stop's canonical target coordinates remain unchanged for maps/media.
+access_point = {
+    "stop_id": "first",
+    "navigation_latitude": 51.1001,
+    "navigation_longitude": 11.1001,
+    "target_latitude": 51.0,
+    "target_longitude": 11.0,
+    "distance_m": 950.0,
+    "derived": True,
+}
+module.decorate_stop_navigation(days[1]["stops"][1], access_point)
+assert days[1]["stops"][1]["navigation"]["uses_access_point"] is True
+assert "51.1001000%2C11.1001000" in days[1]["stops"][1]["navigation"]["google_maps_navigation_url"]
+assert days[1]["stops"][1]["location"] == {"latitude": 51.0, "longitude": 11.0}
+
 print("Canonical navigation order tests passed.")

@@ -47,6 +47,7 @@ _MAX_IMAGES = 3
 _MANUAL_CANDIDATE_ID = "__manual__"
 _MAX_INTENT_QUERIES = 2
 _MAX_COORDINATE_POI_DISTANCE_METERS = 30_000.0
+_GOOGLE_PLACES_PROVIDER = "google_places"
 _LOCALITY_RESULT_TYPES = frozenset(
     {
         "administrative",
@@ -175,7 +176,20 @@ def _confidence(candidate: GeocodingCandidate) -> tuple[int, str]:
 
 
 def _candidate_id(candidate: GeocodingCandidate) -> str:
+    provider = _text(getattr(candidate, "provider", "nominatim"), 100) or "nominatim"
+    canonical_provider_id = getattr(candidate, "canonical_provider_id", None)
+    if callable(canonical_provider_id):
+        canonical_provider_id = canonical_provider_id()
+    if not canonical_provider_id:
+        canonical_provider_id = (
+            f"{getattr(candidate, 'osm_type', '')}/{getattr(candidate, 'osm_id', '')}"
+            if getattr(candidate, "osm_type", "")
+            and getattr(candidate, "osm_id", None) is not None
+            else None
+        )
     material = {
+        "provider": provider,
+        "provider_id": canonical_provider_id,
         "osm_type": candidate.osm_type,
         "osm_id": candidate.osm_id,
         "lat": round(candidate.latitude, 7),
@@ -186,6 +200,39 @@ def _candidate_id(candidate: GeocodingCandidate) -> str:
         json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:18]
     return f"place-{digest}"
+
+
+def _profile_address(candidate: GeocodingCandidate) -> dict[str, str]:
+    """Return a provider-neutral structured address for schema version 2."""
+    address = candidate.address if isinstance(candidate.address, dict) else {}
+
+    def first(*keys: str) -> str:
+        for key in keys:
+            value = _text(address.get(key), 500)
+            if value:
+                return value
+        return ""
+
+    return {
+        key: value
+        for key, value in {
+            "street": first("road", "pedestrian", "residential", "footway", "path"),
+            "house_number": first("house_number"),
+            "postal_code": first("postcode"),
+            "city": first("city", "town", "village", "municipality", "hamlet"),
+            "district": first(
+                "city_district",
+                "suburb",
+                "quarter",
+                "neighbourhood",
+                "borough",
+            ),
+            "state": first("state", "region"),
+            "country": first("country"),
+            "country_code": first("country_code").upper()[:2],
+        }.items()
+        if value
+    }
 
 
 def _query_for_stop(day: dict[str, Any], stop: dict[str, Any]) -> str:
@@ -409,6 +456,61 @@ class _PreviewEntry:
     payload: dict[str, Any]
 
 
+def _intent_from_payload(value: Any) -> DestinationIntent:
+    """Rebuild a bounded destination intent from its preview representation."""
+    payload = value if isinstance(value, dict) else {}
+    try:
+        confidence = float(payload.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if not math.isfinite(confidence):
+        confidence = 0.0
+    query_variants = tuple(
+        _text(item, 240)
+        for item in payload.get("query_variants") or []
+        if _text(item, 240)
+    )[:6]
+    source_hints = tuple(
+        {
+            key: _text(item.get(key), 1_000)
+            for key in ("kind", "identifier", "url", "label")
+            if _text(item.get(key), 1_000)
+        }
+        for item in payload.get("source_hints") or []
+        if isinstance(item, dict)
+    )[:8]
+    return DestinationIntent(
+        kind=_text(payload.get("kind"), 100) or "place",
+        label=_text(payload.get("label"), 200) or "Ort",
+        strategy=_text(payload.get("strategy"), 100) or "provider_search",
+        confidence=max(0.0, min(1.0, confidence)),
+        reason=_text(payload.get("reason"), 500),
+        name=_text(payload.get("name"), 500),
+        locality=_text(payload.get("locality"), 300),
+        country=_text(payload.get("country"), 300),
+        country_code=_text(payload.get("country_code"), 10).upper()[:2],
+        query_variants=query_variants,
+        source_hints=source_hints,
+    )
+
+
+def _google_source_reference(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Return the durable subset of one transient Google Places candidate."""
+    place_id = _text(candidate.get("provider_id"), 500)
+    if not place_id:
+        raise ValidationError("Der Google-Places-Treffer enthält keine Place ID")
+    return {
+        "provider": _GOOGLE_PLACES_PROVIDER,
+        "provider_id": place_id,
+        "role": "discovery",
+        "attribution": "Google Maps",
+        "source_url": (
+            "https://www.google.com/maps/search/?api=1&query_place_id="
+            + quote_plus(place_id)
+        ),
+    }
+
+
 class PlaceEnrichmentService:
     """Prepare and validate full place profiles before Roadbook review."""
 
@@ -519,6 +621,7 @@ class PlaceEnrichmentService:
                         structured_address if intent.kind == "address" else None
                     ),
                     language=self._language,
+                    location_bias=coordinate,
                 )
                 add(safe_default, query)
                 for candidate in alternatives:
@@ -591,10 +694,12 @@ class PlaceEnrichmentService:
             else {}
         )
         return {
+            "schema_version": 2,
             "id": _candidate_id(candidate),
             "name": candidate.preferred_name,
             "display_name": candidate.display_name,
             "address": candidate.display_name,
+            "structured_address": _profile_address(candidate),
             "location": location,
             "category": _category_label(candidate),
             "provider_category": _text(candidate.category, 100),
@@ -605,7 +710,10 @@ class PlaceEnrichmentService:
             "opening_hours": contact.get("opening_hours"),
             "map_url": _map_url(candidate.latitude, candidate.longitude),
             "source_url": candidate.source_url,
-            "provider_id": (
+            "provider": _text(getattr(candidate, "provider", "nominatim"), 100)
+            or "nominatim",
+            "provider_id": getattr(candidate, "canonical_provider_id", None)
+            or (
                 f"{candidate.osm_type}/{candidate.osm_id}"
                 if candidate.osm_type and candidate.osm_id is not None
                 else None
@@ -615,7 +723,14 @@ class PlaceEnrichmentService:
             "wikidata": contact.get("wikidata"),
             "wikipedia": contact.get("wikipedia"),
             "destination_intent": intent.as_dict(),
-            "attribution": "© OpenStreetMap contributors",
+            "attribution": _text(
+                getattr(
+                    candidate,
+                    "provider_attribution",
+                    "© OpenStreetMap contributors",
+                ),
+                500,
+            ),
             "confidence": percent,
             "confidence_label": label,
             "score": round(candidate.score, 4),
@@ -636,6 +751,118 @@ class PlaceEnrichmentService:
                 getattr(candidate, "address_mismatches", ()) or ()
             ),
         }
+
+    async def _persistent_candidate_for_selection(
+        self,
+        *,
+        item: dict[str, Any],
+        current: dict[str, Any],
+        candidate: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Normalize transient provider content before persistent storage.
+
+        Nominatim candidates are already suitable for a durable Roadplanner
+        place profile. Google Places candidates remain transient in the preview
+        and contribute only their stable Place ID as a source reference. Their
+        coordinates are reverse-resolved through Nominatim so the persisted
+        address and map point have OpenStreetMap provenance.
+        """
+        provider = _text(candidate.get("provider"), 100) or "nominatim"
+        if provider != _GOOGLE_PLACES_PROVIDER:
+            return candidate, None
+
+        source_reference = _google_source_reference(candidate)
+        location = (
+            candidate.get("location")
+            if isinstance(candidate.get("location"), dict)
+            else {}
+        )
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        if isinstance(latitude, bool) or isinstance(longitude, bool):
+            raise ValidationError(
+                "Der Google-Places-Treffer enthält keinen gültigen Kartenpunkt"
+            )
+        if not isinstance(latitude, (int, float)) or not isinstance(
+            longitude, (int, float)
+        ):
+            raise ValidationError(
+                "Der Google-Places-Treffer enthält keinen gültigen Kartenpunkt"
+            )
+        latitude = float(latitude)
+        longitude = float(longitude)
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
+            raise ValidationError(
+                "Der Google-Places-Treffer enthält keinen gültigen Kartenpunkt"
+            )
+
+        try:
+            durable = await self._geocoder.async_reverse(
+                latitude,
+                longitude,
+                language=self._language,
+            )
+        except GeocodingError as err:
+            raise ValidationError(
+                "Google Maps hat den Ort gefunden, aber Roadplanner konnte den "
+                "Kartenpunkt nicht in ein dauerhaftes OpenStreetMap-Ortsprofil "
+                "überführen. Prüfe die Quelle oder bestätige den Punkt manuell."
+            ) from err
+        if durable is None or _text(
+            getattr(durable, "provider", "nominatim"), 100
+        ) == _GOOGLE_PLACES_PROVIDER:
+            raise ValidationError(
+                "Google Maps hat den Ort gefunden, aber Roadplanner konnte den "
+                "Kartenpunkt nicht in ein dauerhaftes OpenStreetMap-Ortsprofil "
+                "überführen. Prüfe die Quelle oder bestätige den Punkt manuell."
+            )
+
+        # Preserve the user's stop label rather than storing the Google display
+        # name. The durable address and coordinates still come from the reverse
+        # candidate and carry its provider provenance.
+        durable = deepcopy(durable)
+        durable_name = _text(current.get("stop_name"), 500)
+        if durable_name:
+            namedetails = (
+                dict(durable.namedetails)
+                if isinstance(getattr(durable, "namedetails", None), dict)
+                else {}
+            )
+            namedetails["name"] = durable_name
+            durable.namedetails = namedetails
+
+        intent = _intent_from_payload(item.get("destination_intent"))
+        day = {
+            "id": current.get("day_id"),
+            "date": current.get("day_date"),
+            "title": current.get("day_title"),
+        }
+        stop = {
+            "id": current.get("stop_id"),
+            "name": durable_name,
+            "type": current.get("stop_type"),
+            "location": durable.as_location(),
+            "details": deepcopy(current.get("details") or {}),
+        }
+        persistent = await self._profile_candidate(
+            day,
+            stop,
+            durable,
+            query=_text(item.get("query"), 240),
+            intent=intent,
+        )
+        persistent["name"] = durable_name or persistent.get("name")
+        persistent["category"] = intent.label or persistent.get("category")
+        persistent["provider_discovery"] = {
+            **source_reference,
+            "persistence": "place_id_only",
+        }
+        return persistent, source_reference
 
     async def _prepare_item(
         self,
@@ -1014,6 +1241,7 @@ class PlaceEnrichmentService:
                 }
                 details["geocoding"] = provenance
                 details["place_profile"] = {
+                    "schema_version": 2,
                     "provider": "manual",
                     "provider_verified": False,
                     "name": manual_name or location.get("label"),
@@ -1025,6 +1253,19 @@ class PlaceEnrichmentService:
                     ),
                     "confidence": None,
                     "confidence_label": "Manuell bestätigt",
+                    "address": {
+                        key: value
+                        for key, value in {
+                            "formatted": location.get("address"),
+                            "city": location.get("city"),
+                            "country_code": location.get("country_code"),
+                        }.items()
+                        if value
+                    },
+                    "location": {
+                        "latitude": location.get("latitude"),
+                        "longitude": location.get("longitude"),
+                    },
                     "confirmed_at": confirmed_at,
                 }
                 changes = {
@@ -1039,7 +1280,7 @@ class PlaceEnrichmentService:
                     "bestätigt; die Werte sind nicht provider-verifiziert."
                 )
             else:
-                candidate = next(
+                selected_candidate = next(
                     (
                         value
                         for value in item.get("candidates", [])
@@ -1048,10 +1289,20 @@ class PlaceEnrichmentService:
                     ),
                     None,
                 )
-                if candidate is None:
+                if selected_candidate is None:
                     raise ValidationError(
                         f"Ausgewählter Ort für {current.get('stop_name') or stop_id} ist ungültig"
                     )
+                selected_provider = (
+                    _text(selected_candidate.get("provider"), 100) or "nominatim"
+                )
+                candidate, source_reference = (
+                    await self._persistent_candidate_for_selection(
+                        item=item,
+                        current=current,
+                        candidate=selected_candidate,
+                    )
+                )
                 provenance = deepcopy(
                     candidate.get("provenance")
                     if isinstance(candidate.get("provenance"), dict)
@@ -1071,13 +1322,20 @@ class PlaceEnrichmentService:
                         "confirmed_by": user_id,
                     }
                 )
+                if source_reference is not None:
+                    provenance["discovery"] = deepcopy(source_reference)
+                    provenance["selected_preview_provider"] = selected_provider
                 details["geocoding"] = provenance
                 contact = (
                     candidate.get("contact")
                     if isinstance(candidate.get("contact"), dict)
                     else {}
                 )
+                source_references = []
+                if source_reference is not None:
+                    source_references.append(deepcopy(source_reference))
                 details["place_profile"] = {
+                    "schema_version": 2,
                     "provider": _text(provenance.get("provider"), 100) or "provider",
                     "provider_verified": True,
                     "name": candidate.get("name"),
@@ -1108,7 +1366,21 @@ class PlaceEnrichmentService:
                         )
                         or []
                     ),
+                    "source_references": source_references,
+                    "discovered_by": (
+                        selected_provider
+                        if source_reference is not None
+                        else None
+                    ),
                     "image_query": candidate.get("image_query"),
+                    "address": {
+                        **deepcopy(candidate.get("structured_address") or {}),
+                        "formatted": candidate.get("display_name"),
+                    },
+                    "location": {
+                        "latitude": (candidate.get("location") or {}).get("latitude"),
+                        "longitude": (candidate.get("location") or {}).get("longitude"),
+                    },
                     "city": (candidate.get("location") or {}).get("city"),
                     "country_code": (candidate.get("location") or {}).get(
                         "country_code"
@@ -1148,10 +1420,18 @@ class PlaceEnrichmentService:
                         "confirmed_by": user_id,
                         "coordinate_policy": "not_provided_not_accepted",
                     }
-                reason = (
-                    "Der Benutzer hat den konkreten Kartenpunkt und das vollständige "
-                    "Ortsprofil in der Roadplanner-Vorschau bestätigt."
-                )
+                if source_reference is not None:
+                    reason = (
+                        "Der Benutzer hat einen Google-Maps-Treffer bestätigt. "
+                        "Roadplanner speichert die Google Place ID als Quellenreferenz "
+                        "und das dauerhaft verwendete Ortsprofil mit "
+                        "OpenStreetMap-Provenienz."
+                    )
+                else:
+                    reason = (
+                        "Der Benutzer hat den konkreten Kartenpunkt und das vollständige "
+                        "Ortsprofil in der Roadplanner-Vorschau bestätigt."
+                    )
                 gallery = self._gallery_for_candidate(
                     current=current,
                     stop_id=stop_id,
