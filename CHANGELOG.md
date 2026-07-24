@@ -6,6 +6,34 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Optional backend-only Google Places (New) destination discovery with fallback/preferred modes, visible Google Maps attribution, provider diagnostics, a conservative in-process daily limit, and setup documentation.
+- Provider-neutral place-profile schema version 2 with structured address, durable provenance, source references, and a separate derived drivable access point for road routing.
+- Explicit stop deletion from the day editor while retaining linked documents and personal media.
+- Independent trip, day, and stop cover selection with manual overrides and deterministic personal/planning-image fallbacks.
+- `tools/dev.py apply-series` for isolated multi-patch preflight and `context-export` for filtered AI/reviewer snapshots with Git metadata.
+
+### Changed
+
+- Google content is used only as transient reviewed discovery: Roadplanner keeps the Place ID reference and normalizes persistent coordinates and address data through OpenStreetMap/Nominatim or manual confirmation.
+- Place search can pass bounded location and target-type hints to provider implementations while keeping the API key and provider calls server-side.
+- Road routing keeps the real destination marker and can route a vehicle to a nearby derived access point instead of silently dropping an unreachable stop.
+- Image status distinguishes existing personal photos from external-provider failures, and concise destination-profile queries are used even when a complete provider profile is unavailable.
+- Automatic trip covers reject photos assigned only by date, preventing unrelated but technically strong images from becoming the journey hero.
+
+### Fixed
+
+- Gallery cards no longer report that no images are available when personal photos already exist.
+- A stale day reference no longer prevents a uniquely identifiable stop gallery from being refreshed.
+- Candidate provider host names are matched only as exact domains or real subdomains instead of unsafe arbitrary substrings.
+- Non-drivable nature and beach destinations remain visible in the day route while navigation uses a separately explained access point.
+
+### Security
+
+- Google Maps Platform keys are excluded from panel data, logs, diagnostics, patches, and exported AI context packages.
+- Google search responses use a short-lived in-memory cache and do not request or persist photos, reviews, ratings, or atmosphere fields.
+
 ## [3.6.0] - 2026-07-24
 
 ### Added

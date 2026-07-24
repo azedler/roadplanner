@@ -74,10 +74,22 @@ class GeocodingCandidate:
     search_variant: str = "free_text"
     auto_selectable: bool = True
     address_mismatches: tuple[str, ...] = ()
+    provider: str = "nominatim"
+    provider_id: str | None = None
+    provider_source_url: str | None = None
+    provider_attribution: str = "© OpenStreetMap contributors"
 
     @property
     def preferred_name(self) -> str:
         return str(self.namedetails.get("name") or self.display_name.split(",", 1)[0])
+
+    @property
+    def canonical_provider_id(self) -> str | None:
+        if self.provider_id:
+            return self.provider_id
+        if self.osm_type and self.osm_id is not None:
+            return f"{self.osm_type}/{self.osm_id}"
+        return None
 
     def as_location(self) -> dict:
         return {
@@ -91,10 +103,12 @@ class GeocodingCandidate:
 
     def as_provenance(self) -> dict:
         return {
-            "provider": "nominatim",
+            "provider": self.provider,
+            "provider_id": self.canonical_provider_id,
             "osm_type": self.osm_type,
             "osm_id": self.osm_id,
-            "source_url": self.source_url,
+            "source_url": self.provider_source_url or self.source_url,
+            "attribution": self.provider_attribution,
             "score": self.score,
             "namedetails": dict(self.namedetails),
             "extratags": dict(self.extratags),
@@ -200,7 +214,7 @@ spec.loader.exec_module(module)
 
 
 class FakeGeocoder:
-    async def async_resolve(self, query, *, structured_address=None, language):
+    async def async_resolve(self, query, *, structured_address=None, language, location_bias=None):
         assert "Fährterminal" in query
         assert "Tallinn" in query
         assert language == "de"
@@ -322,7 +336,7 @@ class TypedFallbackGeocoder:
             auto_selectable=True,
         )
 
-    async def async_resolve(self, query, *, structured_address=None, language):
+    async def async_resolve(self, query, *, structured_address=None, language, location_bias=None):
         self.forward_queries.append(query)
         assert structured_address is None
         assert language == "de"
@@ -340,6 +354,65 @@ class TypedFallbackGeocoder:
             auto_selectable=True,
         )
         return candidate, [candidate]
+
+
+class GoogleDiscoveryGeocoder:
+    def __init__(self):
+        self.reverse_calls = []
+
+    async def async_resolve(
+        self,
+        query,
+        *,
+        structured_address=None,
+        language,
+        location_bias=None,
+    ):
+        candidate = GeocodingCandidate(
+            display_name="Google proprietary address text, Estonia",
+            latitude=58.34231,
+            longitude=23.73091,
+            score=0.96,
+            category="tourism",
+            result_type="campground",
+            address={"city": "Matsi küla", "country_code": "ee"},
+            namedetails={"name": "RMK Matsiranna telkimisala"},
+            extratags={},
+            osm_type="",
+            osm_id=None,
+            source_url="https://www.openstreetmap.org/",
+            search_variant="google_text_search",
+            match_type="poi",
+            match_label="Campingplatz",
+            provider="google_places",
+            provider_id="ChIJ-roadplanner-test",
+            provider_source_url="https://maps.google.com/?cid=123",
+            provider_attribution="Google Maps",
+        )
+        return candidate, [candidate]
+
+    async def async_reverse(self, latitude, longitude, *, language):
+        self.reverse_calls.append((latitude, longitude, language))
+        return GeocodingCandidate(
+            display_name="Matsiranna, Matsi, Pärnumaa, Estonia",
+            latitude=58.34225,
+            longitude=23.73110,
+            score=0.91,
+            category="tourism",
+            result_type="camp_site",
+            address={"village": "Matsi", "country_code": "ee"},
+            namedetails={"name": "Matsiranna"},
+            extratags={"website": "https://loodusegakoos.ee/"},
+            osm_type="node",
+            osm_id=98765,
+            source_url="https://www.openstreetmap.org/node/98765",
+            resolution_mode="reverse",
+            distance_meters=24.0,
+            match_type="poi",
+            match_label="Campingplatz",
+            provider="nominatim",
+            provider_attribution="© OpenStreetMap contributors",
+        )
 
 
 class RecordingImages:
@@ -384,6 +457,7 @@ async def main() -> None:
         for value in item["query_variants"]
     )
     candidate = item["candidates"][0]
+    assert candidate["schema_version"] == 2
     assert candidate["name"] == "Tallinn Terminal D"
     assert candidate["address"].startswith("Tallinn Terminal D")
     assert candidate["category"] == "Fährterminal"
@@ -419,7 +493,10 @@ async def main() -> None:
     assert operation["changes"]["location"]["latitude"] == 59.44327
     assert operation["changes"]["location"]["longitude"] == 24.76154
     details = operation["changes"]["details"]
+    assert details["place_profile"]["schema_version"] == 2
     assert details["place_profile"]["name"] == "Tallinn Terminal D"
+    assert details["place_profile"]["address"]["formatted"].startswith("Tallinn Terminal D")
+    assert details["place_profile"]["location"]["latitude"] == 59.44327
     assert details["place_profile"]["website"].startswith("https://")
     assert details["place_profile"]["email"] == "info@ts.ee"
     assert details["place_profile"]["confirmed_at"]
@@ -470,6 +547,7 @@ async def main() -> None:
     assert manual_changes["name"] == "Krumhermsdorf Übernachtung"
     assert manual_changes["details"]["geocoding"]["status"] == "manual_confirmed"
     assert manual_changes["details"]["geocoding"]["provider_verified"] is False
+    assert manual_changes["details"]["place_profile"]["schema_version"] == 2
     assert manual_changes["details"]["place_profile"]["provider_verified"] is False
 
     try:
@@ -535,6 +613,68 @@ async def main() -> None:
     )
     assert fallback_item["candidates"][0]["name"] == "Finnisches Naturzentrum Haltia"
     assert fallback_images.calls[0][2:] == (60.29371, 24.55704)
+
+    google_geocoder = GoogleDiscoveryGeocoder()
+    google_images = RecordingImages()
+    google_service = module.PlaceEnrichmentService(
+        google_geocoder,
+        google_images,
+    )
+    google_day = {
+        "id": "day-rmk",
+        "date": "2026-07-21",
+        "title": "Matsiranna",
+        "stops": [
+            {
+                "id": "stop-rmk",
+                "name": "RMK Matsiranna telkimisala",
+                "type": "camping",
+                "position": 3,
+                "location": {"country_code": "EE"},
+            }
+        ],
+    }
+    google_preview = await google_service.async_prepare(
+        user_id="user-1",
+        trip_id="trip-1",
+        days=[google_day],
+    )
+    google_item = google_preview["items"][0]
+    google_candidate = google_item["candidates"][0]
+    assert google_candidate["provider"] == "google_places"
+    assert google_candidate["attribution"] == "Google Maps"
+    google_operations, google_galleries = await google_service.resolve_selections(
+        user_id="user-1",
+        trip_id="trip-1",
+        preview_id=google_preview["id"],
+        selections={"stop-rmk": google_candidate["id"]},
+    )
+    assert google_geocoder.reverse_calls == [(58.34231, 23.73091, "de")]
+    google_changes = google_operations[0]["changes"]
+    assert "name" not in google_changes, "Google display names must not rename a stop"
+    assert google_changes["location"]["latitude"] == 58.34225
+    assert google_changes["location"]["longitude"] == 23.73110
+    google_profile = google_changes["details"]["place_profile"]
+    assert google_profile["provider"] == "nominatim"
+    assert google_profile["provider_id"] == "node/98765"
+    assert google_profile["name"] == "RMK Matsiranna telkimisala"
+    assert google_profile["display_name"].startswith("Matsiranna")
+    assert google_profile["discovered_by"] == "google_places"
+    assert google_profile["source_references"] == [
+        {
+            "provider": "google_places",
+            "provider_id": "ChIJ-roadplanner-test",
+            "role": "discovery",
+            "attribution": "Google Maps",
+            "source_url": "https://www.google.com/maps/search/?api=1&query_place_id=ChIJ-roadplanner-test",
+        }
+    ]
+    serialized_google_changes = str(google_changes)
+    assert "Google proprietary address text" not in serialized_google_changes
+    assert google_changes["details"]["geocoding"]["discovery"]["provider_id"] == "ChIJ-roadplanner-test"
+    assert google_galleries and google_images.calls[-1][0].startswith(
+        "RMK Matsiranna telkimisala"
+    )
 
     cleanup_service = module.PlaceEnrichmentService(
         FakeGeocoder(),

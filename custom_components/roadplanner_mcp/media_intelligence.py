@@ -104,9 +104,61 @@ def duplicate_key(item: dict[str, Any]) -> str:
     return f"id:{_text(item.get('id'))}"
 
 
+def _is_screenshot(item: dict[str, Any]) -> bool:
+    name = _text(item.get("name")).casefold()
+    return bool(item.get("is_screenshot")) or any(
+        marker in name for marker in _SCREENSHOT_MARKERS
+    )
+
+
+def _is_landscape(item: dict[str, Any]) -> bool:
+    width = item.get("width")
+    height = item.get("height")
+    return (
+        isinstance(width, int)
+        and not isinstance(width, bool)
+        and isinstance(height, int)
+        and not isinstance(height, bool)
+        and width > 0
+        and height > 0
+        and width / height >= 1.15
+    )
+
+
+def _automatic_cover_eligible(item: dict[str, Any], *, scope: str) -> bool:
+    """Return whether metadata is strong enough for an automatic cover.
+
+    A date-only assignment is intentionally insufficient.  Explicit cover
+    choices always remain valid, but automatic trip/day covers require a
+    concrete stop or a spatially supported assignment.
+    """
+    if scope == "trip" and item.get("is_trip_cover"):
+        return True
+    if scope == "day" and item.get("is_day_cover"):
+        return True
+    if scope == "stop" and item.get("is_cover"):
+        return True
+    if _text(item.get("media_type")).casefold() != "photo" or _is_screenshot(item):
+        return False
+    assignment = _text(item.get("assignment_status")).casefold()
+    if assignment not in {"manual", "automatic"}:
+        return False
+    if _text(item.get("linked_stop_id")):
+        return True
+    if not _text(item.get("linked_day_id")):
+        return False
+    return _coordinate(item) is not None or isinstance(
+        item.get("distance_m"), (int, float)
+    )
+
+
 def media_quality_score(item: dict[str, Any]) -> float:
     """Score one media reference using only deterministic local metadata."""
     score = 0.0
+    if item.get("is_trip_cover"):
+        score += 140.0
+    if item.get("is_day_cover"):
+        score += 120.0
     if item.get("is_cover"):
         score += 100.0
     assignment = _text(item.get("assignment_status")).casefold()
@@ -151,8 +203,7 @@ def media_quality_score(item: dict[str, Any]) -> float:
         score += 2.0
     if _coordinate(item):
         score += 2.0
-    name = _text(item.get("name")).casefold()
-    if any(marker in name for marker in _SCREENSHOT_MARKERS):
+    if _is_screenshot(item):
         score -= 30.0
     if _text(item.get("media_type")).casefold() != "photo":
         score -= 4.0
@@ -195,7 +246,10 @@ def _diverse_selection(
     manual = [
         item
         for item in ranked
-        if item.get("is_cover") or item.get("assignment_status") == "manual"
+        if item.get("is_trip_cover")
+        or item.get("is_day_cover")
+        or item.get("is_cover")
+        or item.get("assignment_status") == "manual"
     ]
     for item in manual:
         if item in selected:
@@ -270,7 +324,12 @@ def select_media_highlights(
     )
     for position, item in enumerate(selected, start=1):
         item["highlight_position"] = position
-        if item.get("is_cover") or item.get("assignment_status") == "manual":
+        if (
+            item.get("is_trip_cover")
+            or item.get("is_day_cover")
+            or item.get("is_cover")
+            or item.get("assignment_status") == "manual"
+        ):
             reason = "manuell gewählt"
         elif position == 1:
             reason = "bestes lokales Titelbild nach Zuordnung, Qualität und Nähe"
@@ -410,6 +469,55 @@ def build_featured_media_indexes(
     }
 
 
+def select_trip_cover_candidates(
+    media: Iterable[dict[str, Any]],
+    *,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    """Return strong personal-photo candidates for trip-level curation.
+
+    Date-only suggestions and unassigned files are deliberately excluded. An
+    explicit user-selected trip cover remains eligible regardless of automatic
+    metadata so manual intent can always be preserved.
+    """
+    eligible = [
+        deepcopy(item)
+        for item in media
+        if isinstance(item, dict)
+        and _automatic_cover_eligible(item, scope="trip")
+    ]
+    selected, _stats = select_media_highlights(
+        eligible,
+        limit=max(1, min(int(limit), 15)),
+    )
+    return selected
+
+
+def _cover_id(
+    items: Iterable[dict[str, Any]],
+    *,
+    explicit_field: str,
+    scope: str,
+) -> str | None:
+    values = [item for item in items if isinstance(item, dict) and _text(item.get("id"))]
+    explicit = [item for item in values if item.get(explicit_field)]
+    candidates = explicit or [
+        item for item in values if _automatic_cover_eligible(item, scope=scope)
+    ]
+    if not candidates:
+        return None
+    ranked = sorted(
+        candidates,
+        key=lambda item: (
+            -float(media_quality_score(item)),
+            0 if _is_landscape(item) else 1,
+            _text(item.get("taken_at") or item.get("created_at")),
+            _text(item.get("id")),
+        ),
+    )
+    return _text(ranked[0].get("id")) or None
+
+
 def build_media_presentation(
     media: Iterable[dict[str, Any]],
     *,
@@ -417,28 +525,87 @@ def build_media_presentation(
     curations: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return the stable panel contract for personal travel-photo highlights."""
+    all_media = [deepcopy(item) for item in media if isinstance(item, dict)]
     indexes = build_featured_media_indexes(
-        media,
+        all_media,
         limit=limit,
         curations=curations,
     )
     stop_highlights = indexes["featured_by_stop"]
     day_highlights = indexes["featured_by_day"]
+    by_id = {
+        _text(item.get("id")): item
+        for item in all_media
+        if _text(item.get("id"))
+    }
+    stop_covers: dict[str, str] = {}
+    for stop_id, values in stop_highlights.items():
+        cover = _cover_id(
+            (by_id[media_id] for media_id in values if media_id in by_id),
+            explicit_field="is_cover",
+            scope="stop",
+        )
+        if cover:
+            stop_covers[stop_id] = cover
+    day_covers: dict[str, str] = {}
+    for day_id, values in day_highlights.items():
+        day_items = [by_id[media_id] for media_id in values if media_id in by_id]
+        # Explicit day covers might not be inside a shortened highlight list.
+        day_items.extend(
+            item
+            for item in all_media
+            if _text(item.get("linked_day_id")) == day_id
+            and item.get("is_day_cover")
+            and item not in day_items
+        )
+        cover = _cover_id(
+            day_items,
+            explicit_field="is_day_cover",
+            scope="day",
+        )
+        if cover:
+            day_covers[day_id] = cover
+    trip_candidates = select_trip_cover_candidates(all_media, limit=max(limit, 12))
+    explicit_trip_cover = _cover_id(
+        (item for item in all_media if item.get("is_trip_cover")),
+        explicit_field="is_trip_cover",
+        scope="trip",
+    )
+    curated_trip_cover = None
+    trip_curation = (
+        curations.get("trip-cover")
+        if isinstance(curations, dict)
+        and isinstance(curations.get("trip-cover"), dict)
+        else None
+    )
+    if explicit_trip_cover is None and trip_curation and trip_curation.get("status") == "ready":
+        candidate_ids = {_text(item.get("id")) for item in trip_candidates}
+        requested = _text(trip_curation.get("cover_id"))
+        if requested in candidate_ids:
+            curated_trip_cover = requested
+    # Trip-level covers are intentionally more conservative than stop/day
+    # covers. Metadata alone cannot tell a landscape from an unrelated product
+    # shelf. Use a personal trip cover only after an explicit user choice or a
+    # bounded Vision selection; otherwise the panel falls back to a confirmed
+    # planning image instead of an arbitrary personal photo.
+    trip_cover = explicit_trip_cover or curated_trip_cover
     return {
-        "version": 2,
+        "version": 3,
+        "trip_cover": trip_cover,
         "stop_highlights": stop_highlights,
         "day_highlights": day_highlights,
-        "stop_covers": {
-            key: values[0]
-            for key, values in stop_highlights.items()
-            if values
-        },
-        "day_covers": {
-            key: values[0]
-            for key, values in day_highlights.items()
-            if values
-        },
+        "stop_covers": stop_covers,
+        "day_covers": day_covers,
+        "planning_trip_cover": None,
         "planning_day_covers": {},
+        "display_source_by_trip": "travel_images" if trip_cover else None,
+        "trip_selection_mode": (
+            "manual"
+            if explicit_trip_cover
+            else "hybrid_vision"
+            if curated_trip_cover
+            else "none"
+        ),
         "display_source_by_stop": {
             key: "travel_images" for key, values in stop_highlights.items() if values
         },

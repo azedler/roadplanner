@@ -25,7 +25,17 @@ python tools/dev.py check
 python tools/dev.py apply ../RP-XXX-delivery/RP-XXX.patch
 ```
 
-`apply` requires a clean worktree, runs `git apply --check --whitespace=error-all`, applies the patch and then runs the canonical release check. The patch should live outside the repository so it does not make the worktree dirty.
+`apply` requires a clean worktree, runs `git apply --check --whitespace=error-all`, applies the patch and then runs the canonical release check. The patch should live outside the repository or be locally ignored so it does not make the worktree dirty.
+
+A release candidate made from several ordered patches can be preflighted atomically:
+
+```bash
+python tools/dev.py apply-series \
+  ../deliveries/RP-400A.patch \
+  ../deliveries/RP-400B.patch
+```
+
+`apply-series` creates an isolated temporary Git worktree, checks and applies every patch there, and runs `python tools/release.py check`. The real worktree is modified only after the complete series passes the isolated preflight. If any patch or test fails, the real worktree remains unchanged.
 
 To export reviewed staged changes without committing them:
 
@@ -34,7 +44,15 @@ git add -A
 python tools/dev.py export ../RP-XXX.patch
 ```
 
-The helper never commits, pushes, merges, tags, opens pull requests or changes remotes. Branch creation and every GitHub write remain deliberate user actions.
+To create a current, filtered code snapshot for AI implementation or independent review:
+
+```bash
+python tools/dev.py context-export ../roadplanner-ai-context.zip
+```
+
+The context package contains repository source plus `metadata.json`, Git status/log/diff, a context summary and available release-check evidence. It excludes Git internals, Home Assistant storage, secrets, Roadbooks, personal documents and media, caches, archives and transient patch deliveries. The operator must still inspect the archive before sharing it.
+
+The helper never commits, pushes, merges, tags, opens pull requests, changes remotes, or starts a release. Branch creation and every GitHub write remain deliberate user actions.
 
 ## Preferred upload path
 
@@ -62,6 +80,8 @@ Apply and validate with the helper when the patch is outside the repository:
 ```bash
 python tools/dev.py apply ../RP-XXX-delivery/RP-XXX.patch
 ```
+
+For an ordered release-candidate series, use one `apply-series` invocation instead of applying patches one by one.
 
 The equivalent manual sequence remains supported:
 

@@ -45,6 +45,11 @@ from .const import (
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
+    CONF_GOOGLE_PLACES_API_KEY,
+    CONF_GOOGLE_PLACES_DAILY_LIMIT,
+    CONF_GOOGLE_PLACES_ENABLED,
+    CONF_GOOGLE_PLACES_MODE,
+    CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -95,6 +100,12 @@ from .const import (
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
+    DEFAULT_GOOGLE_PLACES_API_KEY,
+    DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
+    DEFAULT_GOOGLE_PLACES_ENABLED,
+    DEFAULT_GOOGLE_PLACES_MODE,
+    DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
+    GOOGLE_PLACES_MODES,
     DEFAULT_ROUTING_ENABLED,
     DEFAULT_ROUTING_PROVIDER,
     DEFAULT_ROUTING_URL,
@@ -115,6 +126,8 @@ from .const import (
     MAX_ASSISTANT_REQUEST_TIMEOUT,
     MAX_ASSISTANT_RETRY_ATTEMPTS,
     MAX_REFRESH_INTERVAL,
+    MAX_GOOGLE_PLACES_DAILY_LIMIT,
+    MAX_GOOGLE_PLACES_REQUEST_TIMEOUT,
     MIN_DOCUMENT_MAX_UPLOAD_MB,
     MAX_DOCUMENT_MAX_UPLOAD_MB,
     MIN_ROUTING_REQUEST_TIMEOUT,
@@ -127,6 +140,8 @@ from .const import (
     MIN_ASSISTANT_REQUEST_TIMEOUT,
     MIN_ASSISTANT_RETRY_ATTEMPTS,
     MIN_REFRESH_INTERVAL,
+    MIN_GOOGLE_PLACES_DAILY_LIMIT,
+    MIN_GOOGLE_PLACES_REQUEST_TIMEOUT,
     NAME,
     NON_ADMIN_ROLES,
 )
@@ -404,6 +419,47 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 ),
             ): str,
             vol.Required(
+                CONF_GOOGLE_PLACES_ENABLED,
+                default=defaults.get(
+                    CONF_GOOGLE_PLACES_ENABLED,
+                    DEFAULT_GOOGLE_PLACES_ENABLED,
+                ),
+            ): bool,
+            vol.Optional(CONF_GOOGLE_PLACES_API_KEY): str,
+            vol.Required(
+                CONF_GOOGLE_PLACES_MODE,
+                default=defaults.get(
+                    CONF_GOOGLE_PLACES_MODE,
+                    DEFAULT_GOOGLE_PLACES_MODE,
+                ),
+            ): vol.In(GOOGLE_PLACES_MODES),
+            vol.Required(
+                CONF_GOOGLE_PLACES_DAILY_LIMIT,
+                default=defaults.get(
+                    CONF_GOOGLE_PLACES_DAILY_LIMIT,
+                    DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_GOOGLE_PLACES_DAILY_LIMIT,
+                    max=MAX_GOOGLE_PLACES_DAILY_LIMIT,
+                ),
+            ),
+            vol.Required(
+                CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                default=defaults.get(
+                    CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                    DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                    max=MAX_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                ),
+            ),
+            vol.Required(
                 CONF_ROUTING_ENABLED,
                 default=defaults.get(
                     CONF_ROUTING_ENABLED,
@@ -502,6 +558,15 @@ def _normalize_input(
         result[CONF_GEMINI_API_KEY] = current[CONF_GEMINI_API_KEY]
     else:
         result[CONF_GEMINI_API_KEY] = DEFAULT_GEMINI_API_KEY
+    submitted_google_key = str(
+        result.get(CONF_GOOGLE_PLACES_API_KEY, "")
+    ).strip()
+    if submitted_google_key:
+        result[CONF_GOOGLE_PLACES_API_KEY] = submitted_google_key
+    elif current and current.get(CONF_GOOGLE_PLACES_API_KEY):
+        result[CONF_GOOGLE_PLACES_API_KEY] = current[CONF_GOOGLE_PLACES_API_KEY]
+    else:
+        result[CONF_GOOGLE_PLACES_API_KEY] = DEFAULT_GOOGLE_PLACES_API_KEY
     result[CONF_GEMINI_MODEL] = (
         str(result.get(CONF_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL).strip()
         or DEFAULT_GEMINI_MODEL
@@ -522,6 +587,11 @@ def _normalize_input(
     result[CONF_GEOCODING_URL] = normalize_geocoding_url(
         result.get(CONF_GEOCODING_URL, DEFAULT_GEOCODING_URL)
     )
+    result[CONF_GOOGLE_PLACES_MODE] = str(
+        result.get(CONF_GOOGLE_PLACES_MODE) or DEFAULT_GOOGLE_PLACES_MODE
+    ).strip().casefold()
+    if result[CONF_GOOGLE_PLACES_MODE] not in GOOGLE_PLACES_MODES:
+        result[CONF_GOOGLE_PLACES_MODE] = DEFAULT_GOOGLE_PLACES_MODE
     result[CONF_ROUTING_URL] = normalize_routing_url(
         result.get(CONF_ROUTING_URL, DEFAULT_ROUTING_URL)
     )
@@ -639,6 +709,7 @@ class RoadplannerOptionsFlow(OptionsFlow):
                 return self.async_create_entry(title="", data=options)
         defaults = dict(user_input or current)
         defaults.pop(CONF_GEMINI_API_KEY, None)
+        defaults.pop(CONF_GOOGLE_PLACES_API_KEY, None)
         return self.async_show_form(
             step_id="init",
             data_schema=_schema(defaults),

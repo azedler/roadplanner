@@ -131,6 +131,14 @@ def build_vision_prompt(
             "abwechslungsreiche Motive. Vermeide Logos, Karten, Plakate, Schilder, "
             "Tickets und nahezu identische Ansichten."
         )
+    elif kind == "trip":
+        objective = (
+            "Wähle aus den eigenen Reisefotos ein repräsentatives Titelbild für die "
+            "gesamte Reise. Bevorzuge Landschaft, Atmosphäre, Reiseaktivität und "
+            "einen klaren Bezug zur Reise. Vermeide Produkt-, Regal-, Dokument-, "
+            "Ticket- und Screenshotmotive sowie technisch schwache oder zufällige "
+            "Alltagsaufnahmen. Identifiziere keine Personen."
+        )
     else:
         objective = (
             "Wähle aus den eigenen Reisefotos ein repräsentatives Titelbild und "

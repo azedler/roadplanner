@@ -18,6 +18,7 @@ Roadplanner uses a specification-first, patch-based workflow designed to work fr
 - [Commit conventions](COMMIT_CONVENTIONS.md)
 - [Testing](TEST_STRATEGY.md)
 - [Automated patch workflow](PATCH_WORKFLOW.md#safe-local-helper)
+- [Google Places setup](GOOGLE_PLACES_SETUP.md)
 - [Release process](RELEASE_PROCESS.md)
 - [Release automation](RELEASE_AUTOMATION.md)
 - [Release checklist](RELEASE_CHECKLIST.md)

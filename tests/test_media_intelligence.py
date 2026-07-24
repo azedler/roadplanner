@@ -55,6 +55,8 @@ assert stats["highlight_count"] == 3
 assert module.media_quality_score(media[0]) > module.media_quality_score(media[-2])
 
 presentation = module.build_media_presentation(media, limit=3)
+assert presentation["trip_cover"] is None, "metadata-only photos must not become an arbitrary trip hero"
+assert presentation["trip_selection_mode"] == "none"
 assert presentation["stop_covers"]["stop-1"] == "cover"
 assert presentation["day_covers"]["day-1"] == "cover"
 assert len(presentation["stop_highlights"]["stop-1"]) == 3
@@ -78,5 +80,34 @@ vision_presentation = module.build_media_presentation(media, limit=3, curations=
 assert vision_presentation["stop_covers"]["stop-1"] == "cover", "manual cover must override Vision"
 assert "hybrid_vision" in vision_presentation["selection_mode_by_stop"]["stop-1"]
 assert vision_presentation["curation"]["vision_curated_stop_count"] == 1
+
+# A merely date-matched suggestion must never become the automatic trip cover.
+date_only = photo(
+    "supermarket-shelf",
+    taken_at="2026-07-21T11:00:00Z",
+    name="IMG_0001.jpg",
+    stop="",
+    day="day-1",
+    confidence=0.7,
+)
+date_only["assignment_status"] = "suggested"
+date_only["location"] = {}
+date_only["distance_m"] = None
+candidate_ids = [item["id"] for item in module.select_trip_cover_candidates([date_only, *media])]
+assert "supermarket-shelf" not in candidate_ids
+assert "cover" in candidate_ids
+
+explicit_trip = photo(
+    "trip-cover",
+    taken_at="2026-07-21T12:00:00Z",
+    stop="stop-2",
+    day="day-1",
+)
+explicit_trip["is_trip_cover"] = True
+trip_presentation = module.build_media_presentation([date_only, *media, explicit_trip], limit=3)
+assert trip_presentation["version"] == 3
+assert trip_presentation["trip_cover"] == "trip-cover"
+assert trip_presentation["trip_selection_mode"] == "manual"
+assert trip_presentation["trip_cover"] != "supermarket-shelf"
 
 print("Media intelligence tests passed.")

@@ -16,6 +16,9 @@ for (const required of [
   'Stopps anreichern',
   'Zieltyp:',
   'Google Maps',
+  'Google dient als Suchquelle.',
+  'Wie werden die Treffer sortiert?',
+  'Google wird je nach Einrichtung bevorzugt oder nur als Fallback aufgerufen.',
   'OpenStreetMap',
   'Öffnungszeiten',
   'Vertrauen',
@@ -39,6 +42,12 @@ if (!source.includes('type: "place-enrichment"')) {
 }
 if (!source.includes('this._dialog?.type !== "place-enrichment"')) {
   throw new Error("Place-enrichment selection is not scoped to its dialog");
+}
+if (!source.includes('class="google-maps-label" translate="no">Google Maps</span>')) {
+  throw new Error("Google candidate attribution must be visible and excluded from translation");
+}
+if (!source.includes('font-family: Roboto, Sans-Serif') || !source.includes('font-weight: 400')) {
+  throw new Error("Google text attribution styling contract is missing");
 }
 if (!source.includes('Ortsprofile an die Änderungsübersicht übergeben')) {
   throw new Error("Review-only handoff confirmation is missing");

@@ -226,7 +226,11 @@ def normalize_media_curation(raw: dict[str, Any]) -> dict[str, Any]:
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
     return {
         "stop_id": stop_id,
-        "kind": "travel",
+        "kind": (
+            str(raw.get("kind") or "travel")
+            if str(raw.get("kind") or "travel") in {"travel", "trip"}
+            else "travel"
+        ),
         "status": status,
         "fingerprint": _clean(raw.get("fingerprint"), 200),
         "selection_version": max(1, int(raw.get("selection_version") or 1)),
@@ -422,6 +426,8 @@ def normalize_media(raw: dict[str, Any]) -> dict[str, Any]:
         "distance_m": round(distance, 1) if distance is not None and distance >= 0 else None,
         "caption": _clean(raw.get("caption"), 2_000),
         "is_cover": bool(raw.get("is_cover", False)),
+        "is_day_cover": bool(raw.get("is_day_cover", False)),
+        "is_trip_cover": bool(raw.get("is_trip_cover", False)),
         "thumbnail_available": bool(raw.get("thumbnail_available", True)),
         "last_seen_at": _clean(raw.get("last_seen_at"), 100) or utc_now_iso(),
     }
@@ -722,6 +728,14 @@ class ExperienceStore:
                     for other in state["media"]:
                         if other["id"] != media_id and other.get("linked_stop_id") == updated.get("linked_stop_id"):
                             other["is_cover"] = False
+                if updated.get("is_day_cover") and updated.get("linked_day_id"):
+                    for other in state["media"]:
+                        if other["id"] != media_id and other.get("linked_day_id") == updated.get("linked_day_id"):
+                            other["is_day_cover"] = False
+                if updated.get("is_trip_cover"):
+                    for other in state["media"]:
+                        if other["id"] != media_id:
+                            other["is_trip_cover"] = False
                 state["media"][index] = updated
                 self.write(state)
                 return deepcopy(updated)

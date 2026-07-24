@@ -34,14 +34,18 @@ from .decision_logic import (
 )
 from .destination_images import DestinationImageProvider
 from .destination_intelligence import analyze_destination, destination_image_query
-from .media_intelligence import build_media_presentation, select_media_highlights
+from .media_intelligence import (
+    build_media_presentation,
+    select_media_highlights,
+    select_trip_cover_candidates,
+)
 from .experience_store import (
     ExperienceStore,
     new_id,
     resolve_decision_media_references,
     utc_now_iso,
 )
-from .geocoding import NominatimGeocoder
+from .geocoding import GeocodingProvider
 from .manager import RoadplannerManager
 from .onedrive_media import OneDrivePersonalClient, normalize_onedrive_folder_path
 from .place_cleanup import PlaceCleanupService
@@ -433,7 +437,7 @@ class RoadplannerExperienceManager:
         *,
         provider: AssistantProvider | None,
         assistant: Any,
-        geocoder: NominatimGeocoder | None,
+        geocoder: GeocodingProvider | None,
         router: OSRMRoutingClient,
         image_provider: DestinationImageProvider,
         media_curation_mode: str = "local",
@@ -928,7 +932,7 @@ class RoadplannerExperienceManager:
             image_id = str(item.get("id") or "").strip()
             if not image_id:
                 continue
-            if kind == "travel":
+            if kind in {"travel", "trip"}:
                 provider_item_id = str(item.get("provider_item_id") or "").strip()
                 if not provider_item_id:
                     continue
@@ -1068,12 +1072,14 @@ class RoadplannerExperienceManager:
             max_highlights=self.media_vision_max_highlights,
         )
         manual_cover_id = None
-        if kind == "travel":
+        if kind in {"travel", "trip"}:
+            manual_field = "is_trip_cover" if kind == "trip" else "is_cover"
             manual_cover_id = next(
                 (
                     str(item.get("id") or "")
                     for item in candidates
-                    if item.get("is_cover") and str(item.get("id") or "") in input_ids
+                    if item.get(manual_field)
+                    and str(item.get("id") or "") in input_ids
                 ),
                 None,
             )
@@ -1157,6 +1163,70 @@ class RoadplannerExperienceManager:
             "curation": stored,
             "experience": await self.async_panel_payload(trip_id, days=days),
         }
+
+    async def async_curate_trip_media(
+        self,
+        trip_id: str,
+        *,
+        force: bool = False,
+        include_experience: bool = True,
+    ) -> dict[str, Any]:
+        """Curate a bounded trip-cover candidate set from strong own photos."""
+        payload = await self.manager.async_get_assistant_payload(trip_id)
+        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
+        media = [
+            item
+            for item in list(state.get("media") or [])
+            if isinstance(item, dict)
+        ]
+        candidates = select_trip_cover_candidates(
+            media,
+            limit=self.media_vision_max_candidates,
+        )
+        if not candidates:
+            result: dict[str, Any] = {
+                "curation": None,
+                "candidate_count": 0,
+                "reason": "Keine hinreichend sicher zugeordneten Reisefotos vorhanden",
+            }
+            if include_experience:
+                result["experience"] = await self.async_panel_payload(trip_id)
+            return result
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
+        synthetic_day = {
+            "id": "trip-cover-day",
+            "date": trip.get("start_date"),
+            "title": trip.get("title") or "Reise",
+        }
+        synthetic_stop = {
+            "id": "trip-cover",
+            "name": trip.get("title") or "Reise",
+            "type": "trip",
+            "notes": trip.get("notes") or "",
+            "location": {},
+        }
+        curation = await self._async_semantic_curation(
+            trip_id=trip_id,
+            kind="trip",
+            day=synthetic_day,
+            stop=synthetic_stop,
+            candidates=candidates,
+            existing=(state.get("media_curations") or {}).get("trip-cover"),
+            force=force,
+        )
+        stored = await self.hass.async_add_executor_job(
+            self.store.upsert_media_curation,
+            trip_id,
+            curation,
+        )
+        result = {
+            "curation": stored,
+            "candidate_count": len(candidates),
+        }
+        if include_experience:
+            result["experience"] = await self.async_panel_payload(trip_id)
+        return result
 
     async def async_auto_curate_media(
         self,
@@ -1258,21 +1328,63 @@ class RoadplannerExperienceManager:
                     curated += 1
                 else:
                     fallbacks += 1
+            trip_cover_processed = 0
+            trip_candidates = select_trip_cover_candidates(
+                media,
+                limit=self.media_vision_max_candidates,
+            )
+            if trip_candidates:
+                summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+                trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
+                synthetic_day = {
+                    "id": "trip-cover-day",
+                    "date": trip.get("start_date"),
+                    "title": trip.get("title") or "Reise",
+                }
+                synthetic_stop = {
+                    "id": "trip-cover",
+                    "name": trip.get("title") or "Reise",
+                    "type": "trip",
+                    "notes": trip.get("notes") or "",
+                    "location": {},
+                }
+                trip_curation = await self._async_semantic_curation(
+                    trip_id=trip_id,
+                    kind="trip",
+                    day=synthetic_day,
+                    stop=synthetic_stop,
+                    candidates=trip_candidates,
+                    existing=curations.get("trip-cover"),
+                    force=force,
+                )
+                await self.hass.async_add_executor_job(
+                    self.store.upsert_media_curation,
+                    trip_id,
+                    trip_curation,
+                )
+                trip_cover_processed = 1
+                if trip_curation.get("status") == "ready":
+                    curated += 1
+                elif trip_curation.get("status") not in {"local"}:
+                    fallbacks += 1
+            total_processed = len(selected) + trip_cover_processed
             self._vision_status.update(
                 {
                     "state": "idle",
                     "last_run_at": utc_now_iso(),
                     "last_trip_id": trip_id,
-                    "processed": len(selected),
+                    "processed": total_processed,
                     "curated": curated,
                     "fallbacks": fallbacks,
+                    "trip_cover_processed": bool(trip_cover_processed),
                     "error": None,
                 }
             )
             result = {
-                "processed": len(selected),
+                "processed": total_processed,
                 "curated": curated,
                 "fallbacks": fallbacks,
+                "trip_cover_processed": bool(trip_cover_processed),
             }
             if include_experience:
                 result["experience"] = await self.async_panel_payload(trip_id, days=days)
@@ -1288,6 +1400,7 @@ class RoadplannerExperienceManager:
                 "by_day": {},
                 "by_stop": {},
                 "vision": deepcopy(self._vision_status),
+                "place_providers": self._place_provider_status(),
                 "onedrive": self.onedrive.status(),
             }
         state = await self.hass.async_add_executor_job(self.store.load, trip_id)
@@ -1323,10 +1436,9 @@ class RoadplannerExperienceManager:
             except RoadplannerError:
                 days = []
         planning_day_covers: dict[str, dict[str, Any]] = {}
+        planning_trip_cover: dict[str, Any] | None = None
         for day in days or []:
             day_id = str(day.get("id") or "")
-            if not day_id or day_id in presentation.get("day_covers", {}):
-                continue
             for stop in _stops(day):
                 gallery = destination_galleries.get(str(stop.get("id") or ""))
                 if not isinstance(gallery, dict):
@@ -1335,10 +1447,30 @@ class RoadplannerExperienceManager:
                 if not images:
                     continue
                 primary_id = str(gallery.get("primary_image_id") or "")
-                primary = next((item for item in images if str(item.get("id") or "") == primary_id), images[0])
-                planning_day_covers[day_id] = deepcopy(primary)
-                break
+                primary = next(
+                    (
+                        item
+                        for item in images
+                        if str(item.get("id") or "") == primary_id
+                    ),
+                    images[0],
+                )
+                if day_id and day_id not in presentation.get("day_covers", {}):
+                    planning_day_covers.setdefault(day_id, deepcopy(primary))
+                profile = (
+                    stop.get("details", {}).get("place_profile")
+                    if isinstance(stop.get("details"), dict)
+                    else None
+                )
+                if planning_trip_cover is None and isinstance(profile, dict):
+                    if profile.get("confirmed_at") or profile.get("verified"):
+                        planning_trip_cover = deepcopy(primary)
+                if day_id in planning_day_covers and planning_trip_cover is not None:
+                    break
         presentation["planning_day_covers"] = planning_day_covers
+        presentation["planning_trip_cover"] = planning_trip_cover
+        if planning_trip_cover and not presentation.get("trip_cover"):
+            presentation["display_source_by_trip"] = "planning_images"
         return {
             "decisions": decisions,
             "media": media,
@@ -1347,6 +1479,7 @@ class RoadplannerExperienceManager:
             "by_day": by_day,
             "by_stop": by_stop,
             "destination_enrichment": deepcopy(self._destination_enrichment_status),
+            "place_providers": self._place_provider_status(),
             "vision": {
                 **deepcopy(self._vision_status),
                 "enabled": self.vision_enabled,
@@ -1401,6 +1534,27 @@ class RoadplannerExperienceManager:
                 "settings_source": "photo_setup",
                 "sync_scope": "active_trip",
                 "sync_state": deepcopy(state.get("media_sync") or {}),
+            },
+        }
+
+    def _place_provider_status(self) -> dict[str, Any]:
+        """Return sanitized destination-provider diagnostics for the panel."""
+        status = getattr(self.geocoder, "status", None)
+        if isinstance(status, dict):
+            return deepcopy(status)
+        return {
+            "enabled": bool(self.geocoder is not None and self.geocoder.enabled),
+            "mode": "nominatim_only",
+            "nominatim": {
+                "enabled": bool(self.geocoder is not None and self.geocoder.enabled)
+            },
+            "google_places": {
+                "enabled": False,
+                "configured": False,
+                "state": "not_configured",
+                "requests_today": 0,
+                "daily_limit": 0,
+                "last_error": None,
             },
         }
 
@@ -2067,7 +2221,15 @@ class RoadplannerExperienceManager:
         return {"assignment_status": "unassigned", "confidence": 0.0}
 
     async def async_update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        allowed = {"linked_day_id", "linked_stop_id", "assignment_status", "caption", "is_cover"}
+        allowed = {
+            "linked_day_id",
+            "linked_stop_id",
+            "assignment_status",
+            "caption",
+            "is_cover",
+            "is_day_cover",
+            "is_trip_cover",
+        }
         filtered = {key: value for key, value in patch.items() if key in allowed}
         if "linked_stop_id" in filtered and filtered.get("linked_stop_id"):
             payload = await self.manager.async_get_assistant_payload(trip_id)

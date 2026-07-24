@@ -2457,7 +2457,7 @@ class RoadplannerPanel extends HTMLElement {
       const expectedRevision = this._currentRevision();
       this._confirm(
         "Stopp löschen?",
-        `${stop?.name || "Dieser Stopp"} wird dauerhaft entfernt.`,
+        `${stop?.name || "Dieser Stopp"} wird aus diesem Reisetag entfernt. Verknüpfte Fotos und Dokumente bleiben erhalten.`,
         "Stopp löschen",
         async () => {
           await this._runAction("remove_stop", {
@@ -2491,7 +2491,7 @@ class RoadplannerPanel extends HTMLElement {
         targetType: "stop",
         dayId,
         stopId,
-        query: [stop?.name, this._statusLabel(stop?.type), city, country, stop?.notes, day?.end].filter(Boolean).join(" "),
+        query: [stop?.name, this._statusLabel(stop?.type), city, country].filter(Boolean).join(" ").slice(0, 180),
       });
     } else if (action === "search-day-images" && this._canEdit()) {
       const day = this._findDay(dayId);
@@ -3210,6 +3210,8 @@ class RoadplannerPanel extends HTMLElement {
           assignment_status: dayId ? "manual" : "unassigned",
           caption: String(values.caption || ""),
           is_cover: Boolean(form.querySelector("input[name='is_cover']")?.checked),
+          is_day_cover: Boolean(form.querySelector("input[name='is_day_cover']")?.checked),
+          is_trip_cover: Boolean(form.querySelector("input[name='is_trip_cover']")?.checked),
         },
       }, "Fotozuordnung gespeichert");
       if (result) this._closeDialog({ flushRefresh: false });
@@ -4023,12 +4025,16 @@ class RoadplannerPanel extends HTMLElement {
     </div>`;
   }
 
-  _renderDestinationGalleryStatus(gallery, dayId, stopId) {
+  _renderDestinationGalleryStatus(gallery, dayId, stopId, hasOwnImages = false) {
     if (!gallery || this._destinationGalleryImages(gallery).length) return "";
     const errors = gallery.provider_errors && typeof gallery.provider_errors === "object"
       ? Object.values(gallery.provider_errors).filter(Boolean)
       : [];
     const failed = gallery.status === "error" || errors.length;
+    if (hasOwnImages && failed) {
+      return `<div class="destination-gallery-inline neutral"><ha-icon icon="mdi:image-check-outline"></ha-icon><div><strong>Eigene Bilder vorhanden</strong><span>Nur zusätzliche externe Planungsbilder konnten noch nicht ergänzt werden.</span></div>${this._canEdit() ? `<button class="text-button" type="button" data-action="destination-gallery-refresh" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}">Externe Bilder erneut suchen</button>` : ""}</div>`;
+    }
+    if (hasOwnImages) return "";
     return `<div class="destination-gallery-inline ${failed ? "warning" : "neutral"}"><ha-icon icon="${failed ? "mdi:image-off-outline" : "mdi:image-search-outline"}"></ha-icon><div><strong>${failed ? "Bilder konnten noch nicht geladen werden" : "Noch keine passenden Planungsbilder"}</strong><span>${failed ? "Andere Stoppinformationen bleiben vollständig verfügbar." : "Roadplanner sucht im Hintergrund nach passenden Bildern."}</span></div>${this._canEdit() ? `<button class="text-button" type="button" data-action="destination-gallery-refresh" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}">Erneut versuchen</button>` : ""}</div>`;
   }
 
@@ -4080,6 +4086,20 @@ class RoadplannerPanel extends HTMLElement {
   _experienceCoverForStop(stopId) {
     const coverId = this._experiencePresentation().stop_covers?.[stopId];
     return coverId ? this._experienceMediaByIds([coverId])[0] || null : this._experienceMediaForStop(stopId)[0] || null;
+  }
+
+  _tripCoverImage() {
+    const presentation = this._experiencePresentation();
+    const travelCoverId = cleanText(presentation.trip_cover);
+    if (travelCoverId) {
+      const media = this._experienceMediaByIds([travelCoverId])[0];
+      if (media) return { ...media, image_url: media.thumbnail_url, provider: "onedrive", attribution: "Eigenes Reisefoto", context: this._data?.summary?.trip?.title };
+    }
+    const planning = presentation.planning_trip_cover;
+    if (planning?.image_url || planning?.thumbnail_url) {
+      return { ...planning, image_url: planning.thumbnail_url || planning.image_url, context: this._data?.summary?.trip?.title };
+    }
+    return this._mediaFrom(this._data?.summary?.trip);
   }
 
   _dayCoverImage(day) {
@@ -4521,7 +4541,7 @@ class RoadplannerPanel extends HTMLElement {
       const gallery = galleries?.[stop.id];
       return !(Array.isArray(own) && own.length) && !this._destinationGalleryImages(gallery).length;
     }).length;
-    const heroMedia = (nextDay && this._dayCoverImage(nextDay)) || this._tripImages(1)[0];
+    const heroMedia = this._tripCoverImage();
     const now = new Date();
     const start = trip.start_date ? new Date(`${trip.start_date}T00:00:00`) : null;
     const end = trip.end_date ? new Date(`${trip.end_date}T23:59:59`) : null;
@@ -4865,13 +4885,14 @@ class RoadplannerPanel extends HTMLElement {
           ${coordinate ? `<span><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${coordinate.lat.toFixed(5)}, ${coordinate.lon.toFixed(5)}</span>` : ""}
         </div>
         ${!coordinate ? `<div class="location-status warning"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon><div><strong>Ort fehlt</strong><span>${escapeHtml(stop.location_message || "Dieser Stopp benötigt noch einen bestätigten Kartenpunkt und ein Ortsprofil.")}</span></div></div>` : stop.location_status === "unverified" ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-alert-outline"></ha-icon><div><strong>Ort noch prüfen</strong><span>${escapeHtml(stop.location_message || "Koordinaten sind vorhanden, aber der konkrete Ort ist noch nicht bestätigt.")}</span></div></div>` : !stop?.details?.place_profile?.confirmed_at ? `<div class="location-status neutral"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><div><strong>Ortsprofil vervollständigen</strong><span>GPS ist vorhanden. Bitte Name, Adresse, Kategorie, Quelle und verfügbare Kontaktdaten einmal bestätigen.</span></div></div>` : ""}
+        ${stop?.navigation?.uses_access_point ? `<div class="location-status neutral"><ha-icon icon="mdi:car-arrow-right"></ha-icon><div><strong>Navigation bis zum erreichbaren Zugang</strong><span>Der Zielmarker bleibt am tatsächlichen Ort. Die Straßenroute endet ${Number(stop.navigation.access_point?.distance_m || 0) > 0 ? `etwa ${Math.round(Number(stop.navigation.access_point.distance_m))} m entfernt ` : ""}am nächstgelegenen befahrbaren Zugang.</span></div></div>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         ${media?.attribution && !experienceCover && !destinationImages.length ? `<div class="attribution">${media.source_url ? `<a href="${escapeHtml(media.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(media.attribution)}</a>` : escapeHtml(media.attribution)}</div>` : ""}
-        ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id)}
+        ${this._renderDestinationGalleryStatus(destinationGallery, day.id, stop.id, allExperienceMedia.length > 0)}
         ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name, totalCount: allExperienceMedia.length })}
         ${this._renderStopArchiveSummary(day, stop)}
         ${externalActions ? `<div class="button-row stop-actions">${externalActions}</div>` : ""}
-        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Stopp anreichern</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
+        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Stopp anreichern</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}<button class="text-button danger-text" type="button" data-action="delete-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:trash-can-outline"></ha-icon> Stopp löschen</button></div>` : ""}
       </div>
     </article>`;
   }
@@ -5073,12 +5094,31 @@ class RoadplannerPanel extends HTMLElement {
       : cleanupRequested
         ? `<span class="status-pill ${cleanupDiagnostics.error ? "status-warning" : "status-resolved"}"><ha-icon icon="mdi:creation-outline"></ha-icon>${cleanupDiagnostics.error ? escapeHtml(cleanupDiagnostics.error) : `${Number(cleanupDiagnostics.suggested_count || 0)} KI-Vorschläge`}</span>`
         : "";
+    const placeProviders = this._experienceData().place_providers || {};
+    const googleStatus = placeProviders.google_places || {};
+    const providerSummary = googleStatus.configured
+      ? `<span class="status-pill ${googleStatus.state === "ready" ? "status-resolved" : "status-warning"}"><ha-icon icon="mdi:google-maps"></ha-icon>Google Places ${escapeHtml(placeProviders.mode === "preferred" ? "bevorzugt" : "als Fallback")} · ${Number(googleStatus.requests_today || 0)}/${Number(googleStatus.daily_limit || 0)}</span>`
+      : `<span class="status-pill"><ha-icon icon="mdi:map-search-outline"></ha-icon>OpenStreetMap · Google noch nicht eingerichtet</span>`;
     const cards = items.map((item) => {
       const current = item?.current || {};
       const stopId = cleanText(current.stop_id);
       const currentLocation = current.location || {};
       const structured = item?.structured_address || {};
       const intent = item?.destination_intent && typeof item.destination_intent === "object" ? item.destination_intent : {};
+      const sourceHints = Array.isArray(intent.source_hints) ? intent.source_hints : [];
+      const sourceHintLinks = sourceHints.map((hint) => {
+        const url = this._safeUrl(hint?.url);
+        if (!url) return "";
+        const provider = cleanText(hint?.provider);
+        const label = provider === "park4night"
+          ? `Park4Night${hint?.id ? ` #${escapeHtml(hint.id)}` : ""} öffnen`
+          : provider === "openstreetmap" ? "OpenStreetMap-Hinweis öffnen"
+            : provider === "google_maps" ? "Google-Maps-Hinweis öffnen"
+              : provider === "wikidata" ? "Wikidata-Hinweis öffnen"
+                : provider === "wikipedia" ? "Wikipedia-Hinweis öffnen"
+                  : "Quellenhinweis öffnen";
+        return `<a class="secondary-button" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><ha-icon icon="mdi:open-in-new"></ha-icon>${label}</a>`;
+      }).filter(Boolean).join("");
       const candidates = Array.isArray(item?.candidates) ? item.candidates : [];
       const selectedId = cleanText(selections[stopId]);
       const currentSummary = [
@@ -5140,8 +5180,12 @@ class RoadplannerPanel extends HTMLElement {
             structured: "Strukturierte Adresse",
             district_text: "Ortsteil-Suche",
             free_text: "Freitext-Suche",
+            google_text_search: "Google Places Text Search",
           }[candidate.search_variant] || candidate.search_variant;
+          const googleCandidate = candidate.provider === "google_places";
+          const placeProviderLabel = googleCandidate ? "Google Places" : candidate.provider === "nominatim" ? "OpenStreetMap" : cleanText(candidate.provider);
           const chips = [
+            placeProviderLabel ? `Quelle: ${placeProviderLabel}` : "",
             intent.label ? `Zieltyp: ${intent.label}` : "",
             candidate.match_label,
             candidate.category,
@@ -5154,6 +5198,7 @@ class RoadplannerPanel extends HTMLElement {
               <span class="place-radio"><ha-icon icon="${selected ? "mdi:radiobox-marked" : "mdi:radiobox-blank"}"></ha-icon></span>
               <span><strong>${escapeHtml(candidate.name || candidate.display_name || "Ort")}</strong><small>${escapeHtml(candidate.display_name || candidate.address || "")}</small></span>
             </button>
+            ${googleCandidate ? `<div class="google-provider-attribution"><span class="google-maps-label" translate="no">Google Maps</span><span>Google dient als Suchquelle. Nach deiner Bestätigung speichert Roadplanner die Place ID als Referenz und normalisiert das dauerhafte Ortsprofil über OpenStreetMap.</span></div>` : ""}
             ${images.length ? `<div class="place-image-strip">${images.map((image) => `<img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(image.thumbnail_url || image.image_url))}" alt="${escapeHtml(image.alt || image.title || candidate.name || "Ort")}">`).join("")}</div>` : `<div class="place-image-empty"><ha-icon icon="mdi:image-off-outline"></ha-icon><span>Noch kein passendes Planungsbild</span></div>`}
             <div class="place-candidate-details">
               <div><span>Koordinaten</span><strong>${escapeHtml(coordinate)}</strong></div>
@@ -5166,7 +5211,7 @@ class RoadplannerPanel extends HTMLElement {
             ${chips.length ? `<div class="place-chips">${chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}</div>` : ""}
             <div class="button-row compact-row">
               ${candidate.map_url ? `<a class="secondary-button" href="${escapeHtml(this._safeUrl(candidate.map_url))}" target="_blank" rel="noopener noreferrer"><ha-icon icon="mdi:google-maps"></ha-icon>Karte prüfen</a>` : ""}
-              ${candidate.source_url ? `<a class="text-button" href="${escapeHtml(this._safeUrl(candidate.source_url))}" target="_blank" rel="noopener noreferrer">OpenStreetMap-Quelle</a>` : ""}
+              ${candidate.source_url ? `<a class="text-button" href="${escapeHtml(this._safeUrl(candidate.source_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(candidate.provider === "google_places" ? "Google-Maps-Quelle" : "OpenStreetMap-Quelle")}</a>` : ""}
             </div>
           </article>`;
         }).join("")
@@ -5195,13 +5240,14 @@ class RoadplannerPanel extends HTMLElement {
       return `<section class="place-enrichment-item">
         <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml([intent.label ? `Erkannt: ${intent.label}` : "", currentSummary || "Noch kein bestätigtes Ortsprofil"].filter(Boolean).join(" · "))}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
         ${cleanupCard}
+        ${sourceHintLinks ? `<div class="button-row compact-row">${sourceHintLinks}</div>` : ""}
         <div class="place-candidates">${candidateCards}</div>
         ${manualForm}
       </section>`;
     }).join("");
     return `${this._renderModalHeader("Stopps anreichern", `${items.length} ${items.length === 1 ? "Stopp" : "Stopps"} · Zieltyp, Kartenpunkt, Ortsprofil und Planungsbilder prüfen`)}
       <div class="place-enrichment-body">
-        <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Geodaten zuerst, Bilder danach</strong><span>Roadplanner erkennt den Zieltyp, sucht einen konkreten Kartenpunkt und verwendet das bestätigte Ortsprofil für kurze, passende Bildanfragen. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>${cleanupControl}</div>
+        <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Geodaten zuerst, Bilder danach</strong><span>Roadplanner erkennt den Zieltyp, sucht einen konkreten Kartenpunkt und verwendet das bestätigte Ortsprofil für kurze, passende Bildanfragen. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div><div class="button-row compact-row">${providerSummary}${cleanupControl}</div><details class="provider-ranking-info"><summary>Wie werden die Treffer sortiert?</summary><p>Jeder Provider liefert zunächst seine eigene Ergebnisreihenfolge. Roadplanner bewertet die Kandidaten anschließend providerübergreifend anhand von Namen, Zieltyp, Adresse, Land, vorhandener Standortnähe und Sicherheitsgrenzen. Ein schwacher Stadt- oder Ortsteiltreffer verdrängt dabei keinen konkreten POI. Google wird je nach Einrichtung bevorzugt oder nur als Fallback aufgerufen.</p></details></div>
         ${cards || `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><h2>Keine offenen Ortsprofile</h2></div>`}
       </div>
       <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Stopp" : "Stopps"} an Änderungsübersicht übergeben</button></div>`;
@@ -5482,7 +5528,7 @@ class RoadplannerPanel extends HTMLElement {
       for (const stop of this._canonicalStops(day.stops || [])) stopOptions.push({ value: `${day.id}::${stop.id}`, label: `${this._formatDate(day.date)} · ${stop.name}` });
     }
     const stopRef = item.linked_day_id && item.linked_stop_id ? `${item.linked_day_id}::${item.linked_stop_id}` : "";
-    return `${this._renderModalHeader("Foto zuordnen", item.name || "OneDrive-Foto")}<form data-form="media-edit" data-media-id="${escapeHtml(item.id || "")}" class="form-grid">${this._archiveSelect("linked_day_id", "Reisetag", item.linked_day_id || "", dayOptions, "full")}${this._archiveSelect("linked_stop_ref", "Stopp", stopRef, stopOptions, "full")}${this._textarea("caption", "Bildunterschrift", item.caption || "", "full")}<label class="checkbox-field full"><input type="checkbox" name="is_cover" ${item.is_cover ? "checked" : ""}><span><strong>Als Titelbild dieses Stopps verwenden</strong><small>Roadplanner zeigt pro Stopp nur ein Titelbild.</small></span></label>${this._formActions("Zuordnung speichern")}</form><div class="modal-actions"><button class="text-button danger-text" type="button" data-action="media-delete" data-media-id="${escapeHtml(item.id || "")}">Aus Roadplanner entfernen</button></div>`;
+    return `${this._renderModalHeader("Foto zuordnen", item.name || "OneDrive-Foto")}<form data-form="media-edit" data-media-id="${escapeHtml(item.id || "")}" class="form-grid">${this._archiveSelect("linked_day_id", "Reisetag", item.linked_day_id || "", dayOptions, "full")}${this._archiveSelect("linked_stop_ref", "Stopp", stopRef, stopOptions, "full")}${this._textarea("caption", "Bildunterschrift", item.caption || "", "full")}<label class="checkbox-field full"><input type="checkbox" name="is_cover" ${item.is_cover ? "checked" : ""}><span><strong>Als Titelbild dieses Stopps verwenden</strong><small>Roadplanner zeigt pro Stopp nur ein Titelbild.</small></span></label><label class="checkbox-field full"><input type="checkbox" name="is_day_cover" ${item.is_day_cover ? "checked" : ""}><span><strong>Als Titelbild dieses Reisetags verwenden</strong><small>Diese bewusste Auswahl hat Vorrang vor der automatischen Tagesauswahl.</small></span></label><label class="checkbox-field full"><input type="checkbox" name="is_trip_cover" ${item.is_trip_cover ? "checked" : ""}><span><strong>Als Titelbild der Reise verwenden</strong><small>Damit wird dieses Foto nicht mehr durch eine automatische Auswahl ersetzt.</small></span></label>${this._formActions("Zuordnung speichern")}</form><div class="modal-actions"><button class="text-button danger-text" type="button" data-action="media-delete" data-media-id="${escapeHtml(item.id || "")}">Aus Roadplanner entfernen</button></div>`;
   }
 
   _renderDestinationGallery(dialog) {
@@ -6089,6 +6135,12 @@ class RoadplannerPanel extends HTMLElement {
       .place-candidate-select span:last-child { min-width: 0; display: grid; gap: 3px; }
       .place-candidate-select small { color: var(--secondary-text-color); line-height: 1.35; }
       .place-radio ha-icon { color: var(--primary-color); --mdc-icon-size: 23px; }
+      .google-provider-attribution { display: grid; gap: 3px; margin: 0 13px 12px; padding: 10px 12px; border-radius: 12px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
+      .google-provider-attribution .google-maps-label { color: var(--primary-text-color); font-family: Roboto, Sans-Serif; font-size: 13px; font-style: normal; font-weight: 400; letter-spacing: normal; line-height: normal; white-space: nowrap; }
+      .google-provider-attribution span:not(.google-maps-label) { color: var(--secondary-text-color); font-size: 11px; line-height: 1.4; }
+      .provider-ranking-info { padding: 0 13px 4px; color: var(--secondary-text-color); font-size: 12px; }
+      .provider-ranking-info summary { cursor: pointer; color: var(--primary-text-color); font-weight: 600; }
+      .provider-ranking-info p { margin: 8px 0 0; line-height: 1.5; }
       .place-image-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; height: 132px; background: var(--divider-color); }
       .place-image-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .place-image-empty, .place-no-match { display: flex; align-items: center; gap: 10px; padding: 14px; color: var(--secondary-text-color); background: var(--secondary-background-color); }

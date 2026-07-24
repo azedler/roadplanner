@@ -11,7 +11,7 @@ Roadplanner supports the full travel lifecycle:
 
 ## Project status
 
-The repository contains the current **Roadplanner 3.x** source. The published stable version is shown in [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest) and in the integration manifest.
+The repository contains the current Roadplanner source. **Roadplanner 4.0** is developed incrementally on top of the published 3.6.0 baseline. The published stable version is shown in [GitHub Releases](https://github.com/azedler/roadplanner/releases/latest) and in the integration manifest.
 
 - Stable/releasable branch: `main`
 - Active integration branch: `develop`
@@ -55,6 +55,18 @@ See the [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VIS
 - Geodata and provider identity are reviewed first; the confirmed name, city, country, category and coordinates then drive concise planning-image queries.
 - Surrounding city or district matches remain visible for review but are not accepted automatically when a specific POI is expected.
 - Notes and day titles are excluded from image-provider queries, while source links such as Park4Night, OpenStreetMap, Wikidata and Wikipedia remain traceable hints.
+
+## Roadplanner 4.0 destination and media intelligence
+
+- Optional Google Places (New) discovery can be enabled during Roadplanner setup as an OpenStreetMap fallback or preferred search source.
+- Google candidates stay review-only and visibly attributed; only the Place ID is retained as a discovery reference while durable place data is normalized through OpenStreetMap/Nominatim or confirmed manually.
+- A provider-neutral `place_profile` schema separates the actual destination from a derived drivable access point for beaches, dunes, trails and similar targets.
+- Stop deletion is available through an explicit confirmation flow without deleting linked media or documents.
+- Personal, planning and external media states are separated, and trip/day/stop covers follow one deterministic resolver with manual choices first.
+- Date-only photo suggestions cannot become automatic trip covers.
+- `tools/dev.py` can preflight patch series in an isolated worktree and export a filtered repository context package for implementation or independent review.
+
+See [Roadplanner 4.0 Destination & Media Intelligence](docs/product/ROADPLANNER_4_0_INTELLIGENCE.md), [Google Places setup](docs/development/GOOGLE_PLACES_SETUP.md), and [External services and privacy](docs/product/EXTERNAL_SERVICES_AND_PRIVACY.md).
 
 ## Core principles
 
@@ -140,7 +152,7 @@ The repository must never contain:
 - real trips or Roadbook JSON files,
 - uploaded documents or receipts,
 - photos or OneDrive metadata,
-- Gemini API keys,
+- Gemini or Google Maps Platform API keys,
 - Microsoft OAuth tokens,
 - Home Assistant `.storage` data,
 - handoff or archive directories.

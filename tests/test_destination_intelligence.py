@@ -107,6 +107,21 @@ assert park4night.source_hints == (
     },
 )
 
+# Provider hosts must match the exact domain or a real subdomain. A malicious
+# suffix must remain a generic link and must not be trusted as OSM/Google.
+malicious = module.analyze_destination(
+    {},
+    {
+        "name": "Untrusted link",
+        "notes": (
+            "https://openstreetmap.org.evil.example/node/123 "
+            "https://maps.google.com.evil.example/place/test"
+        ),
+    },
+    structured_address=StructuredAddress(),
+)
+assert [hint["provider"] for hint in malicious.source_hints] == ["link", "link"]
+
 address = module.analyze_destination(
     {},
     {"name": "Krumhermsdorf Neuhäuser 40"},

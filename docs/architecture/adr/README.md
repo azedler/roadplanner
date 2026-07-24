@@ -37,3 +37,4 @@ ADR-NNN-short-kebab-case-title.md
 | [ADR-009](ADR-009-user-confirmed-stop-sequence.md) | User-confirmed stop sequence is authoritative | Accepted |
 | [ADR-010](ADR-010-location-completeness-and-review.md) | Location completeness is explicit and repaired through review | Accepted |
 | [ADR-011](ADR-011-local-first-vision-media-curation.md) | Local-first Vision media curation | Accepted |
+| [ADR-012](ADR-012-provider-neutral-destination-profiles.md) | Provider-neutral destination profiles and transient Google discovery | Accepted |

@@ -30,6 +30,8 @@ _LOGGER = logging.getLogger(__name__)
 _MAX_ROUTE_POINTS = 25
 _MAX_GEOMETRY_POINTS = 5_000
 _MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+_MAX_SNAP_RADIUS_M = 5_000
+_SIGNIFICANT_SNAP_DISTANCE_M = 30.0
 _TRANSIENT_STATUS = {408, 425, 429, 500, 502, 503, 504}
 _PROFILE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -199,6 +201,74 @@ def parse_osrm_response(
         or duration < 0
     ):
         raise RoutingError("Der Routing-Dienst hat ungültige Distanzdaten geliefert")
+    waypoints_raw = payload.get("waypoints")
+    access_points: list[dict[str, Any]] = []
+    routed_stop_refs: list[dict[str, Any]] = []
+    if isinstance(waypoints_raw, list):
+        for index, point in enumerate(points):
+            waypoint = waypoints_raw[index] if index < len(waypoints_raw) else None
+            routed = {
+                "day_id": point.get("day_id"),
+                "stop_id": point.get("stop_id"),
+                "inherited": bool(point.get("inherited")),
+            }
+            if isinstance(waypoint, dict):
+                raw_location = waypoint.get("location")
+                raw_distance = waypoint.get("distance")
+                if (
+                    isinstance(raw_location, list)
+                    and len(raw_location) >= 2
+                    and not isinstance(raw_location[0], bool)
+                    and not isinstance(raw_location[1], bool)
+                    and isinstance(raw_location[0], (int, float))
+                    and isinstance(raw_location[1], (int, float))
+                ):
+                    snapped_longitude = float(raw_location[0])
+                    snapped_latitude = float(raw_location[1])
+                    if (
+                        -180 <= snapped_longitude <= 180
+                        and -90 <= snapped_latitude <= 90
+                    ):
+                        routed["routed_latitude"] = round(snapped_latitude, 7)
+                        routed["routed_longitude"] = round(snapped_longitude, 7)
+                if (
+                    not isinstance(raw_distance, bool)
+                    and isinstance(raw_distance, (int, float))
+                    and float(raw_distance) >= 0
+                ):
+                    snap_distance = round(float(raw_distance), 1)
+                    routed["snap_distance_m"] = snap_distance
+                    if (
+                        snap_distance >= _SIGNIFICANT_SNAP_DISTANCE_M
+                        and "routed_latitude" in routed
+                        and "routed_longitude" in routed
+                    ):
+                        access_points.append(
+                            {
+                                "day_id": point.get("day_id"),
+                                "stop_id": point.get("stop_id"),
+                                "name": point.get("name"),
+                                "target_latitude": round(float(point["latitude"]), 7),
+                                "target_longitude": round(float(point["longitude"]), 7),
+                                "navigation_latitude": routed["routed_latitude"],
+                                "navigation_longitude": routed["routed_longitude"],
+                                "distance_m": snap_distance,
+                                "type": "nearest_drivable_access",
+                                "derived": True,
+                                "source": provider,
+                            }
+                        )
+            routed_stop_refs.append(routed)
+    if not routed_stop_refs:
+        routed_stop_refs = [
+            {
+                "day_id": point.get("day_id"),
+                "stop_id": point.get("stop_id"),
+                "inherited": bool(point.get("inherited")),
+            }
+            for point in points
+        ]
+
     legs_raw = raw_route.get("legs")
     legs: list[dict[str, Any]] = []
     if isinstance(legs_raw, list):
@@ -236,14 +306,8 @@ def parse_osrm_response(
         "duration_s": round(float(duration), 1),
         "geometry": _geometry(raw_route.get("geometry")),
         "legs": legs,
-        "stop_refs": [
-            {
-                "day_id": point.get("day_id"),
-                "stop_id": point.get("stop_id"),
-                "inherited": bool(point.get("inherited")),
-            }
-            for point in points
-        ],
+        "stop_refs": routed_stop_refs,
+        "access_points": access_points,
         "managed_metrics": True,
     }
 
@@ -344,6 +408,12 @@ class OSRMRoutingClient:
                 "overview": "simplified",
                 "geometries": "geojson",
                 "steps": "false",
+                # Keep the canonical target coordinates untouched while asking
+                # OSRM to route to the nearest drivable network point. The
+                # returned waypoint distance is exposed as an access point.
+                "radiuses": ";".join(
+                    str(_MAX_SNAP_RADIUS_M) for _point in points
+                ),
             }
             headers = {
                 "Accept": "application/json",
@@ -545,6 +615,7 @@ def combine_route_segments(
     has_ferry = False
     has_gap = False
     legs: list[dict[str, Any]] = []
+    access_points: list[dict[str, Any]] = []
 
     for raw in segment_results:
         segment = dict(raw)
@@ -556,6 +627,9 @@ def combine_route_segments(
             for leg in segment.get("legs") or []:
                 if isinstance(leg, dict):
                     legs.append({**leg, "mode": "driving"})
+            for access_point in segment.get("access_points") or []:
+                if isinstance(access_point, dict):
+                    access_points.append(dict(access_point))
         elif mode == "ferry":
             has_ferry = True
             ferry_distance += float(segment.get("distance_m") or 0.0)
@@ -589,6 +663,12 @@ def combine_route_segments(
     for segment in normalized_segments:
         if segment.get("mode") == "break" and segment.get("reason") and segment["reason"] not in all_warnings:
             all_warnings.append(segment["reason"])
+    if access_points:
+        all_warnings.append(
+            "Mindestens ein Ziel liegt abseits des befahrbaren Straßennetzes. "
+            "Der Zielmarker bleibt erhalten; die Straßenroute endet am "
+            "nächstgelegenen erreichbaren Zugang."
+        )
 
     result: dict[str, Any] = {
         "schema_version": 2,
@@ -608,6 +688,7 @@ def combine_route_segments(
         "segments": normalized_segments,
         "legs": legs,
         "warnings": all_warnings[:100],
+        "access_points": access_points[:100],
         "gap_count": sum(1 for item in normalized_segments if item.get("mode") == "break"),
         "ferry_segment_count": sum(1 for item in normalized_segments if item.get("mode") == "ferry"),
         "stop_refs": [
