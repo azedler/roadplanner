@@ -142,7 +142,7 @@ assert.match(map, /Fährterminal Tallinn/);
 
 const page = panel._renderDayRoute();
 assert.match(page, /4 Stopps · 1 ohne GPS/);
-assert.match(page, /Orte vervollständigen \(1\)/);
+assert.match(page, /Stopps anreichern \(1\)/);
 assert.match(page, /Karte und Straßenroute sind unvollständig/);
 assert.match(page, /Apotheke \/ Arztbesuch/);
 assert.match(page, /Mit GPS<\/span><strong>3/);

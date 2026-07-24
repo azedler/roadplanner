@@ -23,6 +23,11 @@ from urllib.parse import quote_plus, urlparse
 
 from .canonical_day import canonical_day_stops, location_status
 from .destination_images import DestinationImageProvider
+from .destination_intelligence import (
+    DestinationIntent,
+    analyze_destination,
+    destination_image_query,
+)
 from .geocoding import (
     GeocodingCandidate,
     GeocodingError,
@@ -40,6 +45,55 @@ _MAX_ITEMS = 20
 _MAX_CANDIDATES = 3
 _MAX_IMAGES = 3
 _MANUAL_CANDIDATE_ID = "__manual__"
+_MAX_INTENT_QUERIES = 2
+_MAX_COORDINATE_POI_DISTANCE_METERS = 30_000.0
+_LOCALITY_RESULT_TYPES = frozenset(
+    {
+        "administrative",
+        "borough",
+        "city",
+        "city_district",
+        "county",
+        "hamlet",
+        "locality",
+        "municipality",
+        "neighbourhood",
+        "postcode",
+        "quarter",
+        "state",
+        "suburb",
+        "town",
+        "village",
+    }
+)
+_INTENT_CATEGORY_KEYS = {
+    "ferry_terminal": "ferry",
+    "transport_terminal": "transport",
+    "hike": "hiking",
+    "nature_center": "nature_center",
+    "attraction": "attraction",
+    "retail": "retail",
+    "restaurant": "restaurant",
+    "camping": "camping",
+    "accommodation": "accommodation",
+    "parking": "parking",
+    "fuel": "fuel",
+    "charging": "charging",
+}
+_INTENT_RESULT_MARKERS = {
+    "ferry_terminal": ("ferry", "harbour", "port", "terminal"),
+    "transport_terminal": ("airport", "bus", "railway", "station", "terminal"),
+    "hike": ("footway", "hiking", "path", "route", "trail", "walking"),
+    "nature_center": ("education", "information", "museum", "nature", "visitor"),
+    "attraction": ("attraction", "castle", "historic", "memorial", "monument", "museum", "tourism", "viewpoint"),
+    "retail": ("mall", "shop", "sports", "store", "supermarket"),
+    "restaurant": ("cafe", "fast_food", "restaurant"),
+    "camping": ("camp", "caravan", "motorhome"),
+    "accommodation": ("guest_house", "hostel", "hotel", "motel", "shelter"),
+    "parking": ("car_park", "parking"),
+    "fuel": ("fuel",),
+    "charging": ("charging",),
+}
 
 
 def _text(value: Any, maximum: int = 2_000) -> str:
@@ -135,6 +189,7 @@ def _candidate_id(candidate: GeocodingCandidate) -> str:
 
 
 def _query_for_stop(day: dict[str, Any], stop: dict[str, Any]) -> str:
+    """Return bounded stop identity text without notes or day-title noise."""
     location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
     details = stop.get("details") if isinstance(stop.get("details"), dict) else {}
     geocoding = (
@@ -148,18 +203,16 @@ def _query_for_stop(day: dict[str, Any], stop: dict[str, Any]) -> str:
         location.get("city"),
         location.get("country_code"),
         stop.get("type"),
-        str(stop.get("notes") or "")[:300],
-        day.get("title"),
     ]
     unique: list[str] = []
     seen: set[str] = set()
     for raw in values:
-        value = _text(raw, 500)
+        value = _text(raw, 240)
         key = value.casefold()
         if value and key not in seen:
             seen.add(key)
             unique.append(value)
-    return ", ".join(unique)[:1_000]
+    return ", ".join(unique)[:240]
 
 
 def _structured_address_for_stop(
@@ -184,7 +237,12 @@ def _structured_address_for_stop(
         country=location.get("country"),
         country_code=location.get("country_code"),
         label=location.get("label"),
-        query=geocoding.get("query") or query,
+        # ``query`` is an aggregate UI search string and may contain the stop
+        # type separated by commas. Feeding it back into the address parser can
+        # turn values such as "ferry" into a fake city. Only a previously saved
+        # geocoding query participates here; the stop name remains available
+        # separately for street/house extraction.
+        query=geocoding.get("query"),
         name=stop.get("name"),
     )
 
@@ -211,25 +269,11 @@ def _image_query(
     day: dict[str, Any],
     stop: dict[str, Any],
     candidate: GeocodingCandidate,
+    *,
+    intent: DestinationIntent | None = None,
 ) -> str:
-    location = candidate.as_location()
-    values = [
-        candidate.preferred_name,
-        location.get("city"),
-        location.get("country_code"),
-        _category_label(candidate),
-        stop.get("type"),
-        day.get("title"),
-    ]
-    unique: list[str] = []
-    seen: set[str] = set()
-    for raw in values:
-        value = _text(raw, 300)
-        key = value.casefold()
-        if value and key not in seen:
-            seen.add(key)
-            unique.append(value)
-    return " ".join(unique)[:800]
+    """Return a concise geodata-backed query for planning images."""
+    return destination_image_query(day, stop, intent=intent, candidate=candidate)
 
 
 def _contact(candidate: GeocodingCandidate) -> dict[str, str]:
@@ -314,6 +358,49 @@ def _manual_location(
     return {key: value for key, value in location.items() if value != ""}, name
 
 
+def _candidate_supports_intent(
+    candidate: GeocodingCandidate,
+    intent: DestinationIntent,
+) -> bool:
+    """Return whether a candidate is more specific than a surrounding locality."""
+    if intent.kind in {"address", "place"}:
+        return True
+    expected_category = _INTENT_CATEGORY_KEYS.get(intent.kind)
+    if expected_category and getattr(candidate, "category_intent", None) == expected_category:
+        if getattr(candidate, "category_match", None) is True:
+            return True
+        if getattr(candidate, "category_match", None) is False:
+            return False
+    result_type = _text(getattr(candidate, "result_type", ""), 100).casefold()
+    category = _text(getattr(candidate, "category", ""), 100).casefold()
+    if result_type in _LOCALITY_RESULT_TYPES or category in {"boundary", "place"}:
+        return False
+    searchable = f"{category} {result_type}".casefold()
+    return any(
+        marker in searchable
+        for marker in _INTENT_RESULT_MARKERS.get(intent.kind, ())
+    )
+
+
+def _distance_meters(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    radius = 6_371_008.8
+    phi_a = math.radians(latitude_a)
+    phi_b = math.radians(latitude_b)
+    delta_phi = math.radians(latitude_b - latitude_a)
+    delta_lambda = math.radians(longitude_b - longitude_a)
+    haversine = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi_a) * math.cos(phi_b) * math.sin(delta_lambda / 2) ** 2
+    )
+    haversine = min(1.0, max(0.0, haversine))
+    return radius * 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
+
+
 @dataclass(slots=True)
 class _PreviewEntry:
     created_at: float
@@ -352,6 +439,118 @@ class PlaceEnrichmentService:
         while len(self._previews) > _MAX_PREVIEWS:
             self._previews.pop(next(iter(self._previews)), None)
 
+    async def _resolve_candidates(
+        self,
+        stop: dict[str, Any],
+        *,
+        intent: DestinationIntent,
+        structured_address: StructuredAddress,
+    ) -> tuple[
+        GeocodingCandidate | None,
+        list[tuple[GeocodingCandidate, str]],
+    ]:
+        """Resolve a bounded typed query plan and keep all reviewable results."""
+        coordinate = _coordinate(stop)
+        records: dict[str, tuple[GeocodingCandidate, str, bool, float | None]] = {}
+        best: GeocodingCandidate | None = None
+
+        def add(candidate: GeocodingCandidate | None, query: str) -> None:
+            if candidate is None:
+                return
+            distance: float | None = None
+            if coordinate is not None:
+                distance = _distance_meters(
+                    coordinate[0],
+                    coordinate[1],
+                    candidate.latitude,
+                    candidate.longitude,
+                )
+                if (
+                    intent.is_specific_poi
+                    and candidate.resolution_mode != "reverse"
+                    and distance > _MAX_COORDINATE_POI_DISTANCE_METERS
+                ):
+                    return
+            identity = _candidate_id(candidate)
+            supports = _candidate_supports_intent(candidate, intent)
+            previous = records.get(identity)
+            if previous is None:
+                records[identity] = (candidate, query, supports, distance)
+                return
+            previous_candidate = previous[0]
+            previous_key = (
+                int(previous[2]),
+                int(getattr(previous_candidate, "auto_selectable", False)),
+                float(getattr(previous_candidate, "score", 0.0)),
+            )
+            candidate_key = (
+                int(supports),
+                int(getattr(candidate, "auto_selectable", False)),
+                float(getattr(candidate, "score", 0.0)),
+            )
+            if candidate_key > previous_key:
+                records[identity] = (candidate, query, supports, distance)
+
+        if coordinate is not None:
+            reverse = await self._geocoder.async_reverse(
+                coordinate[0],
+                coordinate[1],
+                language=self._language,
+            )
+            add(reverse, intent.primary_query or f"{coordinate[0]}, {coordinate[1]}")
+            if reverse is not None and (
+                not intent.is_specific_poi
+                or _candidate_supports_intent(reverse, intent)
+            ):
+                best = reverse
+
+        should_forward_search = coordinate is None or (
+            intent.is_specific_poi and best is None
+        )
+        if should_forward_search:
+            for index, query in enumerate(
+                intent.query_variants[:_MAX_INTENT_QUERIES]
+            ):
+                if not query:
+                    continue
+                safe_default, alternatives = await self._geocoder.async_resolve(
+                    query,
+                    structured_address=(
+                        structured_address if intent.kind == "address" else None
+                    ),
+                    language=self._language,
+                )
+                add(safe_default, query)
+                for candidate in alternatives:
+                    add(candidate, query)
+                if safe_default is not None and (
+                    not intent.is_specific_poi
+                    or _candidate_supports_intent(safe_default, intent)
+                ):
+                    best = safe_default
+                    break
+                # A second query is a deliberate fallback for typed POIs.  A
+                # concrete address already has provider-side structured and
+                # free-text variants in one request.
+                if intent.kind == "address" or index + 1 >= _MAX_INTENT_QUERIES:
+                    break
+
+        ordered_records = list(records.values())
+        ordered_records.sort(
+            key=lambda record: (
+                int(best is not None and _candidate_id(record[0]) == _candidate_id(best)),
+                int(record[2]),
+                int(getattr(record[0], "auto_selectable", False)),
+                float(getattr(record[0], "score", 0.0)),
+                -(record[3] if record[3] is not None else 0.0),
+            ),
+            reverse=True,
+        )
+        return best, [
+            (candidate, query)
+            for candidate, query, _supports, _distance in ordered_records
+        ]
+
     async def _profile_candidate(
         self,
         day: dict[str, Any],
@@ -359,8 +558,9 @@ class PlaceEnrichmentService:
         candidate: GeocodingCandidate,
         *,
         query: str,
+        intent: DestinationIntent,
     ) -> dict[str, Any]:
-        image_query = _image_query(day, stop, candidate)
+        image_query = _image_query(day, stop, candidate, intent=intent)
         image_result: dict[str, Any]
         try:
             async with asyncio.timeout(18):
@@ -405,6 +605,16 @@ class PlaceEnrichmentService:
             "opening_hours": contact.get("opening_hours"),
             "map_url": _map_url(candidate.latitude, candidate.longitude),
             "source_url": candidate.source_url,
+            "provider_id": (
+                f"{candidate.osm_type}/{candidate.osm_id}"
+                if candidate.osm_type and candidate.osm_id is not None
+                else None
+            ),
+            "osm_type": candidate.osm_type or None,
+            "osm_id": candidate.osm_id,
+            "wikidata": contact.get("wikidata"),
+            "wikipedia": contact.get("wikipedia"),
+            "destination_intent": intent.as_dict(),
             "attribution": "© OpenStreetMap contributors",
             "confidence": percent,
             "confidence_label": label,
@@ -443,7 +653,13 @@ class PlaceEnrichmentService:
             if cleanup_suggestion.get("name"):
                 merged["name"] = cleanup_suggestion.get("name")
             search_address = structured.merged(merged)
-        query = (
+        intent = analyze_destination(
+            day,
+            stop,
+            structured_address=search_address,
+            cleanup_suggestion=cleanup_suggestion,
+        )
+        query = intent.primary_query or (
             search_address.full_query(original_query)
             if search_address.has_address_detail
             else original_query
@@ -452,6 +668,8 @@ class PlaceEnrichmentService:
             return {
                 "status": "not_found",
                 "query": "",
+                "query_variants": [],
+                "destination_intent": intent.as_dict(),
                 "current": current,
                 "structured_address": structured.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
@@ -461,25 +679,17 @@ class PlaceEnrichmentService:
                 "manual_allowed": True,
             }
         try:
-            coordinate = _coordinate(stop)
-            if coordinate is not None:
-                candidate = await self._geocoder.async_reverse(
-                    coordinate[0],
-                    coordinate[1],
-                    language=self._language,
-                )
-                best = candidate
-                alternatives = [candidate] if candidate is not None else []
-            else:
-                best, alternatives = await self._geocoder.async_resolve(
-                    query,
-                    structured_address=search_address,
-                    language=self._language,
-                )
+            best, candidate_records = await self._resolve_candidates(
+                stop,
+                intent=intent,
+                structured_address=search_address,
+            )
         except GeocodingError as err:
             return {
                 "status": "error",
                 "query": query,
+                "query_variants": list(intent.query_variants),
+                "destination_intent": intent.as_dict(),
                 "current": current,
                 "structured_address": search_address.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
@@ -489,44 +699,50 @@ class PlaceEnrichmentService:
                 "manual_allowed": True,
             }
 
-        ordered: list[GeocodingCandidate] = []
-        if best is not None:
-            ordered.append(best)
-        for candidate in alternatives:
-            if candidate is None:
-                continue
-            if any(
-                _candidate_id(candidate) == _candidate_id(existing)
-                for existing in ordered
-            ):
-                continue
-            ordered.append(candidate)
-            if len(ordered) >= _MAX_CANDIDATES:
-                break
         profiles = (
             await asyncio.gather(
                 *(
-                    self._profile_candidate(day, stop, candidate, query=query)
-                    for candidate in ordered[:_MAX_CANDIDATES]
+                    self._profile_candidate(
+                        day,
+                        stop,
+                        candidate,
+                        query=matched_query,
+                        intent=intent,
+                    )
+                    for candidate, matched_query in candidate_records[
+                        :_MAX_CANDIDATES
+                    ]
                 )
             )
-            if ordered
+            if candidate_records
             else []
         )
-        if best is not None and profiles:
+        selected = None
+        if best is not None:
+            best_id = _candidate_id(best)
+            selected = next(
+                (
+                    profile.get("id")
+                    for profile in profiles
+                    if profile.get("id") == best_id
+                ),
+                None,
+            )
+        if selected:
             status = "resolved"
-            selected = profiles[0]["id"]
-            message = "Roadplanner hat einen hinreichend genauen Ort gefunden."
+            message = (
+                "Roadplanner hat einen hinreichend genauen, typgerechten Ort "
+                "gefunden."
+            )
         elif profiles:
             status = "ambiguous"
-            selected = None
             message = (
-                "Es wurden mögliche, aber nicht automatisch verlässliche Treffer "
-                "gefunden. Bitte einen Treffer oder den manuellen Kartenpunkt bestätigen."
+                "Es wurden mögliche Treffer gefunden. Bitte den konkreten Ort "
+                "prüfen; ein umliegender Ortsteil wird bei einem erwarteten POI "
+                "nicht automatisch übernommen."
             )
         else:
             status = "not_found"
-            selected = None
             message = (
                 "Es wurde kein passender Provider-Treffer gefunden. Adresse und "
                 "Kartenpunkt können bewusst manuell bestätigt werden."
@@ -534,7 +750,9 @@ class PlaceEnrichmentService:
         return {
             "status": status,
             "query": query,
+            "query_variants": list(intent.query_variants),
             "original_query": original_query,
+            "destination_intent": intent.as_dict(),
             "current": current,
             "structured_address": search_address.as_dict(),
             "ai_cleanup": deepcopy(cleanup_suggestion),
@@ -844,6 +1062,10 @@ class PlaceEnrichmentService:
                         "status": "resolved",
                         "provider_verified": True,
                         "query": item.get("query"),
+                        "query_variants": deepcopy(item.get("query_variants") or []),
+                        "destination_intent": deepcopy(
+                            item.get("destination_intent") or {}
+                        ),
                         "selected_candidate_id": candidate_id,
                         "confirmed_at": confirmed_at,
                         "confirmed_by": user_id,
@@ -869,6 +1091,28 @@ class PlaceEnrichmentService:
                     "opening_hours": candidate.get("opening_hours"),
                     "map_url": candidate.get("map_url"),
                     "source_url": candidate.get("source_url"),
+                    "provider_id": candidate.get("provider_id"),
+                    "osm_type": candidate.get("osm_type"),
+                    "osm_id": candidate.get("osm_id"),
+                    "wikidata": candidate.get("wikidata"),
+                    "wikipedia": candidate.get("wikipedia"),
+                    "kind": (
+                        candidate.get("destination_intent") or {}
+                    ).get("kind"),
+                    "kind_label": (
+                        candidate.get("destination_intent") or {}
+                    ).get("label"),
+                    "source_hints": deepcopy(
+                        (candidate.get("destination_intent") or {}).get(
+                            "source_hints"
+                        )
+                        or []
+                    ),
+                    "image_query": candidate.get("image_query"),
+                    "city": (candidate.get("location") or {}).get("city"),
+                    "country_code": (candidate.get("location") or {}).get(
+                        "country_code"
+                    ),
                     "confidence": candidate.get("confidence"),
                     "confidence_label": candidate.get("confidence_label"),
                     "match_type": candidate.get("match_type"),

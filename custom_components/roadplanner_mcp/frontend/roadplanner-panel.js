@@ -847,6 +847,45 @@ class RoadplannerPanel extends HTMLElement {
     return [...values];
   }
 
+  _stopOrderState(day, stopId = "") {
+    const stops = this._dayRoadbookStops(day);
+    const normalizedStopId = cleanText(stopId);
+    const index = normalizedStopId
+      ? stops.findIndex((stop) => cleanText(stop?.id) === normalizedStopId)
+      : -1;
+    return {
+      stops,
+      index,
+      position: index >= 0 ? index + 1 : null,
+      canMoveEarlier: index > 0,
+      canMoveLater: index >= 0 && index < stops.length - 1,
+    };
+  }
+
+  _stopMovePosition(day, stopId, delta) {
+    const state = this._stopOrderState(day, stopId);
+    if (!Number.isInteger(delta) || ![-1, 1].includes(delta) || state.index < 0) return null;
+    const position = state.index + 1 + delta;
+    if (position < 1 || position > state.stops.length) return null;
+    return position;
+  }
+
+  async _moveStop(dayId, stopId, position) {
+    const day = this._findDay(dayId);
+    const state = this._stopOrderState(day, stopId);
+    const targetPosition = Number(position);
+    if (!day || state.index < 0 || !Number.isInteger(targetPosition)
+      || targetPosition < 1 || targetPosition > state.stops.length
+      || targetPosition === state.position) return null;
+    return this._runAction("update_stop", {
+      day_id: dayId,
+      stop_id: stopId,
+      patch: {},
+      position: targetPosition,
+      expected_revision: this._currentRevision(),
+    }, "Stopp verschoben");
+  }
+
   _samePlace(first, second) {
     if (!first || !second) return false;
     if (first.id && first.id === second.id) return true;
@@ -1876,6 +1915,12 @@ class RoadplannerPanel extends HTMLElement {
     } else if (select.dataset.action === "select-day") {
       this._selectedDayId = select.value;
       this._render({ preserveScroll: true });
+    } else if (select.dataset.action === "move-stop-position" && this._canEdit()) {
+      void this._moveStop(
+        cleanText(select.dataset.dayId),
+        cleanText(select.dataset.stopId),
+        Number.parseInt(select.value, 10),
+      );
     }
   }
 
@@ -2390,6 +2435,14 @@ class RoadplannerPanel extends HTMLElement {
         revision: this._currentRevision(),
       };
       this._render({ preserveScroll: true });
+    } else if (action === "open-stop-order" && this._canEdit()) {
+      const day = this._findDay(dayId);
+      if (this._dayRoadbookStops(day).length < 2) {
+        this._showToast("Für diesen Tag gibt es noch nichts umzusortieren.", "error");
+        return;
+      }
+      this._dialog = { type: "stop-order", dayId };
+      this._render({ preserveScroll: true });
     } else if (action === "edit-stop" && this._canEdit()) {
       this._dialog = {
         type: "stop",
@@ -2417,17 +2470,10 @@ class RoadplannerPanel extends HTMLElement {
       );
     } else if ((action === "move-stop-up" || action === "move-stop-down") && this._canEdit()) {
       const day = this._findDay(dayId);
-      const index = day?.stops?.findIndex((stop) => stop.id === stopId) ?? -1;
-      if (index < 0) return;
       const delta = action.endsWith("up") ? -1 : 1;
-      const position = Math.max(1, Math.min(day.stops.length, index + 1 + delta));
-      this._runAction("update_stop", {
-        day_id: dayId,
-        stop_id: stopId,
-        patch: {},
-        position,
-        expected_revision: this._currentRevision(),
-      }, "Stopp verschoben");
+      const position = this._stopMovePosition(day, stopId, delta);
+      if (position === null) return;
+      void this._moveStop(dayId, stopId, position);
     } else if (action === "complete-day-locations" && this._canEdit()) {
       void this._preparePlaceEnrichment({ dayId });
     } else if (action === "complete-stop-place" && this._canEdit()) {
@@ -2993,13 +3039,15 @@ class RoadplannerPanel extends HTMLElement {
       retry: () => this._refreshDestinationGallery(dayId, stopId),
     });
     if (result?.gallery?.images?.length) {
+      const resolvedDayId = cleanText(result.gallery.day_id) || dayId;
+      const resolvedStopId = cleanText(result.gallery.stop_id) || stopId;
       this._dialog = {
         type: "destination-gallery",
         images: result.gallery.images,
         index: 0,
-        title: this._findStop(dayId, stopId)?.name || "Stoppbilder",
-        dayId,
-        stopId,
+        title: this._findStop(resolvedDayId, resolvedStopId)?.name || "Stoppbilder",
+        dayId: resolvedDayId,
+        stopId: resolvedStopId,
         primaryImageId: result.gallery.primary_image_id,
         readOnly: !this._canEdit(),
       };
@@ -4415,7 +4463,7 @@ class RoadplannerPanel extends HTMLElement {
       </div>
       <div class="button-row">
         <button class="primary-button" type="button" data-action="integrity-open"><ha-icon icon="mdi:shield-check-outline"></ha-icon> Details prüfen</button>
-        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Orte vervollständigen</button>` : ""}
+        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopps anreichern</button>` : ""}
       </div>
     </section>`;
   }
@@ -4447,7 +4495,7 @@ class RoadplannerPanel extends HTMLElement {
         <div class="integrity-issue-list">${rows}</div>
       </div>
       <div class="modal-actions integrity-dialog-actions">
-        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>Orte vervollständigen</button>` : ""}
+        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>Stopps anreichern</button>` : ""}
         ${Number(stats.route_issue_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-recalculate-routes"><ha-icon icon="mdi:map-marker-path"></ha-icon>Routen neu berechnen</button>` : ""}
         ${Number(stats.visual_missing_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-auto-images"><ha-icon icon="mdi:image-sync-outline"></ha-icon>Planungsbilder ergänzen</button>` : ""}
         <button class="primary-button" type="button" data-action="close-dialog">Schließen</button>
@@ -4583,6 +4631,7 @@ class RoadplannerPanel extends HTMLElement {
       return `${this._renderReadOnlyNotice()}<div class="empty-state"><ha-icon icon="mdi:map-clock-outline"></ha-icon><h2>Noch keine Tagesroute</h2><p>Lege zuerst einen Reisetag an.</p>${this._canEdit() ? '<button class="primary-button" type="button" data-action="add-day">Reisetag anlegen</button>' : ""}</div>`;
     }
     const routeStops = this._effectiveDayStops(day);
+    const roadbookStops = this._dayRoadbookStops(day);
     const points = this._dayRoutePoints(day);
     const routePaths = this._routingSegmentPaths(day);
     const canonicalModel = this._canonicalDayModel(day) || {};
@@ -4688,7 +4737,7 @@ class RoadplannerPanel extends HTMLElement {
           ${!routingConfigured ? '<div class="notice neutral">Straßenrouting ist in den Roadplanner-Optionen noch nicht aktiviert.</div>' : ""}
           ${day.notes ? `<p class="notes-block">${escapeHtml(day.notes)}</p>` : ""}
           <div class="button-row">
-            ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>Orte vervollständigen (${locationAttentionNodes.length})</button>` : ""}
+            ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>Stopps anreichern (${locationAttentionNodes.length})</button>` : ""}
             ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-day-route" data-day-id="${escapeHtml(day.id)}" data-force="${day.routing ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${day.routing ? "Neu berechnen" : "Route berechnen"}</button>` : ""}
             ${this._externalLink(navigationUrl, "Tagesroute in Google Maps", "mdi:google-maps")}
             ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Tag bearbeiten</button><button class="secondary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopp</button>` : ""}
@@ -4708,7 +4757,7 @@ class RoadplannerPanel extends HTMLElement {
       </section>
 
       <section class="stops-section">
-        <div class="section-heading"><div><span class="eyebrow">Ablauf</span><h2>${routeStops.length} Stopps${missingLocationNodes.length ? ` · ${missingLocationNodes.length} ohne GPS` : ""}</h2></div></div>
+        <div class="section-heading"><div><span class="eyebrow">Ablauf</span><h2>${routeStops.length} Stopps${missingLocationNodes.length ? ` · ${missingLocationNodes.length} ohne GPS` : ""}</h2></div>${this._canEdit() && roadbookStops.length > 1 ? `<button class="secondary-button" type="button" data-action="open-stop-order" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:sort-numeric-ascending"></ha-icon> Reihenfolge ändern</button>` : ""}</div>
         ${routeStops.length ? `<div class="stop-grid">${routeStops.map((stop, index) => this._renderStopCard(day, stop, index)).join("")}</div>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon><h2>Noch keine Stopps</h2><p>Füge Ziele, Fähren, Stellplätze oder Sehenswürdigkeiten hinzu.</p>${this._canEdit() ? `<button class="primary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}">Ersten Stopp hinzufügen</button>` : ""}</div>`}
       </section>
     `;
@@ -4822,7 +4871,7 @@ class RoadplannerPanel extends HTMLElement {
         ${this._renderExperienceAlbum(experienceMedia, { dayId: day.id, stopId: stop.id, compact: true, title: stop.name, totalCount: allExperienceMedia.length })}
         ${this._renderStopArchiveSummary(day, stop)}
         ${externalActions ? `<div class="button-row stop-actions">${externalActions}</div>` : ""}
-        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Ort vervollständigen</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
+        ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Stopp anreichern</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}</div>` : ""}
       </div>
     </article>`;
   }
@@ -4953,6 +5002,7 @@ class RoadplannerPanel extends HTMLElement {
     if (this._dialog.type === "trip") body = this._renderTripForm(this._dialog);
     else if (this._dialog.type === "day") body = this._renderDayForm(this._dialog);
     else if (this._dialog.type === "stop") body = this._renderStopForm(this._dialog);
+    else if (this._dialog.type === "stop-order") body = this._renderStopOrderDialog(this._dialog);
     else if (this._dialog.type === "confirm") body = this._renderConfirmDialog(this._dialog);
     else if (this._dialog.type === "handoff-preview") body = this._renderHandoffPreview(this._dialog);
     else if (this._dialog.type === "image-search") body = this._renderImageSearch(this._dialog);
@@ -4976,6 +5026,38 @@ class RoadplannerPanel extends HTMLElement {
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
   }
 
+  _renderStopOrderDialog(dialog) {
+    const day = this._findDay(dialog?.dayId);
+    const stops = this._dayRoadbookStops(day);
+    if (!day) {
+      return `${this._renderModalHeader("Stopp-Reihenfolge")}<div class="empty-state compact-empty"><ha-icon icon="mdi:calendar-remove-outline"></ha-icon><h2>Reisetag nicht mehr vorhanden</h2><p>Bitte die Ansicht neu laden.</p></div>`;
+    }
+    const rows = stops.map((stop, index) => {
+      const time = [
+        stop?.arrival_time ? `Ankunft ${stop.arrival_time}` : "",
+        stop?.departure_time ? `Abfahrt ${stop.departure_time}` : "",
+      ].filter(Boolean).join(" · ");
+      const options = stops.map((_item, optionIndex) => `<option value="${optionIndex + 1}" ${optionIndex === index ? "selected" : ""}>${optionIndex + 1}</option>`).join("");
+      return `<li class="stop-order-row" data-stop-order-row="${escapeHtml(stop.id)}">
+        <span class="sequence-badge">${index + 1}</span>
+        <div class="stop-order-copy"><strong>${escapeHtml(stop.name || `Stopp ${index + 1}`)}</strong><span>${escapeHtml([this._statusLabel(stop.type), time].filter(Boolean).join(" · "))}</span></div>
+        <div class="stop-order-controls">
+          <label class="stop-order-position"><span>Position</span><select data-action="move-stop-position" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">${options}</select></label>
+          <div class="stop-order-buttons">
+            <button class="icon-button" type="button" data-action="move-stop-up" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" title="Früher einplanen" aria-label="${escapeHtml(stop.name || "Stopp")} früher einplanen" ${index === 0 ? "disabled" : ""}><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+            <button class="icon-button" type="button" data-action="move-stop-down" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" title="Später einplanen" aria-label="${escapeHtml(stop.name || "Stopp")} später einplanen" ${index === stops.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+          </div>
+        </div>
+      </li>`;
+    }).join("");
+    return `${this._renderModalHeader("Stopp-Reihenfolge", `${this._formatDate(day.date)} · ${day.title || "Reisetag"}`)}
+      <div class="stop-order-body">
+        <div class="notice info"><ha-icon icon="mdi:sort-numeric-ascending"></ha-icon><div><strong>Bestätigte Tagesfolge</strong><span>Verschiebe Stopps bewusst früher oder später. Uhrzeiten bleiben reine Planungsangaben und sortieren den Tag nicht automatisch. Ein geerbter Übernachtungsstart vom Vortag bleibt automatisch davor.</span></div></div>
+        ${rows ? `<ol class="stop-order-list">${rows}</ol>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><h2>Keine Stopps vorhanden</h2></div>`}
+      </div>
+      <div class="modal-actions"><button class="primary-button" type="button" data-action="close-dialog">Fertig</button></div>`;
+  }
+
   _renderPlaceEnrichment(dialog) {
     const preview = dialog?.preview || {};
     const items = Array.isArray(preview.items) ? preview.items : [];
@@ -4996,6 +5078,7 @@ class RoadplannerPanel extends HTMLElement {
       const stopId = cleanText(current.stop_id);
       const currentLocation = current.location || {};
       const structured = item?.structured_address || {};
+      const intent = item?.destination_intent && typeof item.destination_intent === "object" ? item.destination_intent : {};
       const candidates = Array.isArray(item?.candidates) ? item.candidates : [];
       const selectedId = cleanText(selections[stopId]);
       const currentSummary = [
@@ -5006,6 +5089,25 @@ class RoadplannerPanel extends HTMLElement {
       ].filter(Boolean).join(" · ");
       const cleanup = item?.ai_cleanup && typeof item.ai_cleanup === "object" ? item.ai_cleanup : null;
       const cleanupAccepted = Boolean(cleanupConfirmations[stopId]);
+      const cleanupName = cleanText(cleanup?.name);
+      const currentName = cleanText(current.stop_name);
+      const cleanupNameChanged = Boolean(cleanupName && cleanupName.toLocaleLowerCase() !== currentName.toLocaleLowerCase());
+      const cleanupKindLabels = {
+        address: "Adresse",
+        ferry_terminal: "Fährterminal",
+        transport_terminal: "Verkehrsterminal",
+        hike: "Wanderung",
+        nature_center: "Natur- oder Besucherzentrum",
+        attraction: "Sehenswürdigkeit",
+        retail: "Einkauf",
+        restaurant: "Gastronomie",
+        camping: "Camping- oder Übernachtungsplatz",
+        accommodation: "Unterkunft",
+        parking: "Parkplatz",
+        fuel: "Tankstelle",
+        charging: "Ladepunkt",
+        place: "Ort oder POI",
+      };
       const cleanupAddress = cleanup?.address || {};
       const cleanupParts = [
         [cleanupAddress.street, cleanupAddress.house_number].filter(Boolean).join(" "),
@@ -5016,8 +5118,12 @@ class RoadplannerPanel extends HTMLElement {
       ].filter(Boolean);
       const cleanupCard = cleanup
         ? `<div class="place-cleanup-suggestion ${cleanupAccepted ? "selected" : ""}">
-            <div><span class="eyebrow">KI-Vorschlag · ohne Koordinaten</span><strong>${escapeHtml(cleanup.name || current.stop_name || "Ortsname beibehalten")}</strong><small>${escapeHtml(cleanupParts.join(", ") || cleanup.reason || "Schreibweise und Adressbestandteile normalisiert")}</small></div>
-            <button class="${cleanupAccepted ? "secondary-button" : "text-button"}" type="button" data-action="place-cleanup-toggle" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="${cleanupAccepted ? "mdi:check-circle" : "mdi:checkbox-blank-circle-outline"}"></ha-icon>${cleanupAccepted ? "Umbenennung wird übernommen" : "Namensvorschlag separat übernehmen"}</button>
+            <div><span class="eyebrow">KI-Textanalyse · ohne Koordinaten</span><strong>${escapeHtml(cleanup.name || current.stop_name || "Ortsname beibehalten")}</strong><small>${escapeHtml([
+              cleanup.place_kind ? `Zieltyp: ${cleanupKindLabels[cleanup.place_kind] || cleanup.place_kind}` : "",
+              cleanupParts.join(", "),
+              cleanup.reason,
+            ].filter(Boolean).join(" · ") || "Schreibweise und Suchstrategie normalisiert")}</small></div>
+            ${cleanupNameChanged ? `<button class="${cleanupAccepted ? "secondary-button" : "text-button"}" type="button" data-action="place-cleanup-toggle" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="${cleanupAccepted ? "mdi:check-circle" : "mdi:checkbox-blank-circle-outline"}"></ha-icon>${cleanupAccepted ? "Umbenennung wird übernommen" : "Namensvorschlag separat übernehmen"}</button>` : `<span class="status-pill status-resolved"><ha-icon icon="mdi:shape-outline"></ha-icon>Nur Suchstrategie</span>`}
           </div>`
         : "";
       const candidateCards = candidates.length
@@ -5036,6 +5142,7 @@ class RoadplannerPanel extends HTMLElement {
             free_text: "Freitext-Suche",
           }[candidate.search_variant] || candidate.search_variant;
           const chips = [
+            intent.label ? `Zieltyp: ${intent.label}` : "",
             candidate.match_label,
             candidate.category,
             candidate.confidence_label ? `${candidate.confidence_label} · ${Number(candidate.confidence || 0)} %` : "",
@@ -5086,18 +5193,18 @@ class RoadplannerPanel extends HTMLElement {
         <button class="secondary-button" type="button" data-action="place-manual-select" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Manuellen Kartenpunkt bestätigen</button>
       </form>`;
       return `<section class="place-enrichment-item">
-        <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml(currentSummary || "Noch kein bestätigtes Ortsprofil")}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
+        <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml([intent.label ? `Erkannt: ${intent.label}` : "", currentSummary || "Noch kein bestätigtes Ortsprofil"].filter(Boolean).join(" · "))}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
         ${cleanupCard}
         <div class="place-candidates">${candidateCards}</div>
         ${manualForm}
       </section>`;
     }).join("");
-    return `${this._renderModalHeader("Orte vervollständigen", `${items.length} ${items.length === 1 ? "Stopp" : "Stopps"} · Kartenpunkt, Adresse, Kontaktdaten und Planungsbilder prüfen`)}
+    return `${this._renderModalHeader("Stopps anreichern", `${items.length} ${items.length === 1 ? "Stopp" : "Stopps"} · Zieltyp, Kartenpunkt, Ortsprofil und Planungsbilder prüfen`)}
       <div class="place-enrichment-body">
-        <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Einmal vollständig prüfen</strong><span>Roadplanner übernimmt nur ausgewählte Provider-Treffer oder ausdrücklich bestätigte manuelle Werte. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>${cleanupControl}</div>
+        <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Geodaten zuerst, Bilder danach</strong><span>Roadplanner erkennt den Zieltyp, sucht einen konkreten Kartenpunkt und verwendet das bestätigte Ortsprofil für kurze, passende Bildanfragen. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div>${cleanupControl}</div>
         ${cards || `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><h2>Keine offenen Ortsprofile</h2></div>`}
       </div>
-      <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Ort" : "Orte"} an Änderungsübersicht übergeben</button></div>`;
+      <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Stopp" : "Stopps"} an Änderungsübersicht übergeben</button></div>`;
   }
 
   _renderActionErrorDialog(dialog) {
@@ -5898,6 +6005,18 @@ class RoadplannerPanel extends HTMLElement {
       .stop-card-body p { white-space: pre-wrap; line-height: 1.5; }
       .attribution { color: var(--secondary-text-color); font-size: 11px; margin: 8px 0; }
       .stop-actions { margin-top: 14px; }
+      .stop-order-body { padding: 0 22px 22px; display: grid; gap: 14px; }
+      .stop-order-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+      .stop-order-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; align-items: center; padding: 14px; border: 1px solid var(--divider-color); border-radius: 14px; background: var(--secondary-background-color); }
+      .stop-order-copy { min-width: 0; display: grid; gap: 3px; }
+      .stop-order-copy strong { overflow-wrap: anywhere; }
+      .stop-order-copy span { color: var(--secondary-text-color); font-size: 12px; }
+      .stop-order-controls { grid-column: 1 / -1; display: flex; align-items: end; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+      .stop-order-position { display: grid; gap: 4px; color: var(--secondary-text-color); font-size: 11px; }
+      .stop-order-position select { min-width: 82px; min-height: 44px; border: 1px solid var(--divider-color); border-radius: 10px; padding: 0 10px; background: var(--card-background-color); color: var(--primary-text-color); }
+      .stop-order-buttons { display: flex; gap: 8px; }
+      .stop-order-buttons .icon-button { width: 44px; height: 44px; }
+      .stop-order-buttons .icon-button:disabled { opacity: .35; cursor: default; }
       .trip-route-graphic { overflow: hidden; }
       .journey-track { display: flex; align-items: stretch; overflow-x: auto; padding: 8px 2px 14px; scrollbar-width: thin; }
       .journey-node { flex: 0 0 230px; min-height: 122px; border: 1px solid var(--divider-color); border-radius: 17px; padding: 14px; background: var(--secondary-background-color); color: var(--primary-text-color); display: grid; grid-template-columns: 38px 1fr; gap: 11px; text-align: left; cursor: pointer; }

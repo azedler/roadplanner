@@ -6,6 +6,29 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-07-24
+
+### Added
+
+- Geodata-first destination intelligence that classifies addresses, ferry and transport terminals, hikes, nature centres, attractions, retail, gastronomy, camping and other stop types before provider search.
+- Bounded type-aware geocoding query plans and persisted provider identifiers, destination kinds, source hints and concise image queries in confirmed place profiles.
+- Recognition of Park4Night, OpenStreetMap, Wikidata, Wikipedia and Google Maps links as reviewable source hints without treating them as verified coordinates.
+- Touch-friendly manual stop ordering with earlier/later controls and direct numbered positions for each Roadbook day.
+
+### Changed
+
+- Place enrichment now rejects surrounding locality results as automatic matches for specific POIs and falls back from reverse geocoding to bounded type-aware forward searches near existing coordinates.
+- Destination image search uses the confirmed place identity, city, country and category while excluding notes and day titles; coordinates remain a separate ranking signal.
+- The place-review UI is presented as “Stopps anreichern” and explains the geodata-first workflow while leaving times and confirmed stop order unchanged.
+
+### Fixed
+
+- Address parsing retains `Neuhäuser 40`, `01844 Neustadt in Sachsen` and `Krumhermsdorf` instead of turning aggregate category text into a city.
+- German destination terms such as `Fährterminal` and hyphenated `-Wanderung` are translated into provider-friendly POI searches without losing the proper name.
+- Overlong internal image queries are shortened safely instead of failing at the 400-character provider boundary.
+- Gallery refreshes recover a uniquely identifiable stop after a stale day reference and continue with the canonical day and stop IDs returned by the backend.
+- Manual move controls calculate their target from the canonical explicit position sequence instead of a potentially stale payload array order.
+
 ## [3.5.0] - 2026-07-23
 
 ### Added

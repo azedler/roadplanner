@@ -35,7 +35,7 @@ assert 'stop.get("_source_day_id") if stop.get("_inherited") else day.get("id")'
 assert '"prepare_place_enrichment"' in panel
 assert '"submit_place_enrichment"' in panel
 assert 'data-action="complete-day-locations"' in frontend
-assert "Orte vervollständigen" in frontend
+assert "Stopps anreichern" in frontend
 assert 'data-action="integrity-prepare-locations"' in frontend
 assert 'data-action="complete-stop-place"' in frontend
 

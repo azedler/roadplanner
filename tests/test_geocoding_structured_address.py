@@ -32,7 +32,7 @@ package.__path__ = [str(PACKAGE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
 const = types.ModuleType(f"{PACKAGE_NAME}.const")
-const.INTEGRATION_VERSION = "3.4.0"
+const.INTEGRATION_VERSION = "3.5.0"
 sys.modules[const.__name__] = const
 
 
@@ -81,6 +81,37 @@ assert structured.district == "Krumhermsdorf"
 assert structured.state == "Sachsen"
 assert structured.country == "Deutschland"
 assert structured.country_code == "DE"
+
+# The exact live examples must remain structured correctly. Aggregate POI
+# search text may contain commas, but category tokens are never fake cities.
+poi_structured = module.parse_structured_address(
+    query="Fährterminal Tallinn, ferry",
+    name="Fährterminal Tallinn",
+)
+assert poi_structured.city == ""
+assert poi_structured.district == ""
+assert poi_structured.name == "Fährterminal Tallinn"
+assert module._provider_query("Fährterminal Tallinn") == "ferry terminal Tallinn"
+assert module._category_intent_for_query("Fährterminal Tallinn") == "ferry"
+assert module._core_query_tokens("Fährterminal Tallinn") == {"tallinn"}
+assert (
+    module._provider_query("Haukkankierros-Wanderung")
+    == "Haukkankierros hiking trail"
+)
+assert module._category_intent_for_query("Haukkankierros-Wanderung") == "hiking"
+
+single_line = module.parse_structured_address(
+    query=(
+        "Krumhermsdorf Neuhäuser 40, 01844 Neustadt in Sachsen, "
+        "Ortsteil Krumhermsdorf"
+    ),
+    name="Krumhermsdorf Neuhäuser 40",
+)
+assert single_line.street == "Neuhäuser"
+assert single_line.house_number == "40"
+assert single_line.postal_code == "01844"
+assert single_line.city == "Neustadt in Sachsen"
+assert single_line.district == "Krumhermsdorf"
 
 
 def item(address: dict, *, result_type: str = "house", osm_id: int = 1) -> dict:
