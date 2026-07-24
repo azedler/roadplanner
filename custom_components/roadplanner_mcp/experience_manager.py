@@ -33,6 +33,7 @@ from .decision_logic import (
     ensure_current_plan_option,
 )
 from .destination_images import DestinationImageProvider
+from .destination_intelligence import analyze_destination, destination_image_query
 from .media_intelligence import build_media_presentation, select_media_highlights
 from .experience_store import (
     ExperienceStore,
@@ -2092,26 +2093,10 @@ class RoadplannerExperienceManager:
 
     @staticmethod
     def _destination_query(day: dict[str, Any], stop: dict[str, Any]) -> str:
-        location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
-        parts = [
-            stop.get("name"),
-            location.get("label"),
-            location.get("address"),
-            location.get("city"),
-            location.get("country_code"),
-            stop.get("type"),
-            str(stop.get("notes") or "")[:300],
-            day.get("title"),
-        ]
-        unique: list[str] = []
-        seen: set[str] = set()
-        for raw in parts:
-            value = _clean(raw, 500)
-            folded = value.casefold()
-            if value and folded not in seen:
-                seen.add(folded)
-                unique.append(value)
-        return " ".join(unique)[:1_000]
+        """Return a concise image query based on the stop identity/profile."""
+        intent = analyze_destination(day, stop)
+        return destination_image_query(day, stop, intent=intent)
+
 
     async def async_prepare_place_enrichment(
         self,
@@ -2291,13 +2276,27 @@ class RoadplannerExperienceManager:
         day_id: str,
         stop_id: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Resolve a stop even when the UI still carries its previous day ID."""
         for day in days:
             if str(day.get("id") or "") != day_id:
                 continue
             for stop in _stops(day):
                 if str(stop.get("id") or "") == stop_id:
                     return day, stop
+
+        matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for day in days:
+            for stop in _stops(day):
+                if str(stop.get("id") or "") == stop_id:
+                    matches.append((day, stop))
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValidationError(
+                "Der ausgewählte Stopp ist mehreren Tagen zugeordnet. Bitte die Ansicht neu laden."
+            )
         raise ValidationError("Der ausgewählte Stopp existiert nicht mehr")
+
 
     async def _destination_gallery_for_stop(
         self,

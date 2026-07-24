@@ -49,6 +49,13 @@ See the [Roadplanner 3.0 Vision & UX Blueprint](docs/product/ROADPLANNER_3_0_VIS
 - Image curation is local-first: deterministic filtering removes duplicates, bursts and weak candidates before an optional Gemini Vision step selects the most representative cover and highlights.
 - Existing installations default to local-only curation; hybrid Vision must be enabled explicitly and is protected by candidate and daily-call limits.
 
+## Smart destination enrichment
+
+- “Stopps anreichern” classifies addresses, POIs, ferry terminals, hikes, nature centres, shops, restaurants and overnight places before provider search.
+- Geodata and provider identity are reviewed first; the confirmed name, city, country, category and coordinates then drive concise planning-image queries.
+- Surrounding city or district matches remain visible for review but are not accepted automatically when a specific POI is expected.
+- Notes and day titles are excluded from image-provider queries, while source links such as Park4Night, OpenStreetMap, Wikidata and Wikipedia remain traceable hints.
+
 ## Core principles
 
 - Canonical Roadbook and domain sidecars have explicit ownership boundaries.

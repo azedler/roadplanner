@@ -31,6 +31,24 @@ _ALLOWED_ADDRESS_FIELDS = frozenset(
         "country_code",
     }
 )
+_ALLOWED_PLACE_KINDS = frozenset(
+    {
+        "address",
+        "ferry_terminal",
+        "transport_terminal",
+        "hike",
+        "nature_center",
+        "attraction",
+        "retail",
+        "restaurant",
+        "camping",
+        "accommodation",
+        "parking",
+        "fuel",
+        "charging",
+        "place",
+    }
+)
 _FORBIDDEN_KEYS = frozenset(
     {
         "lat",
@@ -68,6 +86,12 @@ _CLEANUP_SCHEMA: dict[str, Any] = {
                             "country_code": {"type": ["string", "null"]},
                         },
                     },
+                    "place_kind": {"type": ["string", "null"]},
+                    "search_terms": {
+                        "type": "array",
+                        "maxItems": 3,
+                        "items": {"type": "string"},
+                    },
                     "confidence": {"type": ["number", "null"]},
                     "reason": {"type": ["string", "null"]},
                 },
@@ -84,6 +108,8 @@ Regeln:
 - Erfinde keine Koordinaten und gib niemals latitude, longitude, GPS, location oder coordinates aus.
 - Verwende ausschließlich Informationen aus dem gelieferten Stopptext. Keine Websuche und kein externes Wissen.
 - Korrigiere nur offensichtliche Schreibweisen, trenne Straße/Hausnummer/PLZ/Ort/Ortsteil/Bundesland/Land und vereinheitliche Ländernamen.
+- Ordne den Stopp optional genau einem place_kind zu: address, ferry_terminal, transport_terminal, hike, nature_center, attraction, retail, restaurant, camping, accommodation, parking, fuel, charging oder place.
+- search_terms dürfen höchstens drei kurze, aus dem Eingabetext ableitbare Provider-Suchbegriffe enthalten, zum Beispiel eine englische Kategorienübersetzung. Keine konkrete Filiale oder Adresse erfinden.
 - Bei Unsicherheit lasse Felder leer oder unverändert. Ein Marken- oder POI-Name darf nicht in eine konkrete Filiale umgedeutet werden.
 - stop_id muss exakt aus der Eingabe übernommen werden.
 - Antworte ausschließlich im vorgegebenen JSON-Schema.
@@ -231,12 +257,29 @@ class PlaceCleanupService:
                 if cleaned:
                     address[key] = cleaned
             name = _text(raw.get("name"))
+            place_kind = _text(raw.get("place_kind"), 100).casefold()
+            if place_kind not in _ALLOWED_PLACE_KINDS:
+                place_kind = ""
+            search_terms: list[str] = []
+            seen_terms: set[str] = set()
+            for term in raw.get("search_terms", []) if isinstance(raw.get("search_terms"), list) else []:
+                cleaned_term = _text(term, 120)
+                key = cleaned_term.casefold()
+                if cleaned_term and key not in seen_terms:
+                    seen_terms.add(key)
+                    search_terms.append(cleaned_term)
+                if len(search_terms) >= 3:
+                    break
             changed_fields: list[str] = []
             if name and name.casefold() != source.get("name", "").casefold():
                 changed_fields.append("name")
             for key, cleaned in address.items():
                 if cleaned.casefold() != source.get(key, "").casefold():
                     changed_fields.append(key)
+            if place_kind:
+                changed_fields.append("place_kind")
+            if search_terms:
+                changed_fields.append("search_terms")
             if not changed_fields:
                 continue
             confidence_raw = raw.get("confidence")
@@ -249,6 +292,8 @@ class PlaceCleanupService:
                 "stop_id": stop_id,
                 "name": name or source.get("name", ""),
                 "address": deepcopy(address),
+                "place_kind": place_kind or None,
+                "search_terms": search_terms,
                 "confidence": round(confidence, 3),
                 "reason": _text(raw.get("reason"), 1_000),
                 "changed_fields": changed_fields,

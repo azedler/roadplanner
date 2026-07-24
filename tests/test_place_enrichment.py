@@ -236,8 +236,16 @@ class FakeCleanup:
                     "name": "Tallinn Fährterminal",
                     "address": {"city": "Tallinn", "country_code": "EE"},
                     "confidence": 0.93,
-                    "reason": "Schreibweise vereinheitlicht.",
-                    "changed_fields": ["name", "city", "country_code"],
+                    "reason": "Schreibweise und Zieltyp vereinheitlicht.",
+                    "place_kind": "ferry_terminal",
+                    "search_terms": ["ferry terminal"],
+                    "changed_fields": [
+                        "name",
+                        "city",
+                        "country_code",
+                        "place_kind",
+                        "search_terms",
+                    ],
                     "provider": "gemini",
                     "model": "gemini-test",
                     "coordinate_policy": "not_provided_not_accepted",
@@ -292,6 +300,57 @@ class FakeImages:
         }
 
 
+class TypedFallbackGeocoder:
+    def __init__(self):
+        self.forward_queries = []
+        self.reverse_calls = []
+
+    async def async_reverse(self, latitude, longitude, *, language):
+        self.reverse_calls.append((latitude, longitude, language))
+        return GeocodingCandidate(
+            display_name="Espoo, Uusimaa, Finland",
+            latitude=latitude,
+            longitude=longitude,
+            score=0.98,
+            category="place",
+            result_type="city",
+            address={"city": "Espoo", "country_code": "fi"},
+            namedetails={"name": "Espoo"},
+            resolution_mode="reverse",
+            match_type="locality",
+            match_label="Ort/Ortsteil",
+            auto_selectable=True,
+        )
+
+    async def async_resolve(self, query, *, structured_address=None, language):
+        self.forward_queries.append(query)
+        assert structured_address is None
+        assert language == "de"
+        candidate = GeocodingCandidate(
+            display_name="Finnisches Naturzentrum Haltia, Nuuksio, Espoo, Finland",
+            latitude=60.29371,
+            longitude=24.55704,
+            score=0.94,
+            category="tourism",
+            result_type="information",
+            address={"city": "Espoo", "country_code": "fi"},
+            namedetails={"name": "Finnisches Naturzentrum Haltia"},
+            extratags={"wikidata": "Q11865022"},
+            osm_id=67890,
+            auto_selectable=True,
+        )
+        return candidate, [candidate]
+
+
+class RecordingImages:
+    def __init__(self):
+        self.calls = []
+
+    async def async_search(self, query, *, limit, latitude, longitude):
+        self.calls.append((query, limit, latitude, longitude))
+        return {"results": [], "provider_errors": {}}
+
+
 async def main() -> None:
     service = module.PlaceEnrichmentService(FakeGeocoder(), FakeImages())
     day = {
@@ -318,6 +377,12 @@ async def main() -> None:
     item = preview["items"][0]
     assert item["status"] == "resolved"
     assert item["selected_candidate_id"]
+    assert item["destination_intent"]["kind"] == "ferry_terminal"
+    assert item["destination_intent"]["strategy"] == "typed_poi"
+    assert any(
+        "ferry terminal" in value.casefold()
+        for value in item["query_variants"]
+    )
     candidate = item["candidates"][0]
     assert candidate["name"] == "Tallinn Terminal D"
     assert candidate["address"].startswith("Tallinn Terminal D")
@@ -328,6 +393,14 @@ async def main() -> None:
     assert candidate["opening_hours"] == "24/7"
     assert candidate["map_url"].startswith("https://www.google.com/maps/search/")
     assert candidate["source_url"].startswith("https://www.openstreetmap.org/")
+    assert candidate["provider_id"] == "node/12345"
+    assert candidate["wikidata"] == "Q123"
+    assert candidate["destination_intent"]["kind"] == "ferry_terminal"
+    assert "Tallink-Abfahrt" not in candidate["image_query"]
+    assert "Tallinn und Fähre" not in candidate["image_query"]
+    assert "Fährterminal" in candidate["image_query"]
+    assert "amenity" not in candidate["image_query"]
+    assert len(candidate["image_query"]) <= 180
     assert candidate["confidence"] >= 90
     assert len(candidate["images"]) == 2
 
@@ -418,6 +491,51 @@ async def main() -> None:
     else:
         raise AssertionError("Out-of-range manual coordinates must be rejected")
 
+    fallback_geocoder = TypedFallbackGeocoder()
+    fallback_images = RecordingImages()
+    fallback_service = module.PlaceEnrichmentService(
+        fallback_geocoder,
+        fallback_images,
+    )
+    fallback_preview = await fallback_service.async_prepare(
+        user_id="user-1",
+        trip_id="trip-1",
+        days=[
+            {
+                "id": "day-haltia",
+                "date": "2026-07-25",
+                "title": "Nuuksio",
+                "stops": [
+                    {
+                        "id": "stop-haltia",
+                        "name": "Finnisches Naturzentrum Haltia",
+                        "type": "restaurant",
+                        "position": 2,
+                        "location": {
+                            "city": "Espoo",
+                            "country_code": "FI",
+                            "latitude": 60.29371,
+                            "longitude": 24.55704,
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+    fallback_item = fallback_preview["items"][0]
+    assert fallback_item["destination_intent"]["kind"] == "nature_center"
+    assert fallback_item["status"] == "resolved"
+    assert fallback_item["selected_candidate_id"]
+    assert fallback_geocoder.reverse_calls == [(60.29371, 24.55704, "de")]
+    assert fallback_geocoder.forward_queries
+    assert any(
+        "nature center" in query.casefold()
+        or "naturzentrum" in query.casefold()
+        for query in fallback_geocoder.forward_queries
+    )
+    assert fallback_item["candidates"][0]["name"] == "Finnisches Naturzentrum Haltia"
+    assert fallback_images.calls[0][2:] == (60.29371, 24.55704)
+
     cleanup_service = module.PlaceEnrichmentService(
         FakeGeocoder(),
         FakeImages(),
@@ -431,6 +549,8 @@ async def main() -> None:
     )
     cleanup_item = cleanup_preview["items"][0]
     assert cleanup_item["ai_cleanup"]["name"] == "Tallinn Fährterminal"
+    assert cleanup_item["ai_cleanup"]["place_kind"] == "ferry_terminal"
+    assert cleanup_item["ai_cleanup"]["search_terms"] == ["ferry terminal"]
     cleanup_candidate = cleanup_item["candidates"][0]
 
     operations_without_rename, _ = await cleanup_service.resolve_selections(

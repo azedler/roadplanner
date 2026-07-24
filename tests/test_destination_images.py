@@ -199,5 +199,32 @@ async def test_fail_open() -> None:
     assert "wikimedia_commons" in result["provider_errors"]
 
 
+async def test_overlong_internal_query_is_bounded() -> None:
+    provider = module.DestinationImageProvider(HomeAssistant())
+    observed: list[str] = []
+
+    async def capture_commons(query, *, latitude, longitude, limit):
+        assert latitude is None
+        assert longitude is None
+        assert limit >= 8
+        observed.append(query)
+        return []
+
+    async def capture_openverse(query, *, limit):
+        assert limit >= 8
+        observed.append(query)
+        return []
+
+    provider._search_commons = capture_commons
+    provider._search_openverse = capture_openverse
+    result = await provider.async_search(("Tallinn Terminal D " * 80).strip(), limit=3)
+    assert observed
+    assert len(set(observed)) == 1
+    assert all(len(value) <= module._MAX_QUERY_LENGTH for value in observed)
+    assert len(result["query"]) <= module._MAX_QUERY_LENGTH
+    assert result["query"].endswith("D")
+
+
 asyncio.run(test_fail_open())
+asyncio.run(test_overlong_internal_query_is_bounded())
 print("Destination image provider tests passed.")

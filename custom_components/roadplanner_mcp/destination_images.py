@@ -63,6 +63,17 @@ def _plain_text(value: Any, *, max_length: int = 500) -> str:
     return text
 
 
+def _bounded_query(value: str, maximum: int = _MAX_QUERY_LENGTH) -> str:
+    """Normalize and safely shorten an internal provider query at a word edge."""
+    text = _SPACE_PATTERN.sub(" ", str(value or "")).strip()
+    if len(text) <= maximum:
+        return text
+    shortened = text[: maximum + 1]
+    if " " in shortened:
+        shortened = shortened.rsplit(" ", 1)[0]
+    return shortened.rstrip(" ,;:-")[:maximum]
+
+
 def _https_url(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -517,13 +528,9 @@ class DestinationImageProvider:
         """Search Wikimedia Commons and Openverse with fail-open semantics."""
         if not isinstance(query, str):
             raise ValidationError("Bildsuche benötigt einen Suchtext")
-        query = _SPACE_PATTERN.sub(" ", query).strip()
+        query = _bounded_query(query)
         if not query:
             raise ValidationError("Bildsuche benötigt einen Suchtext")
-        if len(query) > _MAX_QUERY_LENGTH:
-            raise ValidationError(
-                f"Der Suchtext darf maximal {_MAX_QUERY_LENGTH} Zeichen enthalten"
-            )
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise ValidationError("'limit' muss eine Ganzzahl sein")
         limit = max(1, min(limit, _MAX_RESULTS))

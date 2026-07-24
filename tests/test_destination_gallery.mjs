@@ -59,4 +59,31 @@ const empty = panel._renderDestinationGalleryStatus({ status: "error", images: [
 assert.match(empty, /Bilder konnten noch nicht geladen werden/);
 assert.match(empty, /Erneut versuchen/);
 
+// A gallery refresh may resolve a stale day reference in the backend. The
+// dialog must continue with the canonical IDs returned by the backend.
+panel._selectedTripId = "trip-1";
+panel._runAction = async (action, payload) => {
+  assert.equal(action, "refresh_destination_gallery");
+  assert.equal(payload.day_id, "stale-day");
+  assert.equal(payload.stop_id, "stop-1");
+  return {
+    gallery: {
+      day_id: "day-current",
+      stop_id: "stop-1",
+      images: gallery.images,
+      primary_image_id: "img-2",
+    },
+  };
+};
+panel._findStop = (dayId, stopId) => {
+  assert.equal(dayId, "day-current");
+  assert.equal(stopId, "stop-1");
+  return { name: "Canonical stop" };
+};
+panel._render = () => {};
+await panel._refreshDestinationGallery("stale-day", "stop-1");
+assert.equal(panel._dialog.dayId, "day-current");
+assert.equal(panel._dialog.stopId, "stop-1");
+assert.equal(panel._dialog.title, "Canonical stop");
+
 console.log("Destination gallery panel tests passed.");

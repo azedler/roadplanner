@@ -12,7 +12,9 @@ for (const required of [
   'data-action="place-enrichment-select"',
   'data-action="place-enrichment-submit"',
   'Ortsprofil vervollständigen',
-  'Einmal vollständig prüfen',
+  'Geodaten zuerst, Bilder danach',
+  'Stopps anreichern',
+  'Zieltyp:',
   'Google Maps',
   'OpenStreetMap',
   'Öffnungszeiten',
@@ -43,6 +45,9 @@ if (!source.includes('Ortsprofile an die Änderungsübersicht übergeben')) {
 }
 if (!source.includes('place_profile?.confirmed_at')) {
   throw new Error("Stop cards do not distinguish reviewed place profiles");
+}
+if (!source.includes('result.gallery.day_id') || !source.includes('resolvedDayId')) {
+  throw new Error("Gallery refresh does not adopt the backend-resolved stop reference");
 }
 
 console.log("Place enrichment UI tests passed.");

@@ -73,6 +73,8 @@ async def main() -> None:
                     "stop_id": "stop-1",
                     "name": "Tallinn",
                     "address": {"city": "Tallinn", "country": "Estland", "country_code": "EE"},
+                    "place_kind": "place",
+                    "search_terms": ["Tallinn city", "Tallinn city", "Estonia capital"],
                     "confidence": 0.96,
                     "reason": "Offensichtliche Schreibweise vereinheitlicht.",
                 }
@@ -86,6 +88,10 @@ async def main() -> None:
     assert suggestion["name"] == "Tallinn"
     assert suggestion["address"]["city"] == "Tallinn"
     assert suggestion["address"]["country_code"] == "EE"
+    assert suggestion["place_kind"] == "place"
+    assert suggestion["search_terms"] == ["Tallinn city", "Estonia capital"]
+    assert "place_kind" in suggestion["changed_fields"]
+    assert "search_terms" in suggestion["changed_fields"]
     assert "name" in suggestion["changed_fields"]
     assert suggestion["coordinate_policy"] == "not_provided_not_accepted"
 

@@ -52,7 +52,26 @@ _GENERIC_QUERY_TOKENS = frozenset(
         "carpark",
         "fahre",
         "faehre",
+        "fahrterminal",
+        "faehrterminal",
         "ferry",
+        "terminal",
+        "passenger",
+        "port",
+        "hiking",
+        "trail",
+        "wanderung",
+        "wanderroute",
+        "naturzentrum",
+        "naturzentrum",
+        "visitor",
+        "center",
+        "centre",
+        "tourist",
+        "attraction",
+        "shopping",
+        "shop",
+        "store",
         "hotel",
         "ladepunkt",
         "laden",
@@ -87,6 +106,13 @@ _COUNTRY_QUERY_TOKENS = frozenset(
 )
 
 _PROVIDER_WORD_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?iu)\bf(?:ä|ae)hrterminal\b"), "ferry terminal"),
+    (re.compile(r"(?iu)\bf(?:ä|ae)hrhafen\b"), "ferry port"),
+    (re.compile(r"(?iu)\bnaturzentrum\b"), "nature center"),
+    (re.compile(r"(?iu)\bbesucherzentrum\b"), "visitor center"),
+    (re.compile(r"(?iu)\bwanderrunde\b"), "hiking trail"),
+    (re.compile(r"(?iu)\bwander(?:ung|route)\b"), "hiking trail"),
+    (re.compile(r"(?iu)\bsehensw(?:ü|ue)rdigkeit\b"), "tourist attraction"),
     (re.compile(r"(?iu)\bparkpl(?:a|ä)tz(?:e)?\b"), "parking"),
     (re.compile(r"(?iu)\bwohnmobilstellplatz\b"), "motorhome parking"),
     (re.compile(r"(?iu)\bstellplatz\b"), "motorhome parking"),
@@ -119,7 +145,24 @@ _CATEGORY_QUERY_TOKENS: dict[str, frozenset[str]] = {
     ),
     "camping": frozenset({"camp", "camping", "campingplatz", "caravan"}),
     "restaurant": frozenset({"restaurant"}),
-    "ferry": frozenset({"fahre", "faehre", "ferry"}),
+    "ferry": frozenset(
+        {"fahre", "faehre", "fahrterminal", "faehrterminal", "ferry", "passenger"}
+    ),
+    "transport": frozenset(
+        {"airport", "bahnhof", "busbahnhof", "station", "terminal"}
+    ),
+    "hiking": frozenset(
+        {"hike", "hiking", "kierros", "rundweg", "trail", "wanderroute", "wanderung"}
+    ),
+    "nature_center": frozenset(
+        {"besucherzentrum", "luontokeskus", "naturzentrum", "naturzentrum", "visitor"}
+    ),
+    "attraction": frozenset(
+        {"attraction", "museum", "sehenswuerdigkeit", "sehenswurdigkeit", "viewpoint"}
+    ),
+    "retail": frozenset(
+        {"einkauf", "mall", "shop", "shopping", "store", "supermarket", "supermarkt"}
+    ),
     "fuel": frozenset({"fuel", "tankstelle"}),
     "charging": frozenset({"charging", "ladepunkt"}),
     "accommodation": frozenset(
@@ -137,7 +180,22 @@ _CATEGORY_RESULT_TOKENS: dict[str, frozenset[str]] = {
     ),
     "camping": frozenset({"camp_site", "camping", "caravan_site"}),
     "restaurant": frozenset({"restaurant"}),
-    "ferry": frozenset({"ferry", "ferry_terminal", "terminal"}),
+    "ferry": frozenset({"ferry", "ferry_terminal", "harbour", "port", "terminal"}),
+    "transport": frozenset(
+        {"aerodrome", "airport", "bus_station", "railway", "station", "terminal"}
+    ),
+    "hiking": frozenset(
+        {"footway", "hiking", "nature_reserve", "path", "route", "trail", "walking"}
+    ),
+    "nature_center": frozenset(
+        {"education", "information", "museum", "nature_reserve", "visitor_centre", "visitor_center"}
+    ),
+    "attraction": frozenset(
+        {"archaeological_site", "attraction", "castle", "historic", "memorial", "monument", "museum", "tourism", "viewpoint"}
+    ),
+    "retail": frozenset(
+        {"department_store", "mall", "shop", "sports", "store", "supermarket"}
+    ),
     "fuel": frozenset({"fuel"}),
     "charging": frozenset({"charging_station"}),
     "accommodation": frozenset(
@@ -168,6 +226,9 @@ _MAX_REVERSE_DISTANCE_METERS = 5_000.0
 _MAX_SEARCH_VARIANTS = 3
 _POSTAL_CODE_RE = re.compile(
     r"(?iu)(?<![\w-])(?:[A-Z]{1,2}[-\s]?)?(?P<postal>\d{4,6})(?![\w-])"
+)
+_POSTAL_LOCALITY_RE = re.compile(
+    r"(?iu)^\s*(?:[A-Z]{1,2}[-\s]?)?(?P<postal>\d{4,6})\s+(?P<locality>.+?)\s*$"
 )
 _STREET_HOUSE_RE = re.compile(
     r"(?iu)^(?P<street>.+?)[\s,]+(?P<number>\d{1,5}[A-Z]?(?:\s*[-/]\s*\d{1,5}[A-Z]?)?)$"
@@ -288,6 +349,15 @@ def _provider_query(query: str) -> str:
     result = " ".join(str(query or "").split())
     for pattern, replacement in _PROVIDER_WORD_REPLACEMENTS:
         result = pattern.sub(replacement, result)
+    # A translated category suffix often followed a hyphen in imported stop
+    # names (for example "Haukkankierros-Wanderung"). Providers understand a
+    # normal token boundary more reliably than the retained punctuation.
+    result = re.sub(
+        r"\s*[-–—]\s*(?=(?:hiking trail|tourist attraction|nature center|visitor center)\b)",
+        " ",
+        result,
+        flags=re.IGNORECASE,
+    )
     return " ".join(result.split())
 
 
@@ -620,23 +690,53 @@ def parse_structured_address(
         code = ""
 
     source_values: list[str] = []
-    for raw in (address, query, label):
+    address_like_values: list[str] = []
+    for source_name, raw in (("address", address), ("query", query), ("label", label)):
         value = str(raw or "").strip()
-        if value and value.casefold() not in {item.casefold() for item in source_values}:
-            source_values.append(value)
-    raw_text = "\n".join(source_values)[:3_000]
-
-    line_groups: list[list[str]] = []
-    parts: list[str] = []
-    for raw_line in _ADDRESS_LINE_SPLIT_RE.split(raw_text):
-        clean_line = _component(raw_line, 1_000)
-        if not clean_line:
+        if not value:
             continue
-        group = [_component(item) for item in clean_line.split(",")]
-        group = [item for item in group if item]
-        if group:
-            line_groups.append(group)
-            parts.extend(group)
+        if value.casefold() not in {item.casefold() for item in source_values}:
+            source_values.append(value)
+        # A single free-text POI name such as "Fährterminal Tallinn" is not a
+        # city. Explicit address/label fields always participate. A generic
+        # aggregate query participates only when it contains real address
+        # evidence (postal code, labelled district, or a street/house fragment),
+        # not merely because UI fields were joined with commas.
+        query_parts = [
+            _component(item, 1_000)
+            for item in re.split(r"[,;\r\n]+", value)
+            if _component(item, 1_000)
+        ]
+        query_is_address_like = bool(
+            _POSTAL_CODE_RE.search(value)
+            or _DISTRICT_LABEL_RE.search(value)
+            or any(_STREET_HOUSE_RE.fullmatch(item) for item in query_parts)
+        )
+        if source_name in {"address", "label"} or query_is_address_like:
+            if value.casefold() not in {
+                item.casefold() for item in address_like_values
+            }:
+                address_like_values.append(value)
+    raw_text = "\n".join(source_values)[:3_000]
+    address_like_text = "\n".join(address_like_values)[:3_000]
+    name_value = _component(name, 500)
+
+    def split_groups(value: str) -> tuple[list[list[str]], list[str]]:
+        groups: list[list[str]] = []
+        values: list[str] = []
+        for raw_line in _ADDRESS_LINE_SPLIT_RE.split(value):
+            clean_line = _component(raw_line, 1_000)
+            if not clean_line:
+                continue
+            group = [_component(item) for item in clean_line.split(",")]
+            group = [item for item in group if item]
+            if group:
+                groups.append(group)
+                values.extend(group)
+        return groups, values
+
+    line_groups, parts = split_groups(raw_text)
+    address_line_groups, address_parts = split_groups(address_like_text)
 
     postal_code = ""
     for value in [raw_text, *parts]:
@@ -674,15 +774,36 @@ def parse_structured_address(
     if not explicit_district and district_match:
         explicit_district = _component(district_match.group("district"))
 
+    # Postal fragments such as "01844 Neustadt in Sachsen" are much stronger
+    # locality evidence than a trailing category or labelled district. Keep the
+    # postal code separate and use only the remaining text as the city.
+    if not explicit_city:
+        for value in address_parts:
+            match = _POSTAL_LOCALITY_RE.fullmatch(value)
+            if not match:
+                continue
+            locality = _component(match.group("locality"), 500)
+            if not locality:
+                continue
+            if _DISTRICT_LABEL_RE.fullmatch(locality):
+                continue
+            if _component_key(locality) in _STATE_ALIASES:
+                continue
+            if _country_codes_for_query(locality):
+                continue
+            explicit_city = locality
+            break
+
     if not explicit_state:
         for value in reversed(parts):
             if _component_key(value) in _STATE_ALIASES:
                 explicit_state = value
                 break
 
-    # A two-part line below the street commonly contains "district, city".
+    # A two-part address line commonly contains "district, city".  Free-text
+    # POI names are deliberately excluded from this inference.
     if not explicit_city or not explicit_district:
-        for group in line_groups:
+        for group in address_line_groups:
             if len(group) < 2:
                 continue
             first, second = group[0], group[1]
@@ -704,9 +825,12 @@ def parse_structured_address(
     street = ""
     house_number = ""
     street_source = ""
-    for group in line_groups:
-        joined = " ".join(group)
-        match = _STREET_HOUSE_RE.fullmatch(joined)
+    street_candidates = [name_value, *address_parts]
+    for group in address_line_groups:
+        if len(group) == 1:
+            street_candidates.append(group[0])
+    for raw_candidate in street_candidates:
+        match = _STREET_HOUSE_RE.fullmatch(_component(raw_candidate, 1_000))
         if not match:
             continue
         candidate_number = _component(match.group("number"), 30)
@@ -743,13 +867,15 @@ def parse_structured_address(
                     break
         street = _component(street, 500)
 
-    # If only one plausible locality remains, use it as the city. Values that
-    # are clearly country, state, postal code, or the street line are skipped.
+    # If only one plausible address locality remains, use it as the city.
+    # Never reinterpret a standalone POI name as a locality.
     if not explicit_city:
-        for value in parts:
+        for value in address_parts:
             if not value or value in {street_source, street, explicit_state, explicit_country}:
                 continue
             if postal_code and postal_code in value:
+                continue
+            if _DISTRICT_LABEL_RE.search(value):
                 continue
             if _country_codes_for_query(value):
                 continue
