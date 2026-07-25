@@ -473,7 +473,7 @@ def _intent_from_payload(value: Any) -> DestinationIntent:
     source_hints = tuple(
         {
             key: _text(item.get(key), 1_000)
-            for key in ("kind", "identifier", "url", "label")
+            for key in ("provider", "id", "url", "label")
             if _text(item.get(key), 1_000)
         }
         for item in payload.get("source_hints") or []

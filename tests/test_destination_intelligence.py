@@ -107,6 +107,49 @@ assert park4night.source_hints == (
     },
 )
 
+# Common user spellings of a Park4Night place ID must become the same source
+# hint even without a full URL.
+for spelled_id in (
+    "P4N 448383",
+    "p4n#448383",
+    "P4N-448383",
+    "Park4Night 448383",
+    "Park4Night: 448383",
+    "Park4Night-ID 448383",
+    "park 4 night Nr. 448383",
+):
+    spelled = module.analyze_destination(
+        {},
+        {"name": "Stellplatz am See", "notes": spelled_id},
+        structured_address=StructuredAddress(),
+    )
+    assert spelled.kind == "camping", spelled_id
+    assert spelled.strategy == "source_hint_then_typed_poi", spelled_id
+    assert {
+        (hint["provider"], hint.get("id")) for hint in spelled.source_hints
+    } == {("park4night", "448383")}, spelled_id
+
+# A Park4Night ID inside the stop name is recognized, removed from the
+# resolved destination name and kept out of every provider query.
+named_id = module.analyze_destination(
+    {},
+    {"name": "Stellplatz am See (Park4Night 448383)", "type": "wildcamp"},
+    structured_address=StructuredAddress(),
+)
+assert named_id.name == "Stellplatz am See"
+assert named_id.source_hints[0]["id"] == "448383"
+assert all("448383" not in value for value in named_id.query_variants)
+
+# The deterministic Park4Night identity outranks an AI text classification.
+p4n_vs_ai = module.analyze_destination(
+    {},
+    {"name": "Stellplatz am See", "notes": "p4n 448383"},
+    structured_address=StructuredAddress(),
+    cleanup_suggestion={"place_kind": "restaurant"},
+)
+assert p4n_vs_ai.kind == "camping"
+assert p4n_vs_ai.reason == "park4night_link"
+
 # Provider hosts must match the exact domain or a real subdomain. A malicious
 # suffix must remain a generic link and must not be trusted as OSM/Google.
 malicious = module.analyze_destination(
