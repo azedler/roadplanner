@@ -18,8 +18,13 @@ _MAX_GEOCODING_QUERY_LENGTH = 240
 _MAX_IMAGE_QUERY_LENGTH = 180
 _MAX_QUERY_VARIANTS = 3
 _URL_RE = re.compile(r"https://[^\s<>\]\[\)\(\"']+", re.IGNORECASE)
+# Users write Park4Night place IDs in many shapes: "p4n 448383", "P4N-448383",
+# "Park4Night: 448383" or "Park4Night-ID 448383".  All of them must become the
+# same reviewable source hint.
 _PARK4NIGHT_ID_RE = re.compile(
-    r"(?iu)(?:\(\s*)?p4n\s*(?:#|:|nr\.?\s*)?\s*(?P<id>\d{3,12})(?:\s*\))?"
+    r"(?iu)(?:\(\s*)?(?:p4n|park\s*4\s*night)"
+    r"[\s#:.\-–—]*(?:id|nr\.?|platz)?"
+    r"[\s#:.\-–—]*(?P<id>\d{3,12})(?:\s*\))?"
 )
 _GOOGLE_MAPS_HOST_RE = re.compile(
     r"(?i)^(?:(?:www|maps)\.)?google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$"
@@ -172,6 +177,7 @@ _KIND_ALIASES = {
         "wohnmobilstellplatz",
         "motorhome parking",
         "park4night",
+        "p4n",
     ),
     "accommodation": (
         "übernachtung",
@@ -401,10 +407,13 @@ def _classify(
 ) -> tuple[str, float, str]:
     if _attribute(structured, "street") or _attribute(structured, "house_number"):
         return "address", 0.99, "structured_address"
-    if ai_kind in _ALLOWED_AI_KINDS:
-        return ai_kind, 0.9, "ai_text_classification"
+    # A Park4Night place ID is a deterministic provider identity and always
+    # refers to an overnight or motorhome spot, so it outranks the AI text
+    # classification of the same stop.
     if any(hint.get("provider") == "park4night" for hint in source_hints):
         return "camping", 0.96, "park4night_link"
+    if ai_kind in _ALLOWED_AI_KINDS:
+        return ai_kind, 0.9, "ai_text_classification"
 
     # Imported stop categories are useful hints, but the destination name is
     # often more specific and may correct a broad or wrong legacy category

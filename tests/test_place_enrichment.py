@@ -719,4 +719,34 @@ async def main() -> None:
 
 
 asyncio.run(main())
+
+# Rebuilding a destination intent from its stored preview payload must keep
+# the provider identity of source hints (e.g. a Park4Night place ID) so the
+# durable place profile and its labeled source links survive confirmation.
+rebuilt_intent = module._intent_from_payload(
+    {
+        "kind": "camping",
+        "label": "Camping- oder Übernachtungsplatz",
+        "strategy": "source_hint_then_typed_poi",
+        "confidence": 0.96,
+        "reason": "park4night_link",
+        "name": "Stellplatz am See",
+        "query_variants": ["Stellplatz am See"],
+        "source_hints": [
+            {
+                "provider": "park4night",
+                "id": "448383",
+                "url": "https://park4night.com/lieu/448383/",
+            }
+        ],
+    }
+)
+assert rebuilt_intent.source_hints == (
+    {
+        "provider": "park4night",
+        "id": "448383",
+        "url": "https://park4night.com/lieu/448383/",
+    },
+)
+
 print("Place enrichment tests passed.")
