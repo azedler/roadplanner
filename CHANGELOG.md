@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-07-26
+
 ### Added
 
 - Universal Import now recognizes Park4Night-style overnight-stay screenshots: visible GPS coordinates are carried into the existing GPS-Prüfung as a reverse-geocoding query (never trusted directly), and visible name/amenities/portal ID are copied into the stop notes for the existing Park4Night source-hint recognition.
