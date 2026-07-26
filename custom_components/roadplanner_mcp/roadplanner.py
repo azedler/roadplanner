@@ -14,26 +14,21 @@ left untouched.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from dataclasses import dataclass, field
+from datetime import date
 import json
 import logging
-from pathlib import Path, PurePosixPath
-import re
-import shutil
+from pathlib import Path
 from typing import Any
-import uuid
 
 from .bounded_json import _bounded_json_value
 from .identifiers import _ID_PATTERN, _new_id, _stable_id, validate_identifier
 from .json_io import (
-    ConcurrentModificationError,
     RevisionConflictError,
     RoadplannerError,
     StorageError,
     TripNotFoundError,
     ValidationError,
-    _fsync_dir,
     _json_bytes,
     _read_json,
     _write_json_atomic,
@@ -44,7 +39,6 @@ from .json_tree_validation import _validate_json_tree
 from .routing_helpers import (
     _ROUTING_DETAIL_KEY,
     _effective_routing_stops,
-    _reconcile_routing_after_change,
     _routing_leg_mode,
     _routing_summary,
     _stop_coordinate,
@@ -56,18 +50,14 @@ from .trip_documents import (
     HANDOFF_CONTEXT_SCHEMA_VERSION,
     MAX_DAYS,
     MAX_STOPS_PER_DAY,
-    POINTER_SCHEMA_VERSION,
-    TRIP_SCHEMA_VERSION,
-    _ensure_non_negative_int,
     _ensure_optional_date,
-    _ensure_string,
-    _safe_day_file,
     _without_audit_fields,
     normalize_day_document,
     normalize_stop,
     normalize_trip_document,
 )
 from .trip_projections import _compact_day, _compact_stop, _compact_trip, _first_trip_media
+from .trip_repository import TripRepository
 from .trip_state import TripState
 
 MAX_SUMMARY_DAYS = 60
@@ -84,315 +74,45 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class RoadplannerStore:
-    """Synchronous repository for split Roadplanner JSON documents."""
+    """Facade composing the trip repository with queries/mutations/changesets/context export."""
 
     roadbook_dir: Path
     backup_dir: Path
     handoff_dir: Path
     backup_count: int = 20
+    _repository: TripRepository = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self._repository = TripRepository(
+            roadbook_dir=self.roadbook_dir,
+            backup_dir=self.backup_dir,
+            handoff_dir=self.handoff_dir,
+            backup_count=self.backup_count,
+        )
 
     @property
     def pointer_path(self) -> Path:
-        return self.roadbook_dir / "active_trip.json"
+        return self._repository.pointer_path
 
     @property
     def trips_dir(self) -> Path:
-        return self.roadbook_dir / "trips"
+        return self._repository.trips_dir
 
     def initialize(self, *, create_if_missing: bool = True) -> dict[str, Any]:
         """Initialize canonical split files without changing the active pointer."""
-        self.roadbook_dir.mkdir(parents=True, exist_ok=True)
-        self.trips_dir.mkdir(parents=True, exist_ok=True)
-        self.backup_dir.mkdir(parents=True, exist_ok=True)
-        self.handoff_dir.mkdir(parents=True, exist_ok=True)
-
-        if not self.pointer_path.exists():
-            if not create_if_missing:
-                raise TripNotFoundError(
-                    f"Bereits initialisierter Roadplanner-Zeiger fehlt: {self.pointer_path}"
-                )
-            now = utc_now_iso()
-            _write_json_atomic(
-                self.pointer_path,
-                {
-                    "schema_version": POINTER_SCHEMA_VERSION,
-                    "active_trip": "new-trip",
-                    "last_opened": now,
-                },
-            )
-
-        pointer = self._load_pointer()
-        trip_id = pointer["active_trip"]
-        trip_dir = self._trip_dir(trip_id)
-        days_dir = trip_dir / "days"
-        trip_dir.mkdir(parents=True, exist_ok=True)
-        days_dir.mkdir(parents=True, exist_ok=True)
-        self._recover_transaction(trip_id)
-
-        trip_path = trip_dir / "trip.json"
-        if not trip_path.exists():
-            now = utc_now_iso()
-            day_documents: dict[str, dict[str, Any]] = {}
-            refs: list[dict[str, str]] = []
-            for path in sorted(days_dir.glob("*.json")):
-                fallback_id = validate_identifier(path.stem, "day filename")
-                document = normalize_day_document(
-                    _read_json(path),
-                    fallback_id=fallback_id,
-                    fallback_timestamp=now,
-                )
-                day_id = document["day"]["id"]
-                if day_id in day_documents:
-                    raise ValidationError(f"Doppelte Tages-ID beim Import: {day_id}")
-                day_documents[day_id] = document
-                refs.append({"id": day_id, "file": f"days/{path.name}"})
-            refs.sort(
-                key=lambda ref: (
-                    day_documents[ref["id"]]["day"].get("date") or "9999-12-31",
-                    ref["file"],
-                )
-            )
-            trip_document = self._default_trip_document(trip_id, refs, now)
-            state = TripState(pointer, trip_document, day_documents, [])
-            state.trip_document["metadata"]["content_hash"] = state.content_hash()
-            if any(days_dir.glob("*.json")):
-                self._create_snapshot(trip_id, "initial-migration")
-            _write_json_atomic(trip_path, state.trip_document)
-
-        raw_trip = _read_json(trip_path)
-        raw_trip_schema = raw_trip.get("schema_version", 1)
-        legacy_trip_layout = (
-            not isinstance(raw_trip.get("trip"), dict)
-            or not isinstance(raw_trip_schema, int)
-            or isinstance(raw_trip_schema, bool)
-            or raw_trip_schema < TRIP_SCHEMA_VERSION
+        final_state = self._repository.initialize_documents(
+            create_if_missing=create_if_missing
         )
-        state = self._load_state(trip_id=trip_id, validate_hash=False)
-        if legacy_trip_layout and state.unmanaged_day_files:
-            self._index_legacy_unmanaged_days(state)
-        normalized_hash = state.content_hash()
-        stored_hash = state.trip_document["metadata"].get("content_hash")
-        needs_migration = (
-            raw_trip != state.trip_document
-            or stored_hash != normalized_hash
-            or any(
-                _read_json(self._day_path(trip_id, ref["file"]))
-                != state.day_documents[ref["id"]]
-                for ref in state.trip_document["days"]
-            )
-        )
-        if needs_migration:
-            snapshot = self._create_snapshot(trip_id, "schema-migration")
-            previous_revision = state.revision
-            now = utc_now_iso()
-            state.trip_document["metadata"].update(
-                {
-                    "revision": max(previous_revision, 0) + 1,
-                    "updated_at": now,
-                    "updated_by": "migration",
-                    "last_operation": "schema_migration",
-                }
-            )
-            state.trip_document["metadata"]["content_hash"] = state.content_hash()
-            self._write_state_transaction(
-                state,
-                snapshot=snapshot,
-                operation="schema_migration",
-                removed_files=[],
-            )
-        else:
-            self._assert_content_hash(state)
-
-        final_state = self._load_state(trip_id=trip_id, validate_hash=True)
         self._write_context_best_effort(final_state)
         return final_state.coordinator_payload()
 
-    def _index_legacy_unmanaged_days(self, state: TripState) -> None:
-        """Index legacy day files that were not referenced by an old trip file."""
-        existing_day_ids = set(state.day_documents)
-        existing_stop_ids = {
-            stop["id"]
-            for document in state.day_documents.values()
-            for stop in document["stops"]
-        }
-        discovered: list[tuple[str, dict[str, Any]]] = []
-        for relative_file in state.unmanaged_day_files:
-            path = self._day_path(state.trip_id, relative_file)
-            fallback_id = validate_identifier(path.stem, "day filename")
-            document = normalize_day_document(
-                _read_json(path),
-                fallback_id=fallback_id,
-                fallback_timestamp=state.trip_document["metadata"]["created_at"],
-            )
-            day_id = document["day"]["id"]
-            if day_id in existing_day_ids:
-                raise ValidationError(
-                    f"Doppelte Tages-ID beim Legacy-Import: {day_id}"
-                )
-            for stop in document["stops"]:
-                if stop["id"] in existing_stop_ids:
-                    raise ValidationError(
-                        f"Doppelte Stopp-ID beim Legacy-Import: {stop['id']}"
-                    )
-                existing_stop_ids.add(stop["id"])
-            existing_day_ids.add(day_id)
-            discovered.append((relative_file, document))
-
-        discovered.sort(
-            key=lambda item: (
-                item[1]["day"].get("date") or "9999-12-31",
-                item[0],
-            )
-        )
-        for relative_file, document in discovered:
-            day_id = document["day"]["id"]
-            state.trip_document["days"].append(
-                {"id": day_id, "file": relative_file}
-            )
-            state.day_documents[day_id] = document
-        state.unmanaged_day_files = []
-
-    def _default_trip_document(
-        self,
-        trip_id: str,
-        refs: list[dict[str, str]],
-        now: str,
-    ) -> dict[str, Any]:
-        return {
-            "schema_version": TRIP_SCHEMA_VERSION,
-            "trip": {
-                "id": trip_id,
-                "title": trip_id.replace("-", " ").replace("_", " ").title(),
-                "status": "planning",
-                "start_date": None,
-                "end_date": None,
-                "travelers": [],
-                "vehicle": {},
-                "preferences": {},
-                "notes": "",
-                "details": {},
-            },
-            "days": refs,
-            "metadata": {
-                "revision": 1,
-                "created_at": now,
-                "updated_at": now,
-                "updated_by": "initialization",
-                "last_operation": "initialization",
-            },
-        }
-
-    def _load_pointer(self) -> dict[str, Any]:
-        raw = _read_json(self.pointer_path)
-        raw_schema = raw.get("schema_version", 1)
-        if (
-            isinstance(raw_schema, bool)
-            or not isinstance(raw_schema, int)
-            or raw_schema < 1
-            or raw_schema > POINTER_SCHEMA_VERSION
-        ):
-            raise ValidationError("Nicht unterstützte schema_version im Reisezeiger")
-        active_trip = validate_identifier(raw.get("active_trip"), "active_trip")
-        result = deepcopy(raw)
-        result["schema_version"] = POINTER_SCHEMA_VERSION
-        result["active_trip"] = active_trip
-        if "last_opened" in result:
-            result["last_opened"] = _ensure_string(
-                result["last_opened"],
-                "last_opened",
-                allow_empty=False,
-                max_length=100,
-            )
-        return result
-
-    def _trip_dir(self, trip_id: str) -> Path:
-        validate_identifier(trip_id, "trip_id")
-        return self.trips_dir / trip_id
-
-    def _day_path(self, trip_id: str, relative_file: str) -> Path:
-        safe_file = _safe_day_file(relative_file, "day.file")
-        trip_dir = self._trip_dir(trip_id).resolve(strict=False)
-        path = (trip_dir / PurePosixPath(safe_file)).resolve(strict=False)
-        try:
-            path.relative_to(trip_dir)
-        except ValueError as err:
-            raise ValidationError("Tagespfad verlässt den Reiseordner") from err
-        return path
-
-    def _load_state(
-        self,
-        *,
-        trip_id: str | None = None,
-        validate_hash: bool = True,
-        recover: bool = True,
-    ) -> TripState:
-        pointer = self._load_pointer()
-        selected_trip = trip_id or pointer["active_trip"]
-        selected_trip = validate_identifier(selected_trip, "trip_id")
-        if recover:
-            self._recover_transaction(selected_trip)
-        trip_path = self._trip_dir(selected_trip) / "trip.json"
-        if not trip_path.exists():
-            raise TripNotFoundError(f"trip.json fehlt für Reise '{selected_trip}'")
-        raw_trip = _read_json(trip_path)
-        fallback_timestamp = utc_now_iso()
-        trip_document = normalize_trip_document(
-            raw_trip,
-            expected_trip_id=selected_trip,
-            fallback_timestamp=fallback_timestamp,
-        )
-        day_documents: dict[str, dict[str, Any]] = {}
-        referenced_files: set[str] = set()
-        seen_trip_stop_ids: set[str] = set()
-        for ref in trip_document["days"]:
-            path = self._day_path(selected_trip, ref["file"])
-            if not path.exists():
-                raise TripNotFoundError(
-                    f"Tagesdatei für '{ref['id']}' fehlt: {path}"
-                )
-            document = normalize_day_document(
-                _read_json(path),
-                fallback_id=ref["id"],
-                fallback_timestamp=trip_document["metadata"]["created_at"],
-            )
-            if document["day"]["id"] != ref["id"]:
-                raise ValidationError(
-                    f"Tages-ID in {ref['file']} passt nicht zum Index: "
-                    f"{document['day']['id']} != {ref['id']}"
-                )
-            for stop in document["stops"]:
-                if stop["id"] in seen_trip_stop_ids:
-                    raise ValidationError(
-                        f"Doppelte Stopp-ID in Reise {selected_trip}: {stop['id']}"
-                    )
-                seen_trip_stop_ids.add(stop["id"])
-            day_documents[ref["id"]] = document
-            referenced_files.add(ref["file"])
-
-        days_dir = self._trip_dir(selected_trip) / "days"
-        unmanaged = sorted(
-            f"days/{path.name}"
-            for path in days_dir.glob("*.json")
-            if f"days/{path.name}" not in referenced_files
-        )
-        state = TripState(pointer, trip_document, day_documents, unmanaged)
-        if validate_hash:
-            self._assert_content_hash(state)
-        return state
-
-    def _assert_content_hash(self, state: TripState) -> None:
-        stored = state.trip_document["metadata"].get("content_hash")
-        actual = state.content_hash()
-        if stored != actual:
-            raise ConcurrentModificationError()
-
     def load_trip(self) -> dict[str, Any]:
         """Return the complete active trip without modifying any file."""
-        return self._load_state().combined_export()
+        return self._repository._load_state().combined_export()
 
     def load_coordinator_payload(self) -> dict[str, Any]:
         """Return bounded entity data without side effects."""
-        return self._load_state().coordinator_payload()
+        return self._repository._load_state().coordinator_payload()
 
     def get_trip_summary(
         self,
@@ -400,7 +120,7 @@ class RoadplannerStore:
         trip_id: str | None = None,
         today: date | None = None,
     ) -> dict[str, Any]:
-        state = self._load_state(trip_id=trip_id)
+        state = self._repository._load_state(trip_id=trip_id)
         ordered = state.ordered_days()
         current_date = today or date.today()
         next_day_document = next(
@@ -472,7 +192,7 @@ class RoadplannerStore:
         limit: int = 20,
         include_stops: bool = False,
     ) -> dict[str, Any]:
-        state = self._load_state(trip_id=trip_id)
+        state = self._repository._load_state(trip_id=trip_id)
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValidationError("'offset' muss eine nicht-negative Ganzzahl sein")
         if (
@@ -516,7 +236,7 @@ class RoadplannerStore:
         stop_offset: int = 0,
         stop_limit: int = 50,
     ) -> dict[str, Any]:
-        state = self._load_state(trip_id=trip_id)
+        state = self._repository._load_state(trip_id=trip_id)
         day_id = validate_identifier(day_id, "day_id")
         document = state.day_documents.get(day_id)
         if document is None:
@@ -567,7 +287,7 @@ class RoadplannerStore:
         day_date: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        state = self._load_state(trip_id=trip_id)
+        state = self._repository._load_state(trip_id=trip_id)
         if (
             isinstance(limit, bool)
             or not isinstance(limit, int)
@@ -626,7 +346,7 @@ class RoadplannerStore:
 
     def list_trips(self) -> dict[str, Any]:
         """List all valid trip folders with bounded card metadata."""
-        pointer = self._load_pointer()
+        pointer = self._repository._load_pointer()
         trips: list[dict[str, Any]] = []
         if not self.trips_dir.exists():
             return {"active_trip": pointer["active_trip"], "trips": []}
@@ -637,7 +357,7 @@ class RoadplannerStore:
             if not trip_path.exists():
                 continue
             try:
-                state = self._load_state(
+                state = self._repository._load_state(
                     trip_id=path.name,
                     validate_hash=True,
                 )
@@ -689,13 +409,13 @@ class RoadplannerStore:
         active-trip rule as all other mutations. Reject a non-active trip
         before any external routing requests are started.
         """
-        pointer = self._load_pointer()
+        pointer = self._repository._load_pointer()
         selected_trip_id = trip_id or pointer["active_trip"]
         if selected_trip_id != pointer["active_trip"]:
             raise ValidationError(
                 "Straßenrouten können nur für die aktive Reise berechnet werden"
             )
-        state = self._load_state(trip_id=selected_trip_id)
+        state = self._repository._load_state(trip_id=selected_trip_id)
         requested: set[str] | None = None
         if day_ids is not None:
             requested = {
@@ -801,9 +521,9 @@ class RoadplannerStore:
         """Persist one or more derived routes atomically in one revision."""
         if not isinstance(results, list) or not results:
             raise ValidationError("Es wurden keine Routenberechnungen übergeben")
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         candidate = previous.clone()
         applied: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -877,14 +597,16 @@ class RoadplannerStore:
                     "gap_count": int(normalized_routing.get("gap_count") or 0),
                 }
             )
-        result = self._commit(
+        result, verified_commit = self._repository._commit(
             previous,
             candidate,
             actor=actor,
             operation="calculate_routes",
             removed_files=[],
         )
-        verified = self._load_state()
+        if verified_commit is not None:
+            self._write_context_best_effort(verified_commit)
+        verified = self._repository._load_state()
         result["routing_results"] = applied
         result["route_metrics"] = _trip_route_metrics(verified)
         return result
@@ -896,7 +618,7 @@ class RoadplannerStore:
         expected_active_trip: str | None = None,
     ) -> dict[str, Any]:
         trip_id = validate_identifier(trip_id, "trip_id")
-        pointer = self._load_pointer()
+        pointer = self._repository._load_pointer()
         if (
             expected_active_trip is not None
             and pointer["active_trip"] != expected_active_trip
@@ -905,22 +627,22 @@ class RoadplannerStore:
                 "Die aktive Reise wurde zwischenzeitlich gewechselt: "
                 f"{pointer['active_trip']}"
             )
-        target = self._load_state(trip_id=trip_id, validate_hash=True)
+        target = self._repository._load_state(trip_id=trip_id, validate_hash=True)
         if pointer["active_trip"] == trip_id:
             return {
                 "changed": False,
                 "active_trip": trip_id,
                 "trip": target.coordinator_payload(),
             }
-        snapshot = self._create_snapshot(pointer["active_trip"], "before-trip-switch")
+        snapshot = self._repository._create_snapshot(pointer["active_trip"], "before-trip-switch")
         new_pointer = deepcopy(pointer)
         new_pointer["active_trip"] = trip_id
         new_pointer["last_opened"] = utc_now_iso()
         try:
             _write_json_atomic(self.pointer_path, new_pointer)
-            verified = self._load_state(trip_id=trip_id, validate_hash=True)
+            verified = self._repository._load_state(trip_id=trip_id, validate_hash=True)
         except Exception:
-            self._restore_snapshot(snapshot)
+            self._repository._restore_snapshot(snapshot)
             raise
         self._write_context_best_effort(verified)
         return {
@@ -928,6 +650,26 @@ class RoadplannerStore:
             "active_trip": trip_id,
             "trip": verified.coordinator_payload(),
         }
+
+    def _commit_and_notify(
+        self,
+        previous: TripState,
+        candidate: TripState,
+        *,
+        actor: str,
+        operation: str,
+        removed_files: list[str],
+    ) -> dict[str, Any]:
+        result, verified = self._repository._commit(
+            previous,
+            candidate,
+            actor=actor,
+            operation=operation,
+            removed_files=removed_files,
+        )
+        if verified is not None:
+            self._write_context_best_effort(verified)
+        return result
 
     def update_trip(
         self,
@@ -955,9 +697,9 @@ class RoadplannerStore:
             raise ValidationError(
                 "Nicht erlaubte Reisefelder: " + ", ".join(sorted(unknown))
             )
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         candidate = previous.clone()
         candidate.trip_document["trip"].update(deepcopy(patch))
         candidate.trip_document = normalize_trip_document(
@@ -965,7 +707,7 @@ class RoadplannerStore:
             expected_trip_id=previous.trip_id,
             fallback_timestamp=previous.trip_document["metadata"]["created_at"],
         )
-        return self._commit(
+        return self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -990,9 +732,9 @@ class RoadplannerStore:
         position: int | None = None,
         expected_trip_id: str | None = None,
     ) -> dict[str, Any]:
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         candidate = previous.clone()
         if len(candidate.trip_document["days"]) >= MAX_DAYS:
             raise ValidationError(f"Maximal {MAX_DAYS} Reisetage werden unterstützt")
@@ -1024,9 +766,9 @@ class RoadplannerStore:
         candidate.day_documents[day_id] = document
         ref = {"id": day_id, "file": f"days/{day_id}.json"}
         refs = candidate.trip_document["days"]
-        insert_at = self._insert_index(position, len(refs))
+        insert_at = self._repository._insert_index(position, len(refs))
         refs.insert(insert_at, ref)
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1066,9 +808,9 @@ class RoadplannerStore:
             raise ValidationError(
                 "Nicht erlaubte Tagesfelder: " + ", ".join(sorted(unknown))
             )
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         if day_id not in previous.day_documents:
             raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
         candidate = previous.clone()
@@ -1087,8 +829,8 @@ class RoadplannerStore:
             refs = candidate.trip_document["days"]
             old_index = next(i for i, ref in enumerate(refs) if ref["id"] == day_id)
             ref = refs.pop(old_index)
-            refs.insert(self._insert_index(position, len(refs)), ref)
-        result = self._commit(
+            refs.insert(self._repository._insert_index(position, len(refs)), ref)
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1108,9 +850,9 @@ class RoadplannerStore:
         expected_trip_id: str | None = None,
     ) -> dict[str, Any]:
         day_id = validate_identifier(day_id, "day_id")
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         document = previous.day_documents.get(day_id)
         if document is None:
             raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
@@ -1126,7 +868,7 @@ class RoadplannerStore:
             item for item in candidate.trip_document["days"] if item["id"] != day_id
         ]
         removed = candidate.day_documents.pop(day_id)
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1154,9 +896,9 @@ class RoadplannerStore:
         expected_trip_id: str | None = None,
     ) -> dict[str, Any]:
         day_id = validate_identifier(day_id, "day_id")
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         document = previous.day_documents.get(day_id)
         if document is None:
             raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
@@ -1184,11 +926,11 @@ class RoadplannerStore:
             index=len(target["stops"]),
             fallback_timestamp=now,
         )
-        insert_at = self._insert_index(position, len(target["stops"]))
+        insert_at = self._repository._insert_index(position, len(target["stops"]))
         target["stops"].insert(insert_at, stop)
         reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = now
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1229,9 +971,9 @@ class RoadplannerStore:
             raise ValidationError(
                 "Nicht erlaubte Stoppfelder: " + ", ".join(sorted(unknown))
             )
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         document = previous.day_documents.get(day_id)
         if document is None:
             raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
@@ -1259,14 +1001,14 @@ class RoadplannerStore:
         if position is not None:
             moved = target["stops"].pop(old_index)
             target["stops"].insert(
-                self._insert_index(position, len(target["stops"])),
+                self._repository._insert_index(position, len(target["stops"])),
                 moved,
             )
         # Every stop mutation leaves a complete explicit sequence behind.
         reindex_explicit_positions(target["stops"])
         if changed_fields or position is not None:
             target["day"]["updated_at"] = utc_now_iso()
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1290,9 +1032,9 @@ class RoadplannerStore:
     ) -> dict[str, Any]:
         day_id = validate_identifier(day_id, "day_id")
         stop_id = validate_identifier(stop_id, "stop_id")
-        previous = self._load_state()
-        self._check_expected_trip(previous, expected_trip_id)
-        self._check_revision(previous, expected_revision)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
         document = previous.day_documents.get(day_id)
         if document is None:
             raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
@@ -1307,7 +1049,7 @@ class RoadplannerStore:
         removed = target["stops"].pop(old_index)
         reindex_explicit_positions(target["stops"])
         target["day"]["updated_at"] = utc_now_iso()
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             candidate,
             actor=actor,
@@ -1318,257 +1060,8 @@ class RoadplannerStore:
         result["day_id"] = day_id
         return result
 
-    @staticmethod
-    def _check_expected_trip(
-        state: TripState,
-        expected_trip_id: str | None,
-    ) -> None:
-        if expected_trip_id is None:
-            return
-        expected_trip_id = validate_identifier(
-            expected_trip_id,
-            "expected_trip_id",
-        )
-        if state.trip_id != expected_trip_id:
-            raise ValidationError(
-                "Die ausgewählte Reise ist nicht mehr aktiv: "
-                f"{expected_trip_id} != {state.trip_id}"
-            )
-
-    def _check_revision(self, state: TripState, expected_revision: int) -> None:
-        if (
-            isinstance(expected_revision, bool)
-            or not isinstance(expected_revision, int)
-            or expected_revision < 0
-        ):
-            raise ValidationError("'expected_revision' muss nicht-negativ sein")
-        if expected_revision != state.revision:
-            raise RevisionConflictError(expected_revision, state.revision)
-
-    @staticmethod
-    def _insert_index(position: int | None, current_length: int) -> int:
-        if position is None:
-            return current_length
-        if isinstance(position, bool) or not isinstance(position, int) or position < 1:
-            raise ValidationError("'position' muss eine positive Ganzzahl sein")
-        return min(position - 1, current_length)
-
-    def _commit(
-        self,
-        previous: TripState,
-        candidate: TripState,
-        *,
-        actor: str,
-        operation: str,
-        removed_files: list[str],
-    ) -> dict[str, Any]:
-        _reconcile_routing_after_change(previous, candidate, operation)
-        if previous.business_value() == candidate.business_value():
-            return {
-                "changed": False,
-                "revision": previous.revision,
-                "trip": previous.coordinator_payload(),
-            }
-        now = utc_now_iso()
-        candidate.trip_document["metadata"].update(
-            {
-                "revision": previous.revision + 1,
-                "updated_at": now,
-                "updated_by": (actor or "unknown")[:200],
-                "last_operation": operation,
-            }
-        )
-        candidate.trip_document["metadata"]["content_hash"] = candidate.content_hash()
-        snapshot = self._create_snapshot(previous.trip_id, operation)
-        self._write_state_transaction(
-            candidate,
-            snapshot=snapshot,
-            operation=operation,
-            removed_files=removed_files,
-        )
-        verified = self._load_state(trip_id=previous.trip_id, validate_hash=True)
-        self._write_context_best_effort(verified)
-        return {
-            "changed": True,
-            "revision": verified.revision,
-            "trip": verified.coordinator_payload(),
-        }
-
-    def _transaction_marker_path(self, trip_id: str) -> Path:
-        return self._trip_dir(trip_id) / ".roadplanner_transaction.json"
-
-    def _write_state_transaction(
-        self,
-        state: TripState,
-        *,
-        snapshot: Path,
-        operation: str,
-        removed_files: list[str],
-    ) -> None:
-        marker_path = self._transaction_marker_path(state.trip_id)
-        try:
-            relative_snapshot = snapshot.resolve().relative_to(self.backup_dir.resolve())
-        except ValueError as err:
-            raise StorageError("Sicherung liegt außerhalb des Backup-Verzeichnisses") from err
-        marker = {
-            "schema_version": 1,
-            "trip_id": state.trip_id,
-            "target_revision": state.revision,
-            "snapshot": relative_snapshot.as_posix(),
-            "operation": operation,
-            "removed_files": [_safe_day_file(path, "removed_file") for path in removed_files],
-            "created_at": utc_now_iso(),
-        }
-        _write_json_atomic(marker_path, marker)
-        try:
-            for ref in state.trip_document["days"]:
-                _write_json_atomic(
-                    self._day_path(state.trip_id, ref["file"]),
-                    state.day_documents[ref["id"]],
-                )
-            _write_json_atomic(
-                self._trip_dir(state.trip_id) / "trip.json",
-                state.trip_document,
-            )
-            for relative_file in removed_files:
-                self._day_path(state.trip_id, relative_file).unlink(missing_ok=True)
-            marker_path.unlink(missing_ok=True)
-            _fsync_dir(marker_path.parent)
-            self._prune_backups()
-        except Exception as err:
-            try:
-                self._recover_transaction(state.trip_id)
-            except Exception as recovery_err:
-                raise StorageError(
-                    "Schreibvorgang und automatische Wiederherstellung sind "
-                    f"fehlgeschlagen: {recovery_err}"
-                ) from err
-            raise StorageError(
-                "Schreibvorgang fehlgeschlagen; die vorherige Sicherung wurde "
-                "wiederhergestellt"
-            ) from err
-
-    def _recover_transaction(self, trip_id: str) -> None:
-        marker_path = self._transaction_marker_path(trip_id)
-        if not marker_path.exists():
-            return
-        marker = _read_json(marker_path)
-        target_revision = _ensure_non_negative_int(
-            marker.get("target_revision"),
-            "transaction.target_revision",
-        )
-        completed = False
-        try:
-            state = self._load_state(
-                trip_id=trip_id,
-                validate_hash=True,
-                recover=False,
-            )
-            completed = state.revision == target_revision
-        except RoadplannerError:
-            completed = False
-        if completed:
-            for relative_file in marker.get("removed_files", []):
-                self._day_path(trip_id, relative_file).unlink(missing_ok=True)
-            marker_path.unlink(missing_ok=True)
-            _fsync_dir(marker_path.parent)
-            return
-        snapshot_value = marker.get("snapshot")
-        if not isinstance(snapshot_value, str):
-            raise StorageError("Transaktionsmarker enthält keine Sicherung")
-        snapshot = (self.backup_dir / snapshot_value).resolve(strict=False)
-        try:
-            snapshot.relative_to(self.backup_dir.resolve())
-        except ValueError as err:
-            raise StorageError("Ungültiger Sicherungspfad im Transaktionsmarker") from err
-        self._restore_snapshot(snapshot)
-        marker_path.unlink(missing_ok=True)
-        _fsync_dir(marker_path.parent)
-
-    def _create_snapshot(self, trip_id: str, reason: str) -> Path:
-        safe_reason = re.sub(r"[^A-Za-z0-9_-]+", "-", reason).strip("-") or "backup"
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        snapshot = (
-            self.backup_dir
-            / trip_id
-            / f"{timestamp}-{safe_reason}-{uuid.uuid4().hex[:8]}"
-        )
-        snapshot.mkdir(parents=True, exist_ok=False)
-        trip_dir = self._trip_dir(trip_id)
-        manifest = {
-            "schema_version": 1,
-            "trip_id": trip_id,
-            "created_at": utc_now_iso(),
-            "reason": reason,
-            "pointer_exists": self.pointer_path.exists(),
-            "trip_exists": (trip_dir / "trip.json").exists(),
-            "day_files": [],
-        }
-        if self.pointer_path.exists():
-            shutil.copy2(self.pointer_path, snapshot / "active_trip.json")
-        if (trip_dir / "trip.json").exists():
-            shutil.copy2(trip_dir / "trip.json", snapshot / "trip.json")
-        snapshot_days = snapshot / "days"
-        snapshot_days.mkdir()
-        days_dir = trip_dir / "days"
-        if days_dir.exists():
-            for source in sorted(days_dir.glob("*.json")):
-                shutil.copy2(source, snapshot_days / source.name)
-                manifest["day_files"].append(source.name)
-        _write_json_atomic(snapshot / "manifest.json", manifest)
-        self._prune_backups()
-        return snapshot
-
     def create_backup(self, reason: str = "manual") -> dict[str, Any]:
-        state = self._load_state()
-        path = self._create_snapshot(state.trip_id, reason)
-        return {
-            "created": True,
-            "trip_id": state.trip_id,
-            "revision": state.revision,
-            "backup_path": str(path),
-        }
-
-    def _restore_snapshot(self, snapshot: Path) -> None:
-        manifest_path = snapshot / "manifest.json"
-        if not manifest_path.exists():
-            raise StorageError(f"Sicherungsmanifest fehlt: {snapshot}")
-        manifest = _read_json(manifest_path)
-        trip_id = validate_identifier(manifest.get("trip_id"), "backup.trip_id")
-        trip_dir = self._trip_dir(trip_id)
-        days_dir = trip_dir / "days"
-        trip_dir.mkdir(parents=True, exist_ok=True)
-        days_dir.mkdir(parents=True, exist_ok=True)
-
-        if manifest.get("pointer_exists"):
-            shutil.copy2(snapshot / "active_trip.json", self.pointer_path)
-        if manifest.get("trip_exists"):
-            shutil.copy2(snapshot / "trip.json", trip_dir / "trip.json")
-        else:
-            (trip_dir / "trip.json").unlink(missing_ok=True)
-        for path in days_dir.glob("*.json"):
-            path.unlink()
-        for name in manifest.get("day_files", []):
-            safe_name = Path(_safe_day_file(f"days/{name}", "backup.day_file")).name
-            shutil.copy2(snapshot / "days" / safe_name, days_dir / safe_name)
-        _fsync_dir(days_dir)
-        _fsync_dir(trip_dir)
-        _fsync_dir(self.pointer_path.parent)
-
-    def _prune_backups(self) -> None:
-        if self.backup_count < 1 or not self.backup_dir.exists():
-            return
-        snapshots = sorted(
-            (
-                path
-                for path in self.backup_dir.glob("*/*")
-                if path.is_dir() and (path / "manifest.json").exists()
-            ),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-        for path in snapshots[self.backup_count :]:
-            shutil.rmtree(path, ignore_errors=True)
+        return self._repository.create_backup(reason)
 
     def adopt_external_changes(
         self,
@@ -1576,8 +1069,8 @@ class RoadplannerStore:
         actor: str,
         expected_revision: int,
     ) -> dict[str, Any]:
-        state = self._load_state(validate_hash=False)
-        self._check_revision(state, expected_revision)
+        state = self._repository._load_state(validate_hash=False)
+        self._repository._check_revision(state, expected_revision)
         actual_hash = state.content_hash()
         if state.trip_document["metadata"].get("content_hash") == actual_hash:
             return {
@@ -1585,7 +1078,7 @@ class RoadplannerStore:
                 "revision": state.revision,
                 "trip": state.coordinator_payload(),
             }
-        snapshot = self._create_snapshot(state.trip_id, "adopt-external-changes")
+        snapshot = self._repository._create_snapshot(state.trip_id, "adopt-external-changes")
         now = utc_now_iso()
         state.trip_document["metadata"].update(
             {
@@ -1596,13 +1089,13 @@ class RoadplannerStore:
                 "content_hash": actual_hash,
             }
         )
-        self._write_state_transaction(
+        self._repository._write_state_transaction(
             state,
             snapshot=snapshot,
             operation="adopt_external_changes",
             removed_files=[],
         )
-        verified = self._load_state()
+        verified = self._repository._load_state()
         self._write_context_best_effort(verified)
         return {
             "changed": True,
@@ -1619,7 +1112,7 @@ class RoadplannerStore:
         )
 
         normalized = normalize_changeset(changeset)
-        current = self._load_state()
+        current = self._repository._load_state()
         summary = changeset_summary(normalized)
         response: dict[str, Any] = {
             **summary,
@@ -1685,7 +1178,7 @@ class RoadplannerStore:
         )
 
         normalized = normalize_changeset(changeset)
-        current = self._load_state()
+        current = self._repository._load_state()
         summary = changeset_summary(normalized)
         response: dict[str, Any] = {
             **summary,
@@ -1754,22 +1247,22 @@ class RoadplannerStore:
         )
 
         normalized = normalize_changeset(changeset)
-        previous = self._load_state()
+        previous = self._repository._load_state()
         if normalized["trip_id"] != previous.trip_id:
             raise ValidationError(
                 "ChangeSet gehört zur Reise "
                 f"'{normalized['trip_id']}', aktiv ist '{previous.trip_id}'"
             )
         if expected_revision is not None:
-            self._check_revision(previous, expected_revision)
+            self._repository._check_revision(previous, expected_revision)
             if expected_revision != normalized["base_revision"]:
                 raise ValidationError(
                     "expected_revision stimmt nicht mit base_revision des "
                     "ChangeSets überein"
                 )
-        self._check_revision(previous, normalized["base_revision"])
+        self._repository._check_revision(previous, normalized["base_revision"])
         execution = execute_changeset(previous, normalized)
-        result = self._commit(
+        result = self._commit_and_notify(
             previous,
             execution.candidate,
             actor=actor,
@@ -1788,7 +1281,7 @@ class RoadplannerStore:
         return result
 
     def export_trip(self) -> dict[str, Any]:
-        state = self._load_state()
+        state = self._repository._load_state()
         return {
             "trip_id": state.trip_id,
             "revision": state.revision,
@@ -1986,11 +1479,11 @@ class RoadplannerStore:
 
     def get_context_payload(self) -> dict[str, Any]:
         """Return bounded JSON context for an authenticated external bridge."""
-        return self._context_payload(self._load_state())
+        return self._context_payload(self._repository._load_state())
 
     def get_context_markdown(self) -> dict[str, Any]:
         """Return bounded Markdown context for an authenticated external bridge."""
-        current = self._load_state()
+        current = self._repository._load_state()
         context = self._context_payload(current)
         return {
             "trip_id": current.trip_id,
@@ -2009,7 +1502,7 @@ class RoadplannerStore:
 
     def write_context(self, state: TripState | None = None) -> dict[str, Any]:
         """Write bounded derived context files for Drive or OneDrive sync."""
-        current = state or self._load_state()
+        current = state or self._repository._load_state()
         outbox = self.handoff_dir / "outbox"
         outbox.mkdir(parents=True, exist_ok=True)
         context = self._context_payload(current)
