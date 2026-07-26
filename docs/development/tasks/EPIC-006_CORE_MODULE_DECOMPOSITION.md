@@ -109,6 +109,8 @@ Bottom layer: exception hierarchy, JSON/ID/validation primitives, trip/day/stop 
 
 **Extraction order**: `json_io.py` → `identifiers.py` → `json_tree_validation.py` → `routing_helpers.py` → `trip_projections.py` → `trip_documents.py` → `trip_state.py` → `trip_repository.py` → `trip_queries.py` → `trip_mutations.py` (update `test_day_plan_integrity_contract.py` alongside this step) → `changeset_operations.py` (resolve the `changeset.py` cycle here; update the two dynamic-loader tests) → `context_export.py`.
 
+**Progress**: step 1 done (`json_io.py`). The exception hierarchy (`RoadplannerError`, `TripNotFoundError`, `ValidationError`, `StorageError`, `RevisionConflictError`, `ConcurrentModificationError`) ended up living in `json_io.py` rather than `identifiers.py`, since `json_io.py` needed it immediately and comes first in the extraction order (the plan's "or in a small exceptions module" caveat) - `identifiers.py` will import the exceptions from `json_io.py` in step 2 rather than redefining them. `roadplanner.py` re-exports everything from `json_io.py` unchanged, so no sibling-module import paths needed to change.
+
 ---
 
 ## 4. `frontend/roadplanner-panel.js` (6745 lines) — do last, needs infra first
