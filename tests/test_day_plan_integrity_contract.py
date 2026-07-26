@@ -24,7 +24,9 @@ assert "Jede neue Stoppoperation enthält eine positive position" in prompt
 
 # Place completion remains review-only, keeps existing IDs and submits concrete
 # selected profiles through the normal handoff/ChangeSet path.
-experience = (ROOT / "experience_manager.py").read_text(encoding="utf-8")
+experience = (ROOT / "experience_manager.py").read_text(encoding="utf-8") + (
+    ROOT / "place_enrichment_orchestrator.py"
+).read_text(encoding="utf-8")
 place_enrichment = (ROOT / "place_enrichment.py").read_text(encoding="utf-8")
 assert "async_prepare_place_enrichment" in experience
 assert "async_submit_place_enrichment" in experience
