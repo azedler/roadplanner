@@ -577,6 +577,12 @@ class DestinationImageProvider:
                 if isinstance(response, asyncio.CancelledError):
                     raise response
                 if isinstance(response, (ClientError, asyncio.TimeoutError, ValueError, ValidationError)):
+                    _LOGGER.debug(
+                        "Destination image provider %s failed: %s: %s",
+                        name,
+                        type(response).__name__,
+                        response,
+                    )
                     errors[name] = str(response)[:500] or "Bildquelle nicht erreichbar"
                 else:
                     _LOGGER.warning(
