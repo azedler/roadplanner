@@ -12,18 +12,26 @@ package = types.ModuleType(PACKAGE_NAME)
 package.__path__ = [str(PACKAGE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
-for name in ("stop_ordering", "canonical_day", "roadplanner"):
+for name in (
+    "stop_ordering",
+    "canonical_day",
+    "identifiers",
+    "json_io",
+    "json_tree_validation",
+    "trip_documents",
+    "roadplanner",
+):
     spec = spec_from_file_location(f"{PACKAGE_NAME}.{name}", PACKAGE_ROOT / f"{name}.py")
     assert spec and spec.loader
     loaded = module_from_spec(spec)
     sys.modules[spec.name] = loaded
     spec.loader.exec_module(loaded)
 
-roadplanner = sys.modules[f"{PACKAGE_NAME}.roadplanner"]
+trip_documents = sys.modules[f"{PACKAGE_NAME}.trip_documents"]
 
 
 def normalize(stops):
-    return roadplanner.normalize_day_document(
+    return trip_documents.normalize_day_document(
         {
             "schema_version": 1,
             "day": {

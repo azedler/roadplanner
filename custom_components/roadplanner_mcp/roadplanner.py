@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from .bounded_json import _bounded_json_value
-from .identifiers import _stable_id, validate_identifier
+from .changeset_operations import ChangesetOperations
+from .identifiers import validate_identifier
 from .json_io import (
     RevisionConflictError,
     RoadplannerError,
     StorageError,
-    TripNotFoundError,
     ValidationError,
     _json_bytes,
     _read_json,
@@ -35,16 +35,7 @@ from .json_io import (
 )
 from .json_tree_validation import _validate_json_tree
 from .stop_ordering import canonical_order_stops
-from .trip_documents import (
-    DAY_SCHEMA_VERSION,
-    HANDOFF_CONTEXT_SCHEMA_VERSION,
-    MAX_DAYS,
-    MAX_STOPS_PER_DAY,
-    _without_audit_fields,
-    normalize_day_document,
-    normalize_stop,
-    normalize_trip_document,
-)
+from .trip_documents import HANDOFF_CONTEXT_SCHEMA_VERSION
 from .trip_mutations import TripMutations
 from .trip_projections import _compact_day, _compact_trip
 from .trip_queries import TripQueries
@@ -71,6 +62,7 @@ class RoadplannerStore:
     _repository: TripRepository = field(init=False, repr=False, compare=False)
     _queries: TripQueries = field(init=False, repr=False, compare=False)
     _mutations: TripMutations = field(init=False, repr=False, compare=False)
+    _changesets: ChangesetOperations = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self._repository = TripRepository(
@@ -81,6 +73,10 @@ class RoadplannerStore:
         )
         self._queries = TripQueries(self._repository)
         self._mutations = TripMutations(
+            self._repository,
+            write_context_best_effort=self._write_context_best_effort,
+        )
+        self._changesets = ChangesetOperations(
             self._repository,
             write_context_best_effort=self._write_context_best_effort,
         )
@@ -367,97 +363,14 @@ class RoadplannerStore:
         actor: str,
         expected_revision: int,
     ) -> dict[str, Any]:
-        state = self._repository._load_state(validate_hash=False)
-        self._repository._check_revision(state, expected_revision)
-        actual_hash = state.content_hash()
-        if state.trip_document["metadata"].get("content_hash") == actual_hash:
-            return {
-                "changed": False,
-                "revision": state.revision,
-                "trip": state.coordinator_payload(),
-            }
-        snapshot = self._repository._create_snapshot(state.trip_id, "adopt-external-changes")
-        now = utc_now_iso()
-        state.trip_document["metadata"].update(
-            {
-                "revision": state.revision + 1,
-                "updated_at": now,
-                "updated_by": (actor or "unknown")[:200],
-                "last_operation": "adopt_external_changes",
-                "content_hash": actual_hash,
-            }
+        return self._changesets.adopt_external_changes(
+            actor=actor,
+            expected_revision=expected_revision,
         )
-        self._repository._write_state_transaction(
-            state,
-            snapshot=snapshot,
-            operation="adopt_external_changes",
-            removed_files=[],
-        )
-        verified = self._repository._load_state()
-        self._write_context_best_effort(verified)
-        return {
-            "changed": True,
-            "revision": verified.revision,
-            "trip": verified.coordinator_payload(),
-        }
 
     def preview_changeset(self, changeset: dict[str, Any]) -> dict[str, Any]:
         """Validate a ChangeSet against the active trip without writing files."""
-        from .changeset import (
-            changeset_summary,
-            execute_changeset,
-            normalize_changeset,
-        )
-
-        normalized = normalize_changeset(changeset)
-        current = self._repository._load_state()
-        summary = changeset_summary(normalized)
-        response: dict[str, Any] = {
-            **summary,
-            "current_trip_id": current.trip_id,
-            "current_revision": current.revision,
-            "applicable": False,
-            "would_change": False,
-        }
-        if normalized["trip_id"] != current.trip_id:
-            response.update(
-                {
-                    "status": "wrong_trip",
-                    "reason": (
-                        "ChangeSet gehört zur Reise "
-                        f"{normalized['trip_id']}, aktiv ist {current.trip_id}."
-                    ),
-                }
-            )
-            return response
-        if normalized["base_revision"] != current.revision:
-            response.update(
-                {
-                    "status": "revision_conflict",
-                    "reason": (
-                        "ChangeSet basiert auf Revision "
-                        f"{normalized['base_revision']}, aktuell ist "
-                        f"{current.revision}."
-                    ),
-                }
-            )
-            return response
-
-        execution = execute_changeset(current, normalized)
-        would_change = (
-            current.business_value() != execution.candidate.business_value()
-        )
-        response.update(
-            {
-                "status": "ready",
-                "applicable": True,
-                "would_change": would_change,
-                "target_revision": current.revision + (1 if would_change else 0),
-                "operation_results": execution.operation_results,
-                "id_map": execution.id_map,
-            }
-        )
-        return response
+        return self._changesets.preview_changeset(changeset)
 
     def inspect_changeset_for_import(
         self,
@@ -469,86 +382,7 @@ class RoadplannerStore:
         entities and operation payloads are still checked against the current
         active trip before the ChangeSet is admitted to the inbox.
         """
-        from .changeset import (
-            changeset_summary,
-            execute_changeset,
-            normalize_changeset,
-        )
-
-        normalized = normalize_changeset(changeset)
-        current = self._repository._load_state()
-        summary = changeset_summary(normalized)
-        response: dict[str, Any] = {
-            **summary,
-            "current_trip_id": current.trip_id,
-            "current_revision": current.revision,
-            "applicable": False,
-            "would_change": False,
-        }
-        if normalized["trip_id"] != current.trip_id:
-            response.update(
-                {
-                    "status": "wrong_trip",
-                    "reason": (
-                        "ChangeSet gehört zur Reise "
-                        f"{normalized['trip_id']}, aktiv ist {current.trip_id}."
-                    ),
-                }
-            )
-            return response
-
-        execution = execute_changeset(current, normalized)
-        would_change = (
-            current.business_value() != execution.candidate.business_value()
-        )
-        response.update(
-            {
-                "would_change": would_change,
-                "operation_results": execution.operation_results,
-                "id_map": execution.id_map,
-            }
-        )
-        if normalized["base_revision"] != current.revision:
-            response.update(
-                {
-                    "status": "revision_conflict",
-                    "reason": (
-                        "ChangeSet basiert auf Revision "
-                        f"{normalized['base_revision']}, aktuell ist "
-                        f"{current.revision}."
-                    ),
-                }
-            )
-            return response
-
-        response.update(
-            {
-                "status": "ready",
-                "applicable": True,
-                "target_revision": current.revision + (1 if would_change else 0),
-            }
-        )
-        return response
-
-    def _commit_and_notify(
-        self,
-        previous: TripState,
-        candidate: TripState,
-        *,
-        actor: str,
-        operation: str,
-        removed_files: list[str],
-    ) -> dict[str, Any]:
-        result, verified = self._repository._commit(
-            previous,
-            candidate,
-            actor=actor,
-            operation=operation,
-            removed_files=removed_files,
-        )
-        if verified is not None:
-            self._write_context_best_effort(verified)
-        return result
+        return self._changesets.inspect_changeset_for_import(changeset)
 
     def apply_changeset(
         self,
@@ -558,45 +392,11 @@ class RoadplannerStore:
         expected_revision: int | None = None,
     ) -> dict[str, Any]:
         """Apply all ChangeSet operations atomically in one route revision."""
-        from .changeset import (
-            changeset_summary,
-            execute_changeset,
-            normalize_changeset,
-        )
-
-        normalized = normalize_changeset(changeset)
-        previous = self._repository._load_state()
-        if normalized["trip_id"] != previous.trip_id:
-            raise ValidationError(
-                "ChangeSet gehört zur Reise "
-                f"'{normalized['trip_id']}', aktiv ist '{previous.trip_id}'"
-            )
-        if expected_revision is not None:
-            self._repository._check_revision(previous, expected_revision)
-            if expected_revision != normalized["base_revision"]:
-                raise ValidationError(
-                    "expected_revision stimmt nicht mit base_revision des "
-                    "ChangeSets überein"
-                )
-        self._repository._check_revision(previous, normalized["base_revision"])
-        execution = execute_changeset(previous, normalized)
-        result = self._commit_and_notify(
-            previous,
-            execution.candidate,
+        return self._changesets.apply_changeset(
+            changeset=changeset,
             actor=actor,
-            operation="apply_changeset",
-            removed_files=execution.removed_files,
+            expected_revision=expected_revision,
         )
-        result.update(
-            {
-                **changeset_summary(normalized),
-                "revision_before": previous.revision,
-                "revision_after": result["revision"],
-                "operation_results": execution.operation_results,
-                "id_map": execution.id_map,
-            }
-        )
-        return result
 
     def export_trip(self) -> dict[str, Any]:
         return self._queries.export_trip()
