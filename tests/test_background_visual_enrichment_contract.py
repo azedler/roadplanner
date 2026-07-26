@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 manager = (ROOT / "custom_components" / "roadplanner_mcp" / "experience_manager.py").read_text(encoding="utf-8") + (
     ROOT / "custom_components" / "roadplanner_mcp" / "destination_gallery_manager.py"
 ).read_text(encoding="utf-8")
-panel = (ROOT / "custom_components" / "roadplanner_mcp" / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
+panel = (ROOT / "custom_components" / "roadplanner_mcp" / "frontend" / "features" / "media.js").read_text(encoding="utf-8")
 
 assert "async_call_later" in manager
 assert "_DESTINATION_BACKGROUND_INTERVAL_MINUTES" in manager

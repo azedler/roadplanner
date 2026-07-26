@@ -1,6 +1,8 @@
 import fs from "node:fs";
 
-const source = fs.readFileSync("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", "utf8");
+const source =
+  fs.readFileSync("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", "utf8") +
+  fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/media.js", "utf8");
 
 if (!source.includes('data-action="media-curate-stop"')) {
   throw new Error("Stop albums must expose manual Vision re-evaluation when enabled");

@@ -12,6 +12,10 @@ const source =
   fs.readFileSync(
     "custom_components/roadplanner_mcp/frontend/features/place-enrichment.js",
     "utf8",
+  ) +
+  fs.readFileSync(
+    "custom_components/roadplanner_mcp/frontend/features/media.js",
+    "utf8",
   );
 
 for (const required of [
