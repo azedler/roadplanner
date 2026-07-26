@@ -69,6 +69,16 @@ One class, `RoadplannerExperienceManager`, already a clean composition-root cand
 
 **Extraction order**: `experience_helpers.py` → `media_token_service.py` → `decision_manager.py` → `place_enrichment_orchestrator.py` → `media_library_manager.py` → `media_vision_curation.py` → `media_curation_manager.py` → `destination_gallery_manager.py` → `panel_payload_builder.py` (last).
 
+**Progress**: steps 1-6 done (`experience_helpers.py`, `media_token_service.py`, `decision_manager.py`, `place_enrichment_orchestrator.py`, `media_library_manager.py`, `media_vision_curation.py`). `experience_manager.py` is at 1282 lines (from 3143).
+
+**Refined design for steps 6-9** (worked out before implementing step 6, to avoid rework in 7-9):
+
+- `media_vision_curation.py` → `VisionCurationEngine`: owns the vision settings (`media_curation_mode`, `media_vision_max_candidates/highlights/daily_limit`, `vision_enabled` property) and one public method `async_curate(...)` (renamed from `_async_semantic_curation`). Constructed with `hass`/`store`/`onedrive`/`provider`. The facade gets read-only properties delegating to it (same pattern as `media_library_manager`'s settings in step 5), since `panel.py` reads these as plain attributes on `runtime.experience`.
+- `_find_stop` (currently sitting in the destination-gallery code range) is used by **both** step 7 and step 8 — move it to `experience_helpers.py` when extracting step 7, rather than duplicating it.
+- `media_curation_manager.py` → `MediaCurationManager`: owns `_vision_lock`/`_vision_status` (their lifecycle belongs to the batch-curation orchestration, not the engine), calls into `VisionCurationEngine.async_curate`, uses the existing `get_panel_payload` callback pattern.
+- `destination_gallery_manager.py` → `DestinationGalleryManager`: mirrors step 5 — owns its own `async_initialize`/`async_shutdown` (moves the destination-enrichment scheduling half out of the facade entirely), its own lock/status/unsub handles, and also calls into `VisionCurationEngine.async_curate`. Its periodic background job currently calls `self.async_auto_curate_media(...)` (step 7) directly — replace with an injected `trigger_vision_curation(trip_id)` callback, same shape as step 5's `on_media_changed`.
+- `panel_payload_builder.py` (last): has the highest fan-in (reads settings/status from every other collaborator plus `geocoder`/`provider`/`store`/`hass`/`manager`). Since nothing calls back into it, give it these as **constructor parameters**, not a callback — the facade's `async_panel_payload` becomes a one-line delegation, so steps 3-8's callback wiring (`get_panel_payload=self.async_panel_payload`) needs zero changes.
+
 ---
 
 ## 3. `roadplanner.py` (3605 lines) — do third
