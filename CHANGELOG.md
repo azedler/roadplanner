@@ -15,6 +15,7 @@ The project follows Semantic Versioning for public releases.
 - Internal: extracted ID generation and identifier validation (`_new_id`, `_stable_id`, `validate_identifier`) out of `roadplanner.py` into a dedicated `identifiers.py` module (second step of the `roadplanner.py` decomposition). No functional or behavior changes.
 - Internal: extracted the recursive bounded "details" JSON-tree validation (`_validate_json_tree`) out of `roadplanner.py` into a dedicated `json_tree_validation.py` module (third step of the `roadplanner.py` decomposition). No functional or behavior changes.
 - Internal: extracted per-day routing metric derivation/invalidation/reconciliation and ferry/transport stop metadata out of `roadplanner.py` into a dedicated `routing_helpers.py` module, plus the shared bounded-JSON-projection helper into `bounded_json.py` (fourth step of the `roadplanner.py` decomposition). No functional or behavior changes.
+- Internal: extracted the bounded read-only trip/day/stop projections (`_compact_trip`, `_compact_day`, `_compact_stop`, cover-image lookup) out of `roadplanner.py` into a dedicated `trip_projections.py` module (fifth step of the `roadplanner.py` decomposition). No functional or behavior changes.
 
 ### Fixed
 
