@@ -6,7 +6,6 @@ import asyncio
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import hashlib
-import hmac
 from functools import partial
 import json
 import logging
@@ -61,6 +60,7 @@ from .experience_store import (
 )
 from .geocoding import GeocodingProvider
 from .manager import RoadplannerManager
+from .media_token_service import MediaTokenService
 from .onedrive_media import OneDrivePersonalClient, normalize_onedrive_folder_path
 from .place_cleanup import PlaceCleanupService
 from .place_enrichment import PlaceEnrichmentService
@@ -77,7 +77,6 @@ _LOGGER = logging.getLogger(__name__)
 
 _AUTOMATIC_RADIUS_M = 750.0
 _SUGGESTED_RADIUS_M = 5_000.0
-_MEDIA_TOKEN_TTL_SECONDS = 60 * 60
 _MEDIA_SYNC_STRATEGY_VERSION = 3
 _INITIAL_SCAN_MODE = "initial_scan"
 _DELTA_CATCHUP_MODE = "delta_catchup"
@@ -235,7 +234,7 @@ class RoadplannerExperienceManager:
             "error": None,
             "interval_minutes": _DESTINATION_BACKGROUND_INTERVAL_MINUTES,
         }
-        self._token_secret = secrets.token_bytes(32)
+        self._media_tokens = MediaTokenService(hass=hass, store=store, onedrive=onedrive)
 
     async def async_initialize(self) -> None:
         await self.hass.async_add_executor_job(self.store.initialize)
@@ -532,32 +531,11 @@ class RoadplannerExperienceManager:
                 {"experience_changed": True, "source": "onedrive_sync"},
             )
 
-    def _token(self, trip_id: str, media_id: str, kind: str) -> str:
-        expires = int(datetime.now(timezone.utc).timestamp()) + _MEDIA_TOKEN_TTL_SECONDS
-        payload = f"{trip_id}|{media_id}|{kind}|{expires}"
-        signature = hmac.new(self._token_secret, payload.encode(), hashlib.sha256).hexdigest()
-        return f"{expires}.{signature}"
-
     def validate_token(self, trip_id: str, media_id: str, kind: str, token: str) -> bool:
-        try:
-            expires_text, signature = token.split(".", 1)
-            expires = int(expires_text)
-        except (ValueError, AttributeError):
-            return False
-        if expires < int(datetime.now(timezone.utc).timestamp()):
-            return False
-        payload = f"{trip_id}|{media_id}|{kind}|{expires}"
-        expected = hmac.new(self._token_secret, payload.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(signature, expected)
+        return self._media_tokens.validate_token(trip_id, media_id, kind, token)
 
     async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
-        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
-        media = next((item for item in state["media"] if item.get("id") == media_id), None)
-        if media is None:
-            raise ValidationError("Foto nicht gefunden")
-        if kind == "thumbnail":
-            return await self.onedrive.async_thumbnail_url(str(media["provider_item_id"]), "large")
-        return await self.onedrive.async_download_url(str(media["provider_item_id"]))
+        return await self._media_tokens.async_media_redirect_url(trip_id, media_id, kind)
 
     @property
     def vision_enabled(self) -> bool:
@@ -1132,8 +1110,8 @@ class RoadplannerExperienceManager:
         for raw in state["media"]:
             item = deepcopy(raw)
             media_id = str(item["id"])
-            item["thumbnail_url"] = f"/api/roadplanner/media/thumbnail/{quote(trip_id, safe='')}/{quote(media_id, safe='')}?token={self._token(trip_id, media_id, 'thumbnail')}"
-            item["original_url"] = f"/api/roadplanner/media/original/{quote(trip_id, safe='')}/{quote(media_id, safe='')}?token={self._token(trip_id, media_id, 'original')}"
+            item["thumbnail_url"] = f"/api/roadplanner/media/thumbnail/{quote(trip_id, safe='')}/{quote(media_id, safe='')}?token={self._media_tokens.token(trip_id, media_id, 'thumbnail')}"
+            item["original_url"] = f"/api/roadplanner/media/original/{quote(trip_id, safe='')}/{quote(media_id, safe='')}?token={self._media_tokens.token(trip_id, media_id, 'original')}"
             media.append(item)
             if item.get("linked_day_id"):
                 by_day.setdefault(str(item["linked_day_id"]), []).append(media_id)
