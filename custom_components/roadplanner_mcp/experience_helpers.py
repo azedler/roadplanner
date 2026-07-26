@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 from .canonical_day import canonical_roadbook_stops
 from .experience_store import utc_now_iso
 from .onedrive_media import normalize_onedrive_folder_path
+from .roadplanner import ValidationError
 
 _IMAGE_MIME_PREFIX = "image/"
 
@@ -314,3 +315,30 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
         "thumbnail_available": True,
         "last_seen_at": utc_now_iso(),
     }
+
+
+def _find_stop(
+    days: list[dict[str, Any]],
+    day_id: str,
+    stop_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve a stop even when the UI still carries its previous day ID."""
+    for day in days:
+        if str(day.get("id") or "") != day_id:
+            continue
+        for stop in _stops(day):
+            if str(stop.get("id") or "") == stop_id:
+                return day, stop
+
+    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for day in days:
+        for stop in _stops(day):
+            if str(stop.get("id") or "") == stop_id:
+                matches.append((day, stop))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValidationError(
+            "Der ausgewählte Stopp ist mehreren Tagen zugeordnet. Bitte die Ansicht neu laden."
+        )
+    raise ValidationError("Der ausgewählte Stopp existiert nicht mehr")

@@ -1,9 +1,11 @@
 """Source contract for robust destination-gallery refreshes."""
 from pathlib import Path
 
-source = Path(
-    "custom_components/roadplanner_mcp/experience_manager.py"
-).read_text(encoding="utf-8")
+source = (
+    Path("custom_components/roadplanner_mcp/experience_manager.py").read_text(encoding="utf-8")
+    + Path("custom_components/roadplanner_mcp/experience_helpers.py").read_text(encoding="utf-8")
+    + Path("custom_components/roadplanner_mcp/destination_gallery_manager.py").read_text(encoding="utf-8")
+)
 
 for required in (
     "from .destination_intelligence import analyze_destination, destination_image_query",

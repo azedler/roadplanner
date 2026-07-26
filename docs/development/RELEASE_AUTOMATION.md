@@ -91,11 +91,13 @@ GitHub runs the Roadplanner validation workflow, official HACS validation and re
 
 ## 5. Automatic publication after merge
 
-The push of the merged release commit to `main` automatically starts:
+`auto-merge-release.yml` explicitly dispatches the publish workflow right after merging:
 
 ```text
 .github/workflows/release.yml
 ```
+
+This is a deliberate `workflow_dispatch` call, not a plain push trigger: GitHub does not fire other workflows' `push` events for a merge performed with the default `GITHUB_TOKEN` (its anti-recursion rule), so relying on the push trigger alone would silently never publish anything.
 
 The workflow:
 
