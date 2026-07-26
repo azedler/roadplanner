@@ -1,18 +1,21 @@
 # Release automation
 
-Roadplanner releases use one explicit human approval and otherwise run automatically from GitHub and HACS.
+Roadplanner releases run automatically end to end once `develop` is prepared.
 
 ```text
 develop
   ↓ prepare (version, changelog, tests, commit, push, PR)
 release pull request
-  ↓ human merge into main
+  ↓ Roadplanner validation + official HACS validation
+  ↓ auto-merge.yml merges automatically once both succeed
 GitHub Actions on main
   ↓ validate, build, tag, release, synchronize develop
 HACS update
 ```
 
-The automation never force-pushes, moves an existing tag, merges a pull request, or edits Home Assistant runtime data.
+`.github/workflows/auto-merge-release.yml` watches the `Roadplanner validation` workflow on the release pull request. As soon as it reports success for the `develop` branch, the pull request is squash-merged automatically — no manual review click is required. The automation never force-pushes, moves an existing tag, or edits Home Assistant runtime data.
+
+If branch protection on `main` ever requires an approving review in addition to status checks, the auto-merge job fails instead of merging; that failure shows up in the Actions run and is the signal to review manually or relax the review requirement for this workflow.
 
 ## Prerequisites
 
@@ -82,11 +85,9 @@ For a non-interactive Codespaces command:
 python tools/release.py prepare 3.2.0 --remote --yes
 ```
 
-## 4. Review and merge the pull request
+## 4. Automatic validation and merge
 
-GitHub runs the Roadplanner validation workflow, official HACS validation and repository security checks.
-
-Merge only when required checks are green. The merge is the single human publication approval.
+GitHub runs the Roadplanner validation workflow, official HACS validation and repository security checks on the release pull request. Once they succeed, `auto-merge-release.yml` squash-merges the pull request into `main` automatically. No manual click is needed; watch the Actions tab or the pull request if you want to observe it.
 
 ## 5. Automatic publication after merge
 
