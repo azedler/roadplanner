@@ -4,7 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "roadplanner_mcp"
 roadplanner = (ROOT / "roadplanner.py").read_text(encoding="utf-8")
 changeset = (ROOT / "changeset.py").read_text(encoding="utf-8")
-assistant = (ROOT / "assistant.py").read_text(encoding="utf-8")
+assistant = (ROOT / "assistant.py").read_text(encoding="utf-8") + (
+    ROOT / "assistant_operation_sanitizer.py"
+).read_text(encoding="utf-8")
 prompt = (ROOT / "assistant_prompt.py").read_text(encoding="utf-8")
 panel = (ROOT / "panel.py").read_text(encoding="utf-8")
 frontend = (ROOT / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
@@ -22,7 +24,9 @@ assert "Jede neue Stoppoperation enthält eine positive position" in prompt
 
 # Place completion remains review-only, keeps existing IDs and submits concrete
 # selected profiles through the normal handoff/ChangeSet path.
-experience = (ROOT / "experience_manager.py").read_text(encoding="utf-8")
+experience = (ROOT / "experience_manager.py").read_text(encoding="utf-8") + (
+    ROOT / "place_enrichment_orchestrator.py"
+).read_text(encoding="utf-8")
 place_enrichment = (ROOT / "place_enrichment.py").read_text(encoding="utf-8")
 assert "async_prepare_place_enrichment" in experience
 assert "async_submit_place_enrichment" in experience

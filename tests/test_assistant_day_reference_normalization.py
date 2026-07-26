@@ -5,8 +5,15 @@ import ast
 from pathlib import Path
 from typing import Any
 
-SOURCE_PATH = Path("custom_components/roadplanner_mcp/assistant.py")
+SOURCE_PATH = Path("custom_components/roadplanner_mcp/assistant_compile.py")
+CALLER_SOURCE_PATHS = (
+    Path("custom_components/roadplanner_mcp/assistant.py"),
+    Path("custom_components/roadplanner_mcp/assistant_operation_sanitizer.py"),
+)
 source = SOURCE_PATH.read_text(encoding="utf-8")
+combined_source = source + "".join(
+    path.read_text(encoding="utf-8") for path in CALLER_SOURCE_PATHS
+)
 tree = ast.parse(source)
 function_node = next(
     node
@@ -86,6 +93,6 @@ except ValidationError as err:
 else:
     raise AssertionError("Conflicting day_id/day_ref values must be rejected")
 
-assert source.count("_normalize_compiled_day_reference(") >= 3
-assert "day_ref verweist nicht auf einen neuen Tag" in source
+assert combined_source.count("_normalize_compiled_day_reference(") >= 3
+assert "day_ref verweist nicht auf einen neuen Tag" in combined_source
 print("Assistant day-reference normalization tests passed.")
