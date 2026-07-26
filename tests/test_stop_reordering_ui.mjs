@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import vm from "node:vm";
 
 class FakeShadowRoot { addEventListener() {} querySelector() { return null; } }
 class FakeHTMLElement { attachShadow() { this.shadowRoot = new FakeShadowRoot(); return this.shadowRoot; } }
@@ -16,8 +14,7 @@ globalThis.customElements = {
   get(name) { return registry.get(name); },
 };
 
-const source = await readFile(new URL("../custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", import.meta.url), "utf8");
-vm.runInThisContext(source, { filename: "roadplanner-panel.js" });
+await import(new URL("../custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", import.meta.url));
 const Panel = registry.get("roadplanner-panel");
 assert.ok(Panel);
 const panel = new Panel();

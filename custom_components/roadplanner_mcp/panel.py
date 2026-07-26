@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 PANEL_COMPONENT_NAME = "roadplanner-panel"
 PANEL_URL_PATH = "roadplanner-app"
 PANEL_STATIC_URL = "/roadplanner_mcp_static"
-PANEL_MODULE_URL = f"{PANEL_STATIC_URL}/roadplanner-panel-{INTEGRATION_VERSION}.js"
+PANEL_MODULE_URL = f"{PANEL_STATIC_URL}/roadplanner-panel.js"
 
 WS_GET_DATA = f"{DOMAIN}/panel/get_data"
 WS_ACTION = f"{DOMAIN}/panel/action"
@@ -1158,24 +1158,31 @@ async def websocket_panel_action(
 
 async def async_setup_panel_support(hass: HomeAssistant) -> None:
     """Register the static module and WebSocket commands once per HA process."""
-    frontend_file = Path(__file__).parent / "frontend" / "roadplanner-panel.js"
+    frontend_dir = Path(__file__).parent / "frontend"
+    frontend_file = frontend_dir / "roadplanner-panel.js"
     if not frontend_file.is_file():
         raise FileNotFoundError(
             f"Roadplanner panel module is missing: {frontend_file}"
         )
+    # The whole directory is served (not just the entry file) so that the
+    # entry module can be split into ES module collaborators under
+    # frontend/lib/ and frontend/features/ without touching this
+    # registration again for every new file. Cache-busting on deploy is
+    # handled by the "?v=" query parameter on module_url below, not by the
+    # URL path itself, so it stays valid across HACS upgrades.
     await hass.http.async_register_static_paths(
         [
             StaticPathConfig(
-                PANEL_MODULE_URL,
-                str(frontend_file),
+                PANEL_STATIC_URL,
+                str(frontend_dir),
                 False,
             )
         ]
     )
     _LOGGER.info(
-        "Registered Roadplanner panel module %s from %s",
-        PANEL_MODULE_URL,
-        frontend_file,
+        "Registered Roadplanner panel static directory %s at %s",
+        frontend_dir,
+        PANEL_STATIC_URL,
     )
     websocket_api.async_register_command(hass, websocket_get_panel_data)
     websocket_api.async_register_command(hass, websocket_panel_action)
