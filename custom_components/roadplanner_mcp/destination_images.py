@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import INTEGRATION_VERSION
+from .google_places import GooglePlacesClient
 from .roadplanner import ValidationError
 
 _LOGGER = logging.getLogger(__name__)
@@ -407,8 +408,14 @@ class _CacheEntry:
 class DestinationImageProvider:
     """Search several safe image sources and return one normalized contract."""
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        *,
+        google_places: GooglePlacesClient | None = None,
+    ) -> None:
         self.hass = hass
+        self._google_places = google_places
         self._cache: dict[tuple[str, int, float | None, float | None], _CacheEntry] = {}
         self._lock = asyncio.Lock()
 
@@ -517,6 +524,46 @@ class DestinationImageProvider:
             payload = await response.json(content_type=None)
         return _parse_openverse_response(payload, limit=limit)
 
+    async def _search_google_places(
+        self,
+        query: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Opt-in test source - see CONF_GOOGLE_PHOTOS_ENABLED.
+
+        Unlike Wikimedia Commons/Openverse, these images are not openly
+        licensed: no `license`/`license_url` is set (there is none to show),
+        and `image_url` is a short-lived Google-hosted URI that is not
+        guaranteed to keep working if cached long-term in a saved gallery.
+        """
+        if self._google_places is None:
+            return []
+        photos = await self._google_places.async_search_photos(query, limit=limit)
+        results: list[dict[str, Any]] = []
+        for photo in photos:
+            image_url = _https_url(photo.get("photo_uri"))
+            source_url = _https_url(photo.get("source_url"))
+            if image_url is None or source_url is None:
+                continue
+            author = str(photo.get("author") or "").strip()
+            attribution = f"Foto von Google · {author}" if author else "Foto von Google"
+            results.append(
+                _image_contract(
+                    identifier=f"google_places-{photo.get('photo_name') or len(results) + 1}",
+                    provider="google_places",
+                    title=str(photo.get("place_title") or "Google Places"),
+                    image_url=image_url,
+                    source_url=source_url,
+                    alt=str(photo.get("place_title") or "Reiseziel"),
+                    attribution=attribution,
+                    author=author,
+                    width=_integer(photo.get("width")),
+                    height=_integer(photo.get("height")),
+                )
+            )
+        return results
+
     async def async_search(
         self,
         query: str,
@@ -564,6 +611,10 @@ class DestinationImageProvider:
             ),
             "openverse": self._search_openverse(query, limit=max(limit, 8)),
         }
+        if self._google_places is not None and self._google_places.photos_enabled:
+            provider_calls["google_places"] = self._search_google_places(
+                query, limit=max(limit, 4)
+            )
         provider_names = list(provider_calls)
         responses = await asyncio.gather(
             *(provider_calls[name] for name in provider_names),
@@ -605,6 +656,14 @@ class DestinationImageProvider:
             "count": len(results),
             "results": results,
         }
-        async with self._lock:
-            self._cache[cache_key] = _CacheEntry(monotonic(), result)
+        # Google-sourced image URLs are short-lived (unlike the openly
+        # licensed Wikimedia Commons/Openverse results); serving one back out
+        # of this 12-hour cache risks handing out a URL that already expired.
+        # Skip caching entirely rather than track a shorter per-entry TTL.
+        has_google_result = any(
+            image.get("provider") == "google_places" for image in results
+        )
+        if not has_google_result:
+            async with self._lock:
+                self._cache[cache_key] = _CacheEntry(monotonic(), result)
         return result

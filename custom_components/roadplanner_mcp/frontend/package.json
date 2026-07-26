@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Marks this directory's .js files as ES modules for Node's module loader (dynamic import() in tests) and any future bundler. Home Assistant's browser panel_custom loader is unaffected - it already loads roadplanner-panel.js as an ES module via <script type=\"module\">."
+}

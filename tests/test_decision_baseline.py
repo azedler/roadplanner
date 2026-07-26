@@ -128,7 +128,9 @@ else:
     raise AssertionError("Missing current plan must block a misleading decision template")
 
 store_source = Path("custom_components/roadplanner_mcp/experience_store.py").read_text(encoding="utf-8")
-panel_source = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+panel_source = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8") + Path(
+    "custom_components/roadplanner_mcp/frontend/features/decisions-integrity.js"
+).read_text(encoding="utf-8")
 assert '"is_current_plan"' in store_source
 assert '"current_plan_option_id"' in store_source
 assert "Bestehender Plan" in panel_source
