@@ -9,6 +9,7 @@ The project follows Semantic Versioning for public releases.
 ### Changed
 
 - Internal: extracted OneDrive photo-curation orchestration (`async_curate_stop_media`, `async_curate_trip_media`, `async_auto_curate_media`) out of `experience_manager.py` into a dedicated `media_curation_manager.py` collaborator. No functional or behavior changes.
+- Internal: extracted the AI-assisted planning-photo gallery system (per-stop destination galleries, background auto-population, its own scheduling lifecycle) out of `experience_manager.py` into a dedicated `destination_gallery_manager.py` collaborator. No functional or behavior changes.
 
 ### Added
 

@@ -6,6 +6,7 @@ MANAGER = (
     Path("custom_components/roadplanner_mcp/experience_manager.py").read_text(encoding="utf-8")
     + Path("custom_components/roadplanner_mcp/media_vision_curation.py").read_text(encoding="utf-8")
     + Path("custom_components/roadplanner_mcp/media_curation_manager.py").read_text(encoding="utf-8")
+    + Path("custom_components/roadplanner_mcp/destination_gallery_manager.py").read_text(encoding="utf-8")
 )
 CONFIG = Path("custom_components/roadplanner_mcp/const.py").read_text(encoding="utf-8")
 PANEL = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8")
