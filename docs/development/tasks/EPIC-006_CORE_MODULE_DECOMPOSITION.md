@@ -194,6 +194,10 @@ Four raw-substring/text-slurping contract tests needed repointing to add `featur
 
 Three source-string contract tests needed repointing to add `features/decisions-integrity.js` to their concatenated source: `test_day_plan_integrity_contract.py` (`data-action="integrity-prepare-locations"` moved with `_renderTravelIntegrity`), `test_decision_baseline.py` (`"Bestehender Plan"`/`"Keine Änderung nötig"` moved with `_renderDecisionCard`). `node --check` passes on both files; full `python tools/release.py check` passes.
 
+**Sixth feature mixin done: `features/assistant.js`** (29 methods across 5 non-contiguous regions: GPS-completion draft prep, assistant link/markdown rendering, the chat-submit/send/briefing/diagnostics/prepare-review machinery, autonomy/health labels + the chat tab renderers, and the draft/diagnostics dialog renderers). Same per-region method-split approach as `archive.js`/`media.js`. `roadplanner-panel.js`: 3871 → 3137 lines.
+
+**No test repointing needed at all this time** - unlike every previous feature step. `test_assistant_interaction.mjs` and `test_assistant_links.mjs` (2 of the 8 `import()`-based tests) exercise assistant behavior but always loaded the *whole* `roadplanner-panel.js` module graph via dynamic `import()`, which transitively pulls in `features/assistant.js` through its own import - so they kept working with zero changes. Only the four *raw-substring* contract tests (which read a hardcoded file path's text directly, bypassing the module graph) have ever needed repointing in this EPIC; anything reachable through an actual `import()` chain is immune by construction. `node --check` passes on both files; full `python tools/release.py check` passes.
+
 ### Proposed groups (mixins applied via `Object.assign(RoadplannerPanel.prototype, ...)`, or later true action-map dispatch — see below)
 
 | Group | File | Contents |
