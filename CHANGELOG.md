@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pasting an image (Ctrl+V) directly into the "Reisebegleiter" chat message field now attaches it as a document/receipt, matching the existing paperclip attach flow. Previously, paste only worked inside the dedicated archive drop/paste zones.
+
 ## [4.0.1] - 2026-07-26
 
 ### Fixed
