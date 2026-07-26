@@ -69,7 +69,7 @@ One class, `RoadplannerExperienceManager`, already a clean composition-root cand
 
 **Extraction order**: `experience_helpers.py` → `media_token_service.py` → `decision_manager.py` → `place_enrichment_orchestrator.py` → `media_library_manager.py` → `media_vision_curation.py` → `media_curation_manager.py` → `destination_gallery_manager.py` → `panel_payload_builder.py` (last).
 
-**Progress**: steps 1-6 done (`experience_helpers.py`, `media_token_service.py`, `decision_manager.py`, `place_enrichment_orchestrator.py`, `media_library_manager.py`, `media_vision_curation.py`). `experience_manager.py` is at 1282 lines (from 3143).
+**Progress**: all 9 steps done (`experience_helpers.py`, `media_token_service.py`, `decision_manager.py`, `place_enrichment_orchestrator.py`, `media_library_manager.py`, `media_vision_curation.py`, `media_curation_manager.py`, `destination_gallery_manager.py`, `panel_payload_builder.py`). `experience_manager.py` is at 419 lines (from 3143), fully a thin facade. `experience_manager.py`'s decomposition is complete.
 
 **Refined design for steps 6-9** (worked out before implementing step 6, to avoid rework in 7-9):
 
