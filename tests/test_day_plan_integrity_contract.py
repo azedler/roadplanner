@@ -13,7 +13,9 @@ assistant = (ROOT / "assistant.py").read_text(encoding="utf-8") + (
 ).read_text(encoding="utf-8")
 prompt = (ROOT / "assistant_prompt.py").read_text(encoding="utf-8")
 panel = (ROOT / "panel.py").read_text(encoding="utf-8")
-frontend = (ROOT / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
+frontend = (ROOT / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8") + (
+    ROOT / "frontend" / "features" / "decisions-integrity.js"
+).read_text(encoding="utf-8")
 
 # Every canonical mutation path must leave a complete one-based position set.
 assert "normalize_stop_sequence(stops)" in roadplanner
