@@ -6,9 +6,14 @@ from pathlib import Path
 from typing import Any
 
 SOURCE_PATH = Path("custom_components/roadplanner_mcp/assistant_compile.py")
-CALLER_SOURCE_PATH = Path("custom_components/roadplanner_mcp/assistant.py")
+CALLER_SOURCE_PATHS = (
+    Path("custom_components/roadplanner_mcp/assistant.py"),
+    Path("custom_components/roadplanner_mcp/assistant_operation_sanitizer.py"),
+)
 source = SOURCE_PATH.read_text(encoding="utf-8")
-combined_source = source + CALLER_SOURCE_PATH.read_text(encoding="utf-8")
+combined_source = source + "".join(
+    path.read_text(encoding="utf-8") for path in CALLER_SOURCE_PATHS
+)
 tree = ast.parse(source)
 function_node = next(
     node

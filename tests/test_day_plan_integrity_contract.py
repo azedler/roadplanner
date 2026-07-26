@@ -4,7 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "roadplanner_mcp"
 roadplanner = (ROOT / "roadplanner.py").read_text(encoding="utf-8")
 changeset = (ROOT / "changeset.py").read_text(encoding="utf-8")
-assistant = (ROOT / "assistant.py").read_text(encoding="utf-8")
+assistant = (ROOT / "assistant.py").read_text(encoding="utf-8") + (
+    ROOT / "assistant_operation_sanitizer.py"
+).read_text(encoding="utf-8")
 prompt = (ROOT / "assistant_prompt.py").read_text(encoding="utf-8")
 panel = (ROOT / "panel.py").read_text(encoding="utf-8")
 frontend = (ROOT / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
