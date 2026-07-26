@@ -419,6 +419,12 @@ class DestinationImageProvider:
         self._cache: dict[tuple[str, int, float | None, float | None], _CacheEntry] = {}
         self._lock = asyncio.Lock()
 
+    @property
+    def google_places(self) -> GooglePlacesClient | None:
+        """Expose the underlying client so a redirect-token service can
+        resolve a saved gallery's durable `photo_name` outside of a search."""
+        return self._google_places
+
     async def _commons_request(self, params: dict[str, str]) -> Any:
         session = async_get_clientsession(self.hass)
         headers = {
@@ -533,9 +539,14 @@ class DestinationImageProvider:
         """Opt-in test source - see CONF_GOOGLE_PHOTOS_ENABLED.
 
         Unlike Wikimedia Commons/Openverse, these images are not openly
-        licensed: no `license`/`license_url` is set (there is none to show),
-        and `image_url` is a short-lived Google-hosted URI that is not
-        guaranteed to keep working if cached long-term in a saved gallery.
+        licensed: no `license`/`license_url` is set (there is none to show).
+        `image_url` here is a short-lived Google-hosted URI, good enough for
+        the live search-result picker - it is not guaranteed to keep working
+        if cached long-term. The included `photo_name` is the durable Google
+        resource reference; a saved gallery persists that instead of the URL
+        and re-resolves a fresh one on each view (see
+        `destination_gallery_manager.py`'s persistence normalization and
+        `panel_payload_builder.py`'s payload-time URL rewrite).
         """
         if self._google_places is None:
             return []
@@ -544,24 +555,25 @@ class DestinationImageProvider:
         for photo in photos:
             image_url = _https_url(photo.get("photo_uri"))
             source_url = _https_url(photo.get("source_url"))
-            if image_url is None or source_url is None:
+            photo_name = str(photo.get("photo_name") or "")
+            if image_url is None or source_url is None or not photo_name:
                 continue
             author = str(photo.get("author") or "").strip()
             attribution = f"Foto von Google · {author}" if author else "Foto von Google"
-            results.append(
-                _image_contract(
-                    identifier=f"google_places-{photo.get('photo_name') or len(results) + 1}",
-                    provider="google_places",
-                    title=str(photo.get("place_title") or "Google Places"),
-                    image_url=image_url,
-                    source_url=source_url,
-                    alt=str(photo.get("place_title") or "Reiseziel"),
-                    attribution=attribution,
-                    author=author,
-                    width=_integer(photo.get("width")),
-                    height=_integer(photo.get("height")),
-                )
+            contract = _image_contract(
+                identifier=f"google_places-{photo_name}",
+                provider="google_places",
+                title=str(photo.get("place_title") or "Google Places"),
+                image_url=image_url,
+                source_url=source_url,
+                alt=str(photo.get("place_title") or "Reiseziel"),
+                attribution=attribution,
+                author=author,
+                width=_integer(photo.get("width")),
+                height=_integer(photo.get("height")),
             )
+            contract["photo_name"] = photo_name
+            results.append(contract)
         return results
 
     async def async_search(

@@ -38,6 +38,25 @@ _DESTINATION_INITIAL_DELAY_SECONDS = 45
 _DESTINATION_BACKGROUND_BATCH = 4
 
 
+def _strip_ephemeral_google_url(image: dict[str, Any]) -> dict[str, Any]:
+    """Drop a Google-sourced image's short-lived URL before persisting it.
+
+    Google Places Photo URLs are not guaranteed to stay valid long-term, and
+    Google's terms do not allow storing the photo itself. Only the durable
+    `photo_name` reference survives to disk; `panel_payload_builder.py`
+    rebuilds a fresh, signed redirect URL from it on every payload send.
+    """
+    if not isinstance(image, dict) or image.get("provider") != "google_places":
+        return image
+    if not str(image.get("photo_name") or ""):
+        return image
+    result = dict(image)
+    result["image_url"] = None
+    result["thumbnail_url"] = None
+    result["original_url"] = None
+    return result
+
+
 class DestinationGalleryManager:
     """Build, refresh and background-populate per-stop planning-photo galleries."""
 
@@ -267,7 +286,10 @@ class DestinationGalleryManager:
                 image_id = str(item.get("id") or "")
                 if image_id and image_id not in ordered_ids:
                     ordered_ids.append(image_id)
-            images = [deepcopy(by_id[item]) for item in ordered_ids[:_DESTINATION_GALLERY_SIZE]]
+            images = [
+                _strip_ephemeral_google_url(deepcopy(by_id[item]))
+                for item in ordered_ids[:_DESTINATION_GALLERY_SIZE]
+            ]
         if images and errors:
             status = "partial"
         elif images:
@@ -332,7 +354,10 @@ class DestinationGalleryManager:
         days = _all_days(payload)
         day, stop = _find_stop(days, day_id, stop_id)
         query = self._destination_query(day, stop)
-        selected_images = list(images or [])[:_DESTINATION_GALLERY_SIZE]
+        selected_images = [
+            _strip_ephemeral_google_url(item)
+            for item in list(images or [])[:_DESTINATION_GALLERY_SIZE]
+        ]
         selected_ids = [
             str(item.get("id") or "")
             for item in selected_images
