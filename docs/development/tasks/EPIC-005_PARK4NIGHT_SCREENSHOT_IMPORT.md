@@ -2,44 +2,37 @@
 
 ## Goal
 
-Let the operator hand Roadplanner a screenshot (or several) of a Park4Night stop and get a pre-filled durable place profile back, without Roadplanner ever fetching Park4Night itself.
+Let the operator hand Roadplanner a screenshot of a Park4Night (or similar overnight-stay portal) stop and get a pre-filled, verified stop back, without Roadplanner ever fetching Park4Night itself.
 
-## User outcome
+## Superseded by reusing Universal Import
 
-- The operator opens the stop in their own Park4Night app/browser, takes one or more screenshots, and uploads them to Roadplanner.
-- Roadplanner extracts name, GPS coordinates, description, amenities and any visible photos from the screenshot content and proposes a review card, the same way Google Places discovery already does.
-- The operator confirms or edits before anything becomes a durable place profile. Nothing is written automatically.
-- Park4Night remains labeled as the source (place ID/link) for provenance, consistent with existing source-hint handling.
+The original plan below assumed a dedicated screenshot-import pipeline (its own preview cache, review card, confirm path). Investigation found that `UniversalImportManager` (`universal_import_manager.py`) already provides exactly that pipeline for any uploaded file, including images: upload → Gemini Vision/text analysis → editable preview (`preview_items`/`basket_delta`) → operator confirms via `universal_import_transfer` → change lands in the assistant basket or a review changeset. The paperclip attach button and clipboard paste (Ctrl+V) in the "Reisebegleiter" chat already route into this same flow via the "Als Reiseplan oder Übergabe" attachment purpose.
+
+So the actual implementation was a **prompt change only**, in `_IMPORT_SYSTEM_PROMPT`:
+
+- Recognize a Park4Night-style overnight-stay listing screenshot.
+- If decimal GPS coordinates are visible on screen, copy them verbatim into `place_query` as `"latitude,longitude"`. This still goes through the existing, mandatory GPS-Prüfung (`GeocodingProvider.async_resolve` in `geocoding.py` already reverse-geocodes a coordinate-pair query instead of text-searching it) — coordinates are never trusted directly, only used as a reverse-geocoding input that still produces a confirmable candidate.
+- If no coordinates are visible, fall back to name/address as `place_query` (existing behavior).
+- Copy the visible name, amenities/description, and any visible portal ID/URL verbatim into the stop's `notes`, so the existing Park4Night ID recognition (`destination_intelligence.py`, since 4.0.1) can tag provenance downstream.
+- Never invent coordinates, IDs, or addresses that aren't visible.
+
+No new upload path, preview cache, service, or frontend component was needed.
 
 ## Why screenshots, not a live fetch
 
-Automated requests to `park4night.com` are blocked (confirmed via a direct `robots.txt`/terms fetch returning HTTP 403), and Roadplanner's stated privacy policy is that it does not scrape Park4Night or other third-party pages. Repository visibility has no bearing on this. Screenshot import keeps data acquisition in the operator's hands — same as manually copying data today — while automating the tedious part (typing GPS/name/description into Roadplanner).
-
-## Processing contract
-
-```text
-Operator screenshot(s)
-→ upload to Roadplanner
-→ Vision extraction (name, GPS, description, amenities, embedded photo regions)
-→ strict field validation (coordinate bounds, no free-form code execution on extracted text)
-→ review card (same UX as Google Places discovery)
-→ operator confirms/edits
-→ durable place profile with Park4Night source reference
-```
+Automated requests to `park4night.com` are blocked (confirmed via a direct `robots.txt`/terms fetch returning HTTP 403), and Roadplanner's stated privacy policy is that it does not scrape Park4Night or other third-party pages. Repository visibility has no bearing on this. Screenshot import keeps data acquisition in the operator's hands — same as manually copying data today — while automating the tedious part.
 
 ## Safety boundaries
 
 - Roadplanner never requests Park4Night URLs itself; the only Park4Night byte range it processes is what the operator uploaded.
-- Extraction failures fall back to an empty/partial review card the operator fills in manually — never a hard error that blocks stop creation.
-- Uploaded screenshots are treated like other transient discovery images: not retained beyond what's needed to build the review card, unless the operator explicitly keeps one as a place photo.
-- No OCR/Vision output is trusted for anything beyond populating editable review-card fields; the operator's confirmation remains the write gate.
+- Coordinates are read verbatim from the screenshot only as a *reverse-geocoding query*, never written directly as a durable location; the normal GPS-Prüfung and operator review/confirm step are unchanged.
+- The operator's confirmation via `universal_import_transfer` remains the write gate, same as every other import.
 
 ## Open questions
 
-- Multi-screenshot stitching: does one stop ever need more than one screenshot (e.g. overview + photo gallery), and if so how are they correlated in one upload flow?
-- Where does the upload entry point live in the panel (new stop creation vs. existing source-hint flow)?
-- Which Vision provider handles extraction — same Gemini path as EPIC-004, or a dedicated prompt/schema?
+- Multi-screenshot stitching for one stop (overview + photo gallery) is not handled specially; each upload is analyzed independently.
+- Amenity/photo extraction quality depends entirely on prompt tuning and hasn't been evaluated against real Park4Night screenshots yet.
 
 ## Status
 
-Planned, not yet scoped into an RP-XXX implementation task.
+Implemented (prompt-tuning only) — extraction quality against real screenshots not yet field-verified.

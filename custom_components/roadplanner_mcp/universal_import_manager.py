@@ -130,6 +130,18 @@ Regeln:
 - Buchungen, Fähren und Unterkünfte als Notizen/Details der passenden Planung
   beschreiben; keine Entity-Typen booking, transport oder activity erzeugen.
 - Für neue Tage day_date verwenden. Für konkrete Orte place_query verwenden.
+- Zeigt die Datei (z. B. ein Screenshot aus Park4Night oder einem ähnlichen
+  Stellplatz-/Übernachtungsportal) einen einzelnen Ort mit sichtbaren
+  Dezimal-GPS-Koordinaten, diese Koordinaten wörtlich und unverändert als
+  "latitude,longitude" in place_query übernehmen (zum Beispiel
+  "48.1234,11.5678"), damit sie über die reguläre GPS-Prüfung bestätigt
+  werden. Sind keine Koordinaten sichtbar, stattdessen Name oder Adresse als
+  place_query verwenden. Niemals Koordinaten schätzen oder aus einem Namen
+  ableiten.
+- Bei einem erkannten Portal-Stellplatz (zum Beispiel Park4Night) den
+  sichtbaren Namen, die Ausstattung/Beschreibung sowie eine sichtbare
+  Portal-ID oder -URL wörtlich in die Notiz des Stopps übernehmen und den
+  Stopptyp passend als Camping/Übernachtung setzen.
 - remove_ids bleibt immer leer. Roadbook-Löschungen werden als action=remove mit
   einer exakten target_id aus dem Roadbook ausgedrückt.
 - Maximal 50 konkrete, sinnvoll gebündelte Vormerkungen erzeugen. Bei großen
