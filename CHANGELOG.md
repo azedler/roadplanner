@@ -12,6 +12,7 @@ The project follows Semantic Versioning for public releases.
 - Internal: extracted the AI-assisted planning-photo gallery system (per-stop destination galleries, background auto-population, its own scheduling lifecycle) out of `experience_manager.py` into a dedicated `destination_gallery_manager.py` collaborator. No functional or behavior changes.
 - Internal: extracted the aggregated "experience" panel payload assembly out of `experience_manager.py` into a dedicated `panel_payload_builder.py` collaborator, completing the `experience_manager.py` decomposition (3143 → 419 lines across 9 focused modules). No functional or behavior changes.
 - Internal: extracted the exception hierarchy and atomic JSON/text file I/O primitives out of `roadplanner.py` into a dedicated `json_io.py` module (first step of the `roadplanner.py` decomposition). No functional or behavior changes.
+- Internal: extracted ID generation and identifier validation (`_new_id`, `_stable_id`, `validate_identifier`) out of `roadplanner.py` into a dedicated `identifiers.py` module (second step of the `roadplanner.py` decomposition). No functional or behavior changes.
 
 ### Fixed
 

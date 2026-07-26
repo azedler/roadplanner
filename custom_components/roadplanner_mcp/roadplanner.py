@@ -26,6 +26,7 @@ from typing import Any
 import uuid
 
 from .canonical_day import canonical_day_model
+from .identifiers import _ID_PATTERN, _new_id, _stable_id, validate_identifier
 from .json_io import (
     ConcurrentModificationError,
     RevisionConflictError,
@@ -65,7 +66,6 @@ MAX_CONTEXT_STOPS_PER_DAY = 40
 MAX_CONTEXT_JSON_BYTES = 3 * 1024 * 1024
 MAX_CONTEXT_MARKDOWN_CHARS = 300_000
 
-_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 _ROUTING_DETAIL_KEY = "routing"
 _FERRY_STOP_TYPES = frozenset({"ferry", "ferry_terminal", "terminal"})
@@ -90,32 +90,6 @@ def utc_now_iso() -> str:
         .isoformat()
         .replace("+00:00", "Z")
     )
-
-
-def _new_id(prefix: str) -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:12]}"
-
-
-def _stable_id(prefix: str, value: Any, index: int = 0) -> str:
-    material = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    name = f"roadplanner:{prefix}:{index}:{material}"
-    return f"{prefix}-{uuid.uuid5(uuid.NAMESPACE_URL, name).hex[:12]}"
-
-
-def validate_identifier(value: Any, field_name: str) -> str:
-    """Validate IDs and slugs used in filenames."""
-    if not isinstance(value, str) or not _ID_PATTERN.fullmatch(value.strip()):
-        raise ValidationError(
-            f"'{field_name}' darf nur Buchstaben, Zahlen, '_' und '-' enthalten "
-            "und muss 1 bis 128 Zeichen lang sein"
-        )
-    return value.strip()
 
 
 def _ensure_object(value: Any, field_name: str) -> dict[str, Any]:
