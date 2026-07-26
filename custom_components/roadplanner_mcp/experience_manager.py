@@ -2,36 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta
-import hashlib
-import json
 import logging
 from typing import Any
 from urllib.parse import quote
 
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_call_later, async_track_time_interval
-from homeassistant.util import dt as dt_util
+from homeassistant.core import HomeAssistant
 
 from .assistant_provider import AssistantProvider
-from .const import EVENT_ROADPLANNER_UPDATED
 from .decision_manager import DecisionManager
+from .destination_gallery_manager import DestinationGalleryManager
 from .destination_images import DestinationImageProvider
-from .destination_intelligence import analyze_destination, destination_image_query
-from .experience_helpers import (
-    _all_days,
-    _day_date,
-    _find_stop,
-    _parse_datetime,
-    _stops,
-)
+from .experience_helpers import _stops
 from .media_intelligence import build_media_presentation
 from .experience_store import (
     ExperienceStore,
     resolve_decision_media_references,
-    utc_now_iso,
 )
 from .geocoding import GeocodingProvider
 from .manager import RoadplannerManager
@@ -46,17 +32,12 @@ from .onedrive_media import OneDrivePersonalClient
 from .place_cleanup import PlaceCleanupService
 from .place_enrichment import PlaceEnrichmentService
 from .place_enrichment_orchestrator import PlaceEnrichmentOrchestrator
-from .roadplanner import RoadplannerError, ValidationError
+from .roadplanner import RoadplannerError
 from .routing import OSRMRoutingClient
 
 _LOGGER = logging.getLogger(__name__)
 
-_DESTINATION_GALLERY_SIZE = 3
 _DESTINATION_AUTO_BATCH = 6
-_DESTINATION_EMPTY_RETRY_SECONDS = 6 * 60 * 60
-_DESTINATION_BACKGROUND_INTERVAL_MINUTES = 30
-_DESTINATION_INITIAL_DELAY_SECONDS = 45
-_DESTINATION_BACKGROUND_BATCH = 4
 _VISION_BACKGROUND_BATCH = 3
 
 
@@ -119,19 +100,6 @@ class RoadplannerExperienceManager:
             if geocoder is not None and geocoder.enabled
             else None
         )
-        self._destination_enrichment_lock = asyncio.Lock()
-        self._unsub_destination_interval: Any = None
-        self._unsub_destination_start: Any = None
-        self._destination_enrichment_status: dict[str, Any] = {
-            "enabled": True,
-            "state": "idle",
-            "last_run_at": None,
-            "last_trip_id": None,
-            "searched": 0,
-            "updated": 0,
-            "error": None,
-            "interval_minutes": _DESTINATION_BACKGROUND_INTERVAL_MINUTES,
-        }
         self._media_tokens = MediaTokenService(hass=hass, store=store, onedrive=onedrive)
         self._media_curation = MediaCurationManager(
             hass,
@@ -139,6 +107,15 @@ class RoadplannerExperienceManager:
             manager,
             self._vision_curation,
             get_panel_payload=self.async_panel_payload,
+        )
+        self._destination_gallery = DestinationGalleryManager(
+            hass,
+            store,
+            manager,
+            image_provider,
+            self._vision_curation,
+            get_panel_payload=self.async_panel_payload,
+            trigger_vision_curation=self._on_media_changed,
         )
         self._media_library = MediaLibraryManager(
             hass,
@@ -176,16 +153,11 @@ class RoadplannerExperienceManager:
 
     async def async_initialize(self) -> None:
         await self._media_library.async_initialize()
-        self._reschedule_destination_enrichment()
+        await self._destination_gallery.async_initialize()
 
     async def async_shutdown(self) -> None:
         await self._media_library.async_shutdown()
-        if self._unsub_destination_interval:
-            self._unsub_destination_interval()
-            self._unsub_destination_interval = None
-        if self._unsub_destination_start:
-            self._unsub_destination_start()
-            self._unsub_destination_start = None
+        await self._destination_gallery.async_shutdown()
 
     @property
     def folder_path(self) -> str:
@@ -296,109 +268,6 @@ class RoadplannerExperienceManager:
 
     async def async_delete_media(self, trip_id: str, media_id: str) -> dict[str, Any]:
         return await self._media_library.async_delete_media(trip_id, media_id)
-
-    def _reschedule_destination_enrichment(self) -> None:
-        """Schedule bounded background planning-image enrichment."""
-        if self._unsub_destination_interval:
-            self._unsub_destination_interval()
-            self._unsub_destination_interval = None
-        if self._unsub_destination_start:
-            self._unsub_destination_start()
-            self._unsub_destination_start = None
-        self._unsub_destination_interval = async_track_time_interval(
-            self.hass,
-            self._periodic_destination_enrichment,
-            timedelta(minutes=_DESTINATION_BACKGROUND_INTERVAL_MINUTES),
-        )
-        self._unsub_destination_start = async_call_later(
-            self.hass,
-            _DESTINATION_INITIAL_DELAY_SECONDS,
-            self._initial_destination_enrichment,
-        )
-
-    @callback
-    def _initial_destination_enrichment(self, _now: datetime) -> None:
-        self._unsub_destination_start = None
-        self.hass.async_create_task(self._async_periodic_destination_enrichment())
-
-    @callback
-    def _periodic_destination_enrichment(self, _now: datetime) -> None:
-        self.hass.async_create_task(self._async_periodic_destination_enrichment())
-
-    async def _async_periodic_destination_enrichment(self) -> None:
-        if self._destination_enrichment_lock.locked():
-            return
-        async with self._destination_enrichment_lock:
-            trips = await self.manager.async_list_trips()
-            active_trip = (
-                str(trips.get("active_trip") or "")
-                if isinstance(trips, dict)
-                else ""
-            )
-            if not active_trip:
-                return
-            self._destination_enrichment_status.update(
-                {
-                    "state": "running",
-                    "last_trip_id": active_trip,
-                    "error": None,
-                }
-            )
-            try:
-                if self.vision_enabled:
-                    await self.async_auto_curate_media(
-                        active_trip,
-                        limit=_VISION_BACKGROUND_BATCH,
-                        include_experience=False,
-                    )
-                result = await self.async_auto_populate_destination_galleries(
-                    active_trip,
-                    limit=_DESTINATION_BACKGROUND_BATCH,
-                    include_experience=False,
-                )
-            except (RoadplannerError, asyncio.TimeoutError) as err:
-                self._destination_enrichment_status.update(
-                    {
-                        "state": "error",
-                        "last_run_at": utc_now_iso(),
-                        "searched": 0,
-                        "updated": 0,
-                        "error": str(err)[:500],
-                    }
-                )
-                _LOGGER.debug("Background destination image enrichment failed: %s", err)
-                return
-            except Exception as err:  # noqa: BLE001 - background tasks must fail closed
-                self._destination_enrichment_status.update(
-                    {
-                        "state": "error",
-                        "last_run_at": utc_now_iso(),
-                        "searched": 0,
-                        "updated": 0,
-                        "error": type(err).__name__,
-                    }
-                )
-                _LOGGER.exception("Unexpected destination image enrichment failure")
-                return
-            self._destination_enrichment_status.update(
-                {
-                    "state": "idle",
-                    "last_run_at": utc_now_iso(),
-                    "searched": int(result.get("searched") or 0),
-                    "updated": int(result.get("updated") or 0),
-                    "error": None,
-                }
-            )
-            if int(result.get("updated") or 0):
-                self.hass.bus.async_fire(
-                    EVENT_ROADPLANNER_UPDATED,
-                    {
-                        "experience_changed": True,
-                        "source": "destination_image_enrichment",
-                    },
-                )
-
-
 
     def validate_token(self, trip_id: str, media_id: str, kind: str, token: str) -> bool:
         return self._media_tokens.validate_token(trip_id, media_id, kind, token)
@@ -520,7 +389,7 @@ class RoadplannerExperienceManager:
             "presentation": presentation,
             "by_day": by_day,
             "by_stop": by_stop,
-            "destination_enrichment": deepcopy(self._destination_enrichment_status),
+            "destination_enrichment": deepcopy(self._destination_gallery.status),
             "place_providers": self._place_provider_status(),
             "vision": {
                 **deepcopy(self._media_curation.vision_status),
@@ -643,143 +512,15 @@ class RoadplannerExperienceManager:
             cleanup_confirmations=cleanup_confirmations,
         )
 
-    @staticmethod
-    def _destination_query(day: dict[str, Any], stop: dict[str, Any]) -> str:
-        """Return a concise image query based on the stop identity/profile."""
-        intent = analyze_destination(day, stop)
-        return destination_image_query(day, stop, intent=intent)
-
-
-
-    @staticmethod
-    def _destination_query_fingerprint(
-        day: dict[str, Any],
-        stop: dict[str, Any],
-        query: str,
-    ) -> str:
-        location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
-        value = {
-            "day_id": day.get("id"),
-            "stop_id": stop.get("id"),
-            "query": query,
-            "latitude": location.get("latitude", location.get("lat")),
-            "longitude": location.get("longitude", location.get("lon", location.get("lng"))),
-        }
-        return hashlib.sha256(
-            json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode()
-        ).hexdigest()
-
-    async def _destination_gallery_for_stop(
-        self,
-        trip_id: str,
-        day: dict[str, Any],
-        stop: dict[str, Any],
-        *,
-        existing_gallery: dict[str, Any] | None = None,
-        force_vision: bool = False,
-    ) -> dict[str, Any]:
-        """Build a locally ranked gallery, optionally semantically curated."""
-        query = self._destination_query(day, stop)
-        if not query:
-            raise ValidationError("Für diesen Stopp fehlen Angaben für die Bildsuche")
-        location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
-        search_limit = (
-            self.media_vision_max_candidates
-            if self.vision_enabled
-            else _DESTINATION_GALLERY_SIZE
-        )
-        result = await self.image_provider.async_search(
-            query,
-            limit=search_limit,
-            latitude=location.get("latitude", location.get("lat")),
-            longitude=location.get("longitude", location.get("lon", location.get("lng"))),
-        )
-        candidates = list(result.get("results") or [])[:search_limit]
-        errors = dict(result.get("provider_errors") or {})
-        existing_curation = (
-            existing_gallery.get("curation")
-            if isinstance(existing_gallery, dict)
-            and isinstance(existing_gallery.get("curation"), dict)
-            else None
-        )
-        curation: dict[str, Any] = {}
-        images = candidates[:_DESTINATION_GALLERY_SIZE]
-        if candidates:
-            curation = await self._vision_curation.async_curate(
-                trip_id=trip_id,
-                kind="planning",
-                day=day,
-                stop=stop,
-                candidates=candidates,
-                existing=existing_curation,
-                force=force_vision,
-            )
-            by_id = {
-                str(item.get("id") or ""): item
-                for item in candidates
-                if str(item.get("id") or "")
-            }
-            ordered_ids = [
-                str(item)
-                for item in list(curation.get("highlight_ids") or [])
-                if str(item) in by_id
-            ]
-            for item in candidates:
-                image_id = str(item.get("id") or "")
-                if image_id and image_id not in ordered_ids:
-                    ordered_ids.append(image_id)
-            images = [deepcopy(by_id[item]) for item in ordered_ids[:_DESTINATION_GALLERY_SIZE]]
-        if images and errors:
-            status = "partial"
-        elif images:
-            status = "ready"
-        elif errors:
-            status = "error"
-        else:
-            status = "empty"
-        primary = str(curation.get("cover_id") or "")
-        if not any(str(item.get("id") or "") == primary for item in images):
-            primary = str(images[0].get("id") or "") if images else ""
-        return {
-            "stop_id": str(stop.get("id") or ""),
-            "day_id": str(day.get("id") or ""),
-            "query": query,
-            "query_fingerprint": self._destination_query_fingerprint(day, stop, query),
-            "status": status,
-            "images": images,
-            "primary_image_id": primary or None,
-            "provider_errors": errors,
-            "curation": curation,
-            "attempted_at": utc_now_iso(),
-            "updated_at": utc_now_iso(),
-        }
-
     async def async_refresh_destination_gallery(
         self,
         trip_id: str,
         day_id: str,
         stop_id: str,
     ) -> dict[str, Any]:
-        payload = await self.manager.async_get_assistant_payload(trip_id)
-        days = _all_days(payload)
-        day, stop = _find_stop(days, day_id, stop_id)
-        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
-        gallery = await self._destination_gallery_for_stop(
-            trip_id,
-            day,
-            stop,
-            existing_gallery=(state.get("destination_galleries") or {}).get(stop_id),
-            force_vision=True,
+        return await self._destination_gallery.async_refresh_destination_gallery(
+            trip_id, day_id, stop_id
         )
-        await self.hass.async_add_executor_job(
-            self.store.upsert_destination_galleries,
-            trip_id,
-            [gallery],
-        )
-        return {
-            "gallery": gallery,
-            "experience": await self.async_panel_payload(trip_id),
-        }
 
     async def async_save_destination_gallery(
         self,
@@ -789,72 +530,16 @@ class RoadplannerExperienceManager:
         images: list[dict[str, Any]],
         primary_image_id: str | None,
     ) -> dict[str, Any]:
-        payload = await self.manager.async_get_assistant_payload(trip_id)
-        days = _all_days(payload)
-        day, stop = _find_stop(days, day_id, stop_id)
-        query = self._destination_query(day, stop)
-        selected_images = list(images or [])[:_DESTINATION_GALLERY_SIZE]
-        selected_ids = [
-            str(item.get("id") or "")
-            for item in selected_images
-            if isinstance(item, dict) and str(item.get("id") or "")
-        ]
-        if primary_image_id and primary_image_id in selected_ids:
-            selected_ids = [primary_image_id, *[item for item in selected_ids if item != primary_image_id]]
-        gallery = {
-            "stop_id": stop_id,
-            "day_id": day_id,
-            "query": query,
-            "query_fingerprint": self._destination_query_fingerprint(day, stop, query),
-            "status": "ready" if selected_images else "empty",
-            "images": selected_images,
-            "primary_image_id": primary_image_id,
-            "provider_errors": {},
-            "curation": {
-                "stop_id": stop_id,
-                "kind": "planning",
-                "status": "ready",
-                "mode": "manual",
-                "model": None,
-                "candidate_ids": selected_ids,
-                "cover_id": primary_image_id if primary_image_id in selected_ids else (selected_ids[0] if selected_ids else None),
-                "highlight_ids": selected_ids,
-                "rejected_ids": [],
-                "reasons": {},
-                "summary": "Vom Benutzer ausgewählte Planungsbilder.",
-                "selected_at": utc_now_iso(),
-                "error": None,
-            },
-            "attempted_at": utc_now_iso(),
-            "updated_at": utc_now_iso(),
-        }
-        await self.hass.async_add_executor_job(
-            self.store.upsert_destination_galleries,
-            trip_id,
-            [gallery],
+        return await self._destination_gallery.async_save_destination_gallery(
+            trip_id, day_id, stop_id, images, primary_image_id
         )
-        stored = (
-            await self.hass.async_add_executor_job(self.store.load, trip_id)
-        ).get("destination_galleries", {}).get(stop_id)
-        return {
-            "gallery": stored,
-            "experience": await self.async_panel_payload(trip_id),
-        }
 
     async def async_delete_destination_gallery(
         self,
         trip_id: str,
         stop_id: str,
     ) -> dict[str, Any]:
-        await self.hass.async_add_executor_job(
-            self.store.delete_destination_gallery,
-            trip_id,
-            stop_id,
-        )
-        return {
-            "ok": True,
-            "experience": await self.async_panel_payload(trip_id),
-        }
+        return await self._destination_gallery.async_delete_destination_gallery(trip_id, stop_id)
 
     async def async_auto_populate_destination_galleries(
         self,
@@ -863,120 +548,9 @@ class RoadplannerExperienceManager:
         limit: int = _DESTINATION_AUTO_BATCH,
         include_experience: bool = True,
     ) -> dict[str, Any]:
-        """Populate missing planning galleries without replacing own travel photos."""
-        payload = await self.manager.async_get_assistant_payload(trip_id)
-        days = _all_days(payload)
-        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
-        existing = dict(state.get("destination_galleries") or {})
-        own_media_stop_ids = {
-            str(item.get("linked_stop_id") or "")
-            for item in list(state.get("media") or [])
-            if isinstance(item, dict) and str(item.get("linked_stop_id") or "")
-        }
-        today = dt_util.now().date()
-
-        def day_priority(day: dict[str, Any]) -> tuple[int, int, str]:
-            value = _day_date(day)
-            if value is None:
-                return (3, 0, str(day.get("id") or ""))
-            if value == today:
-                return (0, value.toordinal(), str(day.get("id") or ""))
-            if value > today:
-                return (1, value.toordinal(), str(day.get("id") or ""))
-            return (2, -value.toordinal(), str(day.get("id") or ""))
-
-        candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        now = dt_util.now()
-        batch_limit = max(1, min(int(limit), 12))
-        for day in sorted(days, key=day_priority):
-            for stop in _stops(day):
-                stop_id = str(stop.get("id") or "")
-                if not stop_id or stop_id in own_media_stop_ids:
-                    continue
-                query = self._destination_query(day, stop)
-                fingerprint = self._destination_query_fingerprint(day, stop, query)
-                gallery = existing.get(stop_id)
-                if isinstance(gallery, dict) and gallery.get("query_fingerprint") == fingerprint:
-                    gallery_curation = (
-                        gallery.get("curation")
-                        if isinstance(gallery.get("curation"), dict)
-                        else {}
-                    )
-                    needs_vision_refresh = bool(
-                        gallery.get("images")
-                        and self.vision_enabled
-                        and not (
-                            gallery_curation.get("status") == "ready"
-                            and gallery_curation.get("mode") in {"hybrid_vision", "manual"}
-                        )
-                    )
-                    if gallery.get("images") and not needs_vision_refresh:
-                        continue
-                    attempted = _parse_datetime(gallery.get("attempted_at"))
-                    if (
-                        not needs_vision_refresh
-                        and attempted
-                        and (now - attempted).total_seconds() < _DESTINATION_EMPTY_RETRY_SECONDS
-                    ):
-                        continue
-                candidates.append((day, stop))
-                if len(candidates) >= batch_limit:
-                    break
-            if len(candidates) >= batch_limit:
-                break
-        if not candidates:
-            result: dict[str, Any] = {
-                "searched": 0,
-                "updated": 0,
-            }
-            if include_experience:
-                result["experience"] = await self.async_panel_payload(trip_id)
-            return result
-
-        semaphore = asyncio.Semaphore(3)
-
-        async def build(day: dict[str, Any], stop: dict[str, Any]) -> dict[str, Any]:
-            async with semaphore:
-                try:
-                    return await self._destination_gallery_for_stop(
-                        trip_id,
-                        day,
-                        stop,
-                        existing_gallery=existing.get(str(stop.get("id") or "")),
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except RoadplannerError as err:
-                    query = self._destination_query(day, stop)
-                    return {
-                        "stop_id": str(stop.get("id") or ""),
-                        "day_id": str(day.get("id") or ""),
-                        "query": query,
-                        "query_fingerprint": self._destination_query_fingerprint(day, stop, query),
-                        "status": "error",
-                        "images": [],
-                        "primary_image_id": None,
-                        "provider_errors": {"roadplanner": str(err)[:500]},
-                        "attempted_at": utc_now_iso(),
-                        "updated_at": utc_now_iso(),
-                    }
-
-        galleries = await asyncio.gather(
-            *(build(day, stop) for day, stop in candidates)
+        return await self._destination_gallery.async_auto_populate_destination_galleries(
+            trip_id, limit=limit, include_experience=include_experience
         )
-        result = await self.hass.async_add_executor_job(
-            self.store.upsert_destination_galleries,
-            trip_id,
-            list(galleries),
-        )
-        response: dict[str, Any] = {
-            "searched": len(candidates),
-            "updated": int(result.get("updated") or 0),
-        }
-        if include_experience:
-            response["experience"] = await self.async_panel_payload(trip_id)
-        return response
-
 
     async def async_create_decision_from_message(
         self, *, user_id: str, trip_id: str, message_id: str
