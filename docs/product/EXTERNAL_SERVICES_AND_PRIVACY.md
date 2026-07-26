@@ -41,6 +41,8 @@ Planning-image searches send a short destination query and optional coordinates.
 
 Roadplanner recognizes source IDs and links and can open them for manual review. It does not scrape Park4Night, Google Maps or other third-party pages.
 
+When the assistant compiles a new or updated stop and the operator's message contains a Google Maps link, Roadplanner reads only that link's own URL structure (a coordinate pair or a place name already encoded in the address) - it never fetches or parses the Google Maps page itself. If the link is a short link (`goo.gl`/`maps.app.goo.gl`), Roadplanner follows the HTTP redirect to read the resulting Google URL, again without downloading any page content. The resulting coordinate or name is then resolved exactly like any other place through the normal GPS-Prüfung/Google Places search and operator confirmation - never trusted directly.
+
 ## Context exports
 
 `tools/dev.py context-export` excludes known secret files, Home Assistant storage, Roadbooks, documents, travel media, backups, patches and binary archives. The operator must still inspect the ZIP before sharing it with any external AI or reviewer.

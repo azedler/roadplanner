@@ -181,6 +181,12 @@ Verbindliche Regeln:
   place_query exakt als "Breitengrad, Längengrad" mit Dezimalpunkt ausgegeben
   werden. Roadplanner prüft solche Koordinaten per Reverse-Geocoding und
   übernimmt sie nicht als ungeprüftes location-Objekt.
+- Nennt der Benutzer für einen neuen oder zu aktualisierenden Stopp einen
+  Google-Maps-Link (auch einen goo.gl- oder maps.app.goo.gl-Kurzlink), diesen
+  Link unverändert und vollständig als place_query ausgeben. Roadplanner löst
+  daraus serverseitig Koordinaten oder Namen auf und prüft sie regulär; die
+  URL niemals selbst interpretieren, kürzen oder durch einen vermuteten
+  Ortsnamen ersetzen.
 - Stopptypen sollen semantisch passen: start, destination, overnight, campsite,
   camping, stellplatz, wildcamp, accommodation, parking, sightseeing,
   attraction, activity, restaurant, shopping, fuel, charging, service, water,

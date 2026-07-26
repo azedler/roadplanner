@@ -65,6 +65,7 @@ from .assistant_shared import (
     _utc_now_iso,
 )
 from .geocoding import GeocodingError, NominatimGeocoder
+from .google_maps_link import async_resolve_google_maps_place_query
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
 
@@ -1321,6 +1322,13 @@ class RoadplannerAssistant:
                 for day_ref in new_day_refs:
                     position_state.setdefault(day_ref, [])
                 for index, raw in enumerate(prepared_raw_operations):
+                    place_query = raw.get("place_query") if isinstance(raw, dict) else None
+                    if isinstance(place_query, str) and place_query:
+                        resolved_place_query = await async_resolve_google_maps_place_query(
+                            self.manager.hass, place_query
+                        )
+                        if resolved_place_query:
+                            raw["place_query"] = resolved_place_query
                     operations.append(
                         _sanitize_operation(
                             raw,
