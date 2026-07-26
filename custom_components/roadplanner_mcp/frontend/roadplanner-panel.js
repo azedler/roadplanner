@@ -287,13 +287,17 @@ class RoadplannerPanel extends HTMLElement {
     });
     this.shadowRoot.addEventListener("paste", (event) => {
       const zone = event.target?.closest?.("[data-archive-paste-zone]");
-      if (!zone && this._dialog?.type !== "archive-paste-text") return;
+      const assistantForm = event.target
+        ?.closest?.("textarea[name='message']")
+        ?.closest("form[data-form='assistant-chat']");
+      if (!zone && !assistantForm && this._dialog?.type !== "archive-paste-text") return;
+      if (assistantForm && !this._canEdit()) return;
       const file = this._clipboardFileFromData(event.clipboardData);
       if (!file) return;
       event.preventDefault();
-      this._closeDialog({ flushRefresh: false });
+      if (!assistantForm) this._closeDialog({ flushRefresh: false });
       void this._uploadArchiveFile(file, {
-        source: "clipboard_paste",
+        source: assistantForm ? "assistant" : "clipboard_paste",
         keepOriginal: true,
         links: this._archiveLinks(),
       });
