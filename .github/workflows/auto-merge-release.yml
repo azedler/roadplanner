@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: roadplanner-auto-merge
@@ -45,10 +46,15 @@ jobs:
             exit 0
           fi
           gh pr merge "${pr_number}" --merge --delete-branch=false
+          # A merge performed with the default GITHUB_TOKEN does not trigger
+          # other workflows' `push` events (GitHub's anti-recursion rule), so
+          # release.yml would never start on its own. Dispatch it explicitly -
+          # an API-triggered workflow_dispatch is not subject to that rule.
+          gh workflow run release.yml --ref main
           {
             echo "## Release pull request merged"
             echo
             echo "- Pull request: #${pr_number}"
             echo "- Validated commit: \`${HEAD_SHA}\`"
-            echo "Publication continues automatically on \`main\`."
+            echo "Publication workflow dispatched on \`main\`."
           } >> "$GITHUB_STEP_SUMMARY"
