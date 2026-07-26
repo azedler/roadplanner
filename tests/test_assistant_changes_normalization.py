@@ -93,9 +93,14 @@ except module.StructuredOutputError as err:
 else:
     raise AssertionError("Multiple nested operations must not be merged")
 
-assistant_source = Path(
-    "custom_components/roadplanner_mcp/assistant.py"
-).read_text(encoding="utf-8")
+assistant_source = "".join(
+    Path(path).read_text(encoding="utf-8")
+    for path in (
+        "custom_components/roadplanner_mcp/assistant.py",
+        "custom_components/roadplanner_mcp/assistant_compile.py",
+        "custom_components/roadplanner_mcp/assistant_operation_sanitizer.py",
+    )
+)
 prompt_source = Path(
     "custom_components/roadplanner_mcp/assistant_prompt.py"
 ).read_text(encoding="utf-8")
