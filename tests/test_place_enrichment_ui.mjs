@@ -1,9 +1,14 @@
 import fs from "node:fs";
 
-const source = fs.readFileSync(
-  "custom_components/roadplanner_mcp/frontend/roadplanner-panel.js",
-  "utf8",
-);
+const source =
+  fs.readFileSync(
+    "custom_components/roadplanner_mcp/frontend/roadplanner-panel.js",
+    "utf8",
+  ) +
+  fs.readFileSync(
+    "custom_components/roadplanner_mcp/frontend/lib/styles.js",
+    "utf8",
+  );
 
 for (const required of [
   '"prepare_place_enrichment"',
