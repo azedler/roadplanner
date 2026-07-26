@@ -3838,6 +3838,7 @@ class RoadplannerPanel extends HTMLElement {
     const labels = {
       wikimedia_commons: "Wikimedia Commons",
       openverse: "Openverse",
+      google_places: "Google",
       manual: "Manuell",
       onedrive: "OneDrive",
     };

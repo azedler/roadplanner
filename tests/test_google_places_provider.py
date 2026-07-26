@@ -253,11 +253,81 @@ async def verify_composite_fallback() -> None:
     assert fallback.reverse_calls == [], "Google must not provide durable reverse data"
 
 
+class FakeGooglePhotos(google_places.GooglePlacesClient):
+    """Overrides network calls to verify the opt-in photo search contract."""
+
+    def __init__(self, *, photos_enabled: bool, photos_daily_limit: int = 10):
+        self._api_key = "test-key"
+        self.enabled = True
+        self.configured = True
+        self.photos_enabled = bool(photos_enabled)
+        self._photos_daily_limit = photos_daily_limit
+        self._photos_requests_today = 0
+        self._photos_last_error = None
+        self._request_timeout = 25
+        self.text_search_calls = 0
+        self.media_calls: list[str] = []
+
+    async def _request(self, body, *, field_mask=None):
+        self.text_search_calls += 1
+        assert field_mask == google_places._PHOTOS_FIELD_MASK, (
+            "photo search must use the photos field mask, never the "
+            "identity/address mask used for place resolution"
+        )
+        return {
+            "places": [
+                {
+                    "id": "ChIJ-photo-test",
+                    "displayName": {"text": "RMK Matsiranna telkimisala"},
+                    "googleMapsUri": "https://maps.google.com/?cid=456",
+                    "photos": [
+                        {
+                            "name": "places/ChIJ-photo-test/photos/ref-1",
+                            "widthPx": 4032,
+                            "heightPx": 3024,
+                            "authorAttributions": [{"displayName": "Jane Doe"}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _resolve_photo_media(self, photo_name):
+        self.media_calls.append(photo_name)
+        return f"https://lh3.googleusercontent.com/places/{photo_name}"
+
+
+async def verify_photos_opt_in() -> None:
+    # Off by default, and async_search_photos must fail closed without
+    # making any network call when the opt-in flag is not set.
+    disabled = FakeGooglePhotos(photos_enabled=False)
+    assert disabled.photos_enabled is False
+    results = await disabled.async_search_photos("RMK Matsiranna Estonia")
+    assert results == []
+    assert disabled.text_search_calls == 0
+
+    enabled = FakeGooglePhotos(photos_enabled=True)
+    photos = await enabled.async_search_photos("RMK Matsiranna Estonia", limit=6)
+    assert enabled.text_search_calls == 1
+    assert len(photos) == 1
+    photo = photos[0]
+    assert photo["photo_name"] == "places/ChIJ-photo-test/photos/ref-1"
+    assert photo["photo_uri"].startswith("https://lh3.googleusercontent.com/")
+    assert photo["author"] == "Jane Doe"
+    assert photo["place_title"] == "RMK Matsiranna telkimisala"
+    assert photo["source_url"] == "https://maps.google.com/?cid=456"
+    assert enabled.media_calls == ["places/ChIJ-photo-test/photos/ref-1"]
+
+
 asyncio.run(verify_google_candidate())
 asyncio.run(verify_composite_fallback())
+asyncio.run(verify_photos_opt_in())
 
 source = Path("custom_components/roadplanner_mcp/google_places.py").read_text(encoding="utf-8")
 assert "X-Goog-Api-Key" in source
-assert "places.photos" not in source
+# Photo data must never be requested by the identity/address search used for
+# reviewed place enrichment - only by the separate, off-by-default photo path.
+assert "places.photos" not in google_places._FIELD_MASK
+assert "places.photos" in google_places._PHOTOS_FIELD_MASK
 assert "_api_key" not in " ".join(google_places.GooglePlacesStatus.__annotations__)
 print("Google Places provider tests passed.")

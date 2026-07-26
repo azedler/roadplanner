@@ -45,6 +45,8 @@ from .const import (
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
+    CONF_GOOGLE_PHOTOS_DAILY_LIMIT,
+    CONF_GOOGLE_PHOTOS_ENABLED,
     CONF_GOOGLE_PLACES_API_KEY,
     CONF_GOOGLE_PLACES_DAILY_LIMIT,
     CONF_GOOGLE_PLACES_ENABLED,
@@ -100,6 +102,8 @@ from .const import (
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
+    DEFAULT_GOOGLE_PHOTOS_DAILY_LIMIT,
+    DEFAULT_GOOGLE_PHOTOS_ENABLED,
     DEFAULT_GOOGLE_PLACES_API_KEY,
     DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
     DEFAULT_GOOGLE_PLACES_ENABLED,
@@ -126,6 +130,7 @@ from .const import (
     MAX_ASSISTANT_REQUEST_TIMEOUT,
     MAX_ASSISTANT_RETRY_ATTEMPTS,
     MAX_REFRESH_INTERVAL,
+    MAX_GOOGLE_PHOTOS_DAILY_LIMIT,
     MAX_GOOGLE_PLACES_DAILY_LIMIT,
     MAX_GOOGLE_PLACES_REQUEST_TIMEOUT,
     MIN_DOCUMENT_MAX_UPLOAD_MB,
@@ -140,6 +145,7 @@ from .const import (
     MIN_ASSISTANT_REQUEST_TIMEOUT,
     MIN_ASSISTANT_RETRY_ATTEMPTS,
     MIN_REFRESH_INTERVAL,
+    MIN_GOOGLE_PHOTOS_DAILY_LIMIT,
     MIN_GOOGLE_PLACES_DAILY_LIMIT,
     MIN_GOOGLE_PLACES_REQUEST_TIMEOUT,
     NAME,
@@ -457,6 +463,26 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 vol.Range(
                     min=MIN_GOOGLE_PLACES_REQUEST_TIMEOUT,
                     max=MAX_GOOGLE_PLACES_REQUEST_TIMEOUT,
+                ),
+            ),
+            vol.Required(
+                CONF_GOOGLE_PHOTOS_ENABLED,
+                default=defaults.get(
+                    CONF_GOOGLE_PHOTOS_ENABLED,
+                    DEFAULT_GOOGLE_PHOTOS_ENABLED,
+                ),
+            ): bool,
+            vol.Required(
+                CONF_GOOGLE_PHOTOS_DAILY_LIMIT,
+                default=defaults.get(
+                    CONF_GOOGLE_PHOTOS_DAILY_LIMIT,
+                    DEFAULT_GOOGLE_PHOTOS_DAILY_LIMIT,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_GOOGLE_PHOTOS_DAILY_LIMIT,
+                    max=MAX_GOOGLE_PHOTOS_DAILY_LIMIT,
                 ),
             ),
             vol.Required(

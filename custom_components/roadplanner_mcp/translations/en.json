@@ -55,7 +55,9 @@
           "google_places_api_key": "Google Places API key",
           "google_places_mode": "Google Places provider priority",
           "google_places_daily_limit": "Maximum Google Places searches per day",
-          "google_places_request_timeout": "Google Places request timeout (seconds)"
+          "google_places_request_timeout": "Google Places request timeout (seconds)",
+          "google_photos_enabled": "Enable Google Places photos (test)",
+          "google_photos_daily_limit": "Maximum Google Places photo requests per day"
         },
         "data_description": {
           "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
@@ -107,7 +109,9 @@
           "google_places_api_key": "Server-side Google Maps Platform key with Places API (New) enabled. The key stays in the Home Assistant config entry and is never sent to the browser. Leave blank to keep the current key.",
           "google_places_mode": "fallback uses OpenStreetMap first and calls Google only when no safe concrete result exists. preferred asks Google first and keeps OpenStreetMap as fallback.",
           "google_places_daily_limit": "Roadplanner-side daily limit for billable Google Places Text Search calls. Identical searches reused from the short in-memory cache do not count again. Zero disables Google requests. Google Cloud quotas and budgets remain authoritative.",
-          "google_places_request_timeout": "Maximum duration of one Google Places request. Range: 5 to 60 seconds."
+          "google_places_request_timeout": "Maximum duration of one Google Places request. Range: 5 to 60 seconds.",
+          "google_photos_enabled": "Opt-in test feature: adds Google Places photos as a third destination-image source alongside Wikimedia Commons and Openverse. Unlike those, Google photo requests are a separately billed Google API and the images are not openly licensed - they show a 'Photo by Google' attribution and are not cached long-term by Roadplanner. Only takes effect when Google Places is configured with an API key.",
+          "google_photos_daily_limit": "Roadplanner-side daily limit for billable Google Places photo media requests, tracked separately from the Google Places search limit above. Range: 0 to 200. Zero disables Google photo requests."
         }
       }
     },

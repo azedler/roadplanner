@@ -44,6 +44,8 @@ from .const import (
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
+    CONF_GOOGLE_PHOTOS_DAILY_LIMIT,
+    CONF_GOOGLE_PHOTOS_ENABLED,
     CONF_GOOGLE_PLACES_API_KEY,
     CONF_GOOGLE_PLACES_DAILY_LIMIT,
     CONF_GOOGLE_PLACES_ENABLED,
@@ -103,6 +105,8 @@ from .const import (
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
+    DEFAULT_GOOGLE_PHOTOS_DAILY_LIMIT,
+    DEFAULT_GOOGLE_PHOTOS_ENABLED,
     DEFAULT_GOOGLE_PLACES_API_KEY,
     DEFAULT_GOOGLE_PLACES_DAILY_LIMIT,
     DEFAULT_GOOGLE_PLACES_ENABLED,
@@ -179,6 +183,7 @@ class RoadplannerRuntimeData:
     webhook_token: str | None
     non_admin_role: str
     image_provider: DestinationImageProvider
+    image_provider_google_photos_enabled: bool
     assistant: RoadplannerAssistant
     router: OSRMRoutingClient
     travel_archive: TravelArchiveManager
@@ -412,6 +417,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
             )
         ),
+        photos_enabled=bool(
+            options.get(
+                CONF_GOOGLE_PHOTOS_ENABLED,
+                DEFAULT_GOOGLE_PHOTOS_ENABLED,
+            )
+        ),
+        photos_daily_limit=int(
+            options.get(
+                CONF_GOOGLE_PHOTOS_DAILY_LIMIT,
+                DEFAULT_GOOGLE_PHOTOS_DAILY_LIMIT,
+            )
+        ),
     )
     geocoder = CompositePlaceProvider(
         nominatim,
@@ -464,7 +481,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         travel_archive=travel_archive,
     )
 
-    image_provider = DestinationImageProvider(hass)
+    image_provider = DestinationImageProvider(hass, google_places=google_places)
     onedrive = OneDrivePersonalClient(
         hass,
         client_id=str(
@@ -558,6 +575,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DEFAULT_NON_ADMIN_ROLE,
         ),
         image_provider=image_provider,
+        image_provider_google_photos_enabled=google_places.photos_enabled,
         assistant=assistant,
         router=router,
         travel_archive=travel_archive,

@@ -1,8 +1,11 @@
 """Optional Google Places (New) fallback for Roadplanner destination search.
 
-The client deliberately requests only the identity, address, type and location
-fields required for reviewed place enrichment.  It never exposes the API key to
-the browser, never logs it and does not persist Google photo resource names.
+The place-resolution client deliberately requests only the identity, address,
+type and location fields required for reviewed place enrichment. It never
+exposes the API key to the browser and never logs it. Photo search
+(`async_search_photos`) is a separate, off-by-default opt-in path with its own
+quota - see docs/product/EXTERNAL_SERVICES_AND_PRIVACY.md for the data-flow
+and attribution requirements that come with it.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import logging
 import math
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from aiohttp import ClientError, ClientSession
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -49,9 +53,22 @@ _FIELD_MASK = ",".join(
         "places.businessStatus",
     )
 )
+# Deliberately separate from _FIELD_MASK: photo data is a different, more
+# expensive part of the place record and must only be requested by the
+# opt-in destination-photo search path, never by the geocoding search above.
+_PHOTOS_FIELD_MASK = ",".join(
+    (
+        "places.id",
+        "places.displayName",
+        "places.googleMapsUri",
+        "places.photos",
+    )
+)
 _MAX_CACHE = 250
 _MAX_RESULTS = 5
 _CACHE_TTL_SECONDS = 5 * 60
+_MAX_PHOTOS_PER_PLACE = 3
+_PHOTO_MEDIA_MAX_WIDTH_PX = 1600
 
 _GOOGLE_TYPE_FILTERS = {
     "parking": "parking",
@@ -110,6 +127,19 @@ _ADDRESS_COMPONENT_KEYS = {
 }
 
 
+def _https_url_or_none(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    return value
+
+
 @dataclass(slots=True)
 class GooglePlacesStatus:
     """Sanitized runtime status suitable for diagnostics."""
@@ -144,6 +174,8 @@ class GooglePlacesClient:
         daily_limit: int = 50,
         request_timeout: int = 25,
         min_interval_seconds: float = 0.2,
+        photos_enabled: bool = False,
+        photos_daily_limit: int = 10,
     ) -> None:
         self._api_key = str(api_key or "").strip()
         self.enabled = bool(enabled and self._api_key)
@@ -164,6 +196,13 @@ class GooglePlacesClient:
                 tuple[GeocodingCandidate | None, list[GeocodingCandidate]],
             ],
         ] = {}
+        # Photos are a separately billed Google SKU (Places Photo media), so
+        # they get their own opt-in flag and quota counter rather than
+        # sharing the text-search budget above.
+        self.photos_enabled = bool(photos_enabled and self._api_key)
+        self._photos_daily_limit = max(0, min(int(photos_daily_limit), 200))
+        self._photos_requests_today = 0
+        self._photos_last_error: str | None = None
 
     @property
     def status(self) -> GooglePlacesStatus:
@@ -195,6 +234,8 @@ class GooglePlacesClient:
             self._counter_date = today
             self._requests_today = 0
             self._last_error = None
+            self._photos_requests_today = 0
+            self._photos_last_error = None
 
     def _reserve_request(self) -> None:
         self._roll_counter()
@@ -207,6 +248,42 @@ class GooglePlacesClient:
                 "Das Roadplanner-Tageslimit für Google Places ist erreicht."
             )
         self._requests_today += 1
+
+    @property
+    def photos_status(self) -> dict[str, Any]:
+        self._roll_counter()
+        if not self.configured:
+            state = "not_configured"
+        elif not self.photos_enabled:
+            state = "disabled"
+        elif self._photos_daily_limit == 0:
+            state = "limit_disabled"
+        elif self._photos_requests_today >= self._photos_daily_limit:
+            state = "daily_limit_reached"
+        elif self._photos_last_error:
+            state = "degraded"
+        else:
+            state = "ready"
+        return {
+            "enabled": self.photos_enabled,
+            "configured": self.configured,
+            "state": state,
+            "requests_today": self._photos_requests_today,
+            "daily_limit": self._photos_daily_limit,
+            "last_error": self._photos_last_error,
+        }
+
+    def _reserve_photo_request(self) -> None:
+        self._roll_counter()
+        if self._photos_daily_limit <= 0:
+            raise GeocodingError(
+                "Google-Fotos sind durch das Roadplanner-Tageslimit deaktiviert."
+            )
+        if self._photos_requests_today >= self._photos_daily_limit:
+            raise GeocodingError(
+                "Das Roadplanner-Tageslimit für Google-Fotos ist erreicht."
+            )
+        self._photos_requests_today += 1
 
     @staticmethod
     def _display_text(value: Any) -> str:
@@ -427,7 +504,12 @@ class GooglePlacesClient:
             provider_attribution="Google Maps",
         )
 
-    async def _request(self, body: dict[str, Any]) -> dict[str, Any]:
+    async def _request(
+        self,
+        body: dict[str, Any],
+        *,
+        field_mask: str = _FIELD_MASK,
+    ) -> dict[str, Any]:
         if not self.enabled:
             return {}
         async with self._lock:
@@ -439,7 +521,7 @@ class GooglePlacesClient:
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "X-Goog-Api-Key": self._api_key,
-                "X-Goog-FieldMask": _FIELD_MASK,
+                "X-Goog-FieldMask": field_mask,
             }
             try:
                 async with asyncio.timeout(self._request_timeout):
@@ -617,6 +699,129 @@ class GooglePlacesClient:
     ) -> GeocodingCandidate | None:
         """Google is not used for reverse geocoding in this integration."""
         return None
+
+    async def _resolve_photo_media(self, photo_name: str) -> str | None:
+        """Resolve a photo resource name to a short-lived, directly linkable URI.
+
+        Each call spends one entry of the separate photos daily quota - the
+        media endpoint is billed independently from the text search above.
+        """
+        if not self.photos_enabled:
+            return None
+        try:
+            async with self._lock:
+                self._reserve_photo_request()
+        except GeocodingError as err:
+            self._photos_last_error = str(err)[:300]
+            return None
+        try:
+            async with asyncio.timeout(self._request_timeout):
+                response = await self._session.get(
+                    f"https://places.googleapis.com/v1/{photo_name}/media",
+                    params={
+                        "key": self._api_key,
+                        "maxWidthPx": str(_PHOTO_MEDIA_MAX_WIDTH_PX),
+                        "skipHttpRedirect": "true",
+                    },
+                    allow_redirects=False,
+                )
+                async with response:
+                    if response.status < 200 or response.status >= 300:
+                        self._photos_last_error = f"HTTP {response.status}"
+                        return None
+                    payload = await response.json(content_type=None)
+                    if not isinstance(payload, dict):
+                        return None
+                    self._photos_last_error = None
+                    return _https_url_or_none(payload.get("photoUri"))
+        except TimeoutError:
+            self._photos_last_error = "timeout"
+            return None
+        except (ClientError, TypeError, ValueError) as err:
+            self._photos_last_error = type(err).__name__
+            _LOGGER.debug("Google Places photo media failure: %s", type(err).__name__)
+            return None
+
+    async def async_search_photos(
+        self,
+        query: str,
+        *,
+        limit: int = 6,
+        language: str = "de",
+    ) -> list[dict[str, Any]]:
+        """Return up to `limit` Google-sourced photos for a free-text query.
+
+        This is an opt-in test feature (CONF_GOOGLE_PHOTOS_ENABLED). Returned
+        entries carry the resource name (`photo_name`) and a freshly resolved,
+        short-lived direct image URI (`photo_uri`) plus mandatory attribution
+        text - Google does not guarantee `photo_uri` stays valid long-term,
+        so callers must not assume it survives beyond the current request.
+        """
+        if not self.photos_enabled or not self.enabled:
+            return []
+        query = " ".join(str(query or "").split())[:240]
+        if len(query) < 3:
+            return []
+        limit = max(1, min(int(limit), _MAX_RESULTS * _MAX_PHOTOS_PER_PLACE))
+        try:
+            payload = await self._request(
+                {
+                    "textQuery": query,
+                    "pageSize": _MAX_RESULTS,
+                    "languageCode": language or "de",
+                },
+                field_mask=_PHOTOS_FIELD_MASK,
+            )
+        except GeocodingError as err:
+            _LOGGER.debug("Google Places photo search failed: %s", err)
+            return []
+
+        candidates: list[dict[str, Any]] = []
+        for place in payload.get("places") or []:
+            if not isinstance(place, dict):
+                continue
+            place_id = str(place.get("id") or "").strip()
+            place_title = self._display_text(place.get("displayName"))
+            maps_uri = str(place.get("googleMapsUri") or "").strip()
+            photos = place.get("photos")
+            if not place_id or not isinstance(photos, list):
+                continue
+            for photo in photos[:_MAX_PHOTOS_PER_PLACE]:
+                if not isinstance(photo, dict):
+                    continue
+                photo_name = str(photo.get("name") or "").strip()
+                if not photo_name:
+                    continue
+                author = ""
+                attributions = photo.get("authorAttributions")
+                if isinstance(attributions, list) and attributions:
+                    first = attributions[0]
+                    if isinstance(first, dict):
+                        author = str(first.get("displayName") or "").strip()
+                candidates.append(
+                    {
+                        "place_id": place_id,
+                        "place_title": place_title,
+                        "source_url": maps_uri
+                        or f"https://www.google.com/maps/search/?api=1&query_place_id={place_id}",
+                        "photo_name": photo_name,
+                        "width": photo.get("widthPx"),
+                        "height": photo.get("heightPx"),
+                        "author": author,
+                    }
+                )
+                if len(candidates) >= limit:
+                    break
+            if len(candidates) >= limit:
+                break
+
+        results: list[dict[str, Any]] = []
+        for candidate in candidates:
+            photo_uri = await self._resolve_photo_media(candidate["photo_name"])
+            if not photo_uri:
+                continue
+            results.append({**candidate, "photo_uri": photo_uri})
+        return results
 
 
 __all__ = ["GooglePlacesClient", "GooglePlacesStatus"]

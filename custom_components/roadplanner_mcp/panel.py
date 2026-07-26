@@ -1056,7 +1056,11 @@ async def websocket_get_panel_data(
                 "drive_import_endpoint": (
                     DRIVE_IMPORT_PATH if runtime.webhook_token else None
                 ),
-                "destination_image_provider": "wikimedia_commons+openverse",
+                "destination_image_provider": (
+                    "wikimedia_commons+openverse+google_places"
+                    if runtime.image_provider_google_photos_enabled
+                    else "wikimedia_commons+openverse"
+                ),
                 "destination_image_gallery_size": 3,
                 "destination_image_auto_fill": True,
                 "media_curation_mode": runtime.experience.media_curation_mode,
