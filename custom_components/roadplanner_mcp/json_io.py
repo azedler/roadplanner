@@ -9,6 +9,7 @@ safely (bounded size, atomic replace, fsync).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,16 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 MAX_JSON_FILE_BYTES = 5 * 1024 * 1024
+
+
+def utc_now_iso() -> str:
+    """Return a stable UTC timestamp without microseconds."""
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 class RoadplannerError(Exception):
