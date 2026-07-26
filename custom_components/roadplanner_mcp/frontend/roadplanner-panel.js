@@ -1,164 +1,21 @@
 import { PANEL_STYLES } from "./lib/styles.js";
-const WS_GET_DATA = "roadplanner_mcp/panel/get_data";
-const WS_ACTION = "roadplanner_mcp/panel/action";
-
-const escapeHtml = (value) => String(value ?? "")
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
-
-const cleanText = (value) => String(value ?? "").trim();
-
-const newClientRequestId = () => {
-  try {
-    if (globalThis.crypto?.randomUUID) return `assistant-${globalThis.crypto.randomUUID()}`;
-  } catch (_error) {
-    // Fall back to a timestamp plus random material below.
-  }
-  return `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-};
-
-const nullableNumber = (value, integer = false) => {
-  const text = cleanText(value);
-  if (!text) return null;
-  const parsed = Number(text);
-  if (!Number.isFinite(parsed)) return null;
-  return integer && !Number.isInteger(parsed) ? null : parsed;
-};
-
-const cloneObject = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  try {
-    return structuredClone(value);
-  } catch (_error) {
-    return JSON.parse(JSON.stringify(value));
-  }
-};
-
-const operationLabels = {
-  update_trip: "Reise ändern",
-  add_day: "Tag hinzufügen",
-  update_day: "Tag ändern",
-  move_day: "Tag verschieben",
-  remove_day: "Tag löschen",
-  add_stop: "Stopp hinzufügen",
-  update_stop: "Stopp ändern",
-  move_stop: "Stopp verschieben",
-  remove_stop: "Stopp löschen",
-  add_preference: "Präferenz hinzufügen",
-  update_preference: "Präferenz ändern",
-  remove_preference: "Präferenz löschen",
-};
-
-const statusLabels = {
-  planned: "Geplant",
-  tentative: "Vorläufig",
-  confirmed: "Bestätigt",
-  completed: "Erledigt",
-  cancelled: "Entfällt",
-  pending: "Offen",
-  review_required: "Prüfung nötig",
-  conflict: "Konflikt",
-  failed: "Fehler",
-  applied: "Übernommen",
-  archived: "Archiviert",
-  waypoint: "Wegpunkt",
-  start: "Start",
-  origin: "Start",
-  destination: "Tagesziel",
-  overnight: "Übernachtung",
-  ferry: "Fähre",
-  campsite: "Campingplatz",
-  camping: "Stellplatz",
-  parking: "Parkplatz",
-  sightseeing: "Stadtbesichtigung",
-  attraction: "Sehenswürdigkeit",
-  activity: "Aktivität",
-  restaurant: "Restaurant",
-  shopping: "Einkauf",
-  charging: "Ladepunkt",
-  fuel: "Tankstelle",
-  service: "Service",
-  water: "Wasser",
-  waste: "Entsorgung",
-  laundry: "Wäsche",
-  border: "Grenze",
-  break: "Pause",
-  viewpoint: "Aussichtspunkt",
-  fishing: "Angelplatz",
-  viewer: "Leser",
-  editor: "Bearbeiter",
-  approver: "Freigeber",
-  admin: "Administrator",
-};
-
-const archiveDocumentTypeLabels = {
-  ferry_booking: "Fährbuchung",
-  camping_booking: "Campingplatzbuchung",
-  accommodation_booking: "Unterkunft",
-  restaurant_reservation: "Restaurantreservierung",
-  event_ticket: "Veranstaltungsticket",
-  admission_ticket: "Eintrittsticket",
-  transport_ticket: "Transportticket",
-  invoice: "Rechnung",
-  receipt: "Beleg",
-  insurance: "Versicherung",
-  vehicle_document: "Fahrzeugdokument",
-  fishing_license: "Angellizenz",
-  travel_document: "Reisedokument",
-  other: "Sonstiges",
-};
-
-const archiveExpenseCategoryLabels = {
-  fuel: "Tanken",
-  charging: "Laden",
-  campsite: "Campingplatz",
-  motorhome_site: "Stellplatz",
-  parking: "Parken",
-  restaurant: "Restaurant",
-  snack: "Imbiss",
-  groceries: "Lebensmittel",
-  ferry: "Fähre",
-  transport: "Transportmittel",
-  other: "Sonstiges",
-};
-
-const archiveStatusLabels = {
-  draft: "Neu", analysis_pending: "Analyse läuft", analyzed: "Analysiert",
-  confirmed: "Bestätigt", cancelled: "Storniert", expired: "Abgelaufen",
-  file_removed: "Original gelöscht", open: "Offen", done: "Erledigt",
-  dismissed: "Verworfen", planned: "Geplant", paid: "Bezahlt",
-  refundable: "Erstattbar", refunded: "Erstattet", unknown: "Unklar",
-};
-
-const stopIcons = {
-  waypoint: "mdi:map-marker-outline",
-  start: "mdi:flag-outline",
-  origin: "mdi:flag-outline",
-  destination: "mdi:flag-checkered",
-  overnight: "mdi:weather-night",
-  ferry: "mdi:ferry",
-  campsite: "mdi:tent",
-  camping: "mdi:van-utility",
-  parking: "mdi:parking",
-  sightseeing: "mdi:city-variant-outline",
-  attraction: "mdi:camera-marker-outline",
-  activity: "mdi:hiking",
-  restaurant: "mdi:silverware-fork-knife",
-  shopping: "mdi:cart-outline",
-  charging: "mdi:ev-station",
-  fuel: "mdi:gas-station-outline",
-  service: "mdi:tools",
-  water: "mdi:water-outline",
-  waste: "mdi:delete-outline",
-  laundry: "mdi:washing-machine",
-  border: "mdi:passport",
-  break: "mdi:coffee-outline",
-  viewpoint: "mdi:binoculars",
-  fishing: "mdi:fish",
-};
+import {
+  WS_GET_DATA,
+  WS_ACTION,
+  operationLabels,
+  statusLabels,
+  archiveDocumentTypeLabels,
+  archiveExpenseCategoryLabels,
+  archiveStatusLabels,
+  stopIcons,
+} from "./lib/constants.js";
+import {
+  escapeHtml,
+  cleanText,
+  newClientRequestId,
+  nullableNumber,
+  cloneObject,
+} from "./lib/core-helpers.js";
 
 class RoadplannerPanel extends HTMLElement {
   constructor() {
