@@ -46,15 +46,56 @@ jobs:
             exit 0
           fi
           gh pr merge "${pr_number}" --merge --delete-branch=false
+
           # A merge performed with the default GITHUB_TOKEN does not trigger
           # other workflows' `push` events (GitHub's anti-recursion rule), so
           # release.yml would never start on its own. Dispatch it explicitly -
           # an API-triggered workflow_dispatch is not subject to that rule.
-          gh workflow run release.yml --ref main
+          #
+          # The dispatch call itself returns 204 before the run is actually
+          # queued (GitHub processes workflow_dispatch asynchronously), so a
+          # bare `gh workflow run` gives no real confirmation that release.yml
+          # will actually start - twice now it looked like the dispatch had
+          # silently failed when it had merely not appeared yet. Poll for the
+          # new run and retry the dispatch itself (not just the poll) if it
+          # doesn't show up, so a genuine dispatch failure fails this job
+          # loudly instead of leaving the release stuck with no visible error.
+          before_run_id="$(gh run list --workflow=release.yml --branch=main \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+
+          dispatched=""
+          for attempt in 1 2 3; do
+            gh workflow run release.yml --ref main
+            for _ in $(seq 1 12); do
+              sleep 5
+              new_run_id="$(gh run list --workflow=release.yml --branch=main \
+                --event=workflow_dispatch --limit 1 \
+                --json databaseId --jq '.[0].databaseId // empty')"
+              if [[ -n "${new_run_id}" && "${new_run_id}" != "${before_run_id}" ]]; then
+                dispatched="${new_run_id}"
+                break 2
+              fi
+            done
+            echo "Dispatch attempt ${attempt} did not produce a new release.yml run within 60s, retrying." >&2
+          done
+
+          if [[ -z "${dispatched}" ]]; then
+            {
+              echo "## Release pull request merged, but publication dispatch failed"
+              echo
+              echo "- Pull request: #${pr_number}"
+              echo "- Validated commit: \`${HEAD_SHA}\`"
+              echo "- \`gh workflow run release.yml --ref main\` was retried 3 times but no new run appeared."
+              echo "- Manual recovery: \`gh workflow run release.yml --ref main\` from an authenticated shell, or re-run this job."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          run_url="$(gh run view "${dispatched}" --json url --jq '.url')"
           {
             echo "## Release pull request merged"
             echo
             echo "- Pull request: #${pr_number}"
             echo "- Validated commit: \`${HEAD_SHA}\`"
-            echo "Publication workflow dispatched on \`main\`."
+            echo "- Publication workflow confirmed running: ${run_url}"
           } >> "$GITHUB_STEP_SUMMARY"
