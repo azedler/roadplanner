@@ -16,6 +16,10 @@ const source =
   fs.readFileSync(
     "custom_components/roadplanner_mcp/frontend/features/media.js",
     "utf8",
+  ) +
+  fs.readFileSync(
+    "custom_components/roadplanner_mcp/frontend/features/trip-day-stop.js",
+    "utf8",
   );
 
 for (const required of [

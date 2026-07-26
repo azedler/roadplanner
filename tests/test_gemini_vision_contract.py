@@ -9,7 +9,9 @@ MANAGER = (
     + Path("custom_components/roadplanner_mcp/destination_gallery_manager.py").read_text(encoding="utf-8")
 )
 CONFIG = Path("custom_components/roadplanner_mcp/const.py").read_text(encoding="utf-8")
-PANEL = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+PANEL = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8") + Path(
+    "custom_components/roadplanner_mcp/frontend/features/trip-day-stop.js"
+).read_text(encoding="utf-8")
 
 assert "async def async_analyze_images" in PROVIDER
 assert '"inlineData"' in PROVIDER

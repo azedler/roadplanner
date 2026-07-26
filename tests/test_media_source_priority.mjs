@@ -1,12 +1,12 @@
 import fs from "node:fs";
 
 const source = fs.readFileSync(
-  "custom_components/roadplanner_mcp/frontend/roadplanner-panel.js",
+  "custom_components/roadplanner_mcp/frontend/features/trip-day-stop.js",
   "utf8",
 );
 
 const stopCardStart = source.indexOf("_renderStopCard(day, stop, index)");
-const stopCardEnd = source.indexOf("_renderTotalRoute()", stopCardStart);
+const stopCardEnd = source.indexOf("_renderTotalDay(day)", stopCardStart);
 if (stopCardStart < 0 || stopCardEnd < 0) {
   throw new Error("Stop card renderer not found");
 }

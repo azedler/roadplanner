@@ -2,7 +2,8 @@ import fs from "node:fs";
 
 const source =
   fs.readFileSync("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", "utf8") +
-  fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/media.js", "utf8");
+  fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/media.js", "utf8") +
+  fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/trip-day-stop.js", "utf8");
 
 if (!source.includes("_tripCoverImage()")) throw new Error("Trip hero must use the central trip-cover resolver");
 if (source.includes("(nextDay && this._dayCoverImage(nextDay)) || this._tripImages(1)[0]")) {
