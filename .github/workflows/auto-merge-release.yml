@@ -1,0 +1,54 @@
+name: Auto-merge release pull request
+
+on:
+  workflow_run:
+    workflows:
+      - Roadplanner validation
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: roadplanner-auto-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge develop -> main once validation succeeds
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'develop'
+    steps:
+      - name: Merge the validated release pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          pr_number="$(gh pr list \
+            --base main \
+            --head develop \
+            --state open \
+            --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\") | .number")"
+          if [[ -z "${pr_number}" ]]; then
+            {
+              echo "## No matching release pull request"
+              echo
+              echo "No open develop -> main pull request matches validated commit \`${HEAD_SHA}\`. Nothing was merged."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh pr merge "${pr_number}" --squash --delete-branch=false
+          {
+            echo "## Release pull request merged"
+            echo
+            echo "- Pull request: #${pr_number}"
+            echo "- Validated commit: \`${HEAD_SHA}\`"
+            echo "Publication continues automatically on \`main\`."
+          } >> "$GITHUB_STEP_SUMMARY"
