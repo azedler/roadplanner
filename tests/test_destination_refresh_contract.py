@@ -3,6 +3,8 @@ from pathlib import Path
 
 source = Path(
     "custom_components/roadplanner_mcp/experience_manager.py"
+).read_text(encoding="utf-8") + Path(
+    "custom_components/roadplanner_mcp/experience_helpers.py"
 ).read_text(encoding="utf-8")
 
 for required in (

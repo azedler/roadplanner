@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: extracted OneDrive photo-curation orchestration (`async_curate_stop_media`, `async_curate_trip_media`, `async_auto_curate_media`) out of `experience_manager.py` into a dedicated `media_curation_manager.py` collaborator. No functional or behavior changes.
+
 ### Added
 
 - The assistant now recognizes a Google Maps link (including `goo.gl`/`maps.app.goo.gl` short links) given for a new or updated stop and resolves it into a `place_query` deterministically from the link's own URL structure - never by fetching the Google Maps page. A coordinate pair encoded in the link takes priority and is verified through the normal GPS-Prüfung reverse-geocoding; otherwise the place name in the link is used as a search query. The result is still reviewed and confirmed like any other place before it becomes a durable stop.
