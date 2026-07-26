@@ -12,6 +12,10 @@ The project follows Semantic Versioning for public releases.
 - Internal: extracted the AI-assisted planning-photo gallery system (per-stop destination galleries, background auto-population, its own scheduling lifecycle) out of `experience_manager.py` into a dedicated `destination_gallery_manager.py` collaborator. No functional or behavior changes.
 - Internal: extracted the aggregated "experience" panel payload assembly out of `experience_manager.py` into a dedicated `panel_payload_builder.py` collaborator, completing the `experience_manager.py` decomposition (3143 → 419 lines across 9 focused modules). No functional or behavior changes.
 
+### Fixed
+
+- Failed planning-image searches (Wikimedia Commons/Openverse unreachable, timed out, etc.) now write a debug-level log entry (`Destination image provider %s failed: ...`) instead of failing completely silently. Enable debug logging for `custom_components.roadplanner_mcp` to see the actual cause behind a stop's "Bilder konnten noch nicht geladen werden".
+
 ### Added
 
 - The assistant now recognizes a Google Maps link (including `goo.gl`/`maps.app.goo.gl` short links) given for a new or updated stop and resolves it into a `place_query` deterministically from the link's own URL structure - never by fetching the Google Maps page. A coordinate pair encoded in the link takes priority and is verified through the normal GPS-Prüfung reverse-geocoding; otherwise the place name in the link is used as a search query. The result is still reviewed and confirmed like any other place before it becomes a durable stop.
