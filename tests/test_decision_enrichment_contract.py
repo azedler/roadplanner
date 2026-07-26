@@ -1,7 +1,7 @@
 """Regression checks for decision enrichment latency and failure isolation."""
 from pathlib import Path
 
-SOURCE = Path("custom_components/roadplanner_mcp/experience_manager.py").read_text(encoding="utf-8")
+SOURCE = Path("custom_components/roadplanner_mcp/decision_manager.py").read_text(encoding="utf-8")
 
 assert "_DECISION_GEOCODE_TIMEOUT_SECONDS" in SOURCE
 assert "_DECISION_IMAGE_TIMEOUT_SECONDS" in SOURCE
