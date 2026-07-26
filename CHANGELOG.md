@@ -19,6 +19,7 @@ The project follows Semantic Versioning for public releases.
 - Internal: extracted trip/day/stop document normalization (`normalize_stop`, `normalize_day_document`, `normalize_trip_document`) plus their schema-version constants out of `roadplanner.py` into a dedicated `trip_documents.py` module (sixth step of the `roadplanner.py` decomposition). No functional or behavior changes.
 - Internal: extracted the `TripState` dataclass out of `roadplanner.py` into a dedicated `trip_state.py` module (seventh step of the `roadplanner.py` decomposition). No functional or behavior changes.
 - Internal: extracted the on-disk layout, schema migration, and transaction/snapshot/backup machinery out of `RoadplannerStore` into a dedicated `trip_repository.py` collaborator (eighth step of the `roadplanner.py` decomposition). `RoadplannerStore` becomes a facade wrapping it; `_commit` now returns the verified state so the caller (not the repository) decides whether to refresh derived handoff context. No functional or behavior changes.
+- Internal: extracted the read-only query surface (`load_trip`, `get_trip_summary`, `get_days`, `get_day`, `search_stops`, `list_trips`, `get_routing_plan`, `export_trip`) out of `RoadplannerStore` into a dedicated `trip_queries.py` collaborator (ninth step of the `roadplanner.py` decomposition). No functional or behavior changes.
 
 ### Fixed
 
