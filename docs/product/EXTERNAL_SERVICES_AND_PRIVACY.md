@@ -17,9 +17,19 @@ Google Places is disabled until a Google Maps Platform API key is entered in Roa
 
 Roadplanner does not send trip notes, documents, personal photographs, user names or the Google API key to the panel. The API key is used only by the Home Assistant backend.
 
-The review card temporarily displays Google name, address, type and coordinates with visible `Google Maps` attribution. On confirmation, Roadplanner keeps the Google Place ID as a source reference and creates the durable profile from OpenStreetMap/Nominatim. Google photos, reviews and ratings are not requested in this release.
+The review card temporarily displays Google name, address, type and coordinates with visible `Google Maps` attribution. On confirmation, Roadplanner keeps the Google Place ID as a source reference and creates the durable profile from OpenStreetMap/Nominatim. Google reviews and ratings are not requested in this release.
 
 Google states that search terms, IP addresses and coordinates may be collected according to its privacy policy. Applications using Google Maps features must make the applicable Google terms and privacy information available to their users. Operators with an EEA billing address must review the EEA-specific terms and permitted uses.
+
+### Google Places photos (separate opt-in test feature)
+
+Google Places photos are **off by default** and require a second, explicit toggle in Roadplanner options (in addition to the Google Places API key above) - enabling Google Places search does not by itself request any photo. When an operator turns this on:
+
+- Roadplanner sends the same bounded destination search text used for the image search to Google Places, requesting only place identity and its `photos` field (never sent by the place-resolution search above).
+- For each candidate photo, Roadplanner requests a direct media URL from Google's Places Photo endpoint, spending a separate, operator-configured daily quota from the Places Text Search quota above.
+- Returned images display a `Foto von Google` (or the returned photographer's name, when Google provides one) attribution, matching Google's Places API attribution requirement.
+- Unlike Wikimedia Commons/Openverse, Google photos are **not openly licensed**. Roadplanner therefore does not cache the result in its normal 12-hour destination-image cache, and the returned image URL is not guaranteed to remain valid if a user saves it into a stop's persistent gallery - Google does not document a fixed validity period for it. Treat this as a test/preview source, not a durable archival one, until a follow-up adds a refreshing proxy for saved Google images.
+- Google Places Photo requests are a separately billed Google Cloud SKU, independent of the Places Text Search budget above; review Google's current pricing before enabling this for regular use.
 
 Official references:
 

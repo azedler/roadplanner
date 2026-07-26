@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "roadplanner_mcp"
 NAME = "Roadplanner"
-INTEGRATION_VERSION = "4.1.0"
+INTEGRATION_VERSION = "4.2.0"
 
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
@@ -54,6 +54,8 @@ CONF_GOOGLE_PLACES_API_KEY = "google_places_api_key"
 CONF_GOOGLE_PLACES_MODE = "google_places_mode"
 CONF_GOOGLE_PLACES_DAILY_LIMIT = "google_places_daily_limit"
 CONF_GOOGLE_PLACES_REQUEST_TIMEOUT = "google_places_request_timeout"
+CONF_GOOGLE_PHOTOS_ENABLED = "google_photos_enabled"
+CONF_GOOGLE_PHOTOS_DAILY_LIMIT = "google_photos_daily_limit"
 
 CONF_ROUTING_ENABLED = "routing_enabled"
 CONF_ROUTING_PROVIDER = "routing_provider"
@@ -125,6 +127,13 @@ GOOGLE_PLACES_MODES = ("fallback", "preferred")
 DEFAULT_GOOGLE_PLACES_MODE = "fallback"
 DEFAULT_GOOGLE_PLACES_DAILY_LIMIT = 50
 DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT = 25
+# Off by default: unlike Google Places text search, photo requests are a
+# separately billed Google SKU and the returned images carry Google's
+# "Photos provided by Google" attribution requirement plus an unspecified
+# cache lifetime - this is an explicit opt-in test feature, not a silent
+# upgrade. See docs/product/EXTERNAL_SERVICES_AND_PRIVACY.md.
+DEFAULT_GOOGLE_PHOTOS_ENABLED = False
+DEFAULT_GOOGLE_PHOTOS_DAILY_LIMIT = 10
 DEFAULT_ROUTING_ENABLED = False
 DEFAULT_ROUTING_PROVIDER = "osrm"
 DEFAULT_ROUTING_URL = "https://router.project-osrm.org"
@@ -188,6 +197,8 @@ MIN_GOOGLE_PLACES_DAILY_LIMIT = 0
 MAX_GOOGLE_PLACES_DAILY_LIMIT = 1_000
 MIN_GOOGLE_PLACES_REQUEST_TIMEOUT = 5
 MAX_GOOGLE_PLACES_REQUEST_TIMEOUT = 60
+MIN_GOOGLE_PHOTOS_DAILY_LIMIT = 0
+MAX_GOOGLE_PHOTOS_DAILY_LIMIT = 200
 
 # JSON transport envelope; ChangeSet content itself remains limited to 512 KiB.
 MAX_WEBHOOK_BYTES = 1024 * 1024

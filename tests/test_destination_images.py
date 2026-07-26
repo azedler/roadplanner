@@ -50,6 +50,21 @@ class ValidationError(RuntimeError):
 roadplanner_module.ValidationError = ValidationError
 sys.modules[roadplanner_module.__name__] = roadplanner_module
 
+# destination_images.py only needs the GooglePlacesClient name to exist for its
+# top-level import and type hint; the real client (and its own aiohttp/
+# geocoding dependencies) is exercised by test_google_places_provider.py, not
+# here. Stubbing it keeps this test's minimal aiohttp/homeassistant surface
+# sufficient.
+google_places_module = types.ModuleType(f"{PACKAGE_NAME}.google_places")
+
+
+class GooglePlacesClient:
+    pass
+
+
+google_places_module.GooglePlacesClient = GooglePlacesClient
+sys.modules[google_places_module.__name__] = google_places_module
+
 homeassistant = types.ModuleType("homeassistant")
 homeassistant_core = types.ModuleType("homeassistant.core")
 homeassistant_helpers = types.ModuleType("homeassistant.helpers")

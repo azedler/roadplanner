@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import vm from "node:vm";
 
 class FakeShadowRoot {
   addEventListener() {}
@@ -22,11 +20,9 @@ globalThis.customElements = {
   get(name) { return registry.get(name); },
 };
 
-const source = await readFile(
-  new URL("../custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", import.meta.url),
-  "utf8",
+await import(
+  new URL("../custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", import.meta.url)
 );
-vm.runInThisContext(source, { filename: "roadplanner-panel.js" });
 
 const Panel = registry.get("roadplanner-panel");
 assert.ok(Panel, "Roadplanner panel must register its custom element");
