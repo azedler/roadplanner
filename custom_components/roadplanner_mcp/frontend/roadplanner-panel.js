@@ -24,6 +24,7 @@ import { decisionsIntegrityMixin } from "./features/decisions-integrity.js";
 import { assistantMixin } from "./features/assistant.js";
 import { routeMapMixin } from "./features/route-map.js";
 import { tripDayStopMixin } from "./features/trip-day-stop.js";
+import { crewMixin } from "./features/crew.js";
 
 class RoadplannerPanel extends HTMLElement {
   constructor() {
@@ -1112,6 +1113,38 @@ class RoadplannerPanel extends HTMLElement {
         revision: this._currentRevision(),
       };
       this._render({ preserveScroll: true });
+    } else if (action === "add-crew-person" && this._canEdit()) {
+      this._dialog = { type: "crew-person-form", person: null };
+      this._render({ preserveScroll: true });
+    } else if (action === "edit-crew-person" && this._canEdit()) {
+      this._dialog = { type: "crew-person-form", person: this._crewPersonById(target.dataset.personId) };
+      this._render({ preserveScroll: true });
+    } else if (action === "retire-crew-person" && this._canEdit()) {
+      const person = this._crewPersonById(target.dataset.personId);
+      this._confirm(
+        "Person stilllegen?",
+        `${person?.name || "Diese Person"} wird bei künftigen Reisen nicht mehr zur Auswahl angeboten. Bereits ausgewählte Reisen bleiben unverändert.`,
+        "Stilllegen",
+        () => this._runAction("crew_person_retire", { person_id: target.dataset.personId }, "Person stillgelegt"),
+      );
+    } else if (action === "reactivate-crew-person" && this._canEdit()) {
+      void this._runAction("crew_person_reactivate", { person_id: target.dataset.personId }, "Person reaktiviert");
+    } else if (action === "add-crew-vehicle" && this._canEdit()) {
+      this._dialog = { type: "crew-vehicle-form", vehicle: null };
+      this._render({ preserveScroll: true });
+    } else if (action === "edit-crew-vehicle" && this._canEdit()) {
+      this._dialog = { type: "crew-vehicle-form", vehicle: this._crewVehicleById(target.dataset.vehicleId) };
+      this._render({ preserveScroll: true });
+    } else if (action === "retire-crew-vehicle" && this._canEdit()) {
+      const vehicle = this._crewVehicleById(target.dataset.vehicleId);
+      this._confirm(
+        "Fahrzeug stilllegen?",
+        `${vehicle?.name || "Dieses Fahrzeug"} wird bei künftigen Reisen nicht mehr zur Auswahl angeboten. Bereits ausgewählte Reisen bleiben unverändert.`,
+        "Stilllegen",
+        () => this._runAction("crew_vehicle_retire", { vehicle_id: target.dataset.vehicleId }, "Fahrzeug stillgelegt"),
+      );
+    } else if (action === "reactivate-crew-vehicle" && this._canEdit()) {
+      void this._runAction("crew_vehicle_reactivate", { vehicle_id: target.dataset.vehicleId }, "Fahrzeug reaktiviert");
     } else if (action === "add-day" && this._canEdit()) {
       this._dialog = {
         type: "day",
@@ -1621,6 +1654,33 @@ class RoadplannerPanel extends HTMLElement {
       return;
     }
 
+    if (formType === "crew-person") {
+      const mode = form.dataset.mode;
+      const value = {
+        name: cleanText(values.name),
+        kind: cleanText(values.kind) || "person",
+        note: String(values.note || ""),
+      };
+      const result = mode === "add"
+        ? await this._runAction("crew_person_add", { value }, "Person hinzugefügt")
+        : await this._runAction("crew_person_update", { person_id: form.dataset.personId, patch: value }, "Person gespeichert");
+      if (result) this._closeDialog({ flushRefresh: false });
+      return;
+    }
+
+    if (formType === "crew-vehicle") {
+      const mode = form.dataset.mode;
+      const value = {
+        name: cleanText(values.name),
+        description: String(values.description || ""),
+      };
+      const result = mode === "add"
+        ? await this._runAction("crew_vehicle_add", { value }, "Fahrzeug hinzugefügt")
+        : await this._runAction("crew_vehicle_update", { vehicle_id: form.dataset.vehicleId, patch: value }, "Fahrzeug gespeichert");
+      if (result) this._closeDialog({ flushRefresh: false });
+      return;
+    }
+
     const expectedRevision = Number.parseInt(form.dataset.revision || "", 10);
     if (!Number.isInteger(expectedRevision)) {
       this._showToast("Die Bearbeitungsrevision fehlt. Bitte Dialog neu öffnen.", "error");
@@ -1628,6 +1688,13 @@ class RoadplannerPanel extends HTMLElement {
     }
 
     if (formType === "trip") {
+      const selectedPersonIds = Array.from(form.querySelectorAll('input[name="traveler_ids"]:checked')).map((input) => input.value);
+      const travelers = selectedPersonIds
+        .map((personId) => this._crewPersonById(personId))
+        .filter(Boolean)
+        .map((person) => ({ person_id: person.id, name: person.name, kind: person.kind, note: person.note }));
+      const vehicleId = cleanText(values.vehicle_id);
+      const vehicle = vehicleId ? this._crewVehicleById(vehicleId) : null;
       this._closeDialog({ flushRefresh: false });
       await this._runAction("update_trip", {
         expected_revision: expectedRevision,
@@ -1637,6 +1704,8 @@ class RoadplannerPanel extends HTMLElement {
           start_date: cleanText(values.start_date) || null,
           end_date: cleanText(values.end_date) || null,
           notes: String(values.notes || ""),
+          travelers,
+          vehicle: vehicle ? { vehicle_id: vehicle.id, name: vehicle.name, description: vehicle.description } : {},
         },
       }, "Reise gespeichert");
       return;
@@ -1838,6 +1907,7 @@ class RoadplannerPanel extends HTMLElement {
       ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
       ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
       ["trips", "mdi:map-multiple-outline", "Reisen", 0, ""],
+      ["crew", "mdi:account-group-outline", "Crew & Fahrzeuge", 0, ""],
       ["handoffs", "mdi:inbox-arrow-down", "Übergaben", pending, ""],
     ];
     const primaryIds = new Set(primary.map(([id]) => id));
@@ -1875,6 +1945,7 @@ class RoadplannerPanel extends HTMLElement {
     if (this._activeTab === "day-route") return this._renderDayRoute();
     if (this._activeTab === "total-route") return this._renderTotalRoute();
     if (this._activeTab === "trips") return this._renderTrips();
+    if (this._activeTab === "crew") return this._renderCrewManage();
     if (this._activeTab === "handoffs") return this._renderHandoffs();
     return this._renderOverview();
   }
@@ -2008,6 +2079,8 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "destination-gallery") body = this._renderDestinationGallery(this._dialog);
     else if (this._dialog.type === "travel-integrity") body = this._renderTravelIntegrity(this._dialog);
     else if (this._dialog.type === "place-enrichment") body = this._renderPlaceEnrichment(this._dialog);
+    else if (this._dialog.type === "crew-person-form") body = this._renderCrewPersonForm(this._dialog);
+    else if (this._dialog.type === "crew-vehicle-form") body = this._renderCrewVehicleForm(this._dialog);
     return `<div class="modal-backdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-label="Roadplanner Dialog">${body}</section></div>`;
   }
 
@@ -2086,6 +2159,7 @@ Object.assign(RoadplannerPanel.prototype, decisionsIntegrityMixin);
 Object.assign(RoadplannerPanel.prototype, assistantMixin);
 Object.assign(RoadplannerPanel.prototype, routeMapMixin);
 Object.assign(RoadplannerPanel.prototype, tripDayStopMixin);
+Object.assign(RoadplannerPanel.prototype, crewMixin);
 
 if (!customElements.get("roadplanner-panel")) {
   customElements.define("roadplanner-panel", RoadplannerPanel);
