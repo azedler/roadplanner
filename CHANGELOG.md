@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- A compiled stop `add` could get silently misattributed as last night's overnight and converted into an `update` of a completely unrelated, already-existing overnight stop - overwriting its name/notes - whenever the change basket happened to hold exactly one differently-themed stop item mentioning a past-overnight phrase ("gestern Nacht hier übernachtet") and the new operation itself had no `place_query`/name to match against. The lone-basket-item fallback that caused this is still used (as before) for the lower-stakes task of inferring which *day* an operation with a missing `day_id` belongs to, but no longer feeds the decision to silently rewrite an existing stop - that now requires the operation's own text, or an actual basket match by `place_query`/name.
+
 ## [4.4.0] - 2026-07-27
 
 ### Added
