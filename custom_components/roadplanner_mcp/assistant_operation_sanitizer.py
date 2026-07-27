@@ -12,6 +12,7 @@ from __future__ import annotations
 from copy import deepcopy
 import logging
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .assistant_basket import _deep_without_none
@@ -33,6 +34,7 @@ from .assistant_shared import (
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops
+from .destination_intelligence import _URL_RE, _google_maps_host
 from .roadplanner import ValidationError
 from .structured_output import StructuredOutputError, normalize_changes_mapping
 
@@ -68,14 +70,46 @@ _PREVIOUS_DAY_MARKERS = ("gestern", "yesterday")
 _NEXT_DAY_MARKERS = ("morgen", "tomorrow")
 
 
+def _basket_item_text(item: dict[str, Any]) -> str:
+    values = item.get("values") if isinstance(item.get("values"), dict) else {}
+    return " ".join(
+        str(part)
+        for part in (
+            item.get("place_query"),
+            item.get("summary"),
+            item.get("reason"),
+            values.get("notes"),
+            values.get("text"),
+        )
+        if part
+    )
+
+
+def _mentions_unresolved_link(item: dict[str, Any]) -> bool:
+    """A pasted link (booking site, Park4Night, ...) needs the model to fetch
+    it via url_context before place_query can be produced. A Google Maps link
+    doesn't - it's resolved deterministically from its own URL structure
+    without ever needing a fetch, so it never triggers this."""
+    for raw_url in _URL_RE.findall(_basket_item_text(item)):
+        url = raw_url.rstrip(".,;:")
+        try:
+            host = (urlparse(url).hostname or "").casefold()
+        except ValueError:
+            continue
+        if host and not _google_maps_host(host):
+            return True
+    return False
+
+
 def _needs_research(basket: list[dict[str, Any]]) -> bool:
     return any(
         item.get("action") == "plan"
         or (
             item.get("entity_type") == "stop"
-            and item.get("action") == "add"
+            and item.get("action") in {"add", "update"}
             and not item.get("place_query")
         )
+        or _mentions_unresolved_link(item)
         for item in basket
     )
 
