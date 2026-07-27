@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- When Gemini rejects a request shape with HTTP 400 (an "invalid argument" response) and `GeminiClient` falls back to a more compatible shape, the actual provider error text was never logged anywhere - only aggregate counters (`compatibility_fallback_count`) were visible in diagnostics, even once the call ultimately succeeded via a less capable fallback (e.g. losing `google_search`/`url_context` tool access). This made a live report of persistent schema rejections across several current models impossible to diagnose without adding a log line first. Every HTTP 400 compatibility fallback now emits a debug-level log with the request mode, model, and Gemini's own error detail.
+
 ## [4.5.2] - 2026-07-27
 
 ### Fixed
