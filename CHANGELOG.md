@@ -6,6 +6,23 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-07-27
+
+### Added
+
+- A pending change ("Übergabe") whose base revision has gone stale - because another change was applied first - can now be "neu aufgesetzt" (rebased): re-validated against the trip's current state and, if it still applies cleanly, re-stamped onto the current revision so it can be reviewed and applied normally. Previously the only option for a stale change was to reject it and redo the underlying request from scratch. If a referenced day or stop no longer exists (or anything else about the change is no longer applicable), rebasing fails with a clear error and the pending change is left completely untouched - there is no partial/best-effort rebase.
+
+### Changed
+
+- Every panel load fetched the trip/day payload, then travel-archive data, then experience data, then crew data, strictly one after another - four sequential round trips on every single click (add/update/remove a stop, apply a change, anything that triggers a refresh), even though most of them don't depend on each other. Independent subsystems (crew alongside the main payload; travel-archive alongside experience once the selected trip is known) now fetch concurrently instead.
+
+### Fixed
+
+- Updating an *existing* stop (as opposed to adding a new one) never enabled Gemini's search/`url_context` tools, even without a resolved `place_query` - only `add` did. A pasted booking link on a stop the chat step had already matched to a prior placeholder therefore got no fetch at all: the model had to guess a name from conversation context alone, and no location was ever resolved. Any stop `add` or `update` without a `place_query` yet, or that mentions a non-Google-Maps link anywhere in its basket text, now enables research the same way.
+- Updating a stop, day, or trip's `details` (nested planning metadata - geocoding results, transport/ferry info, source attributions from a resolved booking link, etc.) silently discarded whatever wasn't part of that particular update's patch, since it was a wholesale dict replacement rather than a merge. An update meant only to change e.g. an arrival time, but that happened to also touch `details` for an unrelated reason, would wipe out previously stored `details` sub-keys with no error or warning. `details` is now merged one level deep on update; every other field still overwrites as before.
+- A compiled stop `add` could get silently misattributed as last night's overnight and converted into an `update` of a completely unrelated, already-existing overnight stop - overwriting its name/notes - whenever the change basket happened to hold exactly one differently-themed stop item mentioning a past-overnight phrase ("gestern Nacht hier übernachtet") and the new operation itself had no `place_query`/name to match against. The lone-basket-item fallback that caused this is still used (as before) for the lower-stakes task of inferring which *day* an operation with a missing `day_id` belongs to, but no longer feeds the decision to silently rewrite an existing stop - that now requires the operation's own text, or an actual basket match by `place_query`/name.
+- The Übergabe-Vorschau (handoff preview) dialog now actually shows what a pending change will do before you click "Übernehmen". `execute_changeset` previously only recorded bare metadata (index/op/day_id/stop_id/position) per operation result, never the requested patch or new entity content, even though the preview dialog already renders each result verbatim - so an `update_stop`/`update_day`/`update_trip`/`update_preference` preview showed no patch at all, and an `add_stop`/`add_day`/`add_preference` preview showed no content for the new entity. `remove_*` operations are unchanged, since there is nothing beyond the already-shown ID to preview.
+
 ## [4.4.0] - 2026-07-27
 
 ### Added

@@ -648,6 +648,55 @@ class RoadplannerManager:
             )
         return {"handoff_id": handoff_id, "preview": preview}
 
+    async def async_rebase_handoff(
+        self,
+        handoff_id: str,
+        *,
+        expected_trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Re-stamp a stale pending ChangeSet onto the current revision.
+
+        Only ever re-validates and persists a new base_revision; it never
+        adjusts the ChangeSet's operations themselves. If any referenced day
+        or stop no longer exists (or anything else about the ChangeSet is no
+        longer applicable), this raises and the pending handoff is left
+        completely untouched - there is no partial/best-effort rebase.
+        """
+        async with self._lock:
+            envelope = await self.hass.async_add_executor_job(
+                partial(self.handoff_store.get_pending, handoff_id)
+            )
+            self._assert_handoff_trip(envelope, expected_trip_id)
+            stale_preview = await self.hass.async_add_executor_job(
+                partial(self.store.preview_changeset, envelope["changeset"])
+            )
+            current_revision = stale_preview["current_revision"]
+            rebased_changeset = {
+                **envelope["changeset"],
+                "base_revision": current_revision,
+            }
+            preview = await self.hass.async_add_executor_job(
+                partial(self.store.preview_changeset, rebased_changeset)
+            )
+            if preview.get("status") != "ready":
+                raise ValidationError(
+                    str(preview.get("reason"))
+                    or "Die Änderung kann nicht neu aufgesetzt werden"
+                )
+            result = await self.hass.async_add_executor_job(
+                partial(
+                    self.handoff_store.rebase_pending,
+                    handoff_id=handoff_id,
+                    base_revision=current_revision,
+                )
+            )
+            payload = await self.hass.async_add_executor_job(
+                self._load_payload_sync
+            )
+        if self._update_callback is not None:
+            self._update_callback(payload)
+        return {"handoff": result, "preview": preview}
+
     async def async_ingest_handoff(self, **kwargs: Any) -> dict[str, Any]:
         async with self._lock:
             result = await self.hass.async_add_executor_job(

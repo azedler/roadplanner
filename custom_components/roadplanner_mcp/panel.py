@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ _ACTIONS = {
     "preview_handoff",
     "apply_handoff",
     "archive_handoff",
+    "rebase_handoff",
     "create_backup",
     "search_destination_images",
     "refresh_destination_gallery",
@@ -172,6 +174,7 @@ _APPROVAL_ACTIONS = {
     "scan_handoffs",
     "apply_handoff",
     "archive_handoff",
+    "rebase_handoff",
 }
 _ADMIN_ACTIONS = {"create_backup", "assistant_diagnostics", "onedrive_configure", "onedrive_start_auth", "onedrive_poll_auth", "onedrive_disconnect"}
 _ASSISTANT_ACTIONS = {
@@ -976,6 +979,12 @@ async def _execute_action(
             expected_trip_id=data.get("expected_trip_id"),
         )
 
+    if action == "rebase_handoff":
+        return await manager.async_rebase_handoff(
+            data.get("handoff_id"),
+            expected_trip_id=data.get("expected_trip_id"),
+        )
+
     if action == "create_backup":
         return await manager.async_create_backup(
             str(data.get("reason") or "panel-manual")
@@ -1061,7 +1070,12 @@ async def websocket_get_panel_data(
     """Return a bounded snapshot for the Roadplanner panel."""
     try:
         runtime = _runtime(hass)
-        payload = await runtime.manager.async_get_panel_payload(msg.get("trip_id"))
+        # crew_state has no dependency on which trip is selected, so it can
+        # be fetched concurrently with the main payload instead of after it.
+        payload, crew_state = await asyncio.gather(
+            runtime.manager.async_get_panel_payload(msg.get("trip_id")),
+            runtime.crew.async_panel_payload(),
+        )
     except RoadplannerError as err:
         connection.send_error(msg["id"], "roadplanner_error", str(err))
         return
@@ -1081,20 +1095,20 @@ async def websocket_get_panel_data(
         _user_id(connection),
         selected_trip_id,
     )
-    archive_state = (
-        await runtime.travel_archive.async_panel_payload(selected_trip_id)
-        if selected_trip_id
-        else {"documents": [], "expenses": [], "todos": [], "stats": {}, "by_day": {}, "by_stop": {}}
-    )
-    experience_state = (
-        await runtime.experience.async_panel_payload(
-            selected_trip_id,
-            days=list(payload.get("days", {}).get("days", []) or []),
+    # archive_state and experience_state both only need selected_trip_id (and
+    # experience_state additionally needs payload's own days), so once payload
+    # has resolved they have no dependency on each other and can run together.
+    if selected_trip_id:
+        archive_state, experience_state = await asyncio.gather(
+            runtime.travel_archive.async_panel_payload(selected_trip_id),
+            runtime.experience.async_panel_payload(
+                selected_trip_id,
+                days=list(payload.get("days", {}).get("days", []) or []),
+            ),
         )
-        if selected_trip_id
-        else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "vision": {}, "onedrive": runtime.experience.onedrive.status()}
-    )
-    crew_state = await runtime.crew.async_panel_payload()
+    else:
+        archive_state = {"documents": [], "expenses": [], "todos": [], "stats": {}, "by_day": {}, "by_stop": {}}
+        experience_state = {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "vision": {}, "onedrive": runtime.experience.onedrive.status()}
     summary_state = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     integrity_state = build_travel_integrity(
         list(payload.get("days", {}).get("days", []) or []),

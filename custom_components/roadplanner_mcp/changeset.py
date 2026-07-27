@@ -199,6 +199,30 @@ def _object(value: Any, field_name: str) -> dict[str, Any]:
     return _validate_json_tree(deepcopy(value), field_name)
 
 
+def _apply_patch(existing: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Merge an update patch onto a stored trip/day/stop document.
+
+    An update's patch is documented to contain only the fields that actually
+    changed (see assistant_prompt.py's "Bei Updates enthält changes nur
+    tatsächlich geänderte Felder"). A plain top-level overwrite is correct for
+    most fields, but `details` is a nested container aggregating unrelated
+    concerns written by different callers over time (geocoding results,
+    transport/ferry metadata, source attributions from a resolved booking
+    link, ...). Replacing it wholesale on every update would silently
+    destroy whatever wasn't part of this particular patch, even though the
+    patch never claimed to touch it. Merge `details` one level deep instead;
+    every other field still overwrites, matching what callers actually send.
+    """
+    merged = dict(existing)
+    patch = dict(patch)
+    if isinstance(patch.get("details"), dict) and isinstance(
+        existing.get("details"), dict
+    ):
+        patch["details"] = {**existing["details"], **patch["details"]}
+    merged.update(patch)
+    return merged
+
+
 def _check_allowed_fields(
     value: dict[str, Any],
     allowed: set[str],
@@ -1170,8 +1194,10 @@ def execute_changeset(
                 if annotation in operation:
                     result[annotation] = operation[annotation]
             if operation_name == "update_trip":
-                candidate.trip_document["trip"].update(
-                    deepcopy(operation["patch"])
+                result["patch"] = deepcopy(operation["patch"])
+                candidate.trip_document["trip"] = _apply_patch(
+                    candidate.trip_document["trip"],
+                    deepcopy(operation["patch"]),
                 )
                 candidate.trip_document = normalize_trip_document(
                     candidate.trip_document,
@@ -1241,12 +1267,16 @@ def execute_changeset(
                 if client_id is not None:
                     day_refs[client_id] = day_id
                 result.update({"day_id": day_id, "position": insert_at + 1})
+                result["day"] = _without_audit_fields(document["day"])
 
             elif operation_name == "update_day":
                 day_id = _resolve_day_id(operation, candidate, day_refs)
+                result["patch"] = deepcopy(operation["patch"])
                 document = candidate.day_documents[day_id]
                 before = _without_audit_fields(document["day"])
-                document["day"].update(deepcopy(operation["patch"]))
+                document["day"] = _apply_patch(
+                    document["day"], deepcopy(operation["patch"])
+                )
                 normalized = normalize_day_document(
                     document,
                     fallback_id=day_id,
@@ -1355,9 +1385,11 @@ def execute_changeset(
                         "position": insert_at + 1,
                     }
                 )
+                result["stop"] = _without_audit_fields(stop)
 
             elif operation_name == "update_stop":
                 day_id = _resolve_day_id(operation, candidate, day_refs)
+                result["patch"] = deepcopy(operation["patch"])
                 document = candidate.day_documents[day_id]
                 stop_id, old_index = _resolve_stop_id(
                     operation,
@@ -1366,7 +1398,7 @@ def execute_changeset(
                 )
                 raw_stop = deepcopy(document["stops"][old_index])
                 before = _without_audit_fields(raw_stop)
-                raw_stop.update(deepcopy(operation["patch"]))
+                raw_stop = _apply_patch(raw_stop, deepcopy(operation["patch"]))
                 raw_stop["id"] = stop_id
                 normalized = normalize_stop(
                     raw_stop,
@@ -1430,6 +1462,7 @@ def execute_changeset(
                             "Maximal 100 Planungspräferenzen pro Ebene werden "
                             "unterstützt"
                         )
+                    result["preference"] = deepcopy(operation["preference"])
                     preferences.append(
                         _stored_preference(
                             preference_id,
@@ -1445,6 +1478,7 @@ def execute_changeset(
                             "Planungspräferenz nicht gefunden: "
                             f"{preference_id}"
                         )
+                    result["patch"] = deepcopy(operation["patch"])
                     existing = preferences[existing_index]
                     existing_created = str(existing.get("created_at") or now)
                     before = {

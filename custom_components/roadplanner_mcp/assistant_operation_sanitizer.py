@@ -12,6 +12,7 @@ from __future__ import annotations
 from copy import deepcopy
 import logging
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .assistant_basket import _deep_without_none
@@ -33,6 +34,7 @@ from .assistant_shared import (
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops
+from .destination_intelligence import _URL_RE, _google_maps_host
 from .roadplanner import ValidationError
 from .structured_output import StructuredOutputError, normalize_changes_mapping
 
@@ -68,14 +70,46 @@ _PREVIOUS_DAY_MARKERS = ("gestern", "yesterday")
 _NEXT_DAY_MARKERS = ("morgen", "tomorrow")
 
 
+def _basket_item_text(item: dict[str, Any]) -> str:
+    values = item.get("values") if isinstance(item.get("values"), dict) else {}
+    return " ".join(
+        str(part)
+        for part in (
+            item.get("place_query"),
+            item.get("summary"),
+            item.get("reason"),
+            values.get("notes"),
+            values.get("text"),
+        )
+        if part
+    )
+
+
+def _mentions_unresolved_link(item: dict[str, Any]) -> bool:
+    """A pasted link (booking site, Park4Night, ...) needs the model to fetch
+    it via url_context before place_query can be produced. A Google Maps link
+    doesn't - it's resolved deterministically from its own URL structure
+    without ever needing a fetch, so it never triggers this."""
+    for raw_url in _URL_RE.findall(_basket_item_text(item)):
+        url = raw_url.rstrip(".,;:")
+        try:
+            host = (urlparse(url).hostname or "").casefold()
+        except ValueError:
+            continue
+        if host and not _google_maps_host(host):
+            return True
+    return False
+
+
 def _needs_research(basket: list[dict[str, Any]]) -> bool:
     return any(
         item.get("action") == "plan"
         or (
             item.get("entity_type") == "stop"
-            and item.get("action") == "add"
+            and item.get("action") in {"add", "update"}
             and not item.get("place_query")
         )
+        or _mentions_unresolved_link(item)
         for item in basket
     )
 
@@ -198,8 +232,22 @@ def _operation_context_text(
     raw: dict[str, Any],
     *,
     basket: list[dict[str, Any]] | None,
+    strict: bool = False,
 ) -> str:
-    """Build a bounded semantic text used only for parent-day inference."""
+    """Build a bounded semantic text used for parent-day/overnight inference.
+
+    When no basket item can be matched to this operation by place_query or
+    name, and the basket happens to hold exactly one stop item, that lone
+    item's text is used as a last-resort hint (`strict=False`) - reasonable
+    for inferring which *day* an operation belongs to, where a wrong guess is
+    low-stakes and reviewable. It must NOT feed decisions that silently
+    rewrite an unrelated, already-existing stop (`strict=True`): with two
+    basket-unrelated compiled operations and a lone differently-themed basket
+    item, the lone-item fallback could otherwise attribute e.g. "gestern
+    Nacht hier übernachtet" text to a completely different new stop, making
+    that stop's `add` silently become an `update` of the existing overnight
+    entry and overwrite its name/notes.
+    """
     fragments: list[str] = []
     changes = raw.get("changes") if isinstance(raw.get("changes"), dict) else {}
     for value in (
@@ -245,7 +293,7 @@ def _operation_context_text(
                 )
             ).casefold()
         ]
-    if not matching and len(stop_items) == 1:
+    if not matching and not strict and len(stop_items) == 1:
         matching = stop_items
 
     for item in matching[:3]:
@@ -407,9 +455,17 @@ def _is_actual_past_overnight(
     *,
     basket: list[dict[str, Any]] | None,
 ) -> bool:
+    """Whether this operation genuinely describes last night's overnight.
+
+    Deciding "yes" silently converts a new stop `add` into an `update` of an
+    existing overnight entry (see the call site), so this must never rely on
+    the lone-basket-item fallback - only an operation whose own text, or a
+    basket item actually matched to it by place_query/name, mentions a past
+    overnight marker qualifies.
+    """
     changes = raw.get("changes") if isinstance(raw.get("changes"), dict) else {}
     stop_type = _clean_text(changes.get("type"), maximum=100).casefold()
-    text = _operation_context_text(raw, basket=basket)
+    text = _operation_context_text(raw, basket=basket, strict=True)
     has_past_marker = any(marker in text for marker in _PAST_OVERNIGHT_MARKERS)
     return has_past_marker and (
         stop_type in OVERNIGHT_STOP_TYPES or "übernacht" in text or "geschlafen" in text
