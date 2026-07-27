@@ -138,6 +138,8 @@ from .const import (
     EVENT_ROADPLANNER_UPDATED,
 )
 from .coordinator import RoadplannerCoordinator
+from .crew_manager import CrewManager
+from .crew_store import CrewStore
 from .destination_images import DestinationImageProvider
 from .experience_http import async_register_experience_views
 from .google_photo_http import async_register_google_photo_view
@@ -190,6 +192,7 @@ class RoadplannerRuntimeData:
     travel_archive: TravelArchiveManager
     experience: RoadplannerExperienceManager
     universal_import: UniversalImportManager
+    crew: CrewManager
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -375,6 +378,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     )
     await travel_archive.async_initialize()
+
+    crew_store = CrewStore(archive_root / "crew")
+    crew = CrewManager(hass, crew_store)
+    await crew.async_initialize()
 
     nominatim = NominatimGeocoder(
         hass,
@@ -585,6 +592,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         travel_archive=travel_archive,
         experience=experience,
         universal_import=universal_import,
+        crew=crew,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

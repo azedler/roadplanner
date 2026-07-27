@@ -103,6 +103,14 @@ _ACTIONS = {
     "universal_import_transfer",
     "universal_import_discuss",
     "universal_import_discard",
+    "crew_person_add",
+    "crew_person_update",
+    "crew_person_retire",
+    "crew_person_reactivate",
+    "crew_vehicle_add",
+    "crew_vehicle_update",
+    "crew_vehicle_retire",
+    "crew_vehicle_reactivate",
 }
 
 _EDIT_ACTIONS = {
@@ -150,6 +158,14 @@ _EDIT_ACTIONS = {
     "universal_import_transfer",
     "universal_import_discuss",
     "universal_import_discard",
+    "crew_person_add",
+    "crew_person_update",
+    "crew_person_retire",
+    "crew_person_reactivate",
+    "crew_vehicle_add",
+    "crew_vehicle_update",
+    "crew_vehicle_retire",
+    "crew_vehicle_reactivate",
 }
 _APPROVAL_ACTIONS = {
     "set_active_trip",
@@ -973,6 +989,60 @@ async def _execute_action(
             longitude=data.get("longitude"),
         )
 
+    if action == "crew_person_add":
+        value = data.get("value")
+        if not isinstance(value, dict):
+            raise ValidationError("Personendaten müssen ein JSON-Objekt sein")
+        return await runtime.crew.async_create_person(value=value)
+
+    if action == "crew_person_update":
+        patch = data.get("patch")
+        if not isinstance(patch, dict):
+            raise ValidationError("Personenänderung muss ein JSON-Objekt sein")
+        return await runtime.crew.async_update_person(
+            person_id=str(data.get("person_id") or ""),
+            patch=patch,
+        )
+
+    if action == "crew_person_retire":
+        return await runtime.crew.async_set_person_active(
+            person_id=str(data.get("person_id") or ""),
+            active=False,
+        )
+
+    if action == "crew_person_reactivate":
+        return await runtime.crew.async_set_person_active(
+            person_id=str(data.get("person_id") or ""),
+            active=True,
+        )
+
+    if action == "crew_vehicle_add":
+        value = data.get("value")
+        if not isinstance(value, dict):
+            raise ValidationError("Fahrzeugdaten müssen ein JSON-Objekt sein")
+        return await runtime.crew.async_create_vehicle(value=value)
+
+    if action == "crew_vehicle_update":
+        patch = data.get("patch")
+        if not isinstance(patch, dict):
+            raise ValidationError("Fahrzeugänderung muss ein JSON-Objekt sein")
+        return await runtime.crew.async_update_vehicle(
+            vehicle_id=str(data.get("vehicle_id") or ""),
+            patch=patch,
+        )
+
+    if action == "crew_vehicle_retire":
+        return await runtime.crew.async_set_vehicle_active(
+            vehicle_id=str(data.get("vehicle_id") or ""),
+            active=False,
+        )
+
+    if action == "crew_vehicle_reactivate":
+        return await runtime.crew.async_set_vehicle_active(
+            vehicle_id=str(data.get("vehicle_id") or ""),
+            active=True,
+        )
+
     raise ValidationError(f"Unbekannte Panel-Aktion: {action}")
 
 
@@ -1024,6 +1094,7 @@ async def websocket_get_panel_data(
         if selected_trip_id
         else {"decisions": [], "media": [], "destination_galleries": {}, "presentation": {}, "stats": {}, "by_day": {}, "by_stop": {}, "vision": {}, "onedrive": runtime.experience.onedrive.status()}
     )
+    crew_state = await runtime.crew.async_panel_payload()
     summary_state = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     integrity_state = build_travel_integrity(
         list(payload.get("days", {}).get("days", []) or []),
@@ -1039,6 +1110,7 @@ async def websocket_get_panel_data(
             "assistant": assistant_state,
             "travel_archive": archive_state,
             "experience": experience_state,
+            "crew": crew_state,
             "integrity": integrity_state,
             "user": {
                 "id": getattr(user, "id", None),
