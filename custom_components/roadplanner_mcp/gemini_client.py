@@ -29,6 +29,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import (
     AssistantImageInput,
+    AssistantImageResult,
     AssistantJsonResult,
     AssistantSource,
     AssistantTextResult,
@@ -94,6 +95,7 @@ class GeminiClient:
         api_key: str,
         model: str,
         fallback_model: str = "gemini-2.5-flash",
+        image_model: str = "gemini-2.5-flash-image",
         request_timeout: int = 75,
         retry_attempts: int = 2,
         min_request_interval: float = 2.0,
@@ -105,6 +107,7 @@ class GeminiClient:
         self._fallback_model = fallback_model.strip()
         if self._fallback_model == self._model:
             self._fallback_model = ""
+        self._image_model = image_model.strip() or "gemini-2.5-flash-image"
         self._request_timeout = max(20, min(int(request_timeout), 180))
         self._retry_attempts = max(0, min(int(retry_attempts), 5))
         self._min_request_interval = max(0.5, min(float(min_request_interval), 15.0))
@@ -604,6 +607,7 @@ class GeminiClient:
         body_or_factory: dict[str, Any] | BodyFactory,
         *,
         search_requested: bool = False,
+        models_override: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.configured:
             raise GeminiApiError(
@@ -615,9 +619,12 @@ class GeminiClient:
         started = time.monotonic()
         deadline = started + self._request_timeout
         queue_wait_ms = await self._acquire_gate(deadline=deadline)
-        models = [self._model]
-        if self._fallback_model:
-            models.append(self._fallback_model)
+        if models_override:
+            models = list(models_override)
+        else:
+            models = [self._model]
+            if self._fallback_model:
+                models.append(self._fallback_model)
         attempt_count = 0
         retry_count = 0
         compatibility_fallback_count = 0
@@ -1272,6 +1279,71 @@ class GeminiClient:
             model_version=model_version,
             usage=usage,
             diagnostics=diagnostics,
+        )
+
+    @staticmethod
+    def _image_part(candidate: dict[str, Any]) -> tuple[bytes, str]:
+        content = candidate.get("content")
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if isinstance(parts, list):
+            for part in parts:
+                inline = part.get("inlineData") if isinstance(part, dict) else None
+                if not isinstance(inline, dict):
+                    continue
+                mime_type = str(inline.get("mimeType") or "").strip().casefold()
+                raw = str(inline.get("data") or "")
+                if mime_type not in {"image/png", "image/jpeg", "image/webp"} or not raw:
+                    continue
+                try:
+                    data = base64.b64decode(raw, validate=True)
+                except (ValueError, TypeError) as err:
+                    raise GeminiApiError(
+                        "Gemini hat ein ungültig kodiertes Bild geliefert",
+                        code="invalid_response",
+                    ) from err
+                return data, mime_type
+        finish_reason = str(candidate.get("finishReason") or "")
+        raise GeminiApiError(
+            "Gemini hat kein Bild geliefert"
+            + (f" ({finish_reason})" if finish_reason else ""),
+            code="empty_response",
+        )
+
+    async def async_generate_image(
+        self,
+        *,
+        prompt: str,
+    ) -> AssistantImageResult:
+        """Generate one icon-style image from a short text prompt.
+
+        Uses the dedicated image model configured for this client, never the
+        text/vision model, and never falls back to it - an image request that
+        the image model refuses should fail rather than silently return text.
+        """
+        clean_prompt = str(prompt or "").strip()
+        if not clean_prompt:
+            raise ValidationError("Für die Bildgenerierung fehlt ein Prompt")
+        if len(clean_prompt) > 4_000:
+            raise ValidationError("Der Bildgenerierungs-Prompt ist zu lang")
+
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": clean_prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+        payload, diagnostics = await self._post(
+            body,
+            search_requested=False,
+            models_override=[self._image_model],
+        )
+        candidate = self._candidate(payload)
+        data, mime_type = self._image_part(candidate)
+        usage = self._usage(payload)
+        model_version = str(payload.get("modelVersion") or "") or None
+        return AssistantImageResult(
+            data=data,
+            mime_type=mime_type,
+            model_version=model_version,
+            usage=usage,
         )
 
     async def async_analyze_binary(
