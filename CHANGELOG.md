@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pasting a booking link for an *existing* stop's overnight update (for example "Hier schlafen wir heute und morgen: https://booking.com/...") could get accepted into the change basket but then fail when preparing the review ("Als Entscheidungsvorlage"), with a cryptic `stops[N].location muss ein JSON-Objekt sein` error. Root cause: the assistant compile system prompt incorrectly listed `location` as a settable `changes` field for stops, even though only the server-side geocoding plugin may ever populate it (from a confirmed `place_query`); Gemini's plain-JSON fallback (more likely whenever the `url_context`/search tools are used) ignores the response schema and, following that prompt text, could put a raw place name or hand-built object straight into `changes.location`, which then reached the ChangeSet untouched and failed deep inside validation. `changes.location` is now always stripped before the operation reaches the ChangeSet - any text content it held is salvaged into `place_query` (unless one is already set) so the normal geocoding path still gets a chance to resolve it - and the prompt no longer tells the model `location` is an allowed field.
+
 ## [4.5.0] - 2026-07-27
 
 ### Added

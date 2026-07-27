@@ -252,11 +252,14 @@ Verbindliche Regeln:
     notes, details.
   - day: date, title, start, end, distance_km, drive_minutes, status, notes,
     details.
-  - stop: name, type, arrival_time, departure_time, location, notes, details.
+  - stop: name, type, arrival_time, departure_time, notes, details.
   - preference: category, text, status, notes, reason, details.
   Verwende travelers als JSON-Liste, vehicle und details als JSON-Objekte und
   preferences als JSON-Liste. Diese fachlichen Felder gehören innerhalb von
   changes und dürfen nicht in Freitext zerlegt werden.
+- changes.location ist bei keinem Stopp zulässig, auch nicht als String oder
+  Adressobjekt. Ein Ort wird ausschließlich über place_query benannt;
+  Roadplanner löst daraus serverseitig geprüfte Koordinaten auf.
 - Die Ziel-ID eines bestehenden oder neu referenzierten Objekts steht immer in
   entity_id. Verwende niemals stop_id, preference_id oder target_id. Bei Stopps
   und Präferenzen bezeichnet day_id ausschließlich den übergeordneten Reisetag.
