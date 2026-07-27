@@ -597,6 +597,28 @@ def _normalize_compiled_operation_aliases(
             label="place_query",
         )
 
+        # ``changes.location`` is never trusted from the model directly - only
+        # the server-side geocoding plugin may populate it, from a confirmed
+        # place_query. A JSON-mode fallback that ignores the response schema
+        # can still put a raw place name/address (or even a hand-built
+        # object) straight into changes.location; salvage any text it holds
+        # into place_query (unless one is already set) and drop the rest,
+        # instead of letting an untyped value reach the ChangeSet and fail
+        # validation deep inside execute_changeset.
+        if entity_type == "stop" and "location" in changes:
+            stray_location = changes.pop("location")
+            location_text = ""
+            if isinstance(stray_location, str):
+                location_text = stray_location.strip()
+            elif isinstance(stray_location, dict):
+                for key in ("label", "address", "name"):
+                    candidate = stray_location.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        location_text = candidate.strip()
+                        break
+            if location_text and not _clean_text(result.get("place_query"), maximum=500):
+                result["place_query"] = location_text[:500]
+
         nested_position = changes.pop("position", None)
         if nested_position not in (None, ""):
             if isinstance(nested_position, bool):
