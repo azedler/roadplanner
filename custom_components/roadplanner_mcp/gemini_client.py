@@ -1025,7 +1025,11 @@ class GeminiClient:
                 with_search = {
                     **base,
                     "generationConfig": structured_config,
-                    "tools": [{"google_search": {}}],
+                    # url_context lets the model fetch a link the user gave
+                    # directly (e.g. a Booking.com/Park4Night stop) instead of
+                    # only searching the open web, which rarely finds a
+                    # freshly generated personal short link.
+                    "tools": [{"google_search": {}}, {"url_context": {}}],
                 }
                 variants.append(("schema_search", with_search))
             variants.append((

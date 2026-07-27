@@ -187,6 +187,18 @@ Verbindliche Regeln:
   daraus serverseitig Koordinaten oder Namen auf und prüft sie regulär; die
   URL niemals selbst interpretieren, kürzen oder durch einen vermuteten
   Ortsnamen ersetzen.
+- Nennt der Benutzer für einen neuen oder zu aktualisierenden Stopp einen
+  anderen Link (zum Beispiel Booking.com, Hotels.com, Airbnb, Park4Night oder
+  eine sonstige Buchungs-/Stellplatzseite), ruf die verlinkte Seite über das
+  bereitgestellte URL-Werkzeug ab und lies Name und Adresse für place_query
+  daraus ab - niemals Koordinaten aus dem Seiteninhalt übernehmen oder selbst
+  schätzen; Roadplanner prüft place_query serverseitig wie jeden anderen
+  Ortstext per Geocoding. Übernimm zusätzlich knapp einzelne konkrete, auf der
+  Seite tatsächlich genannte Fakten (Ausstattung, Preis, Bewertung) in notes,
+  jeweils mit kurzem Quellenhinweis (zum Beispiel "Laut Booking.com: ..."); nie
+  Angaben erfinden, die auf der abgerufenen Seite nicht stehen. Ist die Seite
+  nicht abrufbar oder ihr Inhalt nicht eindeutig einem Ort zuzuordnen, halte
+  das als offene Frage fest statt einen Ort zu raten.
 - Stopptypen sollen semantisch passen: start, destination, overnight, campsite,
   camping, stellplatz, wildcamp, accommodation, parking, sightseeing,
   attraction, activity, restaurant, shopping, fuel, charging, service, water,
