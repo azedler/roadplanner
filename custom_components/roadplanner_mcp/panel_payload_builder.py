@@ -19,6 +19,7 @@ from .destination_gallery_manager import DestinationGalleryManager
 from .experience_helpers import _stops
 from .experience_store import ExperienceStore, resolve_decision_media_references
 from .geocoding import GeocodingProvider
+from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
 from .media_curation_manager import MediaCurationManager
 from .media_intelligence import build_media_presentation
@@ -42,6 +43,7 @@ class PanelPayloadBuilder:
         provider: AssistantProvider | None,
         *,
         media_tokens: MediaTokenService,
+        google_photo_tokens: GooglePhotoTokenService | None = None,
         media_curation: MediaCurationManager,
         destination_gallery: DestinationGalleryManager,
         vision_curation: VisionCurationEngine,
@@ -54,10 +56,35 @@ class PanelPayloadBuilder:
         self.geocoder = geocoder
         self.provider = provider
         self._media_tokens = media_tokens
+        self._google_photo_tokens = google_photo_tokens
         self._media_curation = media_curation
         self._destination_gallery = destination_gallery
         self._vision_curation = vision_curation
         self._media_library = media_library
+
+    def _resolve_google_photo_urls(self, destination_galleries: dict[str, Any]) -> None:
+        """Mint a fresh redirect URL for each saved Google-sourced image.
+
+        A saved gallery persists only the durable `photo_name` reference
+        (see destination_gallery_manager.py) - never a Google photo URL, since
+        that would go stale. This builds a short-lived, signed redirect URL
+        per payload send, exactly like media_tokens does above for OneDrive.
+        """
+        if self._google_photo_tokens is None:
+            return
+        for gallery in destination_galleries.values():
+            if not isinstance(gallery, dict):
+                continue
+            for image in gallery.get("images") or []:
+                if not isinstance(image, dict) or image.get("provider") != "google_places":
+                    continue
+                photo_name = str(image.get("photo_name") or "")
+                if not photo_name:
+                    continue
+                token = self._google_photo_tokens.token(photo_name)
+                url = f"/api/roadplanner/google_photo/{quote(photo_name, safe='/')}?token={token}"
+                image["image_url"] = url
+                image["thumbnail_url"] = url
 
     async def async_panel_payload(
         self, trip_id: str, *, days: list[dict[str, Any]] | None = None
@@ -90,6 +117,7 @@ class PanelPayloadBuilder:
                 by_stop.setdefault(str(item["linked_stop_id"]), []).append(media_id)
         decisions = resolve_decision_media_references(state["decisions"], media)
         destination_galleries = deepcopy(state.get("destination_galleries") or {})
+        self._resolve_google_photo_urls(destination_galleries)
         media_curations = (
             state.get("media_curations")
             if isinstance(state.get("media_curations"), dict)

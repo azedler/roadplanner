@@ -700,6 +700,17 @@ class GooglePlacesClient:
         """Google is not used for reverse geocoding in this integration."""
         return None
 
+    async def async_resolve_photo_url(self, photo_name: str) -> str | None:
+        """Resolve a durable photo resource name to a fresh, directly linkable URI.
+
+        Public entry point for callers that only hold the durable
+        ``photo_name`` (e.g. a saved destination gallery) and need a live
+        URL to redirect a browser to - as opposed to `async_search_photos`,
+        which discovers photo names via a fresh text search. Each call
+        still spends one entry of the separate photos daily quota.
+        """
+        return await self._resolve_photo_media(photo_name)
+
     async def _resolve_photo_media(self, photo_name: str) -> str | None:
         """Resolve a photo resource name to a short-lived, directly linkable URI.
 

@@ -50,6 +50,16 @@ class AssistantJsonResult:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class AssistantImageResult:
+    """One generated image plus provider metadata."""
+
+    data: bytes
+    mime_type: str
+    model_version: str | None = None
+    usage: dict[str, Any] = field(default_factory=dict)
+
+
 class AssistantProvider(Protocol):
     """Small provider contract used by the Roadplanner domain layer."""
 
@@ -114,3 +124,10 @@ class AssistantProvider(Protocol):
         temperature: float = 0.1,
     ) -> dict[str, Any]:
         """Compatibility wrapper returning only the JSON object."""
+
+    async def async_generate_image(
+        self,
+        *,
+        prompt: str,
+    ) -> AssistantImageResult:
+        """Generate one image from a text prompt."""

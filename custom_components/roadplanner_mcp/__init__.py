@@ -140,6 +140,7 @@ from .const import (
 from .coordinator import RoadplannerCoordinator
 from .destination_images import DestinationImageProvider
 from .experience_http import async_register_experience_views
+from .google_photo_http import async_register_google_photo_view
 from .experience_manager import RoadplannerExperienceManager
 from .experience_store import ExperienceStore
 from .gemini_client import GeminiClient
@@ -198,6 +199,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_drive_import_view(hass)
     async_register_travel_archive_views(hass)
     async_register_experience_views(hass)
+    async_register_google_photo_view(hass)
     await async_setup_panel_support(hass)
     return True
 
@@ -311,16 +313,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         assert webhook_id is not None
         assert webhook_token is not None
-        async_register_handoff_webhook(
-            hass,
-            manager,
-            webhook_id=webhook_id,
-            webhook_token=webhook_token,
-        )
-        webhook_registered = True
-        entry.async_on_unload(
-            lambda: async_unregister_handoff_webhook(hass, webhook_id)
-        )
 
     assistant_provider = str(
         options.get(CONF_ASSISTANT_PROVIDER, DEFAULT_ASSISTANT_PROVIDER)
@@ -440,6 +432,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         ),
     )
+    if webhook_id is not None and webhook_token is not None:
+        async_register_handoff_webhook(
+            hass,
+            manager,
+            webhook_id=webhook_id,
+            webhook_token=webhook_token,
+            geocoder=geocoder,
+        )
+        webhook_registered = True
+        entry.async_on_unload(
+            lambda: async_unregister_handoff_webhook(hass, webhook_id)
+        )
     assistant = RoadplannerAssistant(
         manager,
         provider=provider,
