@@ -229,6 +229,17 @@ export const PANEL_STYLES = `<style>
       .total-day-copy > div { display: flex; flex-wrap: wrap; gap: 7px; }
       .total-day-copy > div span { padding: 4px 7px; border-radius: 8px; background: var(--secondary-background-color); font-size: 11px; }
       .chevron { color: var(--secondary-text-color); }
+      .crew-section { background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 22px; padding: 22px; margin-bottom: 18px; }
+      .crew-section h3 { margin: 0 0 12px; }
+      .crew-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+      .crew-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 14px; }
+      .crew-row.inactive { opacity: 0.6; }
+      .crew-row ha-icon { --mdc-icon-size: 28px; color: var(--primary-color); }
+      .crew-row-body { flex: 1; display: flex; flex-direction: column; }
+      .crew-row-body span { color: var(--secondary-text-color); font-size: 13px; }
+      .crew-retired { margin-top: 14px; }
+      .crew-retired summary { cursor: pointer; color: var(--secondary-text-color); margin-bottom: 10px; }
+      .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
       .trip-card { overflow: hidden; }
       .trip-card.active { border-color: color-mix(in srgb, var(--success-color, #2e7d32) 65%, var(--divider-color)); }
