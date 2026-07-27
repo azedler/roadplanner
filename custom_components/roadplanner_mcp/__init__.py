@@ -140,6 +140,7 @@ from .const import (
 from .coordinator import RoadplannerCoordinator
 from .destination_images import DestinationImageProvider
 from .experience_http import async_register_experience_views
+from .google_photo_http import async_register_google_photo_view
 from .experience_manager import RoadplannerExperienceManager
 from .experience_store import ExperienceStore
 from .gemini_client import GeminiClient
@@ -198,6 +199,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_drive_import_view(hass)
     async_register_travel_archive_views(hass)
     async_register_experience_views(hass)
+    async_register_google_photo_view(hass)
     await async_setup_panel_support(hass)
     return True
 
