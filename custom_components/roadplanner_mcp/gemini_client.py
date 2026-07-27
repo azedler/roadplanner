@@ -701,6 +701,13 @@ class GeminiClient:
                             if err.code == "invalid_request":
                                 # HTTP 400 is never retried unchanged. Move to the
                                 # next, more compatible request shape exactly once.
+                                _LOGGER.debug(
+                                    "Gemini rejected request_mode=%s for model=%s "
+                                    "with HTTP 400: %s",
+                                    request_mode,
+                                    model,
+                                    err.provider_detail or str(err),
+                                )
                                 if variant_index < len(variants) - 1:
                                     compatibility_fallback_count += 1
                                     break
