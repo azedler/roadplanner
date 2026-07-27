@@ -511,7 +511,7 @@ export const tripDayStopMixin = {
 
   _renderTripForm(dialog) {
     const trip = dialog.trip;
-    return `${this._renderModalHeader("Reise bearbeiten", `Revision ${dialog.revision}`)}<form data-form="trip" data-revision="${dialog.revision}" class="form-grid">${this._field("title", "Titel", trip.title, "text", true, "full")}${this._selectField("status", "Status", trip.status, ["planned", "tentative", "confirmed", "completed", "cancelled"])}${this._field("start_date", "Startdatum", trip.start_date || "", "date")}${this._field("end_date", "Enddatum", trip.end_date || "", "date")}${this._textarea("notes", "Notizen", trip.notes || "", "full")}${this._formActions("Reise speichern")}</form>`;
+    return `${this._renderModalHeader("Reise bearbeiten", `Revision ${dialog.revision}`)}<form data-form="trip" data-revision="${dialog.revision}" class="form-grid">${this._field("title", "Titel", trip.title, "text", true, "full")}${this._selectField("status", "Status", trip.status, ["planned", "tentative", "confirmed", "completed", "cancelled"])}${this._field("start_date", "Startdatum", trip.start_date || "", "date")}${this._field("end_date", "Enddatum", trip.end_date || "", "date")}${this._textarea("notes", "Notizen", trip.notes || "", "full")}${this._renderTripCrewFields(trip)}${this._formActions("Reise speichern")}</form>`;
   },
 
   _renderDayForm(dialog) {
