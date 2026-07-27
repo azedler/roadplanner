@@ -1194,6 +1194,7 @@ def execute_changeset(
                 if annotation in operation:
                     result[annotation] = operation[annotation]
             if operation_name == "update_trip":
+                result["patch"] = deepcopy(operation["patch"])
                 candidate.trip_document["trip"] = _apply_patch(
                     candidate.trip_document["trip"],
                     deepcopy(operation["patch"]),
@@ -1266,9 +1267,11 @@ def execute_changeset(
                 if client_id is not None:
                     day_refs[client_id] = day_id
                 result.update({"day_id": day_id, "position": insert_at + 1})
+                result["day"] = _without_audit_fields(document["day"])
 
             elif operation_name == "update_day":
                 day_id = _resolve_day_id(operation, candidate, day_refs)
+                result["patch"] = deepcopy(operation["patch"])
                 document = candidate.day_documents[day_id]
                 before = _without_audit_fields(document["day"])
                 document["day"] = _apply_patch(
@@ -1382,9 +1385,11 @@ def execute_changeset(
                         "position": insert_at + 1,
                     }
                 )
+                result["stop"] = _without_audit_fields(stop)
 
             elif operation_name == "update_stop":
                 day_id = _resolve_day_id(operation, candidate, day_refs)
+                result["patch"] = deepcopy(operation["patch"])
                 document = candidate.day_documents[day_id]
                 stop_id, old_index = _resolve_stop_id(
                     operation,
@@ -1457,6 +1462,7 @@ def execute_changeset(
                             "Maximal 100 Planungspräferenzen pro Ebene werden "
                             "unterstützt"
                         )
+                    result["preference"] = deepcopy(operation["preference"])
                     preferences.append(
                         _stored_preference(
                             preference_id,
@@ -1472,6 +1478,7 @@ def execute_changeset(
                             "Planungspräferenz nicht gefunden: "
                             f"{preference_id}"
                         )
+                    result["patch"] = deepcopy(operation["patch"])
                     existing = preferences[existing_index]
                     existing_created = str(existing.get("created_at") or now)
                     before = {
