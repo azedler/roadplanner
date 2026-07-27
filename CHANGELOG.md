@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.5.4] - 2026-07-27
+
+### Fixed
+
+- The assistant's compile/basket schema could get rejected by Gemini with a generic HTTP 400 ("Request contains an invalid argument.", no further detail) across several current models (confirmed live for `gemini-3.6-flash`, `gemini-3.5-flash`, and `gemini-3.5-flash-lite`), forcing every call all the way back to the unconstrained plain-JSON fallback - which can never include the `google_search`/`url_context` tools, so a booking-link stop update could never actually get fetched. Google's own guidance for this exact generic error attributes it to schema "complexity" (many properties combined with numeric/length constraints), which a bare 400 doesn't otherwise identify. `GeminiClient` already stripped `maxLength`/`minLength`/`pattern` for this reason; it now also strips `minimum`/`maximum`/`minItems`/`maxItems` from the schema sent to Gemini. None of these are needed for correctness - every value is still fully re-validated server-side regardless of what schema Gemini used during generation.
+
 ## [4.5.3] - 2026-07-27
 
 ### Fixed
