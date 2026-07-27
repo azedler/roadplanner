@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Every panel load fetched the trip/day payload, then travel-archive data, then experience data, then crew data, strictly one after another - four sequential round trips on every single click (add/update/remove a stop, apply a change, anything that triggers a refresh), even though most of them don't depend on each other. Independent subsystems (crew alongside the main payload; travel-archive alongside experience once the selected trip is known) now fetch concurrently instead.
+
 ### Fixed
 
 - Updating an *existing* stop (as opposed to adding a new one) never enabled Gemini's search/`url_context` tools, even without a resolved `place_query` - only `add` did. A pasted booking link on a stop the chat step had already matched to a prior placeholder therefore got no fetch at all: the model had to guess a name from conversation context alone, and no location was ever resolved. Any stop `add` or `update` without a `place_query` yet, or that mentions a non-Google-Maps link anywhere in its basket text, now enables research the same way.
