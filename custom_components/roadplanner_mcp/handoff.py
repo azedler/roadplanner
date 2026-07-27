@@ -553,6 +553,56 @@ class HandoffStore:
         _write_json_atomic(path, envelope)
         return self._compact(envelope)
 
+    def rebase_pending(
+        self,
+        *,
+        handoff_id: str,
+        base_revision: int,
+    ) -> dict[str, Any]:
+        """Re-stamp a pending ChangeSet's base_revision onto a fresh value.
+
+        The caller is responsible for re-validating the rebased ChangeSet
+        (via ``preview_changeset``) against the current trip *before*
+        calling this - it only persists an already-confirmed-valid new
+        base_revision, it never validates anything itself. trip_id,
+        changeset_id, and every operation stay exactly as they were; only
+        base_revision (on both the envelope and the nested changeset, which
+        must always agree) and the derived hashes/raw_content change.
+        """
+        handoff_id = validate_identifier(handoff_id, "handoff_id")
+        path = self.pending_dir / _safe_filename(handoff_id)
+        if not path.exists():
+            raise ValidationError(f"Ausstehende Übergabe nicht gefunden: {handoff_id}")
+        envelope = self._validate_envelope(_read_json(path))
+        if envelope["status"] not in _PENDING_STATUSES:
+            raise ValidationError(
+                f"Übergabe hat keinen bearbeitbaren Status: {envelope['status']}"
+            )
+        base_revision = _validate_base_revision(base_revision)
+        changeset = deepcopy(envelope["changeset"])
+        changeset["base_revision"] = base_revision
+        normalized = normalize_changeset(changeset)
+        raw_content = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        envelope.update(
+            {
+                "status": "pending",
+                "base_revision": base_revision,
+                "changeset": normalized,
+                "changeset_sha256": _changeset_hash(normalized),
+                "raw_content": raw_content,
+                "raw_content_sha256": _content_hash(raw_content),
+                "last_error": None,
+                "rebased_at": utc_now_iso(),
+            }
+        )
+        _write_json_atomic(path, envelope)
+        return self._compact(envelope)
+
     def mark_applied(
         self,
         *,
