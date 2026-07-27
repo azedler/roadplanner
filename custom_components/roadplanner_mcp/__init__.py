@@ -311,16 +311,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         assert webhook_id is not None
         assert webhook_token is not None
-        async_register_handoff_webhook(
-            hass,
-            manager,
-            webhook_id=webhook_id,
-            webhook_token=webhook_token,
-        )
-        webhook_registered = True
-        entry.async_on_unload(
-            lambda: async_unregister_handoff_webhook(hass, webhook_id)
-        )
 
     assistant_provider = str(
         options.get(CONF_ASSISTANT_PROVIDER, DEFAULT_ASSISTANT_PROVIDER)
@@ -440,6 +430,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         ),
     )
+    if webhook_id is not None and webhook_token is not None:
+        async_register_handoff_webhook(
+            hass,
+            manager,
+            webhook_id=webhook_id,
+            webhook_token=webhook_token,
+            geocoder=geocoder,
+        )
+        webhook_registered = True
+        entry.async_on_unload(
+            lambda: async_unregister_handoff_webhook(hass, webhook_id)
+        )
     assistant = RoadplannerAssistant(
         manager,
         provider=provider,

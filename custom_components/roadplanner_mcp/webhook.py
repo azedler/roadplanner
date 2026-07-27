@@ -14,6 +14,7 @@ from homeassistant.components import webhook
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.network import get_url
 
+from .assistant_plugins import GeocodingAssistantPlugin
 from .changeset import APPLY_MODE_REVIEW, normalize_changeset
 from .const import (
     DOMAIN,
@@ -21,6 +22,7 @@ from .const import (
     EVENT_HANDOFF_RECEIVED,
     MAX_WEBHOOK_BYTES,
 )
+from .google_maps_link import async_resolve_google_maps_place_query
 from .handoff import HandoffConflictError, extract_changeset
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
@@ -40,6 +42,7 @@ def async_register_handoff_webhook(
     *,
     webhook_id: str,
     webhook_token: str,
+    geocoder: Any | None = None,
 ) -> None:
     """Register the secret legacy context bridge and review-only importer."""
 
@@ -53,6 +56,7 @@ def async_register_handoff_webhook(
             manager,
             request,
             expected_token=webhook_token,
+            geocoder=geocoder,
         )
 
     webhook.async_register(
@@ -88,6 +92,7 @@ async def _async_handle(
     request: Request,
     *,
     expected_token: str,
+    geocoder: Any | None = None,
 ) -> Response:
     if not _is_authorized(request, expected_token):
         return _json_error("unauthorized", HTTPStatus.UNAUTHORIZED)
@@ -96,7 +101,7 @@ async def _async_handle(
         return await _async_handle_context_get(manager, request)
     if request.method != "POST":
         return _json_error("method_not_allowed", HTTPStatus.METHOD_NOT_ALLOWED)
-    return await _async_handle_handoff_post(hass, manager, request)
+    return await _async_handle_handoff_post(hass, manager, request, geocoder=geocoder)
 
 
 async def _async_handle_context_get(
@@ -183,10 +188,68 @@ def _handoff_kwargs(
     raise ValidationError("'changeset' oder 'content' fehlt oder ist ungültig")
 
 
+async def _async_resolve_external_place_queries(
+    hass: HomeAssistant,
+    geocoder: Any | None,
+    raw_changeset: Any,
+) -> Any:
+    """Resolve Google Maps links and geocode place_query on a raw external
+    ChangeSet's stop operations before normalize_changeset validates it.
+
+    The in-panel assistant chat already resolves a pasted Google Maps link and
+    geocodes free-text place_query into changes.location for its own compiled
+    operations (google_maps_link.py + GeocodingAssistantPlugin) before ever
+    reaching normalize_changeset. Externally submitted ChangeSets (this
+    webhook, voice assistants, automations) went straight into
+    normalize_changeset instead, which has no concept of place_query at all -
+    an external producer's stop only ever got whatever bare location it could
+    resolve itself. This mirrors the same resolution here so it applies
+    regardless of who created the ChangeSet.
+    """
+    if not isinstance(raw_changeset, dict):
+        return raw_changeset
+    operations = raw_changeset.get("operations")
+    if not isinstance(operations, list) or not operations:
+        return raw_changeset
+
+    resolved_operations: list[Any] = []
+    for raw_operation in operations:
+        place_query = (
+            raw_operation.get("place_query")
+            if isinstance(raw_operation, dict)
+            else None
+        )
+        if (
+            isinstance(raw_operation, dict)
+            and str(raw_operation.get("entity_type") or "").casefold() == "stop"
+            and isinstance(place_query, str)
+            and place_query.strip()
+        ):
+            raw_operation = dict(raw_operation)
+            resolved = await async_resolve_google_maps_place_query(
+                hass, place_query
+            )
+            if resolved:
+                raw_operation["place_query"] = resolved
+        resolved_operations.append(raw_operation)
+
+    if geocoder is None:
+        return {**raw_changeset, "operations": resolved_operations}
+
+    enriched = await GeocodingAssistantPlugin(geocoder).async_enrich_operations(
+        operations=resolved_operations,
+        open_questions=[],
+        context={},
+    )
+    return {**raw_changeset, "operations": enriched.operations}
+
+
 async def _async_handle_handoff_post(
     hass: HomeAssistant,
     manager: RoadplannerManager,
     request: Request,
+    *,
+    geocoder: Any | None = None,
 ) -> Response:
     length = request.content_length
     if length is not None and length > MAX_WEBHOOK_BYTES:
@@ -217,6 +280,9 @@ async def _async_handle_handoff_post(
         raw_changeset = kwargs.pop("changeset", None)
         if raw_changeset is None:
             raw_changeset = extract_changeset(kwargs.pop("content"))
+        raw_changeset = await _async_resolve_external_place_queries(
+            hass, geocoder, raw_changeset
+        )
         normalized = normalize_changeset(raw_changeset)
         if normalized["apply_mode"] != APPLY_MODE_REVIEW:
             raise ValidationError(
