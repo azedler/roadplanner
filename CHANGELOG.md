@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.5.2] - 2026-07-27
+
 ### Fixed
 
 - A booking-link stop update could still silently skip Gemini's `google_search`/`url_context` tools even with research correctly requested, if the same model had already answered an earlier, ordinary (non-search) call by falling back to its schema-less plain-JSON request shape. `GeminiClient` memoizes the last request shape that worked per model to skip straight to it next time, but that cache was keyed only by model name - so once a model's plain-JSON fallback got cached (very likely, since it happens whenever the primary model times out or errors and the client retries with a fallback model), every later call to that model reused it first, including ones that explicitly needed the search/`url_context` tools to fetch a booking link. The cache is now keyed by `(model, whether search was requested)`, so a plain call's cached shape can never keep a search-requiring call from actually attempting to search.
