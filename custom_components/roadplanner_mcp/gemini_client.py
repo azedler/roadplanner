@@ -121,7 +121,7 @@ class GeminiClient:
         self._cooldown_until_monotonic = 0.0
         self._cooldown_until_iso: str | None = None
         self._cooldown_reason: str | None = None
-        self._preferred_request_modes: dict[str, str] = {}
+        self._preferred_request_modes: dict[tuple[str, bool], str] = {}
 
         self._health: dict[str, Any] = {
             "total_calls": 0,
@@ -645,7 +645,8 @@ class GeminiClient:
                     variants = produced
                 else:
                     variants = [("default", produced)]
-                preferred = self._preferred_request_modes.get(model)
+                preferred_key = (model, bool(search_requested))
+                preferred = self._preferred_request_modes.get(preferred_key)
                 if preferred:
                     variants = sorted(
                         variants, key=lambda item: 0 if item[0] == preferred else 1
@@ -673,7 +674,7 @@ class GeminiClient:
                                 timeout_seconds=min(40.0, remaining),
                             )
                             usage = self._usage(payload)
-                            self._preferred_request_modes[model] = request_mode
+                            self._preferred_request_modes[preferred_key] = request_mode
                             diagnostics = {
                                 "attempt_count": attempt_count,
                                 "retry_count": retry_count,
