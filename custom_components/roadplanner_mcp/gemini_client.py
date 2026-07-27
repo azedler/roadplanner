@@ -850,6 +850,19 @@ class GeminiClient:
                 break
         return result
 
+    # Gemini can reject an otherwise-valid schema with a generic HTTP 400
+    # ("Request contains an invalid argument.", no further detail) purely for
+    # being too complex - long property lists combined with numeric/length
+    # constraints on many of them count against an undocumented complexity
+    # budget. None of these keywords are needed for correctness: every value
+    # Gemini returns is still fully re-validated against the real, strict
+    # bounds server-side (trip_documents.py, changeset.py, assistant_compile.py
+    # normalization), so stripping them only removes a soft hint to the model,
+    # never a safety net.
+    _UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+        {"maxLength", "minLength", "pattern", "minimum", "maximum", "minItems", "maxItems"}
+    )
+
     @staticmethod
     def _supported_schema(value: Any) -> Any:
         """Remove constraints outside Gemini's supported JSON Schema subset."""
@@ -857,7 +870,7 @@ class GeminiClient:
             return {
                 key: GeminiClient._supported_schema(child)
                 for key, child in value.items()
-                if key not in {"maxLength", "minLength", "pattern"}
+                if key not in GeminiClient._UNSUPPORTED_SCHEMA_KEYWORDS
             }
         if isinstance(value, list):
             return [GeminiClient._supported_schema(child) for child in value]
