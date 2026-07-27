@@ -54,6 +54,7 @@ _ACTIONS = {
     "preview_handoff",
     "apply_handoff",
     "archive_handoff",
+    "rebase_handoff",
     "create_backup",
     "search_destination_images",
     "refresh_destination_gallery",
@@ -172,6 +173,7 @@ _APPROVAL_ACTIONS = {
     "scan_handoffs",
     "apply_handoff",
     "archive_handoff",
+    "rebase_handoff",
 }
 _ADMIN_ACTIONS = {"create_backup", "assistant_diagnostics", "onedrive_configure", "onedrive_start_auth", "onedrive_poll_auth", "onedrive_disconnect"}
 _ASSISTANT_ACTIONS = {
@@ -973,6 +975,12 @@ async def _execute_action(
             handoff_id=data.get("handoff_id"),
             resolution=str(data.get("resolution") or "rejected"),
             note=str(data.get("note") or ""),
+            expected_trip_id=data.get("expected_trip_id"),
+        )
+
+    if action == "rebase_handoff":
+        return await manager.async_rebase_handoff(
+            data.get("handoff_id"),
             expected_trip_id=data.get("expected_trip_id"),
         )
 
