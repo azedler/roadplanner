@@ -13,6 +13,7 @@ from .destination_gallery_manager import DestinationGalleryManager
 from .destination_images import DestinationImageProvider
 from .experience_store import ExperienceStore
 from .geocoding import GeocodingProvider
+from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
 from .media_curation_manager import MediaCurationManager
 from .media_library_manager import (
@@ -26,6 +27,7 @@ from .panel_payload_builder import PanelPayloadBuilder
 from .place_cleanup import PlaceCleanupService
 from .place_enrichment import PlaceEnrichmentService
 from .place_enrichment_orchestrator import PlaceEnrichmentOrchestrator
+from .roadplanner import ValidationError
 from .routing import OSRMRoutingClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +96,11 @@ class RoadplannerExperienceManager:
             else None
         )
         self._media_tokens = MediaTokenService(hass=hass, store=store, onedrive=onedrive)
+        self._google_photo_tokens = (
+            GooglePhotoTokenService(image_provider.google_places)
+            if image_provider.google_places is not None
+            else None
+        )
         self._media_curation = MediaCurationManager(
             hass,
             store,
@@ -151,6 +158,7 @@ class RoadplannerExperienceManager:
             geocoder,
             provider,
             media_tokens=self._media_tokens,
+            google_photo_tokens=self._google_photo_tokens,
             media_curation=self._media_curation,
             destination_gallery=self._destination_gallery,
             vision_curation=self._vision_curation,
@@ -277,6 +285,16 @@ class RoadplannerExperienceManager:
 
     def validate_token(self, trip_id: str, media_id: str, kind: str, token: str) -> bool:
         return self._media_tokens.validate_token(trip_id, media_id, kind, token)
+
+    def validate_google_photo_token(self, photo_name: str, token: str) -> bool:
+        if self._google_photo_tokens is None:
+            return False
+        return self._google_photo_tokens.validate_token(photo_name, token)
+
+    async def async_google_photo_redirect_url(self, photo_name: str) -> str:
+        if self._google_photo_tokens is None:
+            raise ValidationError("Google-Fotos sind nicht konfiguriert")
+        return await self._google_photo_tokens.async_redirect_url(photo_name)
 
     async def async_curate_stop_media(
         self, trip_id: str, day_id: str, stop_id: str, *, force: bool = False

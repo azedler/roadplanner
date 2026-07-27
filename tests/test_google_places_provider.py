@@ -71,6 +71,7 @@ def load(name: str):
 geocoding = load("geocoding")
 google_places = load("google_places")
 place_providers = load("place_providers")
+google_photo_token_service = load("google_photo_token_service")
 
 
 class FakeGoogle(google_places.GooglePlacesClient):
@@ -319,9 +320,53 @@ async def verify_photos_opt_in() -> None:
     assert enabled.media_calls == ["places/ChIJ-photo-test/photos/ref-1"]
 
 
+class FakeGooglePhotoResolver:
+    """Stands in for GooglePlacesClient.async_resolve_photo_url."""
+
+    def __init__(self, url_by_photo_name: dict[str, str]):
+        self._urls = url_by_photo_name
+        self.resolve_calls: list[str] = []
+
+    async def async_resolve_photo_url(self, photo_name: str):
+        self.resolve_calls.append(photo_name)
+        return self._urls.get(photo_name)
+
+
+async def verify_google_photo_token_service() -> None:
+    photo_name = "places/ChIJ-photo-test/photos/ref-1"
+    resolver = FakeGooglePhotoResolver({photo_name: "https://lh3.googleusercontent.com/fresh-1"})
+    tokens = google_photo_token_service.GooglePhotoTokenService(resolver)
+
+    token = tokens.token(photo_name)
+    assert tokens.validate_token(photo_name, token) is True, "a freshly minted token must validate"
+    assert tokens.validate_token("places/other/photos/x", token) is False, (
+        "a token must be bound to its exact photo_name - it must not validate for a different one"
+    )
+    assert tokens.validate_token(photo_name, "garbage") is False
+    assert tokens.validate_token(photo_name, "9999999999.deadbeef") is False, (
+        "a well-formed but wrong signature must not validate"
+    )
+
+    url = await tokens.async_redirect_url(photo_name)
+    assert url == "https://lh3.googleusercontent.com/fresh-1"
+    assert resolver.resolve_calls == [photo_name], (
+        "each redirect must re-resolve live against the provider, never cache/reuse a stale URL"
+    )
+
+    missing_resolver = FakeGooglePhotoResolver({})
+    missing_tokens = google_photo_token_service.GooglePhotoTokenService(missing_resolver)
+    try:
+        await missing_tokens.async_redirect_url("places/gone/photos/x")
+    except Exception as err:  # noqa: BLE001 - asserting the specific contract below
+        assert "nicht mehr verfügbar" in str(err)
+    else:
+        raise AssertionError("a photo_name the provider can no longer resolve must raise, not return None silently")
+
+
 asyncio.run(verify_google_candidate())
 asyncio.run(verify_composite_fallback())
 asyncio.run(verify_photos_opt_in())
+asyncio.run(verify_google_photo_token_service())
 
 source = Path("custom_components/roadplanner_mcp/google_places.py").read_text(encoding="utf-8")
 assert "X-Goog-Api-Key" in source
