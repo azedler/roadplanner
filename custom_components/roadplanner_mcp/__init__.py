@@ -51,6 +51,7 @@ from .const import (
     CONF_GOOGLE_PLACES_ENABLED,
     CONF_GOOGLE_PLACES_MODE,
     CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+    CONF_MAP_SNAPSHOT_PROVIDER,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -112,6 +113,7 @@ from .const import (
     DEFAULT_GOOGLE_PLACES_ENABLED,
     DEFAULT_GOOGLE_PLACES_MODE,
     DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
+    DEFAULT_MAP_SNAPSHOT_PROVIDER,
     DEFAULT_ROUTING_ENABLED,
     DEFAULT_ROUTING_PROVIDER,
     DEFAULT_ROUTING_URL,
@@ -167,6 +169,8 @@ from .travel_archive_http import async_register_travel_archive_views
 from .travel_archive_manager import TravelArchiveManager
 from .trip_pdf_export import TripPdfExporter
 from .trip_pdf_http import async_register_trip_pdf_view
+from .trip_video_export import TripVideoExporter
+from .trip_video_http import async_register_trip_video_view
 from .universal_import_manager import UniversalImportManager
 from .services import async_register_services
 from .webhook import (
@@ -196,6 +200,7 @@ class RoadplannerRuntimeData:
     universal_import: UniversalImportManager
     crew: CrewManager
     trip_pdf: TripPdfExporter
+    trip_video: TripVideoExporter
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -207,6 +212,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_experience_views(hass)
     async_register_google_photo_view(hass)
     async_register_trip_pdf_view(hass)
+    async_register_trip_video_view(hass)
     await async_setup_panel_support(hass)
     return True
 
@@ -581,6 +587,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     trip_pdf = TripPdfExporter(hass, manager, experience)
+    trip_video = TripVideoExporter(
+        hass,
+        manager,
+        experience,
+        provider,
+        map_snapshot_provider=options.get(
+            CONF_MAP_SNAPSHOT_PROVIDER,
+            DEFAULT_MAP_SNAPSHOT_PROVIDER,
+        ),
+        google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
+    )
 
     runtime = RoadplannerRuntimeData(
         manager=manager,
@@ -600,6 +617,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         universal_import=universal_import,
         crew=crew,
         trip_pdf=trip_pdf,
+        trip_video=trip_video,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
@@ -775,6 +793,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_GOOGLE_PLACES_MODE: effective.get(
             CONF_GOOGLE_PLACES_MODE,
             DEFAULT_GOOGLE_PLACES_MODE,
+        ),
+        CONF_MAP_SNAPSHOT_PROVIDER: effective.get(
+            CONF_MAP_SNAPSHOT_PROVIDER,
+            DEFAULT_MAP_SNAPSHOT_PROVIDER,
         ),
         CONF_GOOGLE_PLACES_DAILY_LIMIT: effective.get(
             CONF_GOOGLE_PLACES_DAILY_LIMIT,

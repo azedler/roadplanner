@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "roadplanner_mcp"
 NAME = "Roadplanner"
-INTEGRATION_VERSION = "4.7.0"
+INTEGRATION_VERSION = "4.8.0"
 
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
@@ -52,6 +52,7 @@ CONF_GEOCODING_URL = "geocoding_url"
 CONF_GOOGLE_PLACES_ENABLED = "google_places_enabled"
 CONF_GOOGLE_PLACES_API_KEY = "google_places_api_key"
 CONF_GOOGLE_PLACES_MODE = "google_places_mode"
+CONF_MAP_SNAPSHOT_PROVIDER = "map_snapshot_provider"
 CONF_GOOGLE_PLACES_DAILY_LIMIT = "google_places_daily_limit"
 CONF_GOOGLE_PLACES_REQUEST_TIMEOUT = "google_places_request_timeout"
 CONF_GOOGLE_PHOTOS_ENABLED = "google_photos_enabled"
@@ -125,6 +126,11 @@ DEFAULT_GOOGLE_PLACES_ENABLED = True
 DEFAULT_GOOGLE_PLACES_API_KEY = ""
 GOOGLE_PLACES_MODES = ("fallback", "preferred")
 DEFAULT_GOOGLE_PLACES_MODE = "fallback"
+# Which backend renders the "where we are" map snapshots in the trip video
+# export. OpenStreetMap needs no API key (tile-stitched, mandatory
+# attribution); Google Static Maps reuses the configured Google Places key.
+MAP_SNAPSHOT_PROVIDERS = ("openstreetmap", "google_static_maps")
+DEFAULT_MAP_SNAPSHOT_PROVIDER = "openstreetmap"
 DEFAULT_GOOGLE_PLACES_DAILY_LIMIT = 50
 DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT = 25
 # Off by default: unlike Google Places text search, photo requests are a

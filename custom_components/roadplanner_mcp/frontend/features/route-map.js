@@ -70,6 +70,32 @@ export const routeMapMixin = {
     }
   },
 
+  async _exportTripVideo() {
+    if (this._exportingTripVideo || !this._selectedTripId) return;
+    this._exportingTripVideo = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction("export_trip_video", {
+        trip_id: this._selectedTripId,
+        style: this._videoStyle || "highlight",
+      }, "", {
+        refresh: false,
+        errorTitle: "Video konnte nicht erstellt werden",
+      });
+      if (!result?.download_url) return;
+      const link = document.createElement("a");
+      link.href = result.download_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = "";
+      link.click();
+      this._showToast("Reise als Video erstellt", "success", 4500);
+    } finally {
+      this._exportingTripVideo = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
   _coordinate(stop, day = null, index = 0) {
     const location = stop?.location || {};
     const latitude = Number(location.latitude ?? location.lat);
@@ -351,6 +377,15 @@ export const routeMapMixin = {
           ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-trip-routes" data-force="${paths.length ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${paths.length ? "Alle neu berechnen" : "Alle Routen berechnen"}</button>` : ""}
           ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Tag</button>` : ""}
           <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Reisezusammenfassung als PDF"}</button>
+          ${this._data?.settings?.video_export_available ? `
+            <select data-action="select-video-style" aria-label="Videolänge" ${this._exportingTripVideo ? "disabled" : ""}>
+              <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>
+              <option value="full" ${this._videoStyle === "full" ? "selected" : ""}>Ausführlicher Rückblick</option>
+            </select>
+            <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._exportingTripVideo ? "Erstelle Video… (kann einige Minuten dauern)" : "Reise als Video"}</button>
+          ` : `
+            <button class="secondary-button" type="button" disabled title="ffmpeg wurde auf diesem Home-Assistant-Host nicht gefunden"><ha-icon icon="mdi:movie-open-outline"></ha-icon> Reise als Video</button>
+          `}
         </div>
       </section>
       ${!routingConfigured ? '<div class="notice neutral">Aktiviere Straßenrouting in den Roadplanner-Optionen, um Kilometer und Fahrzeiten zu berechnen.</div>' : ""}

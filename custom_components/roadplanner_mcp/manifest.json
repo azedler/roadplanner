@@ -1,7 +1,7 @@
 {
   "domain": "roadplanner_mcp",
   "name": "Roadplanner",
-  "version": "4.7.0",
+  "version": "4.8.0",
   "codeowners": [
     "@azedler"
   ],
@@ -15,7 +15,8 @@
   "integration_type": "service",
   "iot_class": "local_polling",
   "requirements": [
-    "reportlab>=4,<6"
+    "reportlab>=4,<6",
+    "Pillow>=10,<12"
   ],
   "single_config_entry": true,
   "documentation": "https://github.com/azedler/roadplanner#readme",
