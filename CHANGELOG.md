@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.8.0] - 2026-07-28
+
 ### Added
 
 - A new "Reise als Video" button next to the PDF export renders the trip as a downloadable MP4 slideshow: real personal-photo-first, stock-photo-fallback chapters (one per day), an optional map-snapshot chapter opener showing where that day's stops were (OpenStreetMap, tile-stitched with attribution, or Google Static Maps - configurable in Roadplanner's options, reusing the existing Google Places API key), crossfade transitions, and a short Gemini-written narrative per day, grounded strictly in that day's real stops/date/distance (the model is explicitly instructed never to invent details). Choose between a short highlight reel (top days only, ~2-3 min) or a full day-by-day recap at export time. Background music is supported but ships without any tracks yet - `assets/music/README.md` documents adding real royalty-free files as a manual follow-up; a missing/empty music folder simply produces a silent video. Rendering runs `ffmpeg` as an isolated subprocess (never blocking Home Assistant's shared executor pool) and needs an `ffmpeg` binary on the host - the button is disabled with an explanation if none is found. Requires the new `Pillow` dependency.
