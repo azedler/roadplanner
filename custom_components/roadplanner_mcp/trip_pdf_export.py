@@ -104,6 +104,13 @@ class TripPdfExporter:
             if isinstance(experience_state.get("destination_galleries"), dict)
             else {}
         )
+        media_by_stop: dict[str, list[dict[str, Any]]] = {}
+        for item in experience_state.get("media") or []:
+            if not isinstance(item, dict):
+                continue
+            stop_id = str(item.get("linked_stop_id") or "")
+            if stop_id:
+                media_by_stop.setdefault(stop_id, []).append(item)
 
         session = async_get_clientsession(self.hass)
         country_codes: set[str] = set()
@@ -134,7 +141,7 @@ class TripPdfExporter:
                 if code:
                     country_codes.add(code)
             photos = await self._async_fetch_day_photos(
-                session, stops, destination_galleries
+                session, trip_id, stops, media_by_stop, destination_galleries
             )
             days.append(
                 PdfDay(
@@ -168,44 +175,94 @@ class TripPdfExporter:
     async def _async_fetch_day_photos(
         self,
         session: Any,
+        trip_id: str,
         stops: list[dict[str, Any]],
+        media_by_stop: dict[str, list[dict[str, Any]]],
         destination_galleries: dict[str, Any],
     ) -> list[bytes]:
-        """Best-effort download of up to two already-confirmed stop photos.
+        """Best-effort download of up to two photos, one per stop.
 
-        Only plain, directly fetchable HTTPS image URLs are used (Wikimedia
-        Commons/Openverse). Google Places photos resolve to an internal,
-        token-signed redirect meant for the browser session, not a
-        server-side background job, so they are deliberately skipped here -
-        a missing photo just falls back to the drawn placeholder, never an
-        error.
+        A stop's own real photos (OneDrive-synced or manually uploaded, the
+        same personal media shown in "Erinnerungen") are always preferred -
+        the stock destination-gallery image is only used as a fallback when
+        the stop has no personal photo of its own. Only a plain, directly
+        fetchable HTTPS image URL is ever downloaded (Wikimedia Commons/
+        Openverse for stock images; a temporary Microsoft Graph download URL
+        for personal media). Google Places photos resolve to a redirect
+        meant for the browser session, not a server-side background job, so
+        they are deliberately skipped. A missing or failed photo just falls
+        back to the drawn placeholder, never an error.
         """
         photos: list[bytes] = []
         for stop in stops:
             if len(photos) >= MAX_PHOTOS_PER_DAY:
                 break
-            gallery = destination_galleries.get(str(stop.get("id") or ""))
-            if not isinstance(gallery, dict):
-                continue
-            images = [
-                image for image in gallery.get("images") or [] if isinstance(image, dict)
-            ]
-            if not images:
-                continue
-            primary_id = str(gallery.get("primary_image_id") or "")
-            image = next(
-                (item for item in images if str(item.get("id") or "") == primary_id),
-                images[0],
+            photo = await self._async_fetch_personal_stop_photo(
+                session, trip_id, str(stop.get("id") or ""), media_by_stop
             )
-            if str(image.get("provider") or "").casefold() == "google_places":
-                continue
-            url = str(image.get("image_url") or "")
-            if not url.casefold().startswith("https://"):
-                continue
-            photo = await self._async_download_photo(session, url)
+            if photo is None:
+                photo = await self._async_fetch_stock_stop_photo(
+                    session, str(stop.get("id") or ""), destination_galleries
+                )
             if photo:
                 photos.append(photo)
         return photos
+
+    async def _async_fetch_personal_stop_photo(
+        self,
+        session: Any,
+        trip_id: str,
+        stop_id: str,
+        media_by_stop: dict[str, list[dict[str, Any]]],
+    ) -> bytes | None:
+        candidates = media_by_stop.get(stop_id) or []
+        if not candidates:
+            return None
+        media_item = next(
+            (item for item in candidates if item.get("is_cover")), candidates[0]
+        )
+        media_id = str(media_item.get("id") or "")
+        if not media_id:
+            return None
+        try:
+            url = await self.experience.async_media_redirect_url(
+                trip_id, media_id, "original"
+            )
+        except RoadplannerError as err:
+            _LOGGER.debug(
+                "Trip PDF export could not resolve a personal photo: %s",
+                type(err).__name__,
+            )
+            return None
+        if not str(url or "").casefold().startswith("https://"):
+            return None
+        return await self._async_download_photo(session, url)
+
+    async def _async_fetch_stock_stop_photo(
+        self,
+        session: Any,
+        stop_id: str,
+        destination_galleries: dict[str, Any],
+    ) -> bytes | None:
+        gallery = destination_galleries.get(stop_id)
+        if not isinstance(gallery, dict):
+            return None
+        images = [
+            image for image in gallery.get("images") or [] if isinstance(image, dict)
+        ]
+        if not images:
+            return None
+        primary_id = str(gallery.get("primary_image_id") or "")
+        image = next(
+            (item for item in images if str(item.get("id") or "") == primary_id),
+            images[0],
+        )
+        if str(image.get("provider") or "").casefold() == "google_places":
+            return None
+        url = str(image.get("image_url") or "")
+        if not url.casefold().startswith("https://"):
+            return None
+        return await self._async_download_photo(session, url)
 
     async def _async_download_photo(self, session: Any, url: str) -> bytes | None:
         try:

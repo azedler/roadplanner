@@ -120,6 +120,122 @@ verify_ticket_is_single_use_limited()
 verify_unknown_token_is_rejected()
 verify_expired_ticket_is_purged()
 
+
+class _FakeContentReader:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    async def read(self, _max_bytes: int) -> bytes:
+        return self._body
+
+
+class _FakeResponse:
+    def __init__(self, *, status: int = 200, body: bytes = b"", content_length: int | None = None) -> None:
+        self.status = status
+        self.content_length = content_length if content_length is not None else len(body)
+        self.content = _FakeContentReader(body)
+
+    async def __aenter__(self) -> "_FakeResponse":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+
+class _FakeSession:
+    def __init__(self, body_by_url: dict[str, bytes]) -> None:
+        self._body_by_url = body_by_url
+        self.requested_urls: list[str] = []
+
+    def get(self, url: str, **_kwargs: object) -> _FakeResponse:
+        self.requested_urls.append(url)
+        body = self._body_by_url.get(url)
+        if body is None:
+            return _FakeResponse(status=404)
+        return _FakeResponse(status=200, body=body)
+
+
+class _FakeExperience:
+    def __init__(self, redirect_url: str | None) -> None:
+        self._redirect_url = redirect_url
+
+    async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
+        if self._redirect_url is None:
+            raise export_module.RoadplannerError("kein Foto gefunden")
+        return self._redirect_url
+
+
+def verify_personal_photo_is_preferred_over_stock() -> None:
+    async def scenario() -> None:
+        exporter = export_module.TripPdfExporter(
+            hass=None, manager=None, experience=_FakeExperience("https://graph.example/personal.jpg")
+        )
+        session = _FakeSession({"https://graph.example/personal.jpg": b"personal-bytes"})
+        media_by_stop = {"stop-1": [{"id": "media-1", "is_cover": True}]}
+        destination_galleries = {
+            "stop-1": {
+                "primary_image_id": "img-1",
+                "images": [
+                    {"id": "img-1", "provider": "wikimedia_commons", "image_url": "https://commons.example/stock.jpg"}
+                ],
+            }
+        }
+        photos = await exporter._async_fetch_day_photos(
+            session, "trip-1", [{"id": "stop-1"}], media_by_stop, destination_galleries
+        )
+        assert photos == [b"personal-bytes"]
+        assert "https://commons.example/stock.jpg" not in session.requested_urls
+
+    asyncio.run(scenario())
+
+
+def verify_stock_photo_is_the_fallback_when_no_personal_photo_exists() -> None:
+    async def scenario() -> None:
+        exporter = export_module.TripPdfExporter(
+            hass=None, manager=None, experience=_FakeExperience(None)
+        )
+        session = _FakeSession({"https://commons.example/stock.jpg": b"stock-bytes"})
+        destination_galleries = {
+            "stop-1": {
+                "primary_image_id": "img-1",
+                "images": [
+                    {"id": "img-1", "provider": "wikimedia_commons", "image_url": "https://commons.example/stock.jpg"}
+                ],
+            }
+        }
+        photos = await exporter._async_fetch_day_photos(
+            session, "trip-1", [{"id": "stop-1"}], {}, destination_galleries
+        )
+        assert photos == [b"stock-bytes"]
+
+    asyncio.run(scenario())
+
+
+def verify_google_places_stock_photo_is_never_fetched() -> None:
+    async def scenario() -> None:
+        exporter = export_module.TripPdfExporter(
+            hass=None, manager=None, experience=_FakeExperience(None)
+        )
+        session = _FakeSession({})
+        destination_galleries = {
+            "stop-1": {
+                "primary_image_id": "img-1",
+                "images": [{"id": "img-1", "provider": "google_places", "image_url": "https://places.example/x.jpg"}],
+            }
+        }
+        photos = await exporter._async_fetch_day_photos(
+            session, "trip-1", [{"id": "stop-1"}], {}, destination_galleries
+        )
+        assert photos == []
+        assert not session.requested_urls
+
+    asyncio.run(scenario())
+
+
+verify_personal_photo_is_preferred_over_stock()
+verify_stock_photo_is_the_fallback_when_no_personal_photo_exists()
+verify_google_places_stock_photo_is_never_fetched()
+
 # Source-level contract checks for the parts that need real aiohttp/Home
 # Assistant network access to exercise behaviorally.
 SOURCE = (PACKAGE_ROOT / "trip_pdf_export.py").read_text(encoding="utf-8")
