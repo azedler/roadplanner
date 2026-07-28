@@ -150,29 +150,32 @@ def _draw_photo_or_placeholder(
     c, x: float, y: float, w: float, h: float, label: str, tone, photo: bytes | None
 ) -> None:
     """Draw a real photo cropped to fill the frame, or a glyph placeholder."""
-    if not photo:
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
-    try:
-        image = ImageReader(io.BytesIO(photo))
-        iw, ih = image.getSize()
-    except Exception:  # noqa: BLE001 - a corrupt/unsupported image must not abort the PDF
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
-    if not iw or not ih:
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
-    c.saveState()
-    path = c.beginPath()
-    path.roundRect(x, y, w, h, 4 * mm)
-    c.clipPath(path, stroke=0, fill=0)
-    # "cover" fit: scale so the image fills the frame, cropping the overflow.
-    scale = max(w / iw, h / ih)
-    draw_w, draw_h = iw * scale, ih * scale
-    draw_x = x + (w - draw_w) / 2
-    draw_y = y + (h - draw_h) / 2
-    c.drawImage(image, draw_x, draw_y, draw_w, draw_h, mask="auto")
-    c.restoreState()
+    if photo:
+        try:
+            image = ImageReader(io.BytesIO(photo))
+            iw, ih = image.getSize()
+            if not iw or not ih:
+                raise ValueError("image has no usable dimensions")
+            c.saveState()
+            try:
+                path = c.beginPath()
+                path.roundRect(x, y, w, h, 4 * mm)
+                c.clipPath(path, stroke=0, fill=0)
+                # "cover" fit: scale so the image fills the frame, cropping the overflow.
+                scale = max(w / iw, h / ih)
+                draw_w, draw_h = iw * scale, ih * scale
+                draw_x = x + (w - draw_w) / 2
+                draw_y = y + (h - draw_h) / 2
+                # Reportlab only decodes pixel data here, inside drawImage - a
+                # truncated download can pass the header-only getSize() above
+                # and still fail at this point.
+                c.drawImage(image, draw_x, draw_y, draw_w, draw_h, mask="auto")
+            finally:
+                c.restoreState()
+            return
+        except Exception:  # noqa: BLE001 - a corrupt/unsupported/truncated image must not abort the PDF
+            pass
+    _icon_placeholder(c, x, y, w, h, label, tone)
 
 
 def _cover_page(c, data: TripPdfData) -> None:

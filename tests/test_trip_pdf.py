@@ -86,6 +86,32 @@ def verify_corrupt_photo_falls_back_to_placeholder() -> None:
     assert pdf_bytes.startswith(b"%PDF")
 
 
+def verify_truncated_photo_falls_back_to_placeholder() -> None:
+    """A real production failure: a photo download that got cut off mid-body.
+
+    Unlike ``b"not-an-image"`` (rejected immediately, at header-parse time),
+    a truncated real JPEG has a valid header - ``ImageReader.getSize()``
+    succeeds - and only fails once reportlab actually decodes pixel data
+    inside ``drawImage()``. This reproduces
+    "OSError: image file is truncated" seen live from a cut-off OneDrive
+    download.
+    """
+    truncated = _jpeg_bytes()[:1000]
+    data = module.TripPdfData(
+        title="Abgeschnittenes Foto",
+        start_date="",
+        end_date="",
+        days=[
+            module.PdfDay(
+                title="Tag 1", date="", stops=[module.PdfStop(name="Irgendwo")],
+                photos=[truncated],
+            )
+        ],
+    )
+    pdf_bytes = module.build_trip_pdf(data)
+    assert pdf_bytes.startswith(b"%PDF")
+
+
 def verify_many_days_are_bounded() -> None:
     days = [
         module.PdfDay(title=f"Tag {index}", date="", stops=[module.PdfStop(name="Stopp")])
@@ -99,6 +125,7 @@ def verify_many_days_are_bounded() -> None:
 verify_full_trip_renders_a_valid_pdf()
 verify_empty_trip_still_renders()
 verify_corrupt_photo_falls_back_to_placeholder()
+verify_truncated_photo_falls_back_to_placeholder()
 verify_many_days_are_bounded()
 
 print("Trip PDF rendering tests passed.")

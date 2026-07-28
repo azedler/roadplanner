@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Exporting the trip-summary PDF could fail outright with "Die Roadplanner-Aktion ist unerwartet fehlgeschlagen" if any single day photo had been downloaded incompletely (e.g. an interrupted OneDrive fetch), instead of falling back to the drawn placeholder like a fully corrupt photo already did. Reportlab only decodes a photo's actual pixel data inside `drawImage()`, well after the existing corrupt-photo guard's `ImageReader.getSize()` call already succeeded from just the file header - so a photo whose header was intact but body was truncated slipped past that guard and crashed the whole export instead of one day's one photo. The guard now also covers the actual draw call.
+
 ## [4.6.0] - 2026-07-28
 
 ### Added
