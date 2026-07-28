@@ -165,6 +165,8 @@ from .routing import OSRMRoutingClient
 from .travel_archive import TravelArchiveStore
 from .travel_archive_http import async_register_travel_archive_views
 from .travel_archive_manager import TravelArchiveManager
+from .trip_pdf_export import TripPdfExporter
+from .trip_pdf_http import async_register_trip_pdf_view
 from .universal_import_manager import UniversalImportManager
 from .services import async_register_services
 from .webhook import (
@@ -193,6 +195,7 @@ class RoadplannerRuntimeData:
     experience: RoadplannerExperienceManager
     universal_import: UniversalImportManager
     crew: CrewManager
+    trip_pdf: TripPdfExporter
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -203,6 +206,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_travel_archive_views(hass)
     async_register_experience_views(hass)
     async_register_google_photo_view(hass)
+    async_register_trip_pdf_view(hass)
     await async_setup_panel_support(hass)
     return True
 
@@ -576,6 +580,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         provider=provider,
     )
 
+    trip_pdf = TripPdfExporter(hass, manager, experience)
+
     runtime = RoadplannerRuntimeData(
         manager=manager,
         coordinator=coordinator,
@@ -593,6 +599,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         experience=experience,
         universal_import=universal_import,
         crew=crew,
+        trip_pdf=trip_pdf,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
