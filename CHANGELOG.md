@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-07-28
+
+### Changed
+
+- A finished trip video is no longer served through a short-lived, in-memory download ticket - it's written to a small durable library on disk (new "Trip video library folder" option, `.roadplanner_trip_videos` by default, oldest files pruned beyond 10 kept) and announced with a Home Assistant persistent notification containing the download link. A render can take minutes, and the app may well be closed by the time it's ready; the previous ticket was tied to that one WebSocket response and would be silently lost if the connection was gone when the export finished - the video is now safe on disk and the link keeps working (with normal Home Assistant login) whenever you come back to check.
+
 ## [4.8.1] - 2026-07-28
 
 ### Fixed

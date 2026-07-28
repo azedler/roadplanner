@@ -988,9 +988,10 @@ async def _execute_action(
         if not trip_id:
             raise ValidationError("Für den Video-Export wurde keine Reise ausgewählt")
         style = str(data.get("style") or "highlight").strip()
-        video_bytes = await runtime.trip_video.async_generate(trip_id, style=style)
-        token = await runtime.trip_video.async_create_ticket(video_bytes, user_id=user_id)
-        return {"download_url": f"/api/roadplanner/trip_video/{token}"}
+        download_url = await runtime.trip_video.async_generate_and_publish(
+            trip_id, style=style
+        )
+        return {"download_url": download_url}
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()
