@@ -619,6 +619,21 @@ def _normalize_compiled_operation_aliases(
             if location_text and not _clean_text(result.get("place_query"), maximum=500):
                 result["place_query"] = location_text[:500]
 
+        # ``changes.text`` is only a valid field for entity_type=preference
+        # (its free-text content). A JSON-mode fallback that ignores the
+        # response schema can still put descriptive text meant as a stop's/
+        # day's/trip's notes under ``text`` instead - reject outright would
+        # discard real user-relevant content the model did manage to extract
+        # (e.g. booking facts from a resolved link); salvage it into notes
+        # instead, appending to any notes already present.
+        if entity_type != "preference" and "text" in changes:
+            stray_text = _clean_text(changes.pop("text"), maximum=8_000)
+            if stray_text:
+                existing_notes = _clean_text(changes.get("notes"), maximum=8_000)
+                changes["notes"] = (
+                    f"{existing_notes}\n{stray_text}" if existing_notes else stray_text
+                )[:8_000]
+
         nested_position = changes.pop("position", None)
         if nested_position not in (None, ""):
             if isinstance(nested_position, bool):
