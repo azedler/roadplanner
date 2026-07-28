@@ -1,14 +1,15 @@
 """Behavioral tests for trip video export orchestration.
 
-The ticket lifecycle is pure asyncio, exercised directly like the PDF
-exporter's. The full async_generate data-gathering path is exercised with
-fake manager/experience/provider objects and a real ffmpeg binary is NOT
-invoked here (that pipeline was manually verified separately - see the
-trip_video.py/ffmpeg_runner.py commit history - and is exercised behaviorally
-in test_trip_video.py and test_ffmpeg_runner.py). Here we only need to prove
-the orchestration logic itself: fail-fast on missing ffmpeg, the corrected
-summary.trip payload read, and graceful degradation when Gemini or the
-bundled music folder have nothing to offer.
+A real ffmpeg binary is NOT invoked here (that pipeline was manually
+verified separately and is exercised behaviorally in test_trip_video.py and
+test_ffmpeg_runner.py). Here we prove the orchestration logic: fail-fast on
+missing ffmpeg, the corrected summary.trip payload read, graceful
+degradation when Gemini or the bundled music folder have nothing to offer,
+and the durable library save/prune/notify flow that replaced the PDF-style
+ephemeral ticket (a video render can take minutes; the app may well be
+closed by the time it's ready, so the result has to survive on disk with a
+Home Assistant notification pointing at it, not just an in-memory ticket
+tied to one WebSocket response).
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import asyncio
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import sys
+import tempfile
 import types
 
 PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
@@ -63,72 +65,32 @@ load("canonical_day")
 export_module = load("trip_video_export")
 
 
-def _exporter(*, manager=None, experience=None, provider=None):
+class _FakeServices:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict]] = []
+
+    async def async_call(self, domain: str, service: str, data: dict) -> None:
+        self.calls.append((domain, service, data))
+
+
+class _FakeHass:
+    def __init__(self) -> None:
+        self.services = _FakeServices()
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+def _exporter(*, manager=None, experience=None, provider=None, library_dir=None, hass=None):
     return export_module.TripVideoExporter(
-        hass=None,
+        hass=hass if hass is not None else _FakeHass(),
         manager=manager,
         experience=experience,
         provider=provider,
         map_snapshot_provider="openstreetmap",
         google_maps_api_key=None,
+        library_dir=library_dir if library_dir is not None else Path(tempfile.mkdtemp()),
     )
-
-
-def verify_ticket_round_trip() -> None:
-    async def scenario() -> None:
-        exporter = _exporter()
-        token = await exporter.async_create_ticket(b"video-bytes", user_id="user-1")
-        resolved = await exporter.async_resolve_ticket(token)
-        assert resolved == b"video-bytes"
-
-    asyncio.run(scenario())
-
-
-def verify_ticket_is_single_use_limited() -> None:
-    async def scenario() -> None:
-        exporter = _exporter()
-        token = await exporter.async_create_ticket(b"video-bytes", user_id="user-1")
-        for _ in range(export_module._MAX_TICKET_USES):
-            await exporter.async_resolve_ticket(token)
-        try:
-            await exporter.async_resolve_ticket(token)
-        except export_module.ValidationError:
-            return
-        raise AssertionError("expected the exhausted ticket to be rejected")
-
-    asyncio.run(scenario())
-
-
-def verify_unknown_token_is_rejected() -> None:
-    async def scenario() -> None:
-        exporter = _exporter()
-        try:
-            await exporter.async_resolve_ticket("does-not-exist")
-        except export_module.ValidationError:
-            return
-        raise AssertionError("expected an unknown token to be rejected")
-
-    asyncio.run(scenario())
-
-
-def verify_expired_ticket_is_purged() -> None:
-    async def scenario() -> None:
-        exporter = _exporter()
-        token = await exporter.async_create_ticket(b"video-bytes", user_id="user-1")
-        exporter._tickets[token].expires_monotonic = 0.0
-        try:
-            await exporter.async_resolve_ticket(token)
-        except export_module.ValidationError:
-            return
-        raise AssertionError("expected an expired ticket to be purged and rejected")
-
-    asyncio.run(scenario())
-
-
-verify_ticket_round_trip()
-verify_ticket_is_single_use_limited()
-verify_unknown_token_is_rejected()
-verify_expired_ticket_is_purged()
 
 
 class _RaisesIfCalled:
@@ -170,11 +132,6 @@ class _FakeExperience:
         return {"destination_galleries": {}, "media": []}
 
 
-class _FakeHass:
-    async def async_add_executor_job(self, func, *args):
-        return func(*args)
-
-
 def verify_async_generate_reads_trip_from_the_real_nested_payload_shape() -> None:
     """Regression guard mirroring the PDF exporter's fix: the assistant
     payload has no top-level "trip" key - the real shape nests it under
@@ -187,7 +144,6 @@ def verify_async_generate_reads_trip_from_the_real_nested_payload_shape() -> Non
             "days": {"days": []},
         }
         exporter = _exporter(manager=_FakeManager(payload), experience=_FakeExperience())
-        exporter.hass = _FakeHass()
         original_available = export_module.ffmpeg_available
         export_module.ffmpeg_available = lambda: True
         captured = {}
@@ -261,8 +217,6 @@ def verify_empty_music_folder_returns_none_gracefully() -> None:
 
 
 def verify_music_pick_is_deterministic_per_trip() -> None:
-    import tempfile
-
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         (tmp_path / "one.mp3").write_bytes(b"fake-mp3-a")
@@ -278,6 +232,123 @@ def verify_music_pick_is_deterministic_per_trip() -> None:
             export_module._music_directory = original_dir
 
 
+def verify_save_to_library_writes_a_valid_filename() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        exporter = _exporter(library_dir=Path(tmp))
+        filename = exporter._save_to_library(b"fake-mp4-bytes")
+        assert export_module.VIDEO_FILENAME_RE.match(filename)
+        assert (exporter.library_dir / filename).read_bytes() == b"fake-mp4-bytes"
+
+
+def verify_library_prunes_beyond_the_retention_limit() -> None:
+    import os
+
+    with tempfile.TemporaryDirectory() as tmp:
+        exporter = _exporter(library_dir=Path(tmp))
+        filenames = []
+        for i in range(export_module.MAX_STORED_TRIP_VIDEOS + 3):
+            filename = exporter._save_to_library(f"video-{i}".encode())
+            # Force a strictly increasing mtime per file - writes in a tight
+            # loop can otherwise land within the filesystem's mtime
+            # granularity and make "oldest first" ordering non-deterministic.
+            os.utime(exporter.library_dir / filename, (i, i))
+            filenames.append(filename)
+        remaining = list(Path(tmp).glob("*.mp4"))
+        assert len(remaining) == export_module.MAX_STORED_TRIP_VIDEOS
+        # The earliest-written files must be the ones pruned away.
+        remaining_names = {path.name for path in remaining}
+        assert filenames[0] not in remaining_names
+        assert filenames[-1] in remaining_names
+
+
+def verify_notify_ready_calls_persistent_notification_with_the_link() -> None:
+    async def scenario() -> None:
+        hass = _FakeHass()
+        exporter = _exporter(hass=hass)
+        await exporter._async_notify_ready(
+            "Finnland / Baltikum 2026", "/api/roadplanner/trip_video_library/abc.mp4"
+        )
+        assert len(hass.services.calls) == 1
+        domain, service, call_data = hass.services.calls[0]
+        assert domain == "persistent_notification"
+        assert service == "create"
+        assert "/api/roadplanner/trip_video_library/abc.mp4" in call_data["message"]
+        assert "Finnland / Baltikum 2026" in call_data["message"]
+
+    asyncio.run(scenario())
+
+
+def verify_notify_ready_failure_does_not_raise() -> None:
+    """A failed notification (e.g. the service isn't available) must not
+    undo an already-successful export - the file is safely on disk either
+    way."""
+
+    class _FailingServices:
+        async def async_call(self, domain, service, data):
+            raise RuntimeError("boom")
+
+    async def scenario() -> None:
+        hass = _FakeHass()
+        hass.services = _FailingServices()
+        exporter = _exporter(hass=hass)
+        await exporter._async_notify_ready("Reise", "/api/roadplanner/trip_video_library/x.mp4")
+
+    asyncio.run(scenario())
+
+
+def verify_async_generate_and_publish_saves_and_notifies() -> None:
+    async def scenario() -> None:
+        payload = {
+            "selected_trip_id": "trip-1",
+            "summary": {"trip": {"title": "Finnland / Baltikum 2026"}},
+            "days": {"days": []},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            hass = _FakeHass()
+            exporter = _exporter(
+                manager=_FakeManager(payload),
+                experience=_FakeExperience(),
+                hass=hass,
+                library_dir=Path(tmp),
+            )
+            original_available = export_module.ffmpeg_available
+            original_prepare = export_module.prepare_chapter_assets
+            original_filter = export_module.build_ffmpeg_filter_graph
+            original_run = export_module.async_run_ffmpeg
+            export_module.ffmpeg_available = lambda: True
+
+            def fake_prepare(data, workdir):
+                # Simulate ffmpeg having produced an output file at the
+                # expected path, without needing a real ffmpeg subprocess.
+                (workdir / "trip_video.mp4").write_bytes(b"fake-rendered-video")
+                return [workdir / "frame_0000.jpg"]
+
+            def fake_filter_graph(data, frame_paths):
+                return [], "", "[n0]"
+
+            async def fake_run_ffmpeg(args, *, timeout_seconds):
+                return None
+
+            export_module.prepare_chapter_assets = fake_prepare
+            export_module.build_ffmpeg_filter_graph = fake_filter_graph
+            export_module.async_run_ffmpeg = fake_run_ffmpeg
+            try:
+                download_url = await exporter.async_generate_and_publish("trip-1")
+            finally:
+                export_module.ffmpeg_available = original_available
+                export_module.prepare_chapter_assets = original_prepare
+                export_module.build_ffmpeg_filter_graph = original_filter
+                export_module.async_run_ffmpeg = original_run
+
+            assert download_url.startswith("/api/roadplanner/trip_video_library/")
+            filename = download_url.rsplit("/", 1)[-1]
+            assert (Path(tmp) / filename).read_bytes() == b"fake-rendered-video"
+            assert len(hass.services.calls) == 1
+            assert download_url in hass.services.calls[0][2]["message"]
+
+    asyncio.run(scenario())
+
+
 verify_missing_ffmpeg_fails_fast_before_any_other_work()
 verify_async_generate_reads_trip_from_the_real_nested_payload_shape()
 verify_narrative_generation_failure_degrades_to_an_empty_string()
@@ -285,5 +356,10 @@ verify_narrative_is_used_verbatim_on_success()
 verify_no_provider_means_no_narrative_attempt()
 verify_empty_music_folder_returns_none_gracefully()
 verify_music_pick_is_deterministic_per_trip()
+verify_save_to_library_writes_a_valid_filename()
+verify_library_prunes_beyond_the_retention_limit()
+verify_notify_ready_calls_persistent_notification_with_the_link()
+verify_notify_ready_failure_does_not_raise()
+verify_async_generate_and_publish_saves_and_notifies()
 
 print("Trip video export tests passed.")

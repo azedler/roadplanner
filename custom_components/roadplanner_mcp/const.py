@@ -65,6 +65,7 @@ CONF_ROUTING_PROFILE = "routing_profile"
 CONF_ROUTING_REQUEST_TIMEOUT = "routing_request_timeout"
 CONF_ROUTING_MIN_REQUEST_INTERVAL = "routing_min_request_interval"
 CONF_ARCHIVE_PATH = "archive_path"
+CONF_TRIP_VIDEO_LIBRARY_PATH = "trip_video_library_path"
 CONF_DOCUMENT_MAX_UPLOAD_MB = "document_max_upload_mb"
 CONF_DOCUMENT_ANALYSIS_ENABLED = "document_analysis_enabled"
 CONF_DEFAULT_CURRENCY = "default_currency"
@@ -147,6 +148,10 @@ DEFAULT_ROUTING_PROFILE = "driving"
 DEFAULT_ROUTING_REQUEST_TIMEOUT = 45
 DEFAULT_ROUTING_MIN_REQUEST_INTERVAL = 1.1
 DEFAULT_ARCHIVE_PATH = ".roadplanner_archive"
+DEFAULT_TRIP_VIDEO_LIBRARY_PATH = ".roadplanner_trip_videos"
+# Kept small - each stored file is tens of MB; this is a durable "last few
+# exports survive an app restart" library, not a full archive.
+MAX_STORED_TRIP_VIDEOS = 10
 DEFAULT_DOCUMENT_MAX_UPLOAD_MB = 25
 DEFAULT_DOCUMENT_ANALYSIS_ENABLED = True
 DEFAULT_DEFAULT_CURRENCY = "EUR"

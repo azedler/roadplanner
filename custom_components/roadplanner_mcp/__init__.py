@@ -17,6 +17,7 @@ from .assistant import RoadplannerAssistant
 from .const import (
     CONFIG_ENTRY_VERSION,
     CONF_ARCHIVE_PATH,
+    CONF_TRIP_VIDEO_LIBRARY_PATH,
     CONF_ASSISTANT_AUTONOMY_LEVEL,
     CONF_ASSISTANT_COPILOT_AUTO_BRIEFING,
     CONF_ASSISTANT_COPILOT_ENABLED,
@@ -79,6 +80,7 @@ from .const import (
     CONF_WEBHOOK_ID,
     CONF_WEBHOOK_TOKEN,
     DEFAULT_ARCHIVE_PATH,
+    DEFAULT_TRIP_VIDEO_LIBRARY_PATH,
     DEFAULT_ALLOW_DESTRUCTIVE_AUTO_APPLY,
     DEFAULT_ASSISTANT_AUTONOMY_LEVEL,
     DEFAULT_ASSISTANT_COPILOT_AUTO_BRIEFING,
@@ -170,7 +172,7 @@ from .travel_archive_manager import TravelArchiveManager
 from .trip_pdf_export import TripPdfExporter
 from .trip_pdf_http import async_register_trip_pdf_view
 from .trip_video_export import TripVideoExporter
-from .trip_video_http import async_register_trip_video_view
+from .trip_video_library_http import async_register_trip_video_library_view
 from .universal_import_manager import UniversalImportManager
 from .services import async_register_services
 from .webhook import (
@@ -212,7 +214,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_experience_views(hass)
     async_register_google_photo_view(hass)
     async_register_trip_pdf_view(hass)
-    async_register_trip_video_view(hass)
+    async_register_trip_video_library_view(hass)
     await async_setup_panel_support(hass)
     return True
 
@@ -224,6 +226,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     backup_relative = options.get(CONF_BACKUP_PATH, DEFAULT_BACKUP_PATH)
     handoff_relative = options.get(CONF_HANDOFF_PATH, DEFAULT_HANDOFF_PATH)
     archive_relative = options.get(CONF_ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH)
+    trip_video_library_relative = options.get(
+        CONF_TRIP_VIDEO_LIBRARY_PATH, DEFAULT_TRIP_VIDEO_LIBRARY_PATH
+    )
     config_dir = hass.config.config_dir
 
     store = RoadplannerStore(
@@ -597,6 +602,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DEFAULT_MAP_SNAPSHOT_PROVIDER,
         ),
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
+        library_dir=resolve_config_path(config_dir, trip_video_library_relative),
     )
 
     runtime = RoadplannerRuntimeData(
@@ -693,6 +699,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_BACKUP_PATH: effective.get(CONF_BACKUP_PATH, DEFAULT_BACKUP_PATH),
         CONF_HANDOFF_PATH: effective.get(CONF_HANDOFF_PATH, DEFAULT_HANDOFF_PATH),
         CONF_ARCHIVE_PATH: effective.get(CONF_ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH),
+        CONF_TRIP_VIDEO_LIBRARY_PATH: effective.get(
+            CONF_TRIP_VIDEO_LIBRARY_PATH,
+            DEFAULT_TRIP_VIDEO_LIBRARY_PATH,
+        ),
         CONF_BACKUP_COUNT: effective.get(CONF_BACKUP_COUNT, DEFAULT_BACKUP_COUNT),
         CONF_REFRESH_INTERVAL: effective.get(
             CONF_REFRESH_INTERVAL,

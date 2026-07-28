@@ -5,17 +5,23 @@ step is an ffmpeg subprocess (ffmpeg_runner.py), not an in-process reportlab
 call - video encoding takes far longer than a PDF render, which is why it
 never touches hass.async_add_executor_job for the encode itself. See
 ffmpeg_runner.py's module docstring for the full reasoning.
+
+Unlike the PDF export (a short-lived, ticket-protected in-memory download),
+a finished video is written to a small durable library on disk and
+announced via a Home Assistant persistent notification. A render can take
+minutes; the user asking for it may well have closed the app by the time
+it's ready, and an in-memory ticket tied to that one WebSocket response
+would be lost forever in that case. Writing to disk plus notifying means
+the result survives regardless of what the client did in the meantime.
 """
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
 import hashlib
 import logging
 from pathlib import Path
+import re
 import tempfile
-import time
 from typing import Any
 import uuid
 
@@ -23,6 +29,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .canonical_day import canonical_roadbook_stops
+from .const import MAX_STORED_TRIP_VIDEOS
 from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
 from .map_snapshot import async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
@@ -36,11 +43,8 @@ from .trip_video import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_TICKET_TTL_SECONDS = 5 * 60
-# Lower than the PDF's 20 - an in-memory MP4 is tens of MB, not a few KB.
-_MAX_TICKETS = 5
-_MAX_TICKET_USES = 3
 _FFMPEG_TIMEOUT_SECONDS = 240
+VIDEO_FILENAME_RE = re.compile(r"^[0-9a-f]{32}\.mp4$")
 
 VIDEO_STYLES = ("highlight", "full")
 DEFAULT_VIDEO_STYLE = "highlight"
@@ -59,14 +63,6 @@ _NARRATIVE_SYSTEM_PROMPT = (
     "genannt sind. Maximal 3 kurze Sätze, auf Deutsch, keine "
     "Anführungszeichen, keine Emojis."
 )
-
-
-@dataclass(slots=True)
-class _VideoTicket:
-    video_bytes: bytes
-    user_id: str
-    expires_monotonic: float
-    remaining_uses: int = _MAX_TICKET_USES
 
 
 def _music_directory() -> Path:
@@ -105,7 +101,7 @@ def _stop_coordinate(stop: dict[str, Any]) -> tuple[float, float] | None:
 
 
 class TripVideoExporter:
-    """Build a downloadable trip-summary video and issue short-lived tickets."""
+    """Build a trip-summary video, store it in a durable library, and notify."""
 
     def __init__(
         self,
@@ -116,6 +112,7 @@ class TripVideoExporter:
         *,
         map_snapshot_provider: str,
         google_maps_api_key: str | None,
+        library_dir: Path,
     ) -> None:
         self.hass = hass
         self.manager = manager
@@ -123,10 +120,23 @@ class TripVideoExporter:
         self.provider = provider
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
-        self._tickets_lock = asyncio.Lock()
-        self._tickets: dict[str, _VideoTicket] = {}
+        self.library_dir = library_dir
 
-    async def async_generate(self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE) -> bytes:
+    async def async_generate_and_publish(
+        self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
+    ) -> str:
+        """Generate the video, save it to the library, notify, return its URL."""
+        trip_title, video_bytes = await self.async_generate(trip_id, style=style)
+        filename = await self.hass.async_add_executor_job(
+            self._save_to_library, video_bytes
+        )
+        download_url = f"/api/roadplanner/trip_video_library/{filename}"
+        await self._async_notify_ready(trip_title, download_url)
+        return download_url
+
+    async def async_generate(
+        self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
+    ) -> tuple[str, bytes]:
         if not ffmpeg_available():
             raise RoadplannerError(
                 "Der Video-Export ist auf diesem Home-Assistant-Host nicht verfügbar "
@@ -250,7 +260,7 @@ class TripVideoExporter:
                 str(output_path),
             ]
             await async_run_ffmpeg(ffmpeg_args, timeout_seconds=_FFMPEG_TIMEOUT_SECONDS)
-            return output_path.read_bytes()
+            return data.title, output_path.read_bytes()
 
     async def _async_fetch_chapter_map_snapshot(
         self, session: Any, stops: list[dict[str, Any]]
@@ -305,35 +315,40 @@ class TripVideoExporter:
             return ""
         return str(getattr(result, "text", "") or "").strip()
 
-    async def async_create_ticket(self, video_bytes: bytes, *, user_id: str) -> str:
-        async with self._tickets_lock:
-            self._purge()
-            token = uuid.uuid4().hex
-            self._tickets[token] = _VideoTicket(
-                video_bytes=video_bytes,
-                user_id=str(user_id or ""),
-                expires_monotonic=time.monotonic() + _TICKET_TTL_SECONDS,
+    def _save_to_library(self, video_bytes: bytes) -> str:
+        """Write the video to the durable library and prune old entries.
+
+        Runs on the executor (blocking file I/O) - called via
+        hass.async_add_executor_job, never directly from async code.
+        """
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}.mp4"
+        (self.library_dir / filename).write_bytes(video_bytes)
+        self._prune_library()
+        return filename
+
+    def _prune_library(self) -> None:
+        videos = sorted(
+            self.library_dir.glob("*.mp4"), key=lambda path: path.stat().st_mtime
+        )
+        for stale in videos[:-MAX_STORED_TRIP_VIDEOS] if len(videos) > MAX_STORED_TRIP_VIDEOS else []:
+            stale.unlink(missing_ok=True)
+
+    async def _async_notify_ready(self, trip_title: str, download_url: str) -> None:
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Reise-Video fertig",
+                    "message": (
+                        f'Das Video für "{trip_title}" ist fertig. '
+                        f"[Jetzt herunterladen]({download_url})"
+                    ),
+                    "notification_id": f"roadplanner_trip_video_{uuid.uuid4().hex}",
+                },
             )
-            if len(self._tickets) > _MAX_TICKETS:
-                oldest = next(iter(self._tickets))
-                self._tickets.pop(oldest, None)
-            return token
-
-    async def async_resolve_ticket(self, token: str) -> bytes:
-        async with self._tickets_lock:
-            self._purge()
-            ticket = self._tickets.get(token)
-            if ticket is None:
-                raise ValidationError("Der Video-Download ist abgelaufen oder ungültig")
-            ticket.remaining_uses -= 1
-            if ticket.remaining_uses <= 0:
-                self._tickets.pop(token, None)
-            return ticket.video_bytes
-
-    def _purge(self) -> None:
-        now = time.monotonic()
-        self._tickets = {
-            token: ticket
-            for token, ticket in self._tickets.items()
-            if ticket.expires_monotonic >= now and ticket.remaining_uses > 0
-        }
+        except Exception as err:  # noqa: BLE001 - a failed notification must not undo a successful export
+            _LOGGER.warning(
+                "Trip video ready notification failed: %s", type(err).__name__
+            )
