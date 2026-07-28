@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- A stop with its own specific business name (e.g. "Minimani Rovaniemi") could still get resolved to a completely different, unrelated business at the same shared street address (e.g. a retail park with several tenants), because destination classification treated any parsed street/house number as a pure address lookup and searched only the bare address text - never the name - as soon as one was available. An address-only search at a shared address resolves ambiguously to whichever business a provider associates most strongly with that raw address, silently picking the wrong one even though the stop's own name would have found the right business unambiguously. A specific name is now always preferred for the search unless it's just the address written out with no distinguishing word of its own (e.g. "Krumhermsdorf Neuhäuser 40").
+
 ## [4.5.6] - 2026-07-28
 
 ### Fixed
