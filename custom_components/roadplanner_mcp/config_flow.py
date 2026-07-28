@@ -19,6 +19,7 @@ from homeassistant.core import callback
 from .const import (
     CONFIG_ENTRY_VERSION,
     CONF_ARCHIVE_PATH,
+    CONF_TRIP_VIDEO_LIBRARY_PATH,
     CONF_ALLOW_DESTRUCTIVE_AUTO_APPLY,
     CONF_ASSISTANT_AUTONOMY_LEVEL,
     CONF_ASSISTANT_COPILOT_AUTO_BRIEFING,
@@ -69,6 +70,7 @@ from .const import (
     CONF_WEBHOOK_ID,
     CONF_WEBHOOK_TOKEN,
     DEFAULT_ARCHIVE_PATH,
+    DEFAULT_TRIP_VIDEO_LIBRARY_PATH,
     DEFAULT_ALLOW_DESTRUCTIVE_AUTO_APPLY,
     ASSISTANT_AUTONOMY_LEVELS,
     DEFAULT_ASSISTANT_AUTONOMY_LEVEL,
@@ -195,6 +197,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_ARCHIVE_PATH,
                 default=defaults.get(CONF_ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH),
+            ): str,
+            vol.Required(
+                CONF_TRIP_VIDEO_LIBRARY_PATH,
+                default=defaults.get(
+                    CONF_TRIP_VIDEO_LIBRARY_PATH,
+                    DEFAULT_TRIP_VIDEO_LIBRARY_PATH,
+                ),
             ): str,
             vol.Required(
                 CONF_BACKUP_COUNT,
@@ -663,6 +672,23 @@ def _normalize_input(
             "Archivverzeichnis darf nicht in einem anderen Roadplanner-Verzeichnis liegen"
         )
     result[CONF_ARCHIVE_PATH] = archive
+    trip_video_library = normalize_config_relative_path(
+        config_dir,
+        user_input[CONF_TRIP_VIDEO_LIBRARY_PATH],
+        disallow_www=True,
+    )
+    trip_video_library_path = PurePosixPath(trip_video_library)
+    other_paths_with_archive = other_paths + (archive_path,)
+    if trip_video_library_path in other_paths_with_archive:
+        raise PathValidationError("Videoverzeichnis muss getrennt sein")
+    if any(
+        trip_video_library_path in other.parents or other in trip_video_library_path.parents
+        for other in other_paths_with_archive
+    ):
+        raise PathValidationError(
+            "Videoverzeichnis darf nicht in einem anderen Roadplanner-Verzeichnis liegen"
+        )
+    result[CONF_TRIP_VIDEO_LIBRARY_PATH] = trip_video_library
     currency = str(
         result.get(CONF_DEFAULT_CURRENCY) or DEFAULT_DEFAULT_CURRENCY
     ).strip().upper()
