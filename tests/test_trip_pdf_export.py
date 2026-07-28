@@ -306,8 +306,10 @@ verify_google_places_stock_photo_is_never_fetched()
 verify_async_generate_reads_trip_from_the_real_nested_payload_shape()
 
 # Source-level contract checks for the parts that need real aiohttp/Home
-# Assistant network access to exercise behaviorally.
-SOURCE = (PACKAGE_ROOT / "trip_pdf_export.py").read_text(encoding="utf-8")
+# Assistant network access to exercise behaviorally. The photo-fetch logic
+# itself now lives in the shared trip_export_photos.py (used by both the
+# PDF and video exporters), not in trip_pdf_export.py.
+SOURCE = (PACKAGE_ROOT / "trip_export_photos.py").read_text(encoding="utf-8")
 assert 'casefold() == "google_places"' in SOURCE, (
     "Google Places photos resolve to an internal, session-authenticated "
     "redirect - a server-side export job must not try to fetch them directly"
@@ -315,7 +317,7 @@ assert 'casefold() == "google_places"' in SOURCE, (
 assert 'startswith("https://")' in SOURCE, (
     "only a plain, directly fetchable HTTPS image URL may be downloaded"
 )
-assert "_MAX_PHOTO_BYTES" in SOURCE and "content_length" in SOURCE, (
+assert "MAX_PHOTO_BYTES" in SOURCE and "content_length" in SOURCE, (
     "a downloaded photo must be bounded in size"
 )
 
