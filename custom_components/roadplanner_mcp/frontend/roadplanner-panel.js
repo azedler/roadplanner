@@ -654,6 +654,8 @@ class RoadplannerPanel extends HTMLElement {
         cleanText(select.dataset.stopId),
         Number.parseInt(select.value, 10),
       );
+    } else if (select.dataset.action === "select-video-style") {
+      this._videoStyle = select.value;
     }
   }
 
@@ -1249,6 +1251,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._calculateTripRoutes(target.dataset.force === "true");
     } else if (action === "export-trip-pdf") {
       void this._exportTripPdf();
+    } else if (action === "export-trip-video") {
+      void this._exportTripVideo();
     } else if (action === "search-stop-images" && this._canEdit()) {
       const stop = this._findStop(dayId, stopId);
       const day = this._findDay(dayId);

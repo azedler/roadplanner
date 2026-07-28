@@ -27,8 +27,11 @@ assert (
     '    "assistant_prepare",\n'
     '    "assistant_test",\n'
     '    "assistant_briefing",\n'
-    "}"
 ) in PANEL
+# The trip video export also belongs in this set: it calls Gemini for
+# narrative text and runs a long ffmpeg encode, both of which must survive
+# a dropped mobile connection just like the four assistant actions above.
+assert '"export_trip_video",' in PANEL
 
 assert "if msg[\"action\"] in _PROVIDER_CALL_ACTIONS:" in PANEL
 assert (

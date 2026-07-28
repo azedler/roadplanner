@@ -26,6 +26,7 @@ from .const import (
     ROLE_EDITOR,
     ROLE_VIEWER,
 )
+from .ffmpeg_runner import ffmpeg_available
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
 
@@ -52,6 +53,7 @@ _ACTIONS = {
     "calculate_day_route",
     "calculate_trip_routes",
     "export_trip_pdf",
+    "export_trip_video",
     "scan_handoffs",
     "preview_handoff",
     "apply_handoff",
@@ -192,6 +194,10 @@ _PROVIDER_CALL_ACTIONS = {
     "assistant_prepare",
     "assistant_test",
     "assistant_briefing",
+    # Not an AI-provider call for the PDF's sake, but the video export does
+    # call Gemini for narrative text AND runs a long ffmpeg encode - a
+    # dropped mobile connection must not abort either.
+    "export_trip_video",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -977,6 +983,15 @@ async def _execute_action(
         token = await runtime.trip_pdf.async_create_ticket(pdf_bytes, user_id=user_id)
         return {"download_url": f"/api/roadplanner/trip_pdf/{token}"}
 
+    if action == "export_trip_video":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError("Für den Video-Export wurde keine Reise ausgewählt")
+        style = str(data.get("style") or "highlight").strip()
+        video_bytes = await runtime.trip_video.async_generate(trip_id, style=style)
+        token = await runtime.trip_video.async_create_ticket(video_bytes, user_id=user_id)
+        return {"download_url": f"/api/roadplanner/trip_video/{token}"}
+
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()
 
@@ -1191,6 +1206,7 @@ async def websocket_get_panel_data(
                     runtime.assistant.geocoder
                     and runtime.assistant.geocoder.enabled
                 ),
+                "video_export_available": ffmpeg_available(),
                 "routing_configured": runtime.router.configured,
                 "routing_provider": runtime.router.name,
                 "routing_profile": runtime.router.profile,
