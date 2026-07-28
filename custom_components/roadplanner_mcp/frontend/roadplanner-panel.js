@@ -1247,6 +1247,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._calculateDayRoute(dayId, target.dataset.force === "true");
     } else if (action === "calculate-trip-routes" && this._canEdit()) {
       void this._calculateTripRoutes(target.dataset.force === "true");
+    } else if (action === "export-trip-pdf") {
+      void this._exportTripPdf();
     } else if (action === "search-stop-images" && this._canEdit()) {
       const stop = this._findStop(dayId, stopId);
       const day = this._findDay(dayId);

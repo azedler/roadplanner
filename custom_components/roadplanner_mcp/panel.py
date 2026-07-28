@@ -51,6 +51,7 @@ _ACTIONS = {
     "remove_stop",
     "calculate_day_route",
     "calculate_trip_routes",
+    "export_trip_pdf",
     "scan_handoffs",
     "preview_handoff",
     "apply_handoff",
@@ -967,6 +968,14 @@ async def _execute_action(
             expected_revision=data.get("expected_revision"),
             force=bool(data.get("force", False)),
         )
+
+    if action == "export_trip_pdf":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError("Für den PDF-Export wurde keine Reise ausgewählt")
+        pdf_bytes = await runtime.trip_pdf.async_generate(trip_id)
+        token = await runtime.trip_pdf.async_create_ticket(pdf_bytes, user_id=user_id)
+        return {"download_url": f"/api/roadplanner/trip_pdf/{token}"}
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()

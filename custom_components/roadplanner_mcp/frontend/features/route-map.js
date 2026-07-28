@@ -48,6 +48,28 @@ export const routeMapMixin = {
     this._showToast(message, failures.length ? "error" : "success", failures.length ? 7500 : 5000);
   },
 
+  async _exportTripPdf() {
+    if (this._exportingTripPdf || !this._selectedTripId) return;
+    this._exportingTripPdf = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction("export_trip_pdf", {
+        trip_id: this._selectedTripId,
+      }, "", { refresh: false, errorTitle: "PDF konnte nicht erstellt werden" });
+      if (!result?.download_url) return;
+      const link = document.createElement("a");
+      link.href = result.download_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = "";
+      link.click();
+      this._showToast("Reisezusammenfassung als PDF erstellt", "success", 4500);
+    } finally {
+      this._exportingTripPdf = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
   _coordinate(stop, day = null, index = 0) {
     const location = stop?.location || {};
     const latitude = Number(location.latitude ?? location.lat);
@@ -328,6 +350,7 @@ export const routeMapMixin = {
         <div class="toolbar-actions">
           ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-trip-routes" data-force="${paths.length ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${paths.length ? "Alle neu berechnen" : "Alle Routen berechnen"}</button>` : ""}
           ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Tag</button>` : ""}
+          <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Reisezusammenfassung als PDF"}</button>
         </div>
       </section>
       ${!routingConfigured ? '<div class="notice neutral">Aktiviere Straßenrouting in den Roadplanner-Optionen, um Kilometer und Fahrzeiten zu berechnen.</div>' : ""}
