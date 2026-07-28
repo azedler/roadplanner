@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.8.1] - 2026-07-28
+
 ### Fixed
 
 - Roadplanner could fail to load entirely right after updating to 4.8.0 ("Setup failed for custom integration 'roadplanner_mcp': Requirements for roadplanner_mcp not found: ['Pillow>=10,<12']"), because the new trip-video feature declared its own narrow `Pillow` version range in `manifest.json` - which conflicts on any host where Home Assistant Core itself already has a newer Pillow installed (as most current Core versions do), since Home Assistant won't downgrade a package shared with Core to satisfy one integration's separate pin. `reportlab` (already a Roadplanner dependency) pulls in a working Pillow on its own, so the trip-video feature now simply relies on that instead of redeclaring its own version constraint.
