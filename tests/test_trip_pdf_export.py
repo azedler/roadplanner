@@ -164,6 +164,74 @@ class _FakeExperience:
             raise export_module.RoadplannerError("kein Foto gefunden")
         return self._redirect_url
 
+    async def async_panel_payload(self, trip_id: str, *, days=None) -> dict:
+        return {"destination_galleries": {}, "media": []}
+
+
+class _FakeManager:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    async def async_get_assistant_payload(self, trip_id: str) -> dict:
+        return self._payload
+
+
+class _FakeHass:
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+def verify_async_generate_reads_trip_from_the_real_nested_payload_shape() -> None:
+    """Regression guard: the assistant payload has no top-level "trip" key.
+
+    The real shape (confirmed against manager.py's _assistant_payload_sync)
+    is {"summary": {"trip": {...}, ...}, "days": {...}, "selected_trip_id": ...}
+    - there is no bare payload["trip"]. Reading the wrong key silently produced
+    an empty trip dict, so the cover page fell back to a generic title and
+    the crew/vehicle page never rendered at all.
+    """
+    async def scenario() -> None:
+        payload = {
+            "selected_trip_id": "trip-1",
+            "summary": {
+                "trip": {
+                    "title": "Finnland / Baltikum 2026",
+                    "start_date": "2026-07-17",
+                    "end_date": "2026-08-08",
+                    "travelers": [{"name": "Aron", "kind": "person", "note": "Fahrer"}],
+                    "vehicle": {"name": "Nugget", "description": "Der Camper"},
+                },
+                "total_distance_km": 5550,
+            },
+            "days": {"days": []},
+        }
+        exporter = export_module.TripPdfExporter(
+            hass=_FakeHass(),
+            manager=_FakeManager(payload),
+            experience=_FakeExperience(None),
+        )
+        captured = {}
+
+        def fake_build_trip_pdf(data):
+            captured["data"] = data
+            return b"%PDF-fake"
+
+        original_build = export_module.build_trip_pdf
+        export_module.build_trip_pdf = fake_build_trip_pdf
+        try:
+            pdf_bytes = await exporter.async_generate("trip-1")
+        finally:
+            export_module.build_trip_pdf = original_build
+        assert pdf_bytes == b"%PDF-fake"
+        data = captured["data"]
+        assert data.title == "Finnland / Baltikum 2026"
+        assert data.start_date == "2026-07-17"
+        assert len(data.crew) == 1 and data.crew[0].name == "Aron"
+        assert data.vehicle is not None and data.vehicle.name == "Nugget"
+        assert data.total_distance_km == 5550
+
+    asyncio.run(scenario())
+
 
 def verify_personal_photo_is_preferred_over_stock() -> None:
     async def scenario() -> None:
@@ -235,10 +303,13 @@ def verify_google_places_stock_photo_is_never_fetched() -> None:
 verify_personal_photo_is_preferred_over_stock()
 verify_stock_photo_is_the_fallback_when_no_personal_photo_exists()
 verify_google_places_stock_photo_is_never_fetched()
+verify_async_generate_reads_trip_from_the_real_nested_payload_shape()
 
 # Source-level contract checks for the parts that need real aiohttp/Home
-# Assistant network access to exercise behaviorally.
-SOURCE = (PACKAGE_ROOT / "trip_pdf_export.py").read_text(encoding="utf-8")
+# Assistant network access to exercise behaviorally. The photo-fetch logic
+# itself now lives in the shared trip_export_photos.py (used by both the
+# PDF and video exporters), not in trip_pdf_export.py.
+SOURCE = (PACKAGE_ROOT / "trip_export_photos.py").read_text(encoding="utf-8")
 assert 'casefold() == "google_places"' in SOURCE, (
     "Google Places photos resolve to an internal, session-authenticated "
     "redirect - a server-side export job must not try to fetch them directly"
@@ -246,7 +317,7 @@ assert 'casefold() == "google_places"' in SOURCE, (
 assert 'startswith("https://")' in SOURCE, (
     "only a plain, directly fetchable HTTPS image URL may be downloaded"
 )
-assert "_MAX_PHOTO_BYTES" in SOURCE and "content_length" in SOURCE, (
+assert "MAX_PHOTO_BYTES" in SOURCE and "content_length" in SOURCE, (
     "a downloaded photo must be bounded in size"
 )
 
