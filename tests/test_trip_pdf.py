@@ -3,8 +3,8 @@
 Pure rendering only (no Home Assistant, no network) - exercises the real
 reportlab drawing code with representative data, including the edge cases a
 real trip can hit: no crew/vehicle, no days, a real embedded photo, and a
-corrupt photo that must fall back to the drawn placeholder instead of
-crashing the whole export.
+corrupt or truncated photo that must simply be skipped - no generic icon
+filler - instead of crashing the whole export.
 """
 from __future__ import annotations
 
@@ -70,7 +70,8 @@ def verify_empty_trip_still_renders() -> None:
     assert pdf_bytes.startswith(b"%PDF")
 
 
-def verify_corrupt_photo_falls_back_to_placeholder() -> None:
+def verify_corrupt_photo_is_skipped_not_placeholdered() -> None:
+    assert module._decode_photo(b"not-an-image") is None
     data = module.TripPdfData(
         title="Kaputtes Foto",
         start_date="",
@@ -86,6 +87,40 @@ def verify_corrupt_photo_falls_back_to_placeholder() -> None:
     assert pdf_bytes.startswith(b"%PDF")
 
 
+def verify_truncated_photo_is_skipped_not_placeholdered() -> None:
+    """A real production failure: a photo download that got cut off mid-body.
+
+    Unlike ``b"not-an-image"`` (rejected immediately, at header-parse time),
+    a truncated real JPEG has a valid header - ``ImageReader.getSize()``
+    succeeds - and only fails once the pixel data is actually decoded. This
+    reproduces "OSError: image file is truncated" seen live from a cut-off
+    OneDrive download. A day whose only photo is unusable gets no photo tile
+    at all - not a generic camera-icon filler.
+    """
+    truncated = _jpeg_bytes()[:1000]
+    assert module._decode_photo(truncated) is None
+    data = module.TripPdfData(
+        title="Abgeschnittenes Foto",
+        start_date="",
+        end_date="",
+        days=[
+            module.PdfDay(
+                title="Tag 1", date="", stops=[module.PdfStop(name="Irgendwo")],
+                photos=[truncated],
+            )
+        ],
+    )
+    pdf_bytes = module.build_trip_pdf(data)
+    assert pdf_bytes.startswith(b"%PDF")
+
+
+def verify_valid_photo_still_decodes() -> None:
+    decoded = module._decode_photo(_jpeg_bytes())
+    assert decoded is not None
+    _, iw, ih = decoded
+    assert (iw, ih) == (800, 600)
+
+
 def verify_many_days_are_bounded() -> None:
     days = [
         module.PdfDay(title=f"Tag {index}", date="", stops=[module.PdfStop(name="Stopp")])
@@ -98,7 +133,9 @@ def verify_many_days_are_bounded() -> None:
 
 verify_full_trip_renders_a_valid_pdf()
 verify_empty_trip_still_renders()
-verify_corrupt_photo_falls_back_to_placeholder()
+verify_corrupt_photo_is_skipped_not_placeholdered()
+verify_truncated_photo_is_skipped_not_placeholdered()
+verify_valid_photo_still_decodes()
 verify_many_days_are_bounded()
 
 print("Trip PDF rendering tests passed.")

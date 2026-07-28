@@ -8,7 +8,12 @@ The project follows Semantic Versioning for public releases.
 
 ### Fixed
 
+- Exporting the trip-summary PDF could fail outright with "Die Roadplanner-Aktion ist unerwartet fehlgeschlagen" if any single day photo had been downloaded incompletely (e.g. an interrupted OneDrive fetch). Reportlab only decodes a photo's actual pixel data inside `drawImage()`, well after the existing corrupt-photo guard's `ImageReader.getSize()` call already succeeded from just the file header - so a photo whose header was intact but body was truncated slipped past that guard and crashed the whole export instead of just that one day's one photo.
 - A trip's automatically-picked cover photo (shown at the top of the "Reise" tab, and used as a Vision-curation candidate) could land on a photo taken right after leaving home, at a fuel stop, or at a border crossing, instead of anything actually representative of the trip - because both the automatic personal-photo candidate pool and the destination-gallery planning fallback picked whichever confirmed stop came first chronologically, with no regard for whether that stop was an actual destination or just logistics. Photos linked to a purely logistical stop type (waypoint, start/origin, parking, charging, fuel, service, water, waste, laundry, border, break) no longer compete for the automatic trip cover; day covers and an explicit personal trip-cover choice are unaffected.
+
+### Changed
+
+- A day page in the trip-summary PDF with no real, usable photo (none linked, or the only one available turned out to be corrupt/truncated) no longer shows a generic drawn camera-icon filler in its place - a personal trip retrospective shouldn't look assembled with placeholders. The photo area is simply left out for that day, and a day with one real photo now gets one full-width tile instead of one real photo plus one icon filler alongside it.
 
 ## [4.6.0] - 2026-07-28
 
