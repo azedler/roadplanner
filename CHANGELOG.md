@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.5.5] - 2026-07-28
+
 ### Fixed
 
 - Preparing a pending change could fail outright with "Nicht erlaubte Felder für stop: text" when Gemini's JSON-mode fallback put descriptive content (e.g. facts extracted from a resolved booking link) under `changes.text` on a stop/day/trip update - a field that only ever belongs to `entity_type=preference`. The whole ChangeSet was rejected instead of just the misplaced field, discarding genuinely useful content the model had correctly extracted. A stray `changes.text` on any non-preference entity is now salvaged into `changes.notes` (appended if notes already has content) before the strict per-entity field check runs, the same salvage-not-crash approach used for the earlier `changes.location` fix.
