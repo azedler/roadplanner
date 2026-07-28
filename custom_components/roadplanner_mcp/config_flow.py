@@ -52,6 +52,7 @@ from .const import (
     CONF_GOOGLE_PLACES_ENABLED,
     CONF_GOOGLE_PLACES_MODE,
     CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
+    CONF_MAP_SNAPSHOT_PROVIDER,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -110,6 +111,8 @@ from .const import (
     DEFAULT_GOOGLE_PLACES_MODE,
     DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
     GOOGLE_PLACES_MODES,
+    DEFAULT_MAP_SNAPSHOT_PROVIDER,
+    MAP_SNAPSHOT_PROVIDERS,
     DEFAULT_ROUTING_ENABLED,
     DEFAULT_ROUTING_PROVIDER,
     DEFAULT_ROUTING_URL,
@@ -440,6 +443,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 ),
             ): vol.In(GOOGLE_PLACES_MODES),
             vol.Required(
+                CONF_MAP_SNAPSHOT_PROVIDER,
+                default=defaults.get(
+                    CONF_MAP_SNAPSHOT_PROVIDER,
+                    DEFAULT_MAP_SNAPSHOT_PROVIDER,
+                ),
+            ): vol.In(MAP_SNAPSHOT_PROVIDERS),
+            vol.Required(
                 CONF_GOOGLE_PLACES_DAILY_LIMIT,
                 default=defaults.get(
                     CONF_GOOGLE_PLACES_DAILY_LIMIT,
@@ -618,6 +628,11 @@ def _normalize_input(
     ).strip().casefold()
     if result[CONF_GOOGLE_PLACES_MODE] not in GOOGLE_PLACES_MODES:
         result[CONF_GOOGLE_PLACES_MODE] = DEFAULT_GOOGLE_PLACES_MODE
+    result[CONF_MAP_SNAPSHOT_PROVIDER] = str(
+        result.get(CONF_MAP_SNAPSHOT_PROVIDER) or DEFAULT_MAP_SNAPSHOT_PROVIDER
+    ).strip().casefold()
+    if result[CONF_MAP_SNAPSHOT_PROVIDER] not in MAP_SNAPSHOT_PROVIDERS:
+        result[CONF_MAP_SNAPSHOT_PROVIDER] = DEFAULT_MAP_SNAPSHOT_PROVIDER
     result[CONF_ROUTING_URL] = normalize_routing_url(
         result.get(CONF_ROUTING_URL, DEFAULT_ROUTING_URL)
     )
