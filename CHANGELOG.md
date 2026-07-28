@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The assistant chat, its review preparation, the connection test, and the daily briefing could all fail outright with "Assistent konnte nicht antworten - Connection lost" whenever the app was backgrounded (or the network briefly dropped) while one of these AI-provider calls - which can take a minute or more - was still in flight. Home Assistant cancels whichever task is awaiting a WebSocket connection that just closed; previously that was the very task running the provider call, so backgrounding the app didn't just lose the reply, it aborted the request entirely and discarded whatever the model had already produced. These four actions now run in a detached, shielded task that keeps going to completion regardless of the connection's fate - the chat's existing "war die letzte Nachricht doch beantwortet?" self-heal check then finds the real answer on the next reload instead of the conversation staying stuck forever.
+
 ## [4.5.6] - 2026-07-28
 
 ### Fixed

@@ -177,6 +177,21 @@ _APPROVAL_ACTIONS = {
     "rebase_handoff",
 }
 _ADMIN_ACTIONS = {"create_backup", "assistant_diagnostics", "onedrive_configure", "onedrive_start_auth", "onedrive_poll_auth", "onedrive_disconnect"}
+# These call an external AI provider and can run for a minute or more. A
+# mobile browser/app backgrounded mid-call drops its WebSocket connection,
+# and Home Assistant cancels whichever task was awaiting the (now dead)
+# connection - previously that cancelled the actual provider call too, so
+# the message was never answered at all, not just undelivered. Running them
+# via hass.async_create_task + asyncio.shield lets the call keep going to
+# completion server-side regardless of the connection's fate; the frontend
+# already re-checks on reconnect whether the pending text got answered
+# anyway (see assistant.js's _assistantFailureResolved).
+_PROVIDER_CALL_ACTIONS = {
+    "assistant_chat",
+    "assistant_prepare",
+    "assistant_test",
+    "assistant_briefing",
+}
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
     "assistant_clear",
@@ -1212,12 +1227,20 @@ async def websocket_panel_action(
         runtime = _runtime(hass)
         capabilities = _capabilities(connection, runtime)
         _require_action_permission(msg["action"], capabilities)
-        result = await _execute_action(
+        action_call = _execute_action(
             hass,
             connection,
             msg["action"],
             dict(msg.get("data") or {}),
         )
+        if msg["action"] in _PROVIDER_CALL_ACTIONS:
+            # A detached task survives this handler's own cancellation (e.g.
+            # the connection dropping mid-call); shield only protects the
+            # inner task from THIS await being cancelled, not from real
+            # provider errors, which still propagate and are handled below.
+            result = await asyncio.shield(hass.async_create_task(action_call))
+        else:
+            result = await action_call
     except PanelPermissionError as err:
         connection.send_error(msg["id"], "unauthorized", str(err))
         return
