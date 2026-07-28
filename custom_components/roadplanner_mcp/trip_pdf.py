@@ -146,33 +146,43 @@ def _icon_placeholder(c, x, y, w, h, label, tone, *, icon: str = "camera") -> No
     c.restoreState()
 
 
-def _draw_photo_or_placeholder(
-    c, x: float, y: float, w: float, h: float, label: str, tone, photo: bytes | None
-) -> None:
-    """Draw a real photo cropped to fill the frame, or a glyph placeholder."""
+def _decode_photo(photo: bytes | None) -> tuple[ImageReader, int, int] | None:
+    """Return a fully-decoded (reader, width, height), or None if unusable.
+
+    A day with no real, usable photo simply gets no photo tile at all - a
+    generic camera-icon filler would only make a personal trip retrospective
+    look assembled rather than curated. Decoding is forced here (not just a
+    header read) so a truncated download - valid header, incomplete body -
+    is caught now rather than crashing later, inside drawImage().
+    """
     if not photo:
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
+        return None
     try:
         image = ImageReader(io.BytesIO(photo))
         iw, ih = image.getSize()
-    except Exception:  # noqa: BLE001 - a corrupt/unsupported image must not abort the PDF
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
-    if not iw or not ih:
-        _icon_placeholder(c, x, y, w, h, label, tone)
-        return
+        if not iw or not ih:
+            return None
+        image.getRGBData()
+        return image, iw, ih
+    except Exception:  # noqa: BLE001 - a corrupt/unsupported/truncated photo must not abort the PDF
+        return None
+
+
+def _draw_photo(c, x: float, y: float, w: float, h: float, image: ImageReader, iw: int, ih: int) -> None:
+    """Draw an already-decoded photo, cropped to fill the frame."""
     c.saveState()
-    path = c.beginPath()
-    path.roundRect(x, y, w, h, 4 * mm)
-    c.clipPath(path, stroke=0, fill=0)
-    # "cover" fit: scale so the image fills the frame, cropping the overflow.
-    scale = max(w / iw, h / ih)
-    draw_w, draw_h = iw * scale, ih * scale
-    draw_x = x + (w - draw_w) / 2
-    draw_y = y + (h - draw_h) / 2
-    c.drawImage(image, draw_x, draw_y, draw_w, draw_h, mask="auto")
-    c.restoreState()
+    try:
+        path = c.beginPath()
+        path.roundRect(x, y, w, h, 4 * mm)
+        c.clipPath(path, stroke=0, fill=0)
+        # "cover" fit: scale so the image fills the frame, cropping the overflow.
+        scale = max(w / iw, h / ih)
+        draw_w, draw_h = iw * scale, ih * scale
+        draw_x = x + (w - draw_w) / 2
+        draw_y = y + (h - draw_h) / 2
+        c.drawImage(image, draw_x, draw_y, draw_w, draw_h, mask="auto")
+    finally:
+        c.restoreState()
 
 
 def _cover_page(c, data: TripPdfData) -> None:
@@ -381,16 +391,23 @@ def _day_page(c, day: PdfDay, index: int, total: int, page_number: int) -> None:
 
     photo_y = PAGE_H - 118 * mm
     photo_h = 76 * mm
-    photo_w = (PAGE_W - 2 * MARGIN - 8 * mm) / 2
-    tones = [TEAL, OLIVE]
-    stop_names = [stop.name for stop in day.stops] or [day.title]
-    for i in range(2):
-        x = MARGIN + i * (photo_w + 8 * mm)
-        photo = day.photos[i] if i < len(day.photos) else None
-        label = stop_names[i % len(stop_names)]
-        _draw_photo_or_placeholder(c, x, photo_y, photo_w, photo_h, label, tones[i], photo)
-
-    chip_y = photo_y - 14 * mm
+    full_w = PAGE_W - 2 * MARGIN
+    gap = 8 * mm
+    decoded_photos = [decoded for photo in day.photos[:2] if (decoded := _decode_photo(photo))]
+    if len(decoded_photos) == 2:
+        photo_w = (full_w - gap) / 2
+        for i, (image, iw, ih) in enumerate(decoded_photos):
+            x = MARGIN + i * (photo_w + gap)
+            _draw_photo(c, x, photo_y, photo_w, photo_h, image, iw, ih)
+        chip_y = photo_y - 14 * mm
+    elif len(decoded_photos) == 1:
+        image, iw, ih = decoded_photos[0]
+        _draw_photo(c, MARGIN, photo_y, full_w, photo_h, image, iw, ih)
+        chip_y = photo_y - 14 * mm
+    else:
+        # No real, usable photo for this day - reclaim the photo area
+        # instead of drawing a generic icon filler.
+        chip_y = PAGE_H - 56 * mm
     x = MARGIN
     c.setFont("Helvetica-Bold", 9)
     for stop in day.stops[:MAX_STOPS_PER_DAY_CHIP]:
