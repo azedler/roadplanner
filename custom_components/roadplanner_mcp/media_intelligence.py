@@ -25,6 +25,26 @@ _BURST_SECONDS = 4
 _BURST_DISTANCE_M = 30.0
 _DIVERSITY_BUCKET_SECONDS = 10 * 60
 
+# Stop types that are pure logistics/transit rather than an actual
+# destination. A photo linked to one of these (typically shot right after
+# leaving home, at a fuel stop, or at a border crossing) is a poor stand-in
+# for the whole trip even when it is technically a strong, sharp landscape
+# photo - it never gets to compete for the trip cover automatically.
+TRANSIT_ONLY_STOP_TYPES = frozenset({
+    "waypoint",
+    "start",
+    "origin",
+    "parking",
+    "charging",
+    "fuel",
+    "service",
+    "water",
+    "waste",
+    "laundry",
+    "border",
+    "break",
+})
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -125,7 +145,12 @@ def _is_landscape(item: dict[str, Any]) -> bool:
     )
 
 
-def _automatic_cover_eligible(item: dict[str, Any], *, scope: str) -> bool:
+def _automatic_cover_eligible(
+    item: dict[str, Any],
+    *,
+    scope: str,
+    transit_stop_ids: frozenset[str] = frozenset(),
+) -> bool:
     """Return whether metadata is strong enough for an automatic cover.
 
     A date-only assignment is intentionally insufficient.  Explicit cover
@@ -138,6 +163,8 @@ def _automatic_cover_eligible(item: dict[str, Any], *, scope: str) -> bool:
         return True
     if scope == "stop" and item.get("is_cover"):
         return True
+    if scope == "trip" and _text(item.get("linked_stop_id")) in transit_stop_ids:
+        return False
     if _text(item.get("media_type")).casefold() != "photo" or _is_screenshot(item):
         return False
     assignment = _text(item.get("assignment_status")).casefold()
@@ -473,18 +500,22 @@ def select_trip_cover_candidates(
     media: Iterable[dict[str, Any]],
     *,
     limit: int = 12,
+    transit_stop_ids: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """Return strong personal-photo candidates for trip-level curation.
 
     Date-only suggestions and unassigned files are deliberately excluded. An
     explicit user-selected trip cover remains eligible regardless of automatic
-    metadata so manual intent can always be preserved.
+    metadata so manual intent can always be preserved. ``transit_stop_ids``
+    excludes photos automatically linked to a pure logistics stop (departure
+    from home, a fuel stop, a border crossing) from competing for the
+    trip-wide cover.
     """
     eligible = [
         deepcopy(item)
         for item in media
         if isinstance(item, dict)
-        and _automatic_cover_eligible(item, scope="trip")
+        and _automatic_cover_eligible(item, scope="trip", transit_stop_ids=transit_stop_ids)
     ]
     selected, _stats = select_media_highlights(
         eligible,
@@ -523,6 +554,7 @@ def build_media_presentation(
     *,
     limit: int = 5,
     curations: dict[str, dict[str, Any]] | None = None,
+    transit_stop_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return the stable panel contract for personal travel-photo highlights."""
     all_media = [deepcopy(item) for item in media if isinstance(item, dict)]
@@ -565,7 +597,9 @@ def build_media_presentation(
         )
         if cover:
             day_covers[day_id] = cover
-    trip_candidates = select_trip_cover_candidates(all_media, limit=max(limit, 12))
+    trip_candidates = select_trip_cover_candidates(
+        all_media, limit=max(limit, 12), transit_stop_ids=transit_stop_ids
+    )
     explicit_trip_cover = _cover_id(
         (item for item in all_media if item.get("is_trip_cover")),
         explicit_field="is_trip_cover",
