@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- A "Reisezusammenfassung als PDF" button on the Gesamtroute ("Reise") tab now exports the whole trip as a downloadable PDF: a cover page, a crew page (the trip's confirmed travelers/vehicle snapshot, with a person/dog/camper icon per member), a schematic route overview, one page per day with its stops and up to two already-confirmed destination photos, and a closing stats page (days/km/countries/stops). Rendering uses the new `reportlab` dependency; a day's photos are only ever plain, directly fetchable Wikimedia Commons/Openverse images already saved in that day's destination gallery - Google Places photos (which resolve to a browser-session-signed redirect) are deliberately skipped for this server-side export and fall back to a drawn placeholder, same as when no photo is available at all. The generated PDF is served through a short-lived, few-use download ticket, never stored on disk.
+
 ## [4.5.7] - 2026-07-28
 
 ### Fixed
