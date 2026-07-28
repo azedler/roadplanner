@@ -68,7 +68,10 @@ class TripPdfExporter:
             raise ValidationError(
                 "Die Reise für den PDF-Export konnte nicht geladen werden"
             )
-        trip = payload.get("trip") if isinstance(payload.get("trip"), dict) else {}
+        summary = (
+            payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        )
+        trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
         days_raw = list(payload.get("days", {}).get("days", []) or [])
 
         crew = [
@@ -152,9 +155,6 @@ class TripPdfExporter:
                 )
             )
 
-        summary = (
-            payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-        )
         try:
             total_distance_km = float(summary.get("total_distance_km") or 0.0)
         except (TypeError, ValueError):

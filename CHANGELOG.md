@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The trip-summary PDF's cover title always fell back to the generic "Roadplanner-Reise", and the crew/vehicle page never rendered at all, because `trip_pdf_export.py` read the trip dict from a top-level `payload["trip"]` key that does not exist in the assistant payload - the real trip data (title, dates, travelers, vehicle) lives at `payload["summary"]["trip"]`. The export now reads from the correct location, and the previously untested `async_generate` data-gathering path (title/crew/vehicle) now has a real regression test.
+
 ## [4.7.0] - 2026-07-28
 
 ### Fixed
