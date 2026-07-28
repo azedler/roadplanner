@@ -183,6 +183,26 @@ assert "Neuhäuser 40" in address.primary_query
 assert "01844" in address.primary_query
 assert "Neustadt in Sachsen" in address.primary_query
 
+# Real bug: two businesses can share one street address (a retail park). A
+# stop with its own specific name must search by that name first, not by the
+# bare shared address - an address-only search resolves ambiguously to
+# whichever business a provider associates most strongly with that address,
+# which silently picked the wrong (but nearby) one even though the stop's
+# own name would have found the right business unambiguously.
+named_at_shared_address = module.analyze_destination(
+    {},
+    {"name": "Minimani Rovaniemi", "type": "shopping"},
+    structured_address=StructuredAddress(
+        street="Teollisuustie",
+        house_number="2",
+        postal_code="96320",
+        city="Rovaniemi",
+        country_code="FI",
+    ),
+)
+assert named_at_shared_address.kind != "address"
+assert named_at_shared_address.primary_query.startswith("Minimani Rovaniemi")
+
 very_long_notes = "Interne Notiz " * 100
 candidate = {
     "name": "Tallinn Terminal D",
