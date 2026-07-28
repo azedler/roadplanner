@@ -22,7 +22,7 @@ from .geocoding import GeocodingProvider
 from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
 from .media_curation_manager import MediaCurationManager
-from .media_intelligence import build_media_presentation
+from .media_intelligence import TRANSIT_ONLY_STOP_TYPES, build_media_presentation
 from .media_library_manager import MediaLibraryManager
 from .media_token_service import MediaTokenService
 from .media_vision_curation import VisionCurationEngine
@@ -123,6 +123,18 @@ class PanelPayloadBuilder:
             if isinstance(state.get("media_curations"), dict)
             else {}
         )
+        if days is None:
+            try:
+                payload = await self.manager.async_get_assistant_payload(trip_id)
+                days = list(payload.get("days", {}).get("days", []) or [])
+            except RoadplannerError:
+                days = []
+        transit_stop_ids = frozenset(
+            str(stop.get("id") or "")
+            for day in days or []
+            for stop in _stops(day)
+            if str(stop.get("type") or "").casefold() in TRANSIT_ONLY_STOP_TYPES
+        )
         presentation = build_media_presentation(
             media,
             limit=self._vision_curation.media_vision_max_highlights,
@@ -131,13 +143,8 @@ class PanelPayloadBuilder:
                 if self._vision_curation.media_curation_mode == "hybrid"
                 else {}
             ),
+            transit_stop_ids=transit_stop_ids,
         )
-        if days is None:
-            try:
-                payload = await self.manager.async_get_assistant_payload(trip_id)
-                days = list(payload.get("days", {}).get("days", []) or [])
-            except RoadplannerError:
-                days = []
         planning_day_covers: dict[str, dict[str, Any]] = {}
         planning_trip_cover: dict[str, Any] | None = None
         for day in days or []:
@@ -165,7 +172,11 @@ class PanelPayloadBuilder:
                     if isinstance(stop.get("details"), dict)
                     else None
                 )
-                if planning_trip_cover is None and isinstance(profile, dict):
+                if (
+                    planning_trip_cover is None
+                    and isinstance(profile, dict)
+                    and str(stop.get("id") or "") not in transit_stop_ids
+                ):
                     if profile.get("confirmed_at") or profile.get("verified"):
                         planning_trip_cover = deepcopy(primary)
                 if day_id in planning_day_covers and planning_trip_cover is not None:
