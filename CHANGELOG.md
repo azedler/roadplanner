@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.5.6] - 2026-07-28
+
+### Fixed
+
+- A new stop compiled from a link the user gave (Google Maps or otherwise) could end up with the link only inside `changes.notes`, never in the dedicated `place_query` field the prompt asks for - even though the model correctly extracted it. Since automatic geocoding enrichment only ever inspects `place_query`, that stop's enrichment never even attempted to run, silently leaving it on "Ort fehlt" until a manual "Stopp anreichern" - instead of getting resolved right away as part of the same change, the way a new stop is supposed to. A stop operation with no `place_query` now has its notes and reason text scanned for a link, lifting the first one found into `place_query` (kept in notes too, as human-readable context) so the normal geocoding path still gets a chance to run automatically.
+
 ## [4.5.5] - 2026-07-28
 
 ### Fixed
