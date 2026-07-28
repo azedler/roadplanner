@@ -110,4 +110,70 @@ assert trip_presentation["trip_cover"] == "trip-cover"
 assert trip_presentation["trip_selection_mode"] == "manual"
 assert trip_presentation["trip_cover"] != "supermarket-shelf"
 
+# A technically strong photo linked to a pure transit stop (e.g. right after
+# leaving home) must not even be eligible as an automatic trip-cover
+# candidate just because it outscores every other candidate on quality
+# metadata alone - a Vision curation pass could otherwise still pick it.
+home_departure = photo(
+    "home-road",
+    taken_at="2026-07-17T08:00:00Z",
+    stop="stop-departure",
+    day="day-1",
+    confidence=0.95,
+)
+scenic_stop = photo(
+    "finnish-lake",
+    taken_at="2026-07-24T09:00:00Z",
+    stop="stop-saimaa",
+    day="day-8",
+    confidence=0.5,
+)
+candidates_without_filter = module.select_trip_cover_candidates([home_departure, scenic_stop])
+assert [item["id"] for item in candidates_without_filter][0] == "home-road", (
+    "sanity check: without transit awareness the higher-quality photo wins"
+)
+candidates_with_filter = module.select_trip_cover_candidates(
+    [home_departure, scenic_stop], transit_stop_ids=frozenset({"stop-departure"})
+)
+candidate_ids_with_filter = [item["id"] for item in candidates_with_filter]
+assert "home-road" not in candidate_ids_with_filter
+assert candidate_ids_with_filter == ["finnish-lake"]
+
+# A Vision curation that (incorrectly) requested the transit photo as trip
+# cover must be ignored once it is excluded from the candidate pool - the
+# panel then falls back to the planning image instead.
+transit_vision_curation = {
+    "trip-cover": {"status": "ready", "cover_id": "home-road"},
+}
+ignored_presentation = module.build_media_presentation(
+    [home_departure, scenic_stop],
+    limit=3,
+    curations=transit_vision_curation,
+    transit_stop_ids=frozenset({"stop-departure"}),
+)
+assert ignored_presentation["trip_cover"] is None
+assert ignored_presentation["trip_cover"] != "home-road"
+
+# The same Vision curation is honored once the requested photo is not a
+# transit-only stop.
+scenic_vision_curation = {
+    "trip-cover": {"status": "ready", "cover_id": "finnish-lake"},
+}
+honored_presentation = module.build_media_presentation(
+    [home_departure, scenic_stop],
+    limit=3,
+    curations=scenic_vision_curation,
+    transit_stop_ids=frozenset({"stop-departure"}),
+)
+assert honored_presentation["trip_cover"] == "finnish-lake"
+
+# An explicit user choice always wins regardless of the stop's transit status.
+home_departure_explicit = dict(home_departure, is_trip_cover=True)
+explicit_wins_presentation = module.build_media_presentation(
+    [home_departure_explicit, scenic_stop],
+    limit=3,
+    transit_stop_ids=frozenset({"stop-departure"}),
+)
+assert explicit_wins_presentation["trip_cover"] == "home-road"
+
 print("Media intelligence tests passed.")

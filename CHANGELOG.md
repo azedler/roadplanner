@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- A trip's automatically-picked cover photo (shown at the top of the "Reise" tab, and used as a Vision-curation candidate) could land on a photo taken right after leaving home, at a fuel stop, or at a border crossing, instead of anything actually representative of the trip - because both the automatic personal-photo candidate pool and the destination-gallery planning fallback picked whichever confirmed stop came first chronologically, with no regard for whether that stop was an actual destination or just logistics. Photos linked to a purely logistical stop type (waypoint, start/origin, parking, charging, fuel, service, water, waste, laundry, border, break) no longer compete for the automatic trip cover; day covers and an explicit personal trip-cover choice are unaffected.
+
 ## [4.6.0] - 2026-07-28
 
 ### Added
