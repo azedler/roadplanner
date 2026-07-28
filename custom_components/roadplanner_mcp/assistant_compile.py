@@ -24,6 +24,7 @@ from .assistant_shared import (
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops, decorate_canonical_days
+from .destination_intelligence import _URL_RE
 from .roadplanner import ValidationError
 from .structured_output import StructuredOutputError, normalize_changes_mapping
 
@@ -633,6 +634,26 @@ def _normalize_compiled_operation_aliases(
                 changes["notes"] = (
                     f"{existing_notes}\n{stray_text}" if existing_notes else stray_text
                 )[:8_000]
+
+        # A stop's automatic geocoding only ever looks at place_query - never
+        # at free text. The model sometimes writes a link the user gave
+        # (Google Maps or otherwise) straight into notes/reason instead of
+        # the dedicated place_query field, even though the prompt asks for
+        # the latter; without this, that stop silently never gets enriched
+        # at all (no attempt, successful or failed) until a manual
+        # "Stopp anreichern". Lift the first link found into place_query
+        # (never removing it from notes/reason - it stays as human context)
+        # so the normal geocoding path still gets a chance to run.
+        if entity_type == "stop" and not _clean_text(
+            result.get("place_query"), maximum=500
+        ):
+            for text_source in (changes.get("notes"), raw.get("reason")):
+                if not isinstance(text_source, str):
+                    continue
+                found = _URL_RE.findall(text_source)
+                if found:
+                    result["place_query"] = found[0].rstrip(".,;:")[:500]
+                    break
 
         nested_position = changes.pop("position", None)
         if nested_position not in (None, ""):
