@@ -4,10 +4,13 @@ Regression guard: every piece needed for "export_trip_video" to actually
 work end-to-end must stay connected - the panel action, its provider-call
 shielding (Gemini + a long ffmpeg encode both need to survive a dropped
 mobile connection), the HTTP download view registration, the runtime wiring
-in __init__.py, the map-snapshot-provider config option, the Pillow
-dependency in manifest.json, and both CI workflows installing ffmpeg (the
-same category of gap this project already hit and fixed once for reportlab
-not being installed - must not repeat it for this new binary dependency).
+in __init__.py, the map-snapshot-provider config option, and both CI
+workflows installing ffmpeg (the same category of gap this project already
+hit and fixed once for reportlab not being installed - must not repeat it
+for this new binary dependency).
+
+Pillow is deliberately NOT declared as its own manifest.json requirement -
+see the "no separate Pillow pin" test below for why.
 """
 import json
 from pathlib import Path
@@ -52,7 +55,14 @@ requirement_names = {
     requirement.split(">=")[0].split("==")[0] for requirement in manifest.get("requirements", [])
 }
 assert "reportlab" in requirement_names
-assert "Pillow" in requirement_names
+assert "Pillow" not in requirement_names, (
+    "a separate, narrowly-pinned Pillow requirement previously broke setup "
+    "entirely on hosts whose Home Assistant Core install already pins an "
+    "incompatible Pillow version outside our range - reportlab's own "
+    "dependency chain already guarantees a usable Pillow is installed, so "
+    "map_snapshot.py/trip_video.py must keep relying on that instead of "
+    "redeclaring their own version constraint"
+)
 
 for workflow in ("release.yml", "roadplanner-validation.yml"):
     workflow_source = (Path(".github/workflows") / workflow).read_text(encoding="utf-8")

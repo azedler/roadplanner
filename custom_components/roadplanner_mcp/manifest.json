@@ -15,8 +15,7 @@
   "integration_type": "service",
   "iot_class": "local_polling",
   "requirements": [
-    "reportlab>=4,<6",
-    "Pillow>=10,<12"
+    "reportlab>=4,<6"
   ],
   "single_config_entry": true,
   "documentation": "https://github.com/azedler/roadplanner#readme",
