@@ -405,7 +405,40 @@ def _classify(
     source_hints: tuple[dict[str, str], ...],
     ai_kind: str,
 ) -> tuple[str, float, str]:
-    if _attribute(structured, "street") or _attribute(structured, "house_number"):
+    # A parsed street/house number is a strong address signal, but only when
+    # there is no specific business/place name to search by instead. Several
+    # tenants can share one street address (a retail park, a shopping
+    # centre); a pure address-only search then resolves ambiguously to
+    # whichever business a provider associates most strongly with that raw
+    # address - which is not necessarily the one this stop actually means,
+    # even though its own name would have found it unambiguously. A name that
+    # is itself just the address written out (e.g. "Krumhermsdorf Neuhäuser
+    # 40") introduces no new information, so that case still counts as a pure
+    # address. Prefer the name-first search path below whenever the name
+    # contributes a real, distinguishing word the address doesn't already
+    # have.
+    address_tokens: set[str] = set()
+    for attribute_name in (
+        "street",
+        "house_number",
+        "district",
+        "city",
+        "postal_code",
+        "state",
+    ):
+        value = _attribute(structured, attribute_name)
+        if value:
+            address_tokens.update(_normalized(value).split())
+    name_tokens = set(_normalized(name).split()) if name else set()
+    name_is_just_the_address = bool(name_tokens) and name_tokens <= address_tokens
+    has_specific_name = (
+        bool(name)
+        and name.casefold() != "unbenannter stopp"
+        and not name_is_just_the_address
+    )
+    if not has_specific_name and (
+        _attribute(structured, "street") or _attribute(structured, "house_number")
+    ):
         return "address", 0.99, "structured_address"
     # A Park4Night place ID is a deterministic provider identity and always
     # refers to an overnight or motorhome spot, so it outranks the AI text
