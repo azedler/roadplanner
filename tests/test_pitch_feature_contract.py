@@ -105,4 +105,12 @@ assert "_deletePitchOptionGallery" in pitches_js, (
     "deleting or activating an option must clean up its option-keyed gallery"
 )
 
+# Live user feedback: icon-only buttons without any visible text were hard
+# to understand (tooltips don't help on a touchscreen). Every option-row
+# action must carry a real label, not just an icon + aria-label.
+for label in ("Bilder", "Bearbeiten", "Verwerfen", "Löschen", "Wiederherstellen"):
+    assert f"</ha-icon> {label}</button>" in pitches_js, (
+        f"the '{label}' option-row action must show visible text, not just an icon"
+    )
+
 print("Pitch feature wiring contract tests passed.")

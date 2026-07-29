@@ -6,6 +6,11 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Image search failed outright with "Bildsuche fehlgeschlagen" / "Can't find variable: WS_ACTION" - for a normal stop's "Bilder verwalten" just as much as for a pitch option's "Bilder" button. `media.js` referenced the shared `WS_ACTION` WebSocket-message-type constant without importing it; each panel feature file is its own ES module, so importing it in `roadplanner-panel.js` doesn't make it available inside `media.js`. The background auto-populate call hit the same bug silently (swallowed by its own error handling), which is why this went unnoticed until a user actually triggered image search directly.
+- Icon-only buttons on a Stellplatz-Option row (Bilder, Bearbeiten, Verwerfen, Löschen, Wiederherstellen) were hard to make sense of without a visible label - a tooltip doesn't help on a touchscreen. Every action now shows real text next to its icon.
+
 ## [4.11.1] - 2026-07-29
 
 ### Fixed

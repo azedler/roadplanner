@@ -271,12 +271,12 @@ export const pitchesMixin = {
       </div>
       ${canEdit ? `<div class="button-row">
         ${rejectedOption
-          ? `<button class="icon-button" type="button" data-action="pitch-restore" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Wiederherstellen" aria-label="${escapeHtml(option.name)} wiederherstellen"><ha-icon icon="mdi:archive-arrow-up-outline"></ha-icon></button>`
+          ? `<button class="secondary-button" type="button" data-action="pitch-restore" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" aria-label="${escapeHtml(option.name)} wiederherstellen"><ha-icon icon="mdi:archive-arrow-up-outline"></ha-icon> Wiederherstellen</button>`
           : `<button class="secondary-button" type="button" data-action="pitch-activate" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}"><ha-icon icon="mdi:swap-horizontal"></ha-icon> Aktivieren</button>
-            <button class="icon-button" type="button" data-action="pitch-option-images" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Bilder" aria-label="Bilder für ${escapeHtml(option.name)}"><ha-icon icon="mdi:image-search-outline"></ha-icon></button>
-            <button class="icon-button" type="button" data-action="pitch-edit-option" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Bearbeiten" aria-label="${escapeHtml(option.name)} bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>
-            <button class="icon-button" type="button" data-action="pitch-reject" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Verwerfen" aria-label="${escapeHtml(option.name)} verwerfen"><ha-icon icon="mdi:archive-outline"></ha-icon></button>`}
-        <button class="icon-button" type="button" data-action="pitch-delete" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Löschen" aria-label="${escapeHtml(option.name)} löschen"><ha-icon icon="mdi:trash-can-outline"></ha-icon></button>
+            <button class="secondary-button" type="button" data-action="pitch-option-images" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" aria-label="Bilder für ${escapeHtml(option.name)}"><ha-icon icon="mdi:image-search-outline"></ha-icon> Bilder</button>
+            <button class="secondary-button" type="button" data-action="pitch-edit-option" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" aria-label="${escapeHtml(option.name)} bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>
+            <button class="secondary-button" type="button" data-action="pitch-reject" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" aria-label="${escapeHtml(option.name)} verwerfen"><ha-icon icon="mdi:archive-outline"></ha-icon> Verwerfen</button>`}
+        <button class="text-button danger-text" type="button" data-action="pitch-delete" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" aria-label="${escapeHtml(option.name)} löschen"><ha-icon icon="mdi:trash-can-outline"></ha-icon> Löschen</button>
       </div>` : ""}
     </li>`;
   },
