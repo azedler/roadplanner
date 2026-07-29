@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.11.1] - 2026-07-29
+
 ### Fixed
 
 - After a Roadplanner update, some panel tabs (observed on Stellplätze) could keep showing the PREVIOUS release's text and behavior indefinitely, with no error. Root cause: only the panel's entry file (`roadplanner-panel.js`) was ever cache-busted, via the `?v=<version>` query parameter Home Assistant's `panel_custom` appends to its module URL - but that entry file's own static imports (`./features/pitches.js`, `./lib/core-helpers.js`, ...) carry no such parameter and were served with no explicit cache header, so a browser (especially a mobile Companion app WebView) could keep a stale, heuristically-cached copy of a submodule around even after the entry file itself was freshly fetched. Every panel file is now served through a dedicated view that always sends `Cache-Control: no-cache`, forcing revalidation on every load regardless of the URL - a version upgrade can no longer leave part of the panel running old code silently.
