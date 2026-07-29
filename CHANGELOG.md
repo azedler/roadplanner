@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Park4Night stops are handled properly now. Previously the internal ID stayed glued to the stop name ("Parkplatz am Angelteich (p4n #506374)") and polluted every card, map legend and export, while the reference itself did nothing useful on the stop card. Two changes: (1) when the assistant hands over a stop whose name carries a p4n ID, the sanitizer strips it from the name at ingestion and guarantees the reference survives as a real Park4Night URL in the notes (the enrichment flow's source-hint detection scans name and notes, so classification and linking keep working); (2) the stop card now displays a cleaned name for existing roadbook entries too - without mutating the roadbook - and shows a "Park4Night #506374" button that opens the place's page directly, next to Google Maps.
+
 ## [4.10.0] - 2026-07-29
 
 ### Added

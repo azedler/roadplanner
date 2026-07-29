@@ -1,5 +1,6 @@
 import { escapeHtml, cleanText, cloneObject } from "../lib/core-helpers.js";
 import { stopIcons } from "../lib/constants.js";
+import { park4nightReference, cleanPlaceName } from "../lib/place-links.js";
 
 export const tripDayStopMixin = {
   _isOvernightStop(stop) {
@@ -421,14 +422,16 @@ export const tripDayStopMixin = {
     const time = [stop.arrival_time && `Ankunft ${stop.arrival_time}`, stop.departure_time && `Abfahrt ${stop.departure_time}`].filter(Boolean).join(" · ");
     const mapUrl = stop?.navigation?.google_maps_search_url;
     const navigationUrl = stop?.navigation?.google_maps_navigation_url;
+    const p4n = park4nightReference(stop.name, stop.notes, stop?.details?.source, stop?.details?.source_url);
     const externalActions = [
       this._externalLink(mapUrl, "Google Maps", "mdi:google-maps"),
+      p4n ? this._externalLink(p4n.url, `Park4Night #${p4n.id}`, "mdi:caravan") : "",
       this._externalLink(navigationUrl, "Navigieren", "mdi:navigation-variant-outline", "primary-button"),
     ].filter(Boolean).join("");
     return `<article class="stop-card ${inherited ? "inherited-stop" : ""}">
       ${experienceCover ? `<button type="button" class="stop-experience-cover" data-action="media-open-album" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}" data-media-id="${escapeHtml(experienceCover.id)}"><img src="${escapeHtml(this._safeUrl(experienceCover.thumbnail_url))}" alt="${escapeHtml(experienceCover.caption || experienceCover.name || stop.name)}" loading="lazy"><span><ha-icon icon="mdi:image-multiple"></ha-icon>${allExperienceMedia.length} ${allExperienceMedia.length === 1 ? "Foto" : "Fotos"}</span></button>` : destinationImages.length ? this._renderDestinationGalleryPreview(destinationGallery, { dayId: day.id, stopId: stop.id, compact: true }) : media ? this._renderDestinationImage({ ...media, context: stop.name }, { compact: true }) : `<div class="stop-image-placeholder"><ha-icon icon="${stopIcons[stop.type] || stopIcons.waypoint}"></ha-icon><span>${escapeHtml(this._statusLabel(stop.type))}</span></div>`}
       <div class="stop-card-body">
-        <div class="stop-card-heading"><span class="sequence-badge">${this._displayStopSequence(stop, index + 1)}</span><div><h3>${escapeHtml(stop.name)}</h3><span>${escapeHtml(this._statusLabel(stop.type))}${inherited ? " · Start vom Vortag" : ""}</span></div></div>
+        <div class="stop-card-heading"><span class="sequence-badge">${this._displayStopSequence(stop, index + 1)}</span><div><h3>${escapeHtml(cleanPlaceName(stop.name))}</h3><span>${escapeHtml(this._statusLabel(stop.type))}${inherited ? " · Start vom Vortag" : ""}</span></div></div>
         ${inherited ? `<div class="inherited-badge"><ha-icon icon="mdi:link-variant"></ha-icon>Derselbe Übernachtungsstopp wie am Vortag</div>` : ""}
         <div class="stop-meta">
           ${time ? `<span><ha-icon icon="mdi:clock-outline"></ha-icon>${escapeHtml(time)}</span>` : ""}
