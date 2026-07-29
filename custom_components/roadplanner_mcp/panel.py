@@ -10,7 +10,6 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components import frontend, panel_custom, websocket_api
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 
@@ -28,6 +27,7 @@ from .const import (
 )
 from .destination_intelligence import _PARK4NIGHT_ID_RE
 from .ffmpeg_runner import ffmpeg_available
+from .frontend_static_http import async_register_frontend_static_view
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
 
@@ -1373,16 +1373,18 @@ async def async_setup_panel_support(hass: HomeAssistant) -> None:
     # entry module can be split into ES module collaborators under
     # frontend/lib/ and frontend/features/ without touching this
     # registration again for every new file. Cache-busting on deploy is
-    # handled by the "?v=" query parameter on module_url below, not by the
-    # URL path itself, so it stays valid across HACS upgrades.
-    await hass.http.async_register_static_paths(
-        [
-            StaticPathConfig(
-                PANEL_STATIC_URL,
-                str(frontend_dir),
-                False,
-            )
-        ]
+    # handled by the "?v=" query parameter on module_url below, but that only
+    # cache-busts the entry file itself - the entry's static imports of
+    # ./features/*.js and ./lib/*.js carry no such parameter and would
+    # otherwise be silently heuristically cached by the browser across a
+    # version upgrade. A dedicated view (not the plain HA static-path helper)
+    # sends an explicit Cache-Control on every file so that can't happen -
+    # see frontend_static_http.py's module docstring for the concrete bug
+    # this fixed.
+    async_register_frontend_static_view(
+        hass,
+        url_path=PANEL_STATIC_URL,
+        frontend_dir=frontend_dir,
     )
     _LOGGER.info(
         "Registered Roadplanner panel static directory %s at %s",
