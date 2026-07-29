@@ -1029,10 +1029,9 @@ async def _execute_action(
         if not trip_id:
             raise ValidationError("Für den Video-Export wurde keine Reise ausgewählt")
         style = str(data.get("style") or "highlight").strip()
-        download_url = await runtime.trip_video.async_generate_and_publish(
+        return await runtime.trip_video.async_generate_and_publish(
             trip_id, style=style
         )
-        return {"download_url": download_url}
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()

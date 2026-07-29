@@ -27,6 +27,7 @@ import uuid
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .canonical_day import canonical_roadbook_stops
 from .const import MAX_STORED_TRIP_VIDEOS
@@ -63,6 +64,12 @@ _NARRATIVE_SYSTEM_PROMPT = (
     "genannt sind. Maximal 3 kurze Sätze, auf Deutsch, keine "
     "Anführungszeichen, keine Emojis."
 )
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Human-readable file size in MB, the unit relevant for a mobile data cap."""
+    megabytes = size_bytes / (1024 * 1024)
+    return f"{megabytes:.1f} MB"
 
 
 def _music_directory() -> Path:
@@ -124,15 +131,21 @@ class TripVideoExporter:
 
     async def async_generate_and_publish(
         self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
-    ) -> str:
-        """Generate the video, save it to the library, notify, return its URL."""
+    ) -> dict[str, Any]:
+        """Generate the video, save it to the library, notify, return its URL and size.
+
+        The size is surfaced (here and in the ready notification) so the user
+        can decide whether to download over mobile data before tapping the
+        link - a multi-minute video render easily produces a large file.
+        """
         trip_title, video_bytes = await self.async_generate(trip_id, style=style)
+        size_bytes = len(video_bytes)
         filename = await self.hass.async_add_executor_job(
             self._save_to_library, video_bytes
         )
         download_url = f"/api/roadplanner/trip_video_library/{filename}"
-        await self._async_notify_ready(trip_title, download_url)
-        return download_url
+        await self._async_notify_ready(trip_title, download_url, size_bytes)
+        return {"download_url": download_url, "size_bytes": size_bytes}
 
     async def async_generate(
         self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
@@ -334,7 +347,9 @@ class TripVideoExporter:
         for stale in videos[:-MAX_STORED_TRIP_VIDEOS] if len(videos) > MAX_STORED_TRIP_VIDEOS else []:
             stale.unlink(missing_ok=True)
 
-    async def _async_notify_ready(self, trip_title: str, download_url: str) -> None:
+    async def _async_notify_ready(
+        self, trip_title: str, download_url: str, size_bytes: int
+    ) -> None:
         try:
             await self.hass.services.async_call(
                 "persistent_notification",
@@ -342,8 +357,9 @@ class TripVideoExporter:
                 {
                     "title": "Reise-Video fertig",
                     "message": (
-                        f'Das Video für "{trip_title}" ist fertig. '
-                        f"[Jetzt herunterladen]({download_url})"
+                        f'Das Video für "{trip_title}" ist fertig '
+                        f"({_format_file_size(size_bytes)}). "
+                        f"[Jetzt herunterladen]({self._absolute_download_url(download_url)})"
                     ),
                     "notification_id": f"roadplanner_trip_video_{uuid.uuid4().hex}",
                 },
@@ -352,3 +368,28 @@ class TripVideoExporter:
             _LOGGER.warning(
                 "Trip video ready notification failed: %s", type(err).__name__
             )
+
+    def _absolute_download_url(self, download_url: str) -> str:
+        """Turn the relative API path into an absolute URL for the notification.
+
+        Home Assistant's frontend intercepts clicks on relative ("/...")
+        markdown links to do client-side SPA navigation instead of a real
+        request - since this API path isn't a frontend route, that leaves
+        the user staring at the default dashboard instead of a download. An
+        absolute URL isn't recognized as an internal route and is opened
+        normally. Falls back to the relative path if no base URL is
+        configured at all (still works from a browser tab already open on
+        the Roadplanner panel, just not from the notification itself).
+        """
+        try:
+            base_url = get_url(
+                self.hass,
+                allow_internal=True,
+                allow_external=True,
+                allow_cloud=True,
+                prefer_external=True,
+                prefer_cloud=True,
+            )
+        except NoURLAvailableError:
+            return download_url
+        return f"{base_url.rstrip('/')}{download_url}"

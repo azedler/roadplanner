@@ -24,6 +24,12 @@ export const nullableNumber = (value, integer = false) => {
   return integer && !Number.isInteger(parsed) ? null : parsed;
 };
 
+export const formatFileSize = (sizeBytes) => {
+  const bytes = Number(sizeBytes);
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 export const cloneObject = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   try {
