@@ -50,6 +50,12 @@ _ACTIONS = {
     "add_stop",
     "update_stop",
     "remove_stop",
+    "pitch_option_save",
+    "pitch_option_delete",
+    "pitch_option_set_status",
+    "pitch_set_strategy",
+    "pitch_option_activate",
+    "pitch_update_preferences",
     "calculate_day_route",
     "calculate_trip_routes",
     "export_trip_pdf",
@@ -126,6 +132,12 @@ _EDIT_ACTIONS = {
     "add_stop",
     "update_stop",
     "remove_stop",
+    "pitch_option_save",
+    "pitch_option_delete",
+    "pitch_option_set_status",
+    "pitch_set_strategy",
+    "pitch_option_activate",
+    "pitch_update_preferences",
     "calculate_day_route",
     "calculate_trip_routes",
     "search_destination_images",
@@ -940,6 +952,35 @@ async def _execute_action(
             actor=actor,
             expected_revision=data.get("expected_revision"),
             position=_optional_int(data.get("position")),
+            expected_trip_id=data.get("expected_trip_id"),
+        )
+
+    pitch_operations = {
+        "pitch_option_save": "save_option",
+        "pitch_option_delete": "delete_option",
+        "pitch_option_set_status": "set_option_status",
+        "pitch_set_strategy": "set_strategy",
+        "pitch_option_activate": "activate_option",
+    }
+    if action in pitch_operations:
+        operation = pitch_operations[action]
+        return await manager.async_mutate_overnight_plan(
+            day_id=data.get("day_id"),
+            operation=operation,
+            payload=dict(data.get("payload") or {}),
+            actor=actor,
+            expected_revision=data.get("expected_revision"),
+            expected_trip_id=data.get("expected_trip_id"),
+        )
+
+    if action == "pitch_update_preferences":
+        preferences = data.get("preferences")
+        if not isinstance(preferences, dict):
+            raise ValidationError("'preferences' muss ein JSON-Objekt sein")
+        return await manager.async_update_pitch_preferences(
+            preferences=preferences,
+            actor=actor,
+            expected_revision=data.get("expected_revision"),
             expected_trip_id=data.get("expected_trip_id"),
         )
 

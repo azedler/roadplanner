@@ -596,6 +596,12 @@ class RoadplannerManager:
     async def async_remove_stop(self, **kwargs: Any) -> dict[str, Any]:
         return await self._async_mutate(self.store.remove_stop, **kwargs)
 
+    async def async_mutate_overnight_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._async_mutate(self.store.mutate_overnight_plan, **kwargs)
+
+    async def async_update_pitch_preferences(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._async_mutate(self.store.update_pitch_preferences, **kwargs)
+
     async def async_adopt_external_changes(self, **kwargs: Any) -> dict[str, Any]:
         return await self._async_mutate(
             self.store.adopt_external_changes,
