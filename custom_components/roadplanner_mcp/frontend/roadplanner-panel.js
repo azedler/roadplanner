@@ -1116,6 +1116,26 @@ class RoadplannerPanel extends HTMLElement {
       }));
     } else if (action === "refresh") {
       this._runAction("refresh", {}, "Roadplanner neu geladen");
+    } else if (action === "reload-app") {
+      // A pull-to-refresh gesture doesn't reach the native app shell here -
+      // the panel's own scrollable content swallows it - so after an update
+      // there was no in-app way to force a real reload of the page/module
+      // code (as opposed to just the data, which "Neu laden" already does).
+      // A full reload re-fetches roadplanner-panel.js with a fresh "?v="
+      // version query and, thanks to the always-revalidating static view,
+      // every submodule it imports too.
+      const doReload = () => window.location.reload();
+      if (this._dialog) {
+        this._confirm(
+          "App aktualisieren?",
+          "Eine offene Eingabe (z. B. ein Formular) geht dabei verloren. Bereits gespeicherte Roadbook-Daten sind davon nicht betroffen.",
+          "Jetzt neu laden",
+          doReload,
+          true,
+        );
+      } else {
+        doReload();
+      }
     } else if (action === "close-dialog") {
       this._closeDialog();
     } else if (action === "confirm-dialog") {
@@ -1976,8 +1996,11 @@ class RoadplannerPanel extends HTMLElement {
           </div>
           <div class="topbar-actions">
             ${this._renderTripSelect()}
-            <button class="icon-button" type="button" data-action="refresh" aria-label="Neu laden" title="Neu laden">
+            <button class="icon-button" type="button" data-action="refresh" aria-label="Daten neu laden" title="Daten neu laden">
               <ha-icon icon="mdi:refresh"></ha-icon>
+            </button>
+            <button class="icon-button" type="button" data-action="reload-app" aria-label="App aktualisieren" title="App aktualisieren (nach einem Update, falls sich nichts ändert)">
+              <ha-icon icon="mdi:cellphone-arrow-down"></ha-icon>
             </button>
           </div>
         </header>
