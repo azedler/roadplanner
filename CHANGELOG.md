@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.9.1] - 2026-07-29
+
+### Fixed
+
+- Starting a trip video export blocked every other panel action - including the assistant chat - for as long as the render ran (up to several minutes), because the panel's single global "busy" flag was held for the whole in-flight WebSocket call and every other action refused to start while it was set. The video export now runs without holding that flag, so the assistant (and everything else in the panel) stays usable while a video renders in the background; the export button still shows its own "Erstelle Video..." progress state so it's clear the render is underway.
+
 ## [4.9.0] - 2026-07-28
 
 ### Changed

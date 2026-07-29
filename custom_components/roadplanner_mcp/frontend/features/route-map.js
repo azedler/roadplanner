@@ -81,6 +81,7 @@ export const routeMapMixin = {
       }, "", {
         refresh: false,
         errorTitle: "Video konnte nicht erstellt werden",
+        blockUi: false,
       });
       if (!result?.download_url) return;
       const link = document.createElement("a");
