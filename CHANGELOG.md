@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Image search failed outright with "Bildsuche fehlgeschlagen" / "Can't find variable: WS_ACTION" - for a normal stop's "Bilder verwalten" just as much as for a pitch option's "Bilder" button. `media.js` referenced the shared `WS_ACTION` WebSocket-message-type constant without importing it; each panel feature file is its own ES module, so importing it in `roadplanner-panel.js` doesn't make it available inside `media.js`. The background auto-populate call hit the same bug silently (swallowed by its own error handling), which is why this went unnoticed until a user actually triggered image search directly.
+- Icon-only buttons on a Stellplatz-Option row (Bilder, Bearbeiten, Verwerfen, Löschen, Wiederherstellen) were hard to make sense of without a visible label - a tooltip doesn't help on a touchscreen. Every action now shows real text next to its icon.
+- Preparing an assistant change review could fail outright with "Änderungsentwurf konnte nicht erstellt werden / Nicht erlaubte Felder für stop: category", because Gemini sometimes classifies a stop (e.g. "Camping") under a `category` field - a natural word choice for "what kind of place is this" - even though that field only ever belongs to a preference change. The strict per-entity field check rejected the whole pending change outright instead of just that one misplaced field. A stray `category` on anything other than a preference is now salvaged into the notes ("Kategorie: ...") instead, the same approach already used for a stray `text` field.
+
 ## [4.11.1] - 2026-07-29
 
 ### Fixed
