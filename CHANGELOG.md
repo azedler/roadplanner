@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Planning images for pitch backup options, following the same rule as everywhere else in Roadplanner: before a place is visited its images come from internet sources, afterwards from your own OneDrive photos. The active overnight place is a normal stop and already had both behaviors; backup options now plug into the same internet-image machinery - each option row gets a "Bilder" button that opens the familiar image search (Wikimedia/Openverse, biased by the option's coordinates), the chosen image appears as the option's thumbnail and on the "Plan B" card, and when an option is activated into a real stop its planning gallery is cleaned up so the stop's normal image flow (and later your personal photos) takes over.
+
+### Fixed
+
+- The tool-tabs tray (Entscheidungen, Dokumente & Kosten, Stellplätze, Gesamtroute, ...) forced itself fully open whenever any of those tabs was active, pushing the actual tab content far down the screen - a real problem on mobile once a tool tab like Stellplätze saw daily use. It now behaves like a normal collapsible menu: closed by default, opened with a tap, and closes again once you pick a tab.
+
+### Changed
+
+- Reworked the Stellplätze tab based on live usage feedback: it now defaults to the current/upcoming travel day (with a dropdown to jump to any other day) instead of stacking every day's card one after another; each day shows a route-context line (where today starts, tonight's stop, tomorrow's first stop) and a small map plotting that context plus every backup option's location; and an option's pros/cons now stand out as their own green/red chips instead of being buried in one plain-text line.
+
 ## [4.10.0] - 2026-07-29
 
 ### Added

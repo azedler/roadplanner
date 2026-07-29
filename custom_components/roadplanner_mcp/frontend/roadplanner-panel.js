@@ -664,6 +664,9 @@ class RoadplannerPanel extends HTMLElement {
       );
     } else if (select.dataset.action === "select-video-style") {
       this._videoStyle = select.value;
+    } else if (select.dataset.action === "pitch-select-day") {
+      this._pitchSelectedDayId = select.value;
+      this._render({ preserveScroll: true });
     } else if (select.dataset.action === "pitch-strategy" && this._canEdit()) {
       void this._runPitchAction("pitch_set_strategy", cleanText(select.dataset.dayId), {
         strategy: select.value,
@@ -1160,6 +1163,7 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "reactivate-crew-vehicle" && this._canEdit()) {
       void this._runAction("crew_vehicle_reactivate", { vehicle_id: target.dataset.vehicleId }, "Fahrzeug reaktiviert");
     } else if (action === "pitch-open-tab") {
+      if (dayId) this._pitchSelectedDayId = dayId;
       this._activeTab = "pitches";
       this._render();
     } else if (action === "pitch-add-option" && this._canEdit()) {
@@ -1183,12 +1187,18 @@ class RoadplannerPanel extends HTMLElement {
         option_id: target.dataset.optionId,
         status: "backup",
       }, "Option wiederhergestellt");
+    } else if (action === "pitch-option-images" && this._canEdit()) {
+      this._searchPitchOptionImages(dayId, target.dataset.optionId);
     } else if (action === "pitch-delete" && this._canEdit()) {
+      const deletedOptionId = target.dataset.optionId;
       this._confirm(
         "Stellplatz-Option löschen?",
         "Die Option wird endgültig aus dem Tag entfernt. Zum bloßen Aussortieren reicht Verwerfen.",
         "Löschen",
-        () => this._runPitchAction("pitch_option_delete", dayId, { option_id: target.dataset.optionId }, "Option gelöscht"),
+        async () => {
+          const result = await this._runPitchAction("pitch_option_delete", dayId, { option_id: deletedOptionId }, "Option gelöscht");
+          if (result) this._deletePitchOptionGallery(deletedOptionId);
+        },
         true,
       );
     } else if (action === "add-day" && this._canEdit()) {
@@ -2000,7 +2010,7 @@ class RoadplannerPanel extends HTMLElement {
           </button>
         `).join("")}
       </nav>
-      <details class="tool-tabs" ${activeTool && !primaryIds.has(this._activeTab) ? "open" : ""}>
+      <details class="tool-tabs">
         <summary><ha-icon icon="mdi:dots-horizontal-circle-outline"></ha-icon><span>${activeTool ? escapeHtml(activeTool[2]) : "Mehr"}</span></summary>
         <nav class="tool-tab-grid" aria-label="Roadplanner Werkzeuge">
           ${tools.map(([id, icon, label, count, badgeClass]) => `<button type="button" class="tool-tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span>${count ? `<span class="count-badge ${badgeClass || ""}">${count}</span>` : ""}</button>`).join("")}
