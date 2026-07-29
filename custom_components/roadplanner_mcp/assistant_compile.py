@@ -635,6 +635,22 @@ def _normalize_compiled_operation_aliases(
                     f"{existing_notes}\n{stray_text}" if existing_notes else stray_text
                 )[:8_000]
 
+        # ``changes.category`` is only a valid field for entity_type=preference.
+        # The model sometimes classifies a stop as e.g. "Camping" under
+        # "category" - a natural word choice for "what kind of place is
+        # this" - even though the prompt only lists that field for
+        # preferences. Reject outright would discard real content the model
+        # did extract just fine; salvage it into notes instead, the same
+        # "real content, wrong key" approach used for changes.text above.
+        if entity_type != "preference" and "category" in changes:
+            stray_category = _clean_text(changes.pop("category"), maximum=200)
+            if stray_category:
+                existing_notes = _clean_text(changes.get("notes"), maximum=8_000)
+                note = f"Kategorie: {stray_category}"
+                changes["notes"] = (
+                    f"{existing_notes}\n{note}" if existing_notes else note
+                )[:8_000]
+
         # A stop's automatic geocoding only ever looks at place_query - never
         # at free text. The model sometimes writes a link the user gave
         # (Google Maps or otherwise) straight into notes/reason instead of
