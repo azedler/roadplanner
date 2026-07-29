@@ -389,6 +389,7 @@ export const tripDayStopMixin = {
         </aside>
       </section>
 
+      ${this._renderPlanBCard(day)}
       ${this._renderDayArchivePanel(day, archiveRecords)}
       ${experienceDayMedia.length ? `<section class="panel-card day-experience-album"><div class="section-heading compact"><div><span class="eyebrow">Reiseerinnerungen</span><h2>Fotos dieses Tages</h2></div></div>${this._renderExperienceAlbum(experienceDayMedia, { dayId: day.id, title: day.title || "Tagesalbum", totalCount: allExperienceDayMedia.length })}</section>` : ""}
 

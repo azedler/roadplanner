@@ -16,6 +16,14 @@ from typing import Any, Callable
 from .bounded_json import _bounded_json_value
 from .identifiers import _new_id, validate_identifier
 from .json_io import TripNotFoundError, ValidationError, _write_json_atomic, utc_now_iso
+from .pitch_options import (
+    apply_activate_option,
+    apply_delete_option,
+    apply_save_option,
+    apply_set_option_status,
+    apply_set_strategy,
+    validate_preferences_input,
+)
 from .routing_helpers import _ROUTING_DETAIL_KEY, _trip_route_metrics
 from .stop_ordering import reindex_explicit_positions
 from .trip_documents import (
@@ -591,4 +599,116 @@ class TripMutations:
         )
         result["removed_stop"] = deepcopy(removed)
         result["day_id"] = day_id
+        return result
+
+    def mutate_overnight_plan(
+        self,
+        *,
+        day_id: str,
+        operation: str,
+        payload: dict[str, Any],
+        actor: str,
+        expected_revision: int,
+        expected_trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply one overnight-plan operation as a single atomic commit.
+
+        The activate operation touches both the day's details and its stops
+        list; running it through one commit (instead of update_day plus
+        update_stop) is what makes "Plan B aktivieren" atomic.
+        """
+        day_id = validate_identifier(day_id, "day_id")
+        if operation not in {
+            "save_option",
+            "delete_option",
+            "set_option_status",
+            "set_strategy",
+            "activate_option",
+        }:
+            raise ValidationError(f"Unbekannte Stellplatz-Operation: {operation}")
+        if not isinstance(payload, dict):
+            raise ValidationError("'payload' muss ein JSON-Objekt sein")
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
+        document = previous.day_documents.get(day_id)
+        if document is None:
+            raise TripNotFoundError(f"Reisetag nicht gefunden: {day_id}")
+        candidate = previous.clone()
+        target = candidate.day_documents[day_id]
+        now = utc_now_iso()
+        extra: dict[str, Any] = {}
+        if operation == "save_option":
+            extra["option"] = apply_save_option(target, payload.get("option"), now=now)
+        elif operation == "delete_option":
+            apply_delete_option(target, validate_identifier(payload.get("option_id"), "option_id"))
+        elif operation == "set_option_status":
+            extra["option"] = apply_set_option_status(
+                target,
+                validate_identifier(payload.get("option_id"), "option_id"),
+                str(payload.get("status") or ""),
+                now=now,
+            )
+        elif operation == "set_strategy":
+            extra["strategy"] = apply_set_strategy(target, str(payload.get("strategy") or ""))
+        else:
+            activation = apply_activate_option(
+                target,
+                validate_identifier(payload.get("option_id"), "option_id"),
+                now=now,
+                actor=actor,
+            )
+            stop_index = next(
+                i for i, stop in enumerate(target["stops"]) if stop["id"] == activation["stop_id"]
+            )
+            target["stops"][stop_index] = normalize_stop(
+                target["stops"][stop_index],
+                index=stop_index,
+                fallback_timestamp=now,
+            )
+            reindex_explicit_positions(target["stops"])
+            extra.update(activation)
+        target["day"]["updated_at"] = now
+        result = self._commit_and_notify(
+            previous,
+            candidate,
+            actor=actor,
+            operation=f"pitch_{operation}",
+            removed_files=[],
+        )
+        result.update(deepcopy(extra))
+        result["day_id"] = day_id
+        return result
+
+    def update_pitch_preferences(
+        self,
+        *,
+        preferences: dict[str, Any],
+        actor: str,
+        expected_revision: int,
+        expected_trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace the trip's pitch preferences, preserving other trip details."""
+        validated = validate_preferences_input(preferences)
+        previous = self._repository._load_state()
+        self._repository._check_expected_trip(previous, expected_trip_id)
+        self._repository._check_revision(previous, expected_revision)
+        candidate = previous.clone()
+        trip = candidate.trip_document["trip"]
+        details = deepcopy(trip.get("details")) if isinstance(trip.get("details"), dict) else {}
+        details["pitch_preferences"] = validated
+        trip["details"] = details
+        candidate.trip_document = normalize_trip_document(
+            candidate.trip_document,
+            expected_trip_id=previous.trip_id,
+            fallback_timestamp=previous.trip_document["metadata"]["created_at"],
+        )
+        result = self._commit_and_notify(
+            previous,
+            candidate,
+            actor=actor,
+            operation="pitch_update_preferences",
+            removed_files=[],
+        )
+        result["pitch_preferences"] = validated
         return result

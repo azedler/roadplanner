@@ -239,6 +239,13 @@ export const PANEL_STYLES = `<style>
       .crew-row-body span { color: var(--secondary-text-color); font-size: 13px; }
       .crew-retired { margin-top: 14px; }
       .crew-retired summary { cursor: pointer; color: var(--secondary-text-color); margin-bottom: 10px; }
+      .pitch-preferences > summary { list-style: none; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; }
+      .pitch-preferences > summary::-webkit-details-marker { display: none; }
+      .pitch-preferences[open] > summary { margin-bottom: 12px; color: var(--primary-color); }
+      .pitch-day-card .pitch-active-row { margin-bottom: 10px; }
+      .pitch-day-card .pitch-active-row span { display: inline-flex; align-items: center; gap: 7px; }
+      .pitch-option-list .secondary-button { min-height: 36px; padding: 0 10px; }
+      .pitch-plan-b .setting-row span { display: inline-flex; align-items: center; gap: 7px; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
       .trip-card { overflow: hidden; }
