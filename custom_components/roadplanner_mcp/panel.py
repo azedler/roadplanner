@@ -26,6 +26,7 @@ from .const import (
     ROLE_EDITOR,
     ROLE_VIEWER,
 )
+from .destination_intelligence import _PARK4NIGHT_ID_RE
 from .ffmpeg_runner import ffmpeg_available
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
@@ -80,6 +81,7 @@ _ACTIONS = {
     "assistant_prepare_trip_locations",
     "prepare_place_enrichment",
     "submit_place_enrichment",
+    "park4night_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -210,6 +212,8 @@ _PROVIDER_CALL_ACTIONS = {
     # call Gemini for narrative text AND runs a long ffmpeg encode - a
     # dropped mobile connection must not abort either.
     "export_trip_video",
+    # One bounded Gemini url_context read of a Park4Night page (stop form).
+    "park4night_lookup",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -221,6 +225,7 @@ _ASSISTANT_ACTIONS = {
     "assistant_prepare_trip_locations",
     "prepare_place_enrichment",
     "submit_place_enrichment",
+    "park4night_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -459,6 +464,26 @@ async def _execute_action(
             user_id=user_id,
             trip_id=trip_id,
         )
+
+    if action == "park4night_lookup":
+        text = str(data.get("text") or "").strip()
+        match = _PARK4NIGHT_ID_RE.search(text)
+        if match is None:
+            raise ValidationError(
+                "Kein Park4Night-Verweis gefunden - eine ID wie 'p4n 506374' "
+                "oder ein park4night.com-Link wird benötigt"
+            )
+        lookup = runtime.experience.p4n_lookup
+        if not lookup.available:
+            raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
+        url = f"https://park4night.com/lieu/{match.group('id')}/"
+        result = await lookup.async_lookup(url, hint_name=text[:200])
+        if result is None:
+            raise ValidationError(
+                "Die Park4Night-Seite konnte nicht gelesen werden oder enthält "
+                "keine GPS-Angabe"
+            )
+        return {"result": result}
 
     if action == "prepare_place_enrichment":
         trip_id = str(data.get("trip_id") or "").strip()

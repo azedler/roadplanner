@@ -759,6 +759,32 @@ class RoadplannerPanel extends HTMLElement {
         [selectedStopId]: "__manual__",
       };
       this._render({ preserveScroll: true });
+    } else if (action === "stop-p4n-lookup" && this._canEdit()) {
+      void this._runStopFormP4nLookup(target.closest("form[data-form='stop']"));
+    } else if (action === "place-p4n-apply") {
+      if (this._dialog?.type !== "place-enrichment") return;
+      const selectedStopId = cleanText(target.dataset.stopId);
+      if (!selectedStopId) return;
+      // Prefill the existing manual-confirmation path with the page facts -
+      // AI-read coordinates are confirmed by the user like hand-typed ones
+      // and stored as manually confirmed, never as provider-verified.
+      this._dialog.manualEntries = {
+        ...(this._dialog.manualEntries || {}),
+        [selectedStopId]: {
+          ...(this._dialog.manualEntries?.[selectedStopId] || {}),
+          name: cleanText(target.dataset.name) || undefined,
+          city: cleanText(target.dataset.city) || undefined,
+          country_code: cleanText(target.dataset.countryCode) || undefined,
+          latitude: cleanText(target.dataset.latitude),
+          longitude: cleanText(target.dataset.longitude),
+        },
+      };
+      this._dialog.selections = {
+        ...(this._dialog.selections || {}),
+        [selectedStopId]: "__manual__",
+      };
+      this._showToast("Park4Night-Position in den manuellen Kartenpunkt übernommen - bitte prüfen und bestätigen.", "success", 5000);
+      this._render({ preserveScroll: true });
     } else if (action === "place-enrichment-submit") {
       void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {

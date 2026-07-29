@@ -328,6 +328,7 @@ export const PANEL_STYLES = `<style>
       .compact-row { padding: 8px 13px 13px; }
       .place-cleanup-suggestion { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px dashed var(--divider-color); border-radius: 14px; background: color-mix(in srgb, var(--primary-color) 5%, var(--card-background-color)); }
       .place-cleanup-suggestion.selected { border-color: var(--primary-color); }
+      .place-p4n-suggestion { border-style: solid; border-color: color-mix(in srgb, var(--primary-color) 45%, var(--divider-color)); }
       .place-cleanup-suggestion > div, .place-manual-heading > div { min-width: 0; display: grid; gap: 3px; }
       .place-cleanup-suggestion small, .place-manual-heading small { color: var(--secondary-text-color); line-height: 1.4; }
       .place-manual-form { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--secondary-background-color); }
