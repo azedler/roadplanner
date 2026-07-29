@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.11.0] - 2026-07-29
+
 ### Added
 
 - Park4Night pages are now read directly via Gemini (the same url_context fetch the assistant chat already uses during plan handover) - in three places. Park4Night has no public API, so stops like "Parkplatz am Angelteich" stayed at "Ort fehlt" forever; geocoding a generic name is hopeless. (1) "Stopp anreichern": when a stop carries a p4n reference, the review dialog shows a clearly labeled card "Von der Park4Night-Seite gelesen (KI)" with the page's stated GPS position, price and rating; one tap copies it into the existing manual-confirmation form. (2+3) Stop add and edit: the stop form has a "Park4Night-Daten lesen (KI)" button that detects a p4n ID or link in the name/notes, reads the page, and prefills GPS, city and country for review before saving. In every path, AI-read coordinates are never written to the roadbook on their own - reviewing and saving/confirming remains the user's explicit step, stored as manually confirmed rather than provider-verified.
