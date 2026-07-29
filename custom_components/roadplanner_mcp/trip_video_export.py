@@ -27,6 +27,7 @@ import uuid
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .canonical_day import canonical_roadbook_stops
 from .const import MAX_STORED_TRIP_VIDEOS
@@ -343,7 +344,7 @@ class TripVideoExporter:
                     "title": "Reise-Video fertig",
                     "message": (
                         f'Das Video für "{trip_title}" ist fertig. '
-                        f"[Jetzt herunterladen]({download_url})"
+                        f"[Jetzt herunterladen]({self._absolute_download_url(download_url)})"
                     ),
                     "notification_id": f"roadplanner_trip_video_{uuid.uuid4().hex}",
                 },
@@ -352,3 +353,28 @@ class TripVideoExporter:
             _LOGGER.warning(
                 "Trip video ready notification failed: %s", type(err).__name__
             )
+
+    def _absolute_download_url(self, download_url: str) -> str:
+        """Turn the relative API path into an absolute URL for the notification.
+
+        Home Assistant's frontend intercepts clicks on relative ("/...")
+        markdown links to do client-side SPA navigation instead of a real
+        request - since this API path isn't a frontend route, that leaves
+        the user staring at the default dashboard instead of a download. An
+        absolute URL isn't recognized as an internal route and is opened
+        normally. Falls back to the relative path if no base URL is
+        configured at all (still works from a browser tab already open on
+        the Roadplanner panel, just not from the notification itself).
+        """
+        try:
+            base_url = get_url(
+                self.hass,
+                allow_internal=True,
+                allow_external=True,
+                allow_cloud=True,
+                prefer_external=True,
+                prefer_cloud=True,
+            )
+        except NoURLAvailableError:
+            return download_url
+        return f"{base_url.rstrip('/')}{download_url}"

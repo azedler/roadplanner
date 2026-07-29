@@ -45,6 +45,17 @@ ha_aiohttp_client = types.ModuleType("homeassistant.helpers.aiohttp_client")
 ha_aiohttp_client.async_get_clientsession = lambda *a, **k: None
 sys.modules["homeassistant.helpers.aiohttp_client"] = ha_aiohttp_client
 
+ha_network = types.ModuleType("homeassistant.helpers.network")
+
+
+class _NoURLAvailableError(Exception):
+    pass
+
+
+ha_network.NoURLAvailableError = _NoURLAvailableError
+ha_network.get_url = lambda *a, **k: "https://roadplanner.example.duckdns.org"
+sys.modules["homeassistant.helpers.network"] = ha_network
+
 
 def load(name: str):
     spec = spec_from_file_location(f"{PACKAGE_NAME}.{name}", PACKAGE_ROOT / f"{name}.py")
@@ -272,8 +283,37 @@ def verify_notify_ready_calls_persistent_notification_with_the_link() -> None:
         domain, service, call_data = hass.services.calls[0]
         assert domain == "persistent_notification"
         assert service == "create"
-        assert "/api/roadplanner/trip_video_library/abc.mp4" in call_data["message"]
+        # A relative "/..." markdown link gets hijacked by Home Assistant's
+        # frontend for SPA navigation instead of opening a real download -
+        # since /api/... isn't a frontend route, that just lands on the
+        # default dashboard. The notification link must be absolute.
+        assert (
+            "(https://roadplanner.example.duckdns.org/api/roadplanner/trip_video_library/abc.mp4)"
+            in call_data["message"]
+        )
         assert "Finnland / Baltikum 2026" in call_data["message"]
+
+    asyncio.run(scenario())
+
+
+def verify_notify_ready_falls_back_to_relative_url_without_a_configured_base() -> None:
+    async def scenario() -> None:
+        hass = _FakeHass()
+        exporter = _exporter(hass=hass)
+        original_get_url = export_module.get_url
+
+        def _raise(*_args, **_kwargs):
+            raise export_module.NoURLAvailableError()
+
+        export_module.get_url = _raise
+        try:
+            await exporter._async_notify_ready(
+                "Reise", "/api/roadplanner/trip_video_library/abc.mp4"
+            )
+        finally:
+            export_module.get_url = original_get_url
+        _, _, call_data = hass.services.calls[0]
+        assert "(/api/roadplanner/trip_video_library/abc.mp4)" in call_data["message"]
 
     asyncio.run(scenario())
 
@@ -359,6 +399,7 @@ verify_music_pick_is_deterministic_per_trip()
 verify_save_to_library_writes_a_valid_filename()
 verify_library_prunes_beyond_the_retention_limit()
 verify_notify_ready_calls_persistent_notification_with_the_link()
+verify_notify_ready_falls_back_to_relative_url_without_a_configured_base()
 verify_notify_ready_failure_does_not_raise()
 verify_async_generate_and_publish_saves_and_notifies()
 

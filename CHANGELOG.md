@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Tapping "Jetzt herunterladen" in the "Reise-Video fertig" notification did nothing except land on Home Assistant's default dashboard, because the link was a relative `/api/...` path - Home Assistant's frontend intercepts clicks on relative markdown links to do client-side navigation instead of a real request, and since that path isn't a frontend route, it just fell back to the home screen. The notification now links to an absolute URL (built the same way `webhook.py` and `drive_import.py` already do), which the frontend opens normally instead of hijacking; falls back to the previous relative link if Home Assistant has no external or internal URL configured at all.
+
 ## [4.10.0] - 2026-07-29
 
 ### Added
