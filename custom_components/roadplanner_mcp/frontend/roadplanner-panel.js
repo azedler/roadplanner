@@ -334,6 +334,7 @@ class RoadplannerPanel extends HTMLElement {
       errorMode = "toast",
       errorTitle = "Roadplanner-Aktion fehlgeschlagen",
       retry = null,
+      blockUi = true,
     } = options || {};
     const tripScopedActions = new Set([
       "update_trip",
@@ -353,7 +354,7 @@ class RoadplannerPanel extends HTMLElement {
     if (tripScopedActions.has(action) && this._selectedTripId) {
       payload.expected_trip_id = this._selectedTripId;
     }
-    this._setBusy(true);
+    if (blockUi) this._setBusy(true);
     try {
       const result = await this._send({ type: WS_ACTION, action, data: payload });
       if (successMessage) this._showToast(successMessage, "success");
@@ -375,7 +376,7 @@ class RoadplannerPanel extends HTMLElement {
       }
       return null;
     } finally {
-      this._setBusy(false);
+      if (blockUi) this._setBusy(false);
       if (this._refreshQueued) {
         this._refreshQueued = false;
         await this._loadData({ silent: true, force: true });
