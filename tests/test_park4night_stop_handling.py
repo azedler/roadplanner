@@ -216,7 +216,11 @@ def verify_enrichment_wiring_attaches_page_facts_for_review() -> None:
         "finds nothing - all three result paths must carry them"
     )
     manager = (PACKAGE_ROOT / "experience_manager.py").read_text(encoding="utf-8")
-    assert "p4n_lookup=Park4NightLookupService(provider)" in manager
+    assert "self.p4n_lookup = Park4NightLookupService(provider)" in manager, (
+        "the service must be exposed on the experience manager (stop form) "
+        "AND shared with the enrichment flow"
+    )
+    assert "p4n_lookup=self.p4n_lookup" in manager
     dialog = (PACKAGE_ROOT / "frontend/features/place-enrichment.js").read_text(encoding="utf-8")
     assert "Von der Park4Night-Seite gelesen (KI)" in dialog
     assert 'data-action="place-p4n-apply"' in dialog
@@ -226,6 +230,28 @@ def verify_enrichment_wiring_attaches_page_facts_for_review() -> None:
         "AI-read coordinates must go through the manual-confirmation path, "
         "never directly into the roadbook"
     )
+
+
+def verify_stop_form_lookup_is_wired_for_add_and_edit() -> None:
+    panel = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    assert panel.count('"park4night_lookup"') >= 3, (
+        "the lookup action must be registered, assistant-gated, and shielded "
+        "as a provider call (a dropped mobile connection must not abort the "
+        "Gemini read)"
+    )
+    assert 'if action == "park4night_lookup":' in panel
+    assert "runtime.experience.p4n_lookup" in panel
+    stop_form = (PACKAGE_ROOT / "frontend/features/trip-day-stop.js").read_text(encoding="utf-8")
+    assert 'data-action="stop-p4n-lookup"' in stop_form, (
+        "the p4n page read must be available in the stop add/edit form, not "
+        "only in the enrichment flow"
+    )
+    assert "_runStopFormP4nLookup" in stop_form
+    # Prefill-only trust model: the handler fills form inputs; saving stays
+    # the user's explicit confirmation step.
+    assert "bitte prüfen und speichern" in stop_form
+    panel_js = (PACKAGE_ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+    assert '"stop-p4n-lookup"' in panel_js
 
 
 def verify_frontend_shows_clean_name_and_p4n_link() -> None:
@@ -255,5 +281,6 @@ if __name__ == "__main__":
     verify_lookup_refuses_non_p4n_urls_without_calling_the_provider()
     verify_lookup_failure_returns_none_instead_of_raising()
     verify_enrichment_wiring_attaches_page_facts_for_review()
+    verify_stop_form_lookup_is_wired_for_add_and_edit()
     verify_frontend_shows_clean_name_and_p4n_link()
     print("Park4Night stop handling tests passed.")

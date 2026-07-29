@@ -756,6 +756,8 @@ class RoadplannerPanel extends HTMLElement {
         [selectedStopId]: "__manual__",
       };
       this._render({ preserveScroll: true });
+    } else if (action === "stop-p4n-lookup" && this._canEdit()) {
+      void this._runStopFormP4nLookup(target.closest("form[data-form='stop']"));
     } else if (action === "place-p4n-apply") {
       if (this._dialog?.type !== "place-enrichment") return;
       const selectedStopId = cleanText(target.dataset.stopId);

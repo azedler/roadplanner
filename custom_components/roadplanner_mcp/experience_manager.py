@@ -87,12 +87,15 @@ class RoadplannerExperienceManager:
             media_vision_max_highlights=media_vision_max_highlights,
             media_vision_daily_limit=media_vision_daily_limit,
         )
+        # Shared with the enrichment flow AND exposed directly so the stop
+        # add/edit form can trigger the same page lookup.
+        self.p4n_lookup = Park4NightLookupService(provider)
         self.place_enrichment = (
             PlaceEnrichmentService(
                 geocoder,
                 image_provider,
                 cleanup_service=PlaceCleanupService(provider),
-                p4n_lookup=Park4NightLookupService(provider),
+                p4n_lookup=self.p4n_lookup,
             )
             if geocoder is not None and geocoder.enabled
             else None
