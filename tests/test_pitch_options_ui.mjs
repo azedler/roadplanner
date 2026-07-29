@@ -197,4 +197,41 @@ const tabsHtml = panel._renderTabs();
 assert.match(tabsHtml, /<details class="tool-tabs">/, "the tool-tabs tray must start collapsed regardless of the active tab");
 assert.doesNotMatch(tabsHtml, /<details class="tool-tabs" open>/);
 
+// Planning images for backup options: a saved option gallery (keyed
+// "option:<id>") must surface as the row's thumbnail and on the Plan-B
+// card; without one, the search button still offers internet images.
+day2.details.overnight_plan.options.push({
+  id: "opt-cover",
+  name: "Wiese am Fluss",
+  status: "backup",
+  place_query: "Stellplatz Wiese am Fluss Rostock",
+  location: { latitude: 54.2, longitude: 12.4 },
+});
+panel._data.experience.destination_galleries = {
+  "option:opt-cover": {
+    stop_id: "option:opt-cover",
+    status: "ready",
+    primary_image_id: "img-1",
+    images: [{ id: "img-1", thumbnail_url: "https://images.example/wiese.jpg", image_url: "https://images.example/wiese-full.jpg" }],
+  },
+};
+panel._pitchSelectedDayId = "day-2";
+const galleryTab = panel._renderPitches();
+assert.match(galleryTab, /pitch-option-cover/, "an option with a saved gallery must show its thumbnail");
+assert.match(galleryTab, /images\.example\/wiese\.jpg/);
+assert.match(galleryTab, /data-action="pitch-option-images"/, "every backup option must offer the image search");
+
+const planBWithCover = panel._renderPlanBCard(day2);
+assert.match(planBWithCover, /pitch-plan-b-cover/, "the Plan-B card must show the option's planning image");
+
+// The image search for an option reuses the shared dialog flow with the
+// option key and the option's own coordinates and query.
+let searchContext = null;
+panel._searchImages = async (context) => { searchContext = context; };
+panel._searchPitchOptionImages("day-2", "opt-cover");
+assert.equal(searchContext.stopId, "option:opt-cover");
+assert.equal(searchContext.dayId, "day-2");
+assert.equal(searchContext.query, "Stellplatz Wiese am Fluss Rostock");
+assert.equal(searchContext.location.latitude, 54.2);
+
 console.log("Pitch options UI tests passed.");

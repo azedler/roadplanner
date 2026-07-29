@@ -255,6 +255,8 @@ export const PANEL_STYLES = `<style>
       .pitch-chip ha-icon { --mdc-icon-size: 14px; }
       .pitch-chip-pro { background: rgba(76, 175, 80, 0.16); color: #4caf50; }
       .pitch-chip-con { background: rgba(244, 67, 54, 0.14); color: #f44336; }
+      .pitch-option-cover { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+      .pitch-plan-b-cover { width: 100%; max-height: 160px; border-radius: 14px; object-fit: cover; margin-bottom: 10px; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
       .trip-card { overflow: hidden; }

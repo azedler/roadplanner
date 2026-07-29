@@ -91,4 +91,18 @@ assert 'tool-tabs" ${activeTool' not in panel_js, (
     "the active tab"
 )
 
+# Planning images for backup options ride on the existing gallery machinery
+# through synthetic "option:<id>" keys - the active place is a normal stop
+# and already gets internet images before the visit and personal OneDrive
+# photos afterwards ("wie immer").
+helpers_py = (COMPONENT / "experience_helpers.py").read_text(encoding="utf-8")
+assert 'OPTION_STOP_PREFIX = "option:"' in helpers_py
+assert "_find_pitch_option" in helpers_py
+assert "_pitchOptionCover" in pitches_js
+assert '"pitch-option-images"' in panel_js
+assert "_searchPitchOptionImages" in pitches_js
+assert "_deletePitchOptionGallery" in pitches_js, (
+    "deleting or activating an option must clean up its option-keyed gallery"
+)
+
 print("Pitch feature wiring contract tests passed.")

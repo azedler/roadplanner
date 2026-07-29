@@ -317,12 +317,54 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+# A pitch backup option is not a stop, but it needs the same planning-image
+# machinery (galleries are keyed by an opaque string). "option:<option_id>"
+# resolves to a synthetic stop-shaped view of the option so image query
+# building, search, save and refresh all work unchanged.
+OPTION_STOP_PREFIX = "option:"
+
+
+def _find_pitch_option(
+    days: list[dict[str, Any]],
+    day_id: str,
+    option_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    option_id = option_key[len(OPTION_STOP_PREFIX):]
+    candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for day in days:
+        details = day.get("details") if isinstance(day.get("details"), dict) else {}
+        plan = details.get("overnight_plan") if isinstance(details.get("overnight_plan"), dict) else {}
+        for option in plan.get("options") or []:
+            if isinstance(option, dict) and str(option.get("id") or "") == option_id:
+                candidates.append((day, option))
+    preferred = next(
+        (item for item in candidates if str(item[0].get("id") or "") == day_id),
+        candidates[0] if len(candidates) == 1 else None,
+    )
+    if preferred is None:
+        return None
+    day, option = preferred
+    return day, {
+        "id": option_key,
+        "name": str(option.get("name") or ""),
+        "type": "overnight",
+        "location": option.get("location") if isinstance(option.get("location"), dict) else {},
+        "notes": str(option.get("notes") or ""),
+        "details": {},
+    }
+
+
 def _find_stop(
     days: list[dict[str, Any]],
     day_id: str,
     stop_id: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve a stop even when the UI still carries its previous day ID."""
+    if str(stop_id or "").startswith(OPTION_STOP_PREFIX):
+        resolved = _find_pitch_option(days, day_id, str(stop_id))
+        if resolved is not None:
+            return resolved
+        raise ValidationError("Die ausgewählte Stellplatz-Option existiert nicht mehr")
     for day in days:
         if str(day.get("id") or "") != day_id:
             continue

@@ -54,6 +54,37 @@ export const pitchesMixin = {
     return { media, documents };
   },
 
+  _pitchOptionGalleryKey(option) {
+    return `option:${option?.id || ""}`;
+  },
+
+  _pitchOptionCover(option) {
+    const gallery = this._destinationGalleryForStop(this._pitchOptionGalleryKey(option));
+    return this._destinationGalleryPrimary(gallery);
+  },
+
+  _searchPitchOptionImages(dayId, optionId) {
+    const day = this._findDay(dayId);
+    const option = this._pitchPlan(day).options.find((item) => item.id === optionId);
+    if (!option) return;
+    void this._searchImages({
+      targetType: "stop",
+      dayId,
+      stopId: this._pitchOptionGalleryKey(option),
+      query: cleanText(option.place_query) || cleanText(option.name),
+      location: option.location || {},
+    });
+  },
+
+  _deletePitchOptionGallery(optionId) {
+    const key = `option:${optionId}`;
+    if (!this._destinationGalleryForStop(key)) return;
+    void this._runAction("delete_destination_gallery", {
+      trip_id: this._selectedTripId,
+      stop_id: key,
+    }, "", { refresh: false });
+  },
+
   _pitchCurrentDayId() {
     const days = this._data?.days?.days || [];
     if (days.some((day) => day.id === this._pitchSelectedDayId)) return this._pitchSelectedDayId;
@@ -126,6 +157,11 @@ export const pitchesMixin = {
         const result = await this._runPitchAction("pitch_option_activate", dayId, { option_id: optionId }, "");
         if (!result) return;
         this._showToast("Plan B aktiviert. Der Übernachtungsplatz wurde getauscht.", "success", 5000);
+        // The option just became a real stop; its planning gallery lived
+        // under the option key and would otherwise be orphaned - the stop
+        // now runs the normal machinery (internet images before the visit,
+        // personal OneDrive photos afterwards).
+        this._deletePitchOptionGallery(optionId);
         if (day?.routing && this._data?.settings?.routing_configured) {
           void this._calculateDayRoute(dayId, true);
         }
@@ -221,8 +257,12 @@ export const pitchesMixin = {
     if (option.location?.latitude != null) meta.push("GPS vorhanden");
     const prosChips = (option.pros || []).map((text) => `<span class="pitch-chip pitch-chip-pro"><ha-icon icon="mdi:plus"></ha-icon>${escapeHtml(text)}</span>`).join("");
     const consChips = (option.cons || []).map((text) => `<span class="pitch-chip pitch-chip-con"><ha-icon icon="mdi:minus"></ha-icon>${escapeHtml(text)}</span>`).join("");
+    const cover = this._pitchOptionCover(option);
+    const coverUrl = cover ? this._safeUrl(cover.thumbnail_url || cover.image_url) : "";
     return `<li class="crew-row ${rejectedOption ? "inactive" : ""}">
-      <ha-icon icon="mdi:caravan"></ha-icon>
+      ${coverUrl
+        ? `<img class="pitch-option-cover" src="${escapeHtml(coverUrl)}" alt="${escapeHtml(option.name)}" loading="lazy">`
+        : `<ha-icon icon="mdi:caravan"></ha-icon>`}
       <div class="crew-row-body">
         <strong>${escapeHtml(option.name)}</strong>
         ${meta.length ? `<span>${meta.map((item) => escapeHtml(item)).join(" · ")}</span>` : ""}
@@ -233,6 +273,7 @@ export const pitchesMixin = {
         ${rejectedOption
           ? `<button class="icon-button" type="button" data-action="pitch-restore" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Wiederherstellen" aria-label="${escapeHtml(option.name)} wiederherstellen"><ha-icon icon="mdi:archive-arrow-up-outline"></ha-icon></button>`
           : `<button class="secondary-button" type="button" data-action="pitch-activate" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}"><ha-icon icon="mdi:swap-horizontal"></ha-icon> Aktivieren</button>
+            <button class="icon-button" type="button" data-action="pitch-option-images" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Bilder" aria-label="Bilder für ${escapeHtml(option.name)}"><ha-icon icon="mdi:image-search-outline"></ha-icon></button>
             <button class="icon-button" type="button" data-action="pitch-edit-option" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Bearbeiten" aria-label="${escapeHtml(option.name)} bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>
             <button class="icon-button" type="button" data-action="pitch-reject" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Verwerfen" aria-label="${escapeHtml(option.name)} verwerfen"><ha-icon icon="mdi:archive-outline"></ha-icon></button>`}
         <button class="icon-button" type="button" data-action="pitch-delete" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(option.id)}" title="Löschen" aria-label="${escapeHtml(option.name)} löschen"><ha-icon icon="mdi:trash-can-outline"></ha-icon></button>
@@ -274,6 +315,11 @@ export const pitchesMixin = {
           <h2>Plan B für diesen Tag</h2>
         </div>
       </div>
+      ${(() => {
+        const cover = this._pitchOptionCover(next);
+        const coverUrl = cover ? this._safeUrl(cover.thumbnail_url || cover.image_url) : "";
+        return coverUrl ? `<img class="pitch-plan-b-cover" src="${escapeHtml(coverUrl)}" alt="${escapeHtml(next.name)}" loading="lazy">` : "";
+      })()}
       <div class="setting-row"><span><ha-icon icon="mdi:caravan"></ha-icon> ${escapeHtml(next.name)}</span><strong>${escapeHtml(meta.join(" · ") || `${backups.length} ${backups.length === 1 ? "Option" : "Optionen"} hinterlegt`)}</strong></div>
       <div class="button-row">
         <button class="primary-button" type="button" data-action="pitch-activate" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(next.id)}"><ha-icon icon="mdi:swap-horizontal"></ha-icon> Plan B aktivieren</button>

@@ -1187,12 +1187,18 @@ class RoadplannerPanel extends HTMLElement {
         option_id: target.dataset.optionId,
         status: "backup",
       }, "Option wiederhergestellt");
+    } else if (action === "pitch-option-images" && this._canEdit()) {
+      this._searchPitchOptionImages(dayId, target.dataset.optionId);
     } else if (action === "pitch-delete" && this._canEdit()) {
+      const deletedOptionId = target.dataset.optionId;
       this._confirm(
         "Stellplatz-Option löschen?",
         "Die Option wird endgültig aus dem Tag entfernt. Zum bloßen Aussortieren reicht Verwerfen.",
         "Löschen",
-        () => this._runPitchAction("pitch_option_delete", dayId, { option_id: target.dataset.optionId }, "Option gelöscht"),
+        async () => {
+          const result = await this._runPitchAction("pitch_option_delete", dayId, { option_id: deletedOptionId }, "Option gelöscht");
+          if (result) this._deletePitchOptionGallery(deletedOptionId);
+        },
         true,
       );
     } else if (action === "add-day" && this._canEdit()) {
