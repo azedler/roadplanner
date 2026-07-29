@@ -54,6 +54,45 @@ export const pitchesMixin = {
     return { media, documents };
   },
 
+  _pitchCurrentDayId() {
+    const days = this._data?.days?.days || [];
+    if (days.some((day) => day.id === this._pitchSelectedDayId)) return this._pitchSelectedDayId;
+    const nextDayId = this._data?.summary?.next_day?.id;
+    if (nextDayId && days.some((day) => day.id === nextDayId)) return nextDayId;
+    return days[0]?.id || null;
+  },
+
+  _pitchRouteContext(day) {
+    const days = this._data?.days?.days || [];
+    const index = days.findIndex((item) => item.id === day?.id);
+    const points = this._dayRoutePoints(day).map((point) => ({ ...point, markerLabel: "•" }));
+    const fromLabel = points[0]?.label || "";
+    let toLabel = "";
+    const nextDay = index >= 0 ? days[index + 1] : null;
+    if (nextDay) {
+      const nextStops = this._canonicalStops(nextDay.stops || []);
+      const nextFirst = nextStops[0];
+      if (nextFirst) {
+        const point = this._coordinate(nextFirst, nextDay, 0);
+        toLabel = nextFirst.name || "";
+        if (point) points.push({ ...point, label: `Morgen: ${toLabel}`, markerLabel: "→" });
+      }
+    }
+    const plan = this._pitchPlan(day);
+    for (const option of plan.options) {
+      if (option.status === "rejected") continue;
+      if (option.location?.latitude == null || option.location?.longitude == null) continue;
+      points.push({
+        lat: option.location.latitude,
+        lon: option.location.longitude,
+        label: `Option: ${option.name}`,
+        markerLabel: "B",
+        timestamp: new Date(),
+      });
+    }
+    return { points, fromLabel, toLabel, hasNextDay: Boolean(nextDay) };
+  },
+
   async _runPitchAction(action, dayId, payload, successMessage) {
     return this._runAction(action, {
       day_id: dayId,
@@ -100,16 +139,19 @@ export const pitchesMixin = {
       return `${this._renderReadOnlyNotice()}<div class="empty-state"><ha-icon icon="mdi:caravan"></ha-icon><h2>Noch keine Reisetage</h2><p>Lege zuerst Reisetage an - danach kannst du hier je Tag mehrere Übernachtungs-Optionen pflegen.</p></div>`;
     }
     const canEdit = this._canEdit();
+    const currentDayId = this._pitchCurrentDayId();
+    const day = days.find((item) => item.id === currentDayId) || days[0];
     return `${this._renderReadOnlyNotice()}
-      <section class="toolbar-card">
+      <section class="toolbar-card day-toolbar">
         <div>
           <span class="eyebrow">Übernachtung</span>
           <h2>Stellplätze</h2>
-          <p>Für jeden Reisetag mehrere Übernachtungs-Optionen: Ist der erste Platz voll oder laut, wird mit einem Tipp der nächste aktiviert - der bisherige bleibt als Backup erhalten.</p>
+          <p>Ist der aktuelle Platz voll oder laut, wird mit einem Tipp der nächste aktiviert - der bisherige bleibt als Backup erhalten.</p>
         </div>
+        <label class="day-select"><span>Reisetag</span><select data-action="pitch-select-day">${days.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === day.id ? "selected" : ""}>${item.sequence}. ${escapeHtml(item.title)}</option>`).join("")}</select></label>
       </section>
-      ${this._renderPitchPreferencesCard(canEdit)}
-      ${days.map((day) => this._renderPitchDayCard(day, canEdit)).join("")}`;
+      ${this._renderPitchDayCard(day, canEdit)}
+      ${this._renderPitchPreferencesCard(canEdit)}`;
   },
 
   _renderPitchPreferencesCard(canEdit) {
@@ -145,16 +187,20 @@ export const pitchesMixin = {
     const stop = this._pitchActiveStop(day);
     const backups = plan.options.filter((item) => item.status !== "rejected");
     const rejected = plan.options.filter((item) => item.status === "rejected");
+    const isToday = day.id === this._data?.summary?.next_day?.id;
+    const context = this._pitchRouteContext(day);
     return `<section class="panel-card pitch-day-card">
       <div class="section-heading compact">
         <div>
-          <span class="eyebrow">${escapeHtml(this._formatDate(day.date) || `Tag ${day.sequence}`)}</span>
+          <span class="eyebrow">${isToday ? "Aktueller Reisetag" : escapeHtml(this._formatDate(day.date) || `Tag ${day.sequence}`)}</span>
           <h2>${day.sequence}. ${escapeHtml(day.title)}</h2>
         </div>
         <label class="day-select"><span>Strategie</span><select data-action="pitch-strategy" data-day-id="${escapeHtml(day.id)}" ${canEdit ? "" : "disabled"}>
           ${PITCH_STRATEGIES.map(([value, label]) => `<option value="${value}" ${plan.strategy === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
         </select></label>
       </div>
+      ${context.fromLabel || context.toLabel ? `<div class="pitch-route-flow"><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.fromLabel || "?")}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:weather-night"></ha-icon> ${escapeHtml(stop?.name || "Übernachtung")}</span>${context.hasNextDay ? `<ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.toLabel || "?")}</span>` : ""}</div>` : ""}
+      ${this._renderMap(`pitch-map-${day.id}`, context.points, day.title, [], "Karte zeigt: gestrigen Ankunftsort (falls vorhanden), die Optionen dieses Tages (B) und den ersten Stopp des Folgetags.")}
       ${stop
         ? `<div class="setting-row pitch-active-row"><span><ha-icon icon="mdi:weather-night"></ha-icon> Aktiver Platz</span><strong>${escapeHtml(stop.name)}</strong></div>`
         : `<div class="notice neutral">Dieser Tag hat noch keinen Übernachtungsstopp. Beim Aktivieren einer Option wird er automatisch angelegt.</div>`}
@@ -173,16 +219,14 @@ export const pitchesMixin = {
     if (option.price?.amount != null) meta.push(`${option.price.amount} ${escapeHtml(option.price.currency || "EUR")}/Nacht`);
     if (featureLabels.length) meta.push(featureLabels.join(" · "));
     if (option.location?.latitude != null) meta.push("GPS vorhanden");
-    const prosCons = [
-      ...(option.pros || []).map((text) => `+ ${text}`),
-      ...(option.cons || []).map((text) => `- ${text}`),
-    ].join("  ·  ");
+    const prosChips = (option.pros || []).map((text) => `<span class="pitch-chip pitch-chip-pro"><ha-icon icon="mdi:plus"></ha-icon>${escapeHtml(text)}</span>`).join("");
+    const consChips = (option.cons || []).map((text) => `<span class="pitch-chip pitch-chip-con"><ha-icon icon="mdi:minus"></ha-icon>${escapeHtml(text)}</span>`).join("");
     return `<li class="crew-row ${rejectedOption ? "inactive" : ""}">
       <ha-icon icon="mdi:caravan"></ha-icon>
       <div class="crew-row-body">
         <strong>${escapeHtml(option.name)}</strong>
         ${meta.length ? `<span>${meta.map((item) => escapeHtml(item)).join(" · ")}</span>` : ""}
-        ${prosCons ? `<span>${escapeHtml(prosCons)}</span>` : ""}
+        ${prosChips || consChips ? `<div class="pitch-chip-row">${prosChips}${consChips}</div>` : ""}
         ${option.notes ? `<span>${escapeHtml(option.notes)}</span>` : ""}
       </div>
       ${canEdit ? `<div class="button-row">
@@ -233,7 +277,7 @@ export const pitchesMixin = {
       <div class="setting-row"><span><ha-icon icon="mdi:caravan"></ha-icon> ${escapeHtml(next.name)}</span><strong>${escapeHtml(meta.join(" · ") || `${backups.length} ${backups.length === 1 ? "Option" : "Optionen"} hinterlegt`)}</strong></div>
       <div class="button-row">
         <button class="primary-button" type="button" data-action="pitch-activate" data-day-id="${escapeHtml(day.id)}" data-option-id="${escapeHtml(next.id)}"><ha-icon icon="mdi:swap-horizontal"></ha-icon> Plan B aktivieren</button>
-        ${backups.length > 1 ? `<button class="secondary-button" type="button" data-action="pitch-open-tab"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Alle ${backups.length} Optionen</button>` : `<button class="secondary-button" type="button" data-action="pitch-open-tab"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Stellplätze verwalten</button>`}
+        ${backups.length > 1 ? `<button class="secondary-button" type="button" data-action="pitch-open-tab" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Alle ${backups.length} Optionen</button>` : `<button class="secondary-button" type="button" data-action="pitch-open-tab" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Stellplätze verwalten</button>`}
       </div>
     </section>`;
   },

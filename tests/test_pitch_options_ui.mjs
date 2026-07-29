@@ -50,7 +50,7 @@ const day = {
       schema_version: 1,
       strategy: "best_first",
       options: [
-        { id: "opt-1", name: "Waldparkplatz am See", status: "backup", price: { amount: 0, currency: "EUR" }, notes: "kostenlos", features: { quiet: true } },
+        { id: "opt-1", name: "Waldparkplatz am See", status: "backup", price: { amount: 0, currency: "EUR" }, notes: "kostenlos", features: { quiet: true }, pros: ["Ruhig"], cons: ["Kein Handyempfang"] },
         { id: "opt-2", name: "Laut an der Straße", status: "rejected" },
       ],
     },
@@ -96,6 +96,16 @@ assert.match(tab, /Stellplatz-Präferenzen/);
 assert.match(tab, /value="25"/);
 assert.match(tab, /busy_road/);
 
+// Pros/cons must stand out as their own chips, not buried in a plain text line.
+assert.match(tab, /pitch-chip-pro/);
+assert.match(tab, /pitch-chip-con/);
+assert.match(tab, /Ruhig/);
+assert.match(tab, /Kein Handyempfang/);
+
+// A day-select dropdown lets the user jump directly to any day.
+assert.match(tab, /data-action="pitch-select-day"/);
+assert.match(tab, /<option value="day-1" selected>3\. Rostock<\/option>/);
+
 // Plan-B card for the Heute tab: first backup, one-tap activation.
 const planB = panel._renderPlanBCard(day);
 assert.match(planB, /Plan B für diesen Tag/);
@@ -126,5 +136,65 @@ assert.equal(calls[0].action, "pitch_option_activate");
 assert.deepEqual(calls[0].data.payload, { option_id: "opt-1" });
 assert.equal(calls[0].data.day_id, "day-1");
 assert.equal(calls[0].data.expected_revision, 41);
+
+// Multi-day scenario: the tab must default to the current/upcoming day, not
+// day 1, and show route context (where we come from / where we go next).
+const day1 = { id: "day-1", sequence: 1, date: "2026-08-01", title: "Start", details: {}, stops: [] };
+const day2 = {
+  id: "day-2",
+  sequence: 2,
+  date: "2026-08-02",
+  title: "Rostock",
+  details: { overnight_plan: { strategy: "route_optimal", options: [] } },
+  stops: [
+    { id: "s1", name: "Hafen Rostock", type: "overnight", location: { latitude: 54.09, longitude: 12.13 } },
+  ],
+};
+const day3 = {
+  id: "day-3",
+  sequence: 3,
+  date: "2026-08-03",
+  title: "Stralsund",
+  details: {},
+  stops: [
+    { id: "s2", name: "Altstadt Stralsund", type: "waypoint", location: { latitude: 54.31, longitude: 13.08 } },
+  ],
+};
+panel._data.days = { days: [day1, day2, day3] };
+panel._data.summary.next_day = { id: "day-2" };
+panel._findDay = (dayId) => [day1, day2, day3].find((item) => item.id === dayId) || null;
+panel._pitchSelectedDayId = null;
+
+const multiDayTab = panel._renderPitches();
+assert.match(multiDayTab, /Aktueller Reisetag/, "the current day must be labeled as such");
+assert.match(multiDayTab, /2\. Rostock/);
+assert.equal((multiDayTab.match(/panel-card pitch-day-card/g) || []).length, 1, "only the current day's card must render, not every day stacked");
+assert.doesNotMatch(multiDayTab, />Start</, "day 1's card must not be shown when day 2 is current");
+assert.match(multiDayTab, /Morgen: Altstadt Stralsund/, "the map/route context must show tomorrow's first stop");
+
+// Selecting a day from the dropdown switches which day is shown.
+panel._pitchSelectedDayId = "day-3";
+const day3Tab = panel._renderPitches();
+assert.match(day3Tab, /3\. Stralsund/);
+assert.doesNotMatch(day3Tab, /Aktueller Reisetag/);
+
+// Opening the tab from the Plan-B card must jump to that specific day.
+panel._pitchSelectedDayId = null;
+panel._activeTab = "day-route";
+panel._render = () => {};
+const planBButtonDayId = "day-3";
+// Simulate the click handler's pitch-open-tab branch directly (dispatch
+// wiring is covered by the contract test).
+if (planBButtonDayId) panel._pitchSelectedDayId = planBButtonDayId;
+panel._activeTab = "pitches";
+assert.equal(panel._pitchCurrentDayId(), "day-3");
+
+// The tool-tabs tray must never force itself open just because a tool tab
+// (like Stellplätze) is active - it used to eat the whole screen above the
+// actual content on mobile.
+panel._activeTab = "pitches";
+const tabsHtml = panel._renderTabs();
+assert.match(tabsHtml, /<details class="tool-tabs">/, "the tool-tabs tray must start collapsed regardless of the active tab");
+assert.doesNotMatch(tabsHtml, /<details class="tool-tabs" open>/);
 
 console.log("Pitch options UI tests passed.");

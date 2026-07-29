@@ -246,6 +246,15 @@ export const PANEL_STYLES = `<style>
       .pitch-day-card .pitch-active-row span { display: inline-flex; align-items: center; gap: 7px; }
       .pitch-option-list .secondary-button { min-height: 36px; padding: 0 10px; }
       .pitch-plan-b .setting-row span { display: inline-flex; align-items: center; gap: 7px; }
+      .pitch-route-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--secondary-text-color); font-size: 14px; }
+      .pitch-route-flow span { display: inline-flex; align-items: center; gap: 5px; }
+      .pitch-route-flow ha-icon[icon="mdi:arrow-right-thin"] { color: var(--secondary-text-color); }
+      .pitch-day-card .map-card { margin-bottom: 14px; }
+      .pitch-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+      .pitch-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .pitch-chip ha-icon { --mdc-icon-size: 14px; }
+      .pitch-chip-pro { background: rgba(76, 175, 80, 0.16); color: #4caf50; }
+      .pitch-chip-con { background: rgba(244, 67, 54, 0.14); color: #f44336; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
       .trip-card { overflow: hidden; }

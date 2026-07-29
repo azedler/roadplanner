@@ -68,4 +68,27 @@ assert "_renderPlanBCard(day)" in day_js, "the Heute tab must offer Plan B"
 # Rejected options must be excluded from Plan B suggestions.
 assert 'status !== "rejected"' in pitches_js
 
+# The tab must default to the current/upcoming day and let the user jump to
+# any other day, rather than stacking every day's card (a real usability
+# regression the user hit once the feature saw daily use).
+assert 'data-action="pitch-select-day"' in pitches_js
+assert "_pitchCurrentDayId" in pitches_js
+assert "next_day" in pitches_js
+
+# Route context: where the day starts, tomorrow's first stop, and the
+# options plotted on the day's map - not just a bare list of names.
+assert "_pitchRouteContext" in pitches_js
+assert "pitch-route-flow" in pitches_js
+
+# Pros/cons must stand out visually, not be buried in one plain-text line.
+assert "pitch-chip-pro" in pitches_js
+assert "pitch-chip-con" in pitches_js
+
+# The tool-tabs tray must never force itself open for an active tool tab -
+# it used to eat the whole screen above the content on mobile.
+assert 'tool-tabs" ${activeTool' not in panel_js, (
+    "the tool-tabs <details> must not be conditionally forced open based on "
+    "the active tab"
+)
+
 print("Pitch feature wiring contract tests passed.")
