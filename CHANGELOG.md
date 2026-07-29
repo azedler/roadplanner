@@ -10,6 +10,10 @@ The project follows Semantic Versioning for public releases.
 
 - Park4Night stops are handled properly now. Previously the internal ID stayed glued to the stop name ("Parkplatz am Angelteich (p4n #506374)") and polluted every card, map legend and export, while the reference itself did nothing useful on the stop card. Two changes: (1) when the assistant hands over a stop whose name carries a p4n ID, the sanitizer strips it from the name at ingestion and guarantees the reference survives as a real Park4Night URL in the notes (the enrichment flow's source-hint detection scans name and notes, so classification and linking keep working); (2) the stop card now displays a cleaned name for existing roadbook entries too - without mutating the roadbook - and shows a "Park4Night #506374" button that opens the place's page directly, next to Google Maps.
 
+### Added
+
+- "Stopp anreichern" now reads a stop's Park4Night page directly via Gemini (the same url_context fetch the assistant chat already uses during plan handover). Park4Night has no public API, so stops like "Parkplatz am Angelteich" stayed at "Ort fehlt" forever - geocoding a generic name is hopeless. When a stop carries a p4n reference, the enrichment dialog now shows a clearly labeled card "Von der Park4Night-Seite gelesen (KI)" with the page's stated GPS position, price and rating; one tap copies it into the existing manual-confirmation form, where you check the map point and confirm it yourself. AI-read coordinates are never written to the roadbook directly - they always go through the manual review, stored as manually confirmed rather than provider-verified.
+
 ## [4.10.0] - 2026-07-29
 
 ### Added

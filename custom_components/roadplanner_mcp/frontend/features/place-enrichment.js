@@ -156,6 +156,19 @@ export const placeEnrichmentMixin = {
             ${cleanupNameChanged ? `<button class="${cleanupAccepted ? "secondary-button" : "text-button"}" type="button" data-action="place-cleanup-toggle" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="${cleanupAccepted ? "mdi:check-circle" : "mdi:checkbox-blank-circle-outline"}"></ha-icon>${cleanupAccepted ? "Umbenennung wird übernommen" : "Namensvorschlag separat übernehmen"}</button>` : `<span class="status-pill status-resolved"><ha-icon icon="mdi:shape-outline"></ha-icon>Nur Suchstrategie</span>`}
           </div>`
         : "";
+      const p4nLookup = item?.p4n_lookup && typeof item.p4n_lookup === "object" ? item.p4n_lookup : null;
+      const p4nCard = p4nLookup && Number.isFinite(Number(p4nLookup.latitude)) && Number.isFinite(Number(p4nLookup.longitude))
+        ? `<div class="place-cleanup-suggestion place-p4n-suggestion">
+            <div><span class="eyebrow">Von der Park4Night-Seite gelesen (KI)</span><strong>${escapeHtml(p4nLookup.name || current.stop_name || "Park4Night-Platz")}</strong><small>${escapeHtml([
+              `GPS ${Number(p4nLookup.latitude).toFixed(5)}, ${Number(p4nLookup.longitude).toFixed(5)}`,
+              p4nLookup.city,
+              p4nLookup.price_text,
+              p4nLookup.rating_text ? `Bewertung ${p4nLookup.rating_text}` : "",
+              p4nLookup.summary,
+            ].filter(Boolean).join(" · "))}</small></div>
+            <button class="secondary-button" type="button" data-action="place-p4n-apply" data-stop-id="${escapeHtml(stopId)}" data-latitude="${escapeHtml(String(p4nLookup.latitude))}" data-longitude="${escapeHtml(String(p4nLookup.longitude))}" data-name="${escapeHtml(p4nLookup.name || "")}" data-city="${escapeHtml(p4nLookup.city || "")}" data-country-code="${escapeHtml(p4nLookup.country_code || "")}"><ha-icon icon="mdi:map-marker-down"></ha-icon>In den manuellen Kartenpunkt übernehmen</button>
+          </div>`
+        : "";
       const candidateCards = candidates.length
         ? candidates.map((candidate) => {
           const candidateId = cleanText(candidate.id);
@@ -230,6 +243,7 @@ export const placeEnrichmentMixin = {
       return `<section class="place-enrichment-item">
         <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml([intent.label ? `Erkannt: ${intent.label}` : "", currentSummary || "Noch kein bestätigtes Ortsprofil"].filter(Boolean).join(" · "))}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
         ${cleanupCard}
+        ${p4nCard}
         ${sourceHintLinks ? `<div class="button-row compact-row">${sourceHintLinks}</div>` : ""}
         <div class="place-candidates">${candidateCards}</div>
         ${manualForm}

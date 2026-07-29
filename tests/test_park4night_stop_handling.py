@@ -131,6 +131,103 @@ def verify_sanitizer_calls_the_helper_in_the_stop_path() -> None:
     assert '_strip_park4night_from_name(operation["changes"])' in source
 
 
+def _lookup_service(value, *, configured=True, raise_error=False):
+    lookup_module = load("park4night_lookup")
+
+    class _Result:
+        def __init__(self, payload):
+            self.value = payload
+
+    class _FakeProvider:
+        def __init__(self):
+            self.configured = configured
+            self.calls = []
+
+        async def async_generate_json_result(self, **kwargs):
+            self.calls.append(kwargs)
+            if raise_error:
+                raise RuntimeError("boom")
+            return _Result(value)
+
+    provider = _FakeProvider()
+    return lookup_module.Park4NightLookupService(provider), provider
+
+
+def _run(coroutine):
+    import asyncio
+
+    return asyncio.run(coroutine)
+
+
+def verify_lookup_returns_normalized_page_facts() -> None:
+    service, provider = _lookup_service(
+        {
+            "found": True,
+            "latitude": 57.1234,
+            "longitude": 15.5678,
+            "name": "Parkplatz am Angelteich",
+            "city": "Ängelholm",
+            "country_code": "se",
+            "price_text": "80 SEK / 24h",
+            "rating_text": "4,67/5",
+            "summary": "Trockentoilette und Grillplätze.",
+        }
+    )
+    result = _run(service.async_lookup("https://park4night.com/lieu/506374/", hint_name="Angelteich"))
+    assert result is not None
+    assert result["latitude"] == 57.1234 and result["longitude"] == 15.5678
+    assert result["country_code"] == "SE"
+    assert result["provider"] == "park4night_ai"
+    assert provider.calls[0]["enable_search"] is True, (
+        "enable_search activates google_search + url_context in gemini_client - "
+        "without it the model cannot fetch the p4n page"
+    )
+
+
+def verify_lookup_rejects_not_found_and_bad_coordinates() -> None:
+    for payload in (
+        {"found": False},
+        {"found": True, "latitude": None, "longitude": 12.0},
+        {"found": True, "latitude": 95.0, "longitude": 12.0},
+        {"found": True, "latitude": 0, "longitude": 0},
+        "kein objekt",
+    ):
+        service, _ = _lookup_service(payload)
+        assert _run(service.async_lookup("https://park4night.com/lieu/1234/")) is None, payload
+
+
+def verify_lookup_refuses_non_p4n_urls_without_calling_the_provider() -> None:
+    service, provider = _lookup_service({"found": True, "latitude": 1.0, "longitude": 1.0})
+    assert _run(service.async_lookup("https://evil.example/lieu/1234/")) is None
+    assert provider.calls == [], "only park4night.com URLs may be fetched"
+
+
+def verify_lookup_failure_returns_none_instead_of_raising() -> None:
+    service, _ = _lookup_service({}, raise_error=True)
+    assert _run(service.async_lookup("https://park4night.com/lieu/1234/")) is None
+
+
+def verify_enrichment_wiring_attaches_page_facts_for_review() -> None:
+    enrichment = (PACKAGE_ROOT / "place_enrichment.py").read_text(encoding="utf-8")
+    assert "p4n_lookup: Park4NightLookupService | None" in enrichment
+    assert "_p4n_page_facts" in enrichment
+    assert enrichment.count('"p4n_lookup": p4n_facts') == 3, (
+        "the page facts matter most exactly when geocoding errors out or "
+        "finds nothing - all three result paths must carry them"
+    )
+    manager = (PACKAGE_ROOT / "experience_manager.py").read_text(encoding="utf-8")
+    assert "p4n_lookup=Park4NightLookupService(provider)" in manager
+    dialog = (PACKAGE_ROOT / "frontend/features/place-enrichment.js").read_text(encoding="utf-8")
+    assert "Von der Park4Night-Seite gelesen (KI)" in dialog
+    assert 'data-action="place-p4n-apply"' in dialog
+    panel_js = (PACKAGE_ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+    assert '"place-p4n-apply"' in panel_js
+    assert '"__manual__"' in panel_js, (
+        "AI-read coordinates must go through the manual-confirmation path, "
+        "never directly into the roadbook"
+    )
+
+
 def verify_frontend_shows_clean_name_and_p4n_link() -> None:
     stop_card = (PACKAGE_ROOT / "frontend/features/trip-day-stop.js").read_text(encoding="utf-8")
     assert "cleanPlaceName(stop.name)" in stop_card, (
@@ -153,5 +250,10 @@ if __name__ == "__main__":
     verify_name_that_is_only_the_reference_is_kept()
     verify_names_without_reference_are_untouched()
     verify_sanitizer_calls_the_helper_in_the_stop_path()
+    verify_lookup_returns_normalized_page_facts()
+    verify_lookup_rejects_not_found_and_bad_coordinates()
+    verify_lookup_refuses_non_p4n_urls_without_calling_the_provider()
+    verify_lookup_failure_returns_none_instead_of_raising()
+    verify_enrichment_wiring_attaches_page_facts_for_review()
     verify_frontend_shows_clean_name_and_p4n_link()
     print("Park4Night stop handling tests passed.")

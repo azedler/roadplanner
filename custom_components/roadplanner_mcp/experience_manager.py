@@ -24,6 +24,7 @@ from .media_token_service import MediaTokenService
 from .media_vision_curation import VisionCurationEngine
 from .onedrive_media import OneDrivePersonalClient
 from .panel_payload_builder import PanelPayloadBuilder
+from .park4night_lookup import Park4NightLookupService
 from .place_cleanup import PlaceCleanupService
 from .place_enrichment import PlaceEnrichmentService
 from .place_enrichment_orchestrator import PlaceEnrichmentOrchestrator
@@ -91,6 +92,7 @@ class RoadplannerExperienceManager:
                 geocoder,
                 image_provider,
                 cleanup_service=PlaceCleanupService(provider),
+                p4n_lookup=Park4NightLookupService(provider),
             )
             if geocoder is not None and geocoder.enabled
             else None
