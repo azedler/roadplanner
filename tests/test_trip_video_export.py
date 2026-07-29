@@ -272,12 +272,21 @@ def verify_library_prunes_beyond_the_retention_limit() -> None:
         assert filenames[-1] in remaining_names
 
 
+def verify_format_file_size_renders_megabytes() -> None:
+    assert export_module._format_file_size(0) == "0.0 MB"
+    assert export_module._format_file_size(1024 * 1024) == "1.0 MB"
+    assert export_module._format_file_size(42 * 1024 * 1024) == "42.0 MB"
+    assert export_module._format_file_size(1536 * 1024) == "1.5 MB"
+
+
 def verify_notify_ready_calls_persistent_notification_with_the_link() -> None:
     async def scenario() -> None:
         hass = _FakeHass()
         exporter = _exporter(hass=hass)
         await exporter._async_notify_ready(
-            "Finnland / Baltikum 2026", "/api/roadplanner/trip_video_library/abc.mp4"
+            "Finnland / Baltikum 2026",
+            "/api/roadplanner/trip_video_library/abc.mp4",
+            42 * 1024 * 1024,
         )
         assert len(hass.services.calls) == 1
         domain, service, call_data = hass.services.calls[0]
@@ -292,6 +301,8 @@ def verify_notify_ready_calls_persistent_notification_with_the_link() -> None:
             in call_data["message"]
         )
         assert "Finnland / Baltikum 2026" in call_data["message"]
+        # On mobile data, the size must be visible before tapping the link.
+        assert "42.0 MB" in call_data["message"]
 
     asyncio.run(scenario())
 
@@ -308,7 +319,7 @@ def verify_notify_ready_falls_back_to_relative_url_without_a_configured_base() -
         export_module.get_url = _raise
         try:
             await exporter._async_notify_ready(
-                "Reise", "/api/roadplanner/trip_video_library/abc.mp4"
+                "Reise", "/api/roadplanner/trip_video_library/abc.mp4", 1024 * 1024
             )
         finally:
             export_module.get_url = original_get_url
@@ -331,7 +342,9 @@ def verify_notify_ready_failure_does_not_raise() -> None:
         hass = _FakeHass()
         hass.services = _FailingServices()
         exporter = _exporter(hass=hass)
-        await exporter._async_notify_ready("Reise", "/api/roadplanner/trip_video_library/x.mp4")
+        await exporter._async_notify_ready(
+            "Reise", "/api/roadplanner/trip_video_library/x.mp4", 1024 * 1024
+        )
 
     asyncio.run(scenario())
 
@@ -373,14 +386,16 @@ def verify_async_generate_and_publish_saves_and_notifies() -> None:
             export_module.build_ffmpeg_filter_graph = fake_filter_graph
             export_module.async_run_ffmpeg = fake_run_ffmpeg
             try:
-                download_url = await exporter.async_generate_and_publish("trip-1")
+                result = await exporter.async_generate_and_publish("trip-1")
             finally:
                 export_module.ffmpeg_available = original_available
                 export_module.prepare_chapter_assets = original_prepare
                 export_module.build_ffmpeg_filter_graph = original_filter
                 export_module.async_run_ffmpeg = original_run
 
+            download_url = result["download_url"]
             assert download_url.startswith("/api/roadplanner/trip_video_library/")
+            assert result["size_bytes"] == len(b"fake-rendered-video")
             filename = download_url.rsplit("/", 1)[-1]
             assert (Path(tmp) / filename).read_bytes() == b"fake-rendered-video"
             assert len(hass.services.calls) == 1
@@ -398,6 +413,7 @@ verify_empty_music_folder_returns_none_gracefully()
 verify_music_pick_is_deterministic_per_trip()
 verify_save_to_library_writes_a_valid_filename()
 verify_library_prunes_beyond_the_retention_limit()
+verify_format_file_size_renders_megabytes()
 verify_notify_ready_calls_persistent_notification_with_the_link()
 verify_notify_ready_falls_back_to_relative_url_without_a_configured_base()
 verify_notify_ready_failure_does_not_raise()

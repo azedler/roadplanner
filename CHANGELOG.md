@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The trip video's file size is now shown before you download it - useful when you're traveling on mobile data. The "Reise-Video fertig" notification names the size directly (e.g. "42.0 MB"), and clicking "Reise als Video" in the panel no longer auto-downloads the moment the render finishes; instead it shows the size and asks for a deliberate tap to actually start the download.
+
 ### Fixed
 
 - Tapping "Jetzt herunterladen" in the "Reise-Video fertig" notification did nothing except land on Home Assistant's default dashboard, because the link was a relative `/api/...` path - Home Assistant's frontend intercepts clicks on relative markdown links to do client-side navigation instead of a real request, and since that path isn't a frontend route, it just fell back to the home screen. The notification now links to an absolute URL (built the same way `webhook.py` and `drive_import.py` already do), which the frontend opens normally instead of hijacking; falls back to the previous relative link if Home Assistant has no external or internal URL configured at all.

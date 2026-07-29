@@ -1,4 +1,4 @@
-import { escapeHtml, cleanText } from "../lib/core-helpers.js";
+import { escapeHtml, cleanText, formatFileSize } from "../lib/core-helpers.js";
 import { stopIcons } from "../lib/constants.js";
 
 export const routeMapMixin = {
@@ -84,13 +84,28 @@ export const routeMapMixin = {
         blockUi: false,
       });
       if (!result?.download_url) return;
-      const link = document.createElement("a");
-      link.href = result.download_url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.download = "";
-      link.click();
-      this._showToast("Reise als Video erstellt", "success", 4500);
+      const sizeLabel = formatFileSize(result.size_bytes);
+      this._showToast(
+        `Reise als Video erstellt${sizeLabel ? ` (${sizeLabel})` : ""} · unterwegs auch über die Benachrichtigung abrufbar`,
+        "success",
+        6500,
+      );
+      // Unlike the PDF export, a video can easily be tens of MB - on
+      // mobile data that's worth a deliberate tap, not an automatic
+      // download the moment the render finishes.
+      this._confirm(
+        "Video herunterladen?",
+        `Das Video ist ${sizeLabel || "fertig"} groß.${sizeLabel ? " Prüfe dein mobiles Datenvolumen, bevor du herunterlädst." : ""}`,
+        "Jetzt herunterladen",
+        () => {
+          const link = document.createElement("a");
+          link.href = result.download_url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.download = "";
+          link.click();
+        },
+      );
     } finally {
       this._exportingTripVideo = false;
       this._render({ preserveScroll: true });

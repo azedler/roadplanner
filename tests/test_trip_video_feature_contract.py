@@ -65,6 +65,10 @@ assert "persistent_notification" in video_export_source, (
 )
 assert "def _save_to_library" in video_export_source
 assert "def _prune_library" in video_export_source
+assert "def _format_file_size" in video_export_source, (
+    "traveling on mobile data, the size must be visible before downloading - "
+    "both in the ready notification and the in-panel confirmation"
+)
 
 manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
 requirement_names = {
@@ -92,6 +96,11 @@ for workflow in ("release.yml", "roadplanner-validation.yml"):
 frontend_source = (ROOT / "frontend/features/route-map.js").read_text(encoding="utf-8")
 assert 'data-action="export-trip-video"' in frontend_source
 assert 'data-action="select-video-style"' in frontend_source
+assert "formatFileSize" in frontend_source, (
+    "the panel must show the video's size before triggering the download, "
+    "not auto-download it - a multi-minute render can easily be tens of MB"
+)
+assert "this._confirm(" in frontend_source
 
 panel_js_source = (ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
 assert 'action === "export-trip-video"' in panel_js_source

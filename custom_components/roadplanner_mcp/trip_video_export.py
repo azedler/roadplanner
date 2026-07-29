@@ -66,6 +66,12 @@ _NARRATIVE_SYSTEM_PROMPT = (
 )
 
 
+def _format_file_size(size_bytes: int) -> str:
+    """Human-readable file size in MB, the unit relevant for a mobile data cap."""
+    megabytes = size_bytes / (1024 * 1024)
+    return f"{megabytes:.1f} MB"
+
+
 def _music_directory() -> Path:
     return Path(__file__).parent / _MUSIC_DIR_NAME
 
@@ -125,15 +131,21 @@ class TripVideoExporter:
 
     async def async_generate_and_publish(
         self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
-    ) -> str:
-        """Generate the video, save it to the library, notify, return its URL."""
+    ) -> dict[str, Any]:
+        """Generate the video, save it to the library, notify, return its URL and size.
+
+        The size is surfaced (here and in the ready notification) so the user
+        can decide whether to download over mobile data before tapping the
+        link - a multi-minute video render easily produces a large file.
+        """
         trip_title, video_bytes = await self.async_generate(trip_id, style=style)
+        size_bytes = len(video_bytes)
         filename = await self.hass.async_add_executor_job(
             self._save_to_library, video_bytes
         )
         download_url = f"/api/roadplanner/trip_video_library/{filename}"
-        await self._async_notify_ready(trip_title, download_url)
-        return download_url
+        await self._async_notify_ready(trip_title, download_url, size_bytes)
+        return {"download_url": download_url, "size_bytes": size_bytes}
 
     async def async_generate(
         self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
@@ -335,7 +347,9 @@ class TripVideoExporter:
         for stale in videos[:-MAX_STORED_TRIP_VIDEOS] if len(videos) > MAX_STORED_TRIP_VIDEOS else []:
             stale.unlink(missing_ok=True)
 
-    async def _async_notify_ready(self, trip_title: str, download_url: str) -> None:
+    async def _async_notify_ready(
+        self, trip_title: str, download_url: str, size_bytes: int
+    ) -> None:
         try:
             await self.hass.services.async_call(
                 "persistent_notification",
@@ -343,7 +357,8 @@ class TripVideoExporter:
                 {
                     "title": "Reise-Video fertig",
                     "message": (
-                        f'Das Video für "{trip_title}" ist fertig. '
+                        f'Das Video für "{trip_title}" ist fertig '
+                        f"({_format_file_size(size_bytes)}). "
                         f"[Jetzt herunterladen]({self._absolute_download_url(download_url)})"
                     ),
                     "notification_id": f"roadplanner_trip_video_{uuid.uuid4().hex}",
