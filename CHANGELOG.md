@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- Stellplatz-Optionen: every travel day can now hold up to six persistent overnight options in the roadbook itself (stored day-anchored in `day.details.overnight_plan` - no migration, older roadbooks are untouched). A new "Stellplätze" tool tab manages them: per-day cards with the active place and its backups, add/edit/reject/restore/delete, a per-day strategy selector (route-optimal, best-first, early-arrival - stored now, ranking logic follows in a later phase), and an editable trip-level pitch-preferences card (must-have features, weighted nice-to-haves, price/detour limits, vehicle size, free text for the assistant). Activating an option ("Plan B") is one atomic commit: the chosen option becomes the day's overnight stop (materialized if the day had none), the previous place is automatically demoted into the options list as a backup - so "Platz voll → Plan B → doch wieder Plan A" never loses a candidate - and the confirmation dialog warns when photos or documents are linked to the old stop, since they may belong to the previous physical place. The "Heute" tab shows a one-tap "Plan B aktivieren" card with the best backup, and the day route is recalculated automatically after a switch.
+
 ## [4.9.1] - 2026-07-29
 
 ### Fixed

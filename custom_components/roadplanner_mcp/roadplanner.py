@@ -343,6 +343,40 @@ class RoadplannerStore:
             expected_trip_id=expected_trip_id,
         )
 
+    def mutate_overnight_plan(
+        self,
+        *,
+        day_id: str,
+        operation: str,
+        payload: dict[str, Any],
+        actor: str,
+        expected_revision: int,
+        expected_trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._mutations.mutate_overnight_plan(
+            day_id=day_id,
+            operation=operation,
+            payload=payload,
+            actor=actor,
+            expected_revision=expected_revision,
+            expected_trip_id=expected_trip_id,
+        )
+
+    def update_pitch_preferences(
+        self,
+        *,
+        preferences: dict[str, Any],
+        actor: str,
+        expected_revision: int,
+        expected_trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._mutations.update_pitch_preferences(
+            preferences=preferences,
+            actor=actor,
+            expected_revision=expected_revision,
+            expected_trip_id=expected_trip_id,
+        )
+
     def create_backup(self, reason: str = "manual") -> dict[str, Any]:
         return self._repository.create_backup(reason)
 

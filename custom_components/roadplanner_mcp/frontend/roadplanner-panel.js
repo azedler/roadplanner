@@ -25,6 +25,7 @@ import { assistantMixin } from "./features/assistant.js";
 import { routeMapMixin } from "./features/route-map.js";
 import { tripDayStopMixin } from "./features/trip-day-stop.js";
 import { crewMixin } from "./features/crew.js";
+import { pitchesMixin } from "./features/pitches.js";
 
 class RoadplannerPanel extends HTMLElement {
   constructor() {
@@ -344,6 +345,12 @@ class RoadplannerPanel extends HTMLElement {
       "add_stop",
       "update_stop",
       "remove_stop",
+      "pitch_option_save",
+      "pitch_option_delete",
+      "pitch_option_set_status",
+      "pitch_set_strategy",
+      "pitch_option_activate",
+      "pitch_update_preferences",
       "calculate_day_route",
       "calculate_trip_routes",
       "preview_handoff",
@@ -657,6 +664,10 @@ class RoadplannerPanel extends HTMLElement {
       );
     } else if (select.dataset.action === "select-video-style") {
       this._videoStyle = select.value;
+    } else if (select.dataset.action === "pitch-strategy" && this._canEdit()) {
+      void this._runPitchAction("pitch_set_strategy", cleanText(select.dataset.dayId), {
+        strategy: select.value,
+      }, "Strategie gespeichert");
     }
   }
 
@@ -1148,6 +1159,38 @@ class RoadplannerPanel extends HTMLElement {
       );
     } else if (action === "reactivate-crew-vehicle" && this._canEdit()) {
       void this._runAction("crew_vehicle_reactivate", { vehicle_id: target.dataset.vehicleId }, "Fahrzeug reaktiviert");
+    } else if (action === "pitch-open-tab") {
+      this._activeTab = "pitches";
+      this._render();
+    } else if (action === "pitch-add-option" && this._canEdit()) {
+      this._dialog = { type: "pitch-option", dayId, option: null };
+      this._render({ preserveScroll: true });
+    } else if (action === "pitch-edit-option" && this._canEdit()) {
+      const pitchDay = this._findDay(dayId);
+      const pitchOption = this._pitchPlan(pitchDay).options.find((item) => item.id === target.dataset.optionId);
+      if (!pitchOption) return;
+      this._dialog = { type: "pitch-option", dayId, option: pitchOption };
+      this._render({ preserveScroll: true });
+    } else if (action === "pitch-activate" && this._canEdit()) {
+      this._activatePitchOption(dayId, target.dataset.optionId);
+    } else if (action === "pitch-reject" && this._canEdit()) {
+      void this._runPitchAction("pitch_option_set_status", dayId, {
+        option_id: target.dataset.optionId,
+        status: "rejected",
+      }, "Option verworfen");
+    } else if (action === "pitch-restore" && this._canEdit()) {
+      void this._runPitchAction("pitch_option_set_status", dayId, {
+        option_id: target.dataset.optionId,
+        status: "backup",
+      }, "Option wiederhergestellt");
+    } else if (action === "pitch-delete" && this._canEdit()) {
+      this._confirm(
+        "Stellplatz-Option löschen?",
+        "Die Option wird endgültig aus dem Tag entfernt. Zum bloßen Aussortieren reicht Verwerfen.",
+        "Löschen",
+        () => this._runPitchAction("pitch_option_delete", dayId, { option_id: target.dataset.optionId }, "Option gelöscht"),
+        true,
+      );
     } else if (action === "add-day" && this._canEdit()) {
       this._dialog = {
         type: "day",
@@ -1412,6 +1455,16 @@ class RoadplannerPanel extends HTMLElement {
 
     if (formType === "assistant-chat") {
       await this._submitAssistantComposer(form);
+      return;
+    }
+
+    if (formType === "pitch-option") {
+      await this._submitPitchOptionForm(form, values);
+      return;
+    }
+
+    if (formType === "pitch-preferences") {
+      await this._submitPitchPreferencesForm(form, values);
       return;
     }
 
@@ -1923,6 +1976,7 @@ class RoadplannerPanel extends HTMLElement {
     const tools = [
       ["decisions", "mdi:cards-playing-outline", "Entscheidungen", decisionCount, "info"],
       ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten", todoTiming.urgent || todoTiming.upcoming, todoTiming.urgent ? "" : "warning"],
+      ["pitches", "mdi:caravan", "Stellplätze", 0, ""],
       ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
       ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
       ["trips", "mdi:map-multiple-outline", "Reisen", 0, ""],
@@ -1959,6 +2013,7 @@ class RoadplannerPanel extends HTMLElement {
     if (this._activeTab === "assistant") return this._renderAssistant();
     if (this._activeTab === "import") return this._renderUniversalImport();
     if (this._activeTab === "decisions") return this._renderDecisions();
+    if (this._activeTab === "pitches") return this._renderPitches();
     if (this._activeTab === "media") return this._renderMedia();
     if (this._activeTab === "archive") return this._renderArchive();
     if (this._activeTab === "day-route") return this._renderDayRoute();
@@ -2079,6 +2134,7 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "stop") body = this._renderStopForm(this._dialog);
     else if (this._dialog.type === "stop-order") body = this._renderStopOrderDialog(this._dialog);
     else if (this._dialog.type === "confirm") body = this._renderConfirmDialog(this._dialog);
+    else if (this._dialog.type === "pitch-option") body = this._renderPitchOptionForm(this._dialog);
     else if (this._dialog.type === "handoff-preview") body = this._renderHandoffPreview(this._dialog);
     else if (this._dialog.type === "image-search") body = this._renderImageSearch(this._dialog);
     else if (this._dialog.type === "assistant-draft") body = this._renderAssistantDraftDialog(this._dialog);
@@ -2179,6 +2235,7 @@ Object.assign(RoadplannerPanel.prototype, assistantMixin);
 Object.assign(RoadplannerPanel.prototype, routeMapMixin);
 Object.assign(RoadplannerPanel.prototype, tripDayStopMixin);
 Object.assign(RoadplannerPanel.prototype, crewMixin);
+Object.assign(RoadplannerPanel.prototype, pitchesMixin);
 
 if (!customElements.get("roadplanner-panel")) {
   customElements.define("roadplanner-panel", RoadplannerPanel);
