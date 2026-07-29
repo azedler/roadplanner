@@ -1,4 +1,5 @@
 import { escapeHtml, cleanText } from "../lib/core-helpers.js";
+import { WS_ACTION } from "../lib/constants.js";
 
 export const mediaMixin = {
   async _maybeAutoPopulateDestinationGalleries(payload) {

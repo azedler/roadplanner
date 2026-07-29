@@ -244,7 +244,7 @@ export const PANEL_STYLES = `<style>
       .pitch-preferences[open] > summary { margin-bottom: 12px; color: var(--primary-color); }
       .pitch-day-card .pitch-active-row { margin-bottom: 10px; }
       .pitch-day-card .pitch-active-row span { display: inline-flex; align-items: center; gap: 7px; }
-      .pitch-option-list .secondary-button { min-height: 36px; padding: 0 10px; }
+      .pitch-option-list .secondary-button, .pitch-option-list .text-button { min-height: 36px; padding: 0 10px; }
       .pitch-plan-b .setting-row span { display: inline-flex; align-items: center; gap: 7px; }
       .pitch-route-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--secondary-text-color); font-size: 14px; }
       .pitch-route-flow span { display: inline-flex; align-items: center; gap: 5px; }
