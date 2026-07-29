@@ -246,6 +246,17 @@ export const PANEL_STYLES = `<style>
       .pitch-day-card .pitch-active-row span { display: inline-flex; align-items: center; gap: 7px; }
       .pitch-option-list .secondary-button { min-height: 36px; padding: 0 10px; }
       .pitch-plan-b .setting-row span { display: inline-flex; align-items: center; gap: 7px; }
+      .pitch-route-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--secondary-text-color); font-size: 14px; }
+      .pitch-route-flow span { display: inline-flex; align-items: center; gap: 5px; }
+      .pitch-route-flow ha-icon[icon="mdi:arrow-right-thin"] { color: var(--secondary-text-color); }
+      .pitch-day-card .map-card { margin-bottom: 14px; }
+      .pitch-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+      .pitch-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .pitch-chip ha-icon { --mdc-icon-size: 14px; }
+      .pitch-chip-pro { background: rgba(76, 175, 80, 0.16); color: #4caf50; }
+      .pitch-chip-con { background: rgba(244, 67, 54, 0.14); color: #f44336; }
+      .pitch-option-cover { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+      .pitch-plan-b-cover { width: 100%; max-height: 160px; border-radius: 14px; object-fit: cover; margin-bottom: 10px; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
       .trip-card { overflow: hidden; }
@@ -317,6 +328,7 @@ export const PANEL_STYLES = `<style>
       .compact-row { padding: 8px 13px 13px; }
       .place-cleanup-suggestion { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px dashed var(--divider-color); border-radius: 14px; background: color-mix(in srgb, var(--primary-color) 5%, var(--card-background-color)); }
       .place-cleanup-suggestion.selected { border-color: var(--primary-color); }
+      .place-p4n-suggestion { border-style: solid; border-color: color-mix(in srgb, var(--primary-color) 45%, var(--divider-color)); }
       .place-cleanup-suggestion > div, .place-manual-heading > div { min-width: 0; display: grid; gap: 3px; }
       .place-cleanup-suggestion small, .place-manual-heading small { color: var(--secondary-text-color); line-height: 1.4; }
       .place-manual-form { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--secondary-background-color); }

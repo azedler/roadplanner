@@ -34,7 +34,12 @@ from .assistant_shared import (
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops
-from .destination_intelligence import _URL_RE, _google_maps_host
+from .destination_intelligence import (
+    _PARK4NIGHT_ID_RE,
+    _URL_RE,
+    _clean_park4night_suffix,
+    _google_maps_host,
+)
 from .roadplanner import ValidationError
 from .structured_output import StructuredOutputError, normalize_changes_mapping
 
@@ -68,6 +73,37 @@ _CURRENT_OVERNIGHT_MARKERS = (
 _CURRENT_DAY_MARKERS = ("heute", "today", "aktuell", "jetzt")
 _PREVIOUS_DAY_MARKERS = ("gestern", "yesterday")
 _NEXT_DAY_MARKERS = ("morgen", "tomorrow")
+
+
+def _strip_park4night_from_name(changes: dict[str, Any]) -> None:
+    """Keep Park4Night IDs out of stop names without ever losing them.
+
+    The assistant regularly writes names like "Parkplatz am Angelteich
+    (p4n #506374)". The ID is a valuable provider identity (enrichment
+    classifies such stops as camping and links the p4n page from it), but
+    it is metadata, not part of the place's name. Strip it from the name at
+    ingestion and guarantee the reference survives in the notes as a real
+    URL - _source_hints() scans name AND notes, so detection keeps working
+    everywhere downstream.
+    """
+    name = str(changes.get("name") or "")
+    match = _PARK4NIGHT_ID_RE.search(name)
+    if match is None:
+        return
+    cleaned = _clean_park4night_suffix(name)
+    if not cleaned:
+        # The name IS only the reference - keep it, an empty name is worse.
+        return
+    changes["name"] = cleaned
+    identifier = match.group("id")
+    other_text = " ".join(
+        str(changes.get(field) or "") for field in ("notes", "place_query")
+    )
+    if identifier in other_text:
+        return
+    notes = str(changes.get("notes") or "").rstrip()
+    reference = f"Park4Night: https://park4night.com/lieu/{identifier}/"
+    changes["notes"] = (f"{notes}\n{reference}" if notes else reference)[:4_000]
 
 
 def _basket_item_text(item: dict[str, Any]) -> str:
@@ -643,6 +679,9 @@ def _sanitize_operation(
                 entity_id = str(overnight_stops[0]["id"])
                 operation["entity_id"] = entity_id
                 operation.pop("position", None)
+
+        if isinstance(operation.get("changes"), dict):
+            _strip_park4night_from_name(operation["changes"])
 
         if action == "add":
             if not entity_id:

@@ -50,7 +50,8 @@ export const mediaMixin = {
       const stop = context?.targetType === "stop"
         ? this._findStop(context.dayId, context.stopId)
         : null;
-      const location = stop?.location || {};
+      // Pitch options are not stops; their coordinates arrive via context.
+      const location = context?.location || stop?.location || {};
       const result = await this._send({
         type: WS_ACTION,
         action: "search_destination_images",

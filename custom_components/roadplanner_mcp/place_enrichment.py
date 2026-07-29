@@ -36,6 +36,7 @@ from .geocoding import (
     parse_coordinate_pair,
     parse_structured_address,
 )
+from .park4night_lookup import Park4NightLookupService
 from .place_cleanup import PlaceCleanupService
 from .roadplanner import ValidationError
 
@@ -520,14 +521,34 @@ class PlaceEnrichmentService:
         image_provider: DestinationImageProvider,
         *,
         cleanup_service: PlaceCleanupService | None = None,
+        p4n_lookup: Park4NightLookupService | None = None,
         language: str = "de",
     ) -> None:
         self._geocoder = geocoder
         self._image_provider = image_provider
         self._cleanup_service = cleanup_service
+        self._p4n_lookup = p4n_lookup
         self._language = language or "de"
         self._previews: dict[str, _PreviewEntry] = {}
         self._lock = asyncio.Lock()
+
+    async def _p4n_page_facts(self, intent: DestinationIntent) -> dict[str, Any] | None:
+        """Fetch the stop's Park4Night page facts when a p4n hint exists."""
+        if self._p4n_lookup is None or not self._p4n_lookup.available:
+            return None
+        hint = next(
+            (
+                item
+                for item in intent.source_hints
+                if item.get("provider") == "park4night" and item.get("url")
+            ),
+            None,
+        )
+        if hint is None:
+            return None
+        return await self._p4n_lookup.async_lookup(
+            str(hint["url"]), hint_name=intent.name
+        )
 
     def _purge(self) -> None:
         now = time.monotonic()
@@ -886,6 +907,11 @@ class PlaceEnrichmentService:
             structured_address=search_address,
             cleanup_suggestion=cleanup_suggestion,
         )
+        # A p4n reference is the strongest identity this stop can have - the
+        # page facts (incl. the page's stated GPS) matter most exactly when
+        # geocoding the generic name fails, so fetch them regardless of the
+        # provider search outcome below.
+        p4n_facts = await self._p4n_page_facts(intent)
         query = intent.primary_query or (
             search_address.full_query(original_query)
             if search_address.has_address_detail
@@ -900,6 +926,7 @@ class PlaceEnrichmentService:
                 "current": current,
                 "structured_address": structured.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
+                "p4n_lookup": p4n_facts,
                 "candidates": [],
                 "selected_candidate_id": None,
                 "message": "Für diesen Stopp fehlen Angaben für eine Ortssuche.",
@@ -920,6 +947,7 @@ class PlaceEnrichmentService:
                 "current": current,
                 "structured_address": search_address.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
+                "p4n_lookup": p4n_facts,
                 "candidates": [],
                 "selected_candidate_id": None,
                 "message": str(err)[:1_000],
@@ -983,6 +1011,7 @@ class PlaceEnrichmentService:
             "current": current,
             "structured_address": search_address.as_dict(),
             "ai_cleanup": deepcopy(cleanup_suggestion),
+            "p4n_lookup": p4n_facts,
             "candidates": profiles,
             "selected_candidate_id": selected,
             "message": message,
