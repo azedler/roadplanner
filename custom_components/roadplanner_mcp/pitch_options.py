@@ -240,6 +240,55 @@ def apply_set_strategy(day_document: dict[str, Any], strategy: str) -> str:
     return strategy
 
 
+def _backup_option_from_stop(raw: dict[str, Any], *, now: str) -> dict[str, Any]:
+    """Validate a demotion candidate leniently - demotion must never fail.
+
+    The candidate carries fields sourced from a live roadbook stop, which is
+    normalized far more loosely than an overnight option: names up to 500
+    chars, free-form location objects (address-only, no coordinates), notes
+    up to several thousand chars. Strict validation would abort the whole
+    activation over a field the user never entered ("Plan B" impossible
+    until the OLD stop is edited) - so clamp instead of reject, and move an
+    address-only location into the notes rather than silently dropping it.
+    """
+    candidate = deepcopy(raw)
+    name = str(candidate.get("name") or "").strip()
+    candidate["name"] = name[: _MAX_TEXT["name"]] or "Bisheriger Übernachtungsplatz"
+    notes = str(candidate.get("notes") or "")
+    location = candidate.get("location")
+    if isinstance(location, dict):
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        has_coordinates = (
+            isinstance(latitude, (int, float))
+            and not isinstance(latitude, bool)
+            and isinstance(longitude, (int, float))
+            and not isinstance(longitude, bool)
+            and -90 <= latitude <= 90
+            and -180 <= longitude <= 180
+        )
+        address_parts = [
+            str(location.get(key)).strip()
+            for key in ("address", "label", "city")
+            if isinstance(location.get(key), str) and str(location.get(key)).strip()
+        ]
+        address_line = ", ".join(dict.fromkeys(address_parts))
+        if address_line and address_line not in notes:
+            notes = f"Adresse: {address_line}\n{notes}" if notes else f"Adresse: {address_line}"
+        candidate["location"] = (
+            {"latitude": float(latitude), "longitude": float(longitude)}
+            if has_coordinates
+            else {}
+        )
+    elif location:
+        candidate["location"] = {}
+    candidate["notes"] = notes[: _MAX_TEXT["notes"]]
+    place_query = candidate.get("place_query")
+    if isinstance(place_query, str):
+        candidate["place_query"] = place_query[: _MAX_TEXT["place_query"]]
+    return validate_option_input({**candidate, "status": "backup", "id": None}, now=now)
+
+
 def apply_activate_option(
     day_document: dict[str, Any],
     option_id: str,
@@ -267,17 +316,25 @@ def apply_activate_option(
     materialized = stop is None
     if stop is not None:
         details = stop.get("details") if isinstance(stop.get("details"), dict) else {}
-        previous_option = details.get("active_overnight_option")
-        if not isinstance(previous_option, dict) or not previous_option.get("name"):
-            # Pre-feature stop: synthesize a backup option from the stop itself
-            # so the current plan is never silently lost.
-            previous_option = {
-                "name": str(stop.get("name") or "Bisheriger Übernachtungsplatz"),
-                "location": stop.get("location") or {},
-                "notes": str(stop.get("notes") or ""),
-                "source": {"type": "roadbook"},
-            }
-        demoted = validate_option_input({**previous_option, "status": "backup", "id": None}, now=now)
+        snapshot = details.get("active_overnight_option")
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        if not snapshot:
+            snapshot = {"source": {"type": "roadbook"}}
+        # The stop's LIVE fields win over the activation-time snapshot:
+        # manual edits made after activation (fixed GPS, renamed stop,
+        # rewritten notes) must survive into the demoted backup - the
+        # snapshot only contributes metadata the stop doesn't carry
+        # (pros/cons, price, features, source).
+        previous_option = {
+            **snapshot,
+            "name": str(
+                stop.get("name") or snapshot.get("name") or "Bisheriger Übernachtungsplatz"
+            ),
+            "location": stop.get("location") or snapshot.get("location") or {},
+            "notes": str(stop.get("notes") or snapshot.get("notes") or ""),
+        }
+        demoted = _backup_option_from_stop(previous_option, now=now)
         if len(plan["options"]) >= MAX_OVERNIGHT_OPTIONS:
             raise ValidationError(
                 "Kein Platz für den bisherigen Übernachtungsplatz als Backup - "
