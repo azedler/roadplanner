@@ -506,6 +506,58 @@ export const archiveMixin = {
     return entries.map(([currency, amount]) => this._formatMoney(amount, currency)).join(" · ");
   },
 
+  _archiveNeedsConversion() {
+    const totals = this._archiveData().stats?.totals_by_currency || {};
+    const currencies = Object.keys(totals);
+    return currencies.length > 1 || (currencies.length === 1 && currencies[0] !== "EUR");
+  },
+
+  async _loadExchangeRates() {
+    if (this._exchangeRatesLoading) return;
+    this._exchangeRatesLoading = true;
+    const totals = this._archiveData().stats?.totals_by_currency || {};
+    const result = await this._runAction("get_exchange_rates", { totals_by_currency: totals }, "", {
+      refresh: false,
+      errorTitle: "EZB-Kurse nicht abrufbar",
+    });
+    this._exchangeRatesLoading = false;
+    if (!result?.rates) {
+      this._exchangeRatesFailed = true;
+      this._render({ preserveScroll: true });
+      return;
+    }
+    this._exchangeRates = result.rates;
+    this._exchangeRatesFailed = false;
+    this._render({ preserveScroll: true });
+  },
+
+  _archiveEurApproxLine() {
+    if (!this._archiveNeedsConversion()) return "";
+    const rates = this._exchangeRates;
+    if (!rates) {
+      if (this._exchangeRatesFailed) return "";
+      // Lazy one-time fetch when the cost overview actually needs it.
+      void this._loadExchangeRates();
+      return `<p class="muted archive-eur-approx">≈ EUR-Gesamtsumme wird geladen …</p>`;
+    }
+    const totals = this._archiveData().stats?.totals_by_currency || {};
+    let total = 0;
+    const missing = [];
+    for (const [currency, amount] of Object.entries(totals)) {
+      const code = String(currency || "").toUpperCase();
+      const value = Number(amount);
+      if (!Number.isFinite(value)) continue;
+      if (code === "EUR") { total += value; continue; }
+      const rate = Number(rates.rates?.[code]);
+      if (Number.isFinite(rate) && rate > 0) total += value / rate;
+      else missing.push(code);
+    }
+    const rateDate = cleanText(rates.date);
+    const dateLabel = rateDate ? ` · EZB-Kurse vom ${rateDate.split("-").reverse().join(".")}` : "";
+    const missingLabel = missing.length ? ` · ohne ${missing.join(", ")} (kein Kurs)` : "";
+    return `<p class="muted archive-eur-approx"><strong>≈ ${this._formatMoney(Math.round(total * 100) / 100, "EUR")} gesamt</strong>${dateLabel}${missingLabel}</p>`;
+  },
+
   _renderArchive() {
     const archive = this._archiveData();
     const stats = archive.stats || {};
@@ -534,7 +586,8 @@ export const archiveMixin = {
 
       <section class="panel-card archive-summary-card">
         <div class="section-heading compact"><div><span class="eyebrow">Reisekosten</span><h2>${escapeHtml(this._archiveTotalText())}</h2></div>${this._canEdit() ? `<button class="secondary-button compact-button" type="button" data-action="archive-add-expense"><ha-icon icon="mdi:cash-plus"></ha-icon> Ausgabe</button>` : ""}</div>
-        <p class="muted">Beträge werden je Währung getrennt summiert. Umrechnungskurse werden nicht geraten.</p>
+        <p class="muted">Beträge werden je Währung getrennt summiert; die Originalbeträge bleiben unverändert.</p>
+        ${this._archiveEurApproxLine()}
       </section>
 
       <section class="panel-card archive-section">

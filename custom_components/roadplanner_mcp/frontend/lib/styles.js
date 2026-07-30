@@ -675,6 +675,13 @@ export const PANEL_STYLES = `<style>
       .media-stat strong { font-size: 24px; }
       .media-stat span { color: var(--secondary-text-color); font-size: 12px; }
       .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+      .media-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+      .media-filter-row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .media-filter-chip { border: 1px solid var(--divider-color); border-radius: 999px; padding: 4px 12px; }
+      .media-filter-chip.active { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
+      .media-page-row { display: flex; align-items: center; gap: 10px; }
+      .media-page-row span { color: var(--secondary-text-color); font-size: 0.9em; }
+      .media-page-row button[disabled] { opacity: 0.4; pointer-events: none; }
       .media-card { border: 1px solid var(--divider-color); border-radius: 18px; background: var(--card-background-color); overflow: hidden; display: grid; grid-template-rows: 190px auto auto; box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.12)); }
       .media-card.cover { border-color: color-mix(in srgb, var(--primary-color) 60%, var(--divider-color)); }
       .media-thumb { position: relative; width: 100%; height: 190px; border: 0; padding: 0; background: var(--secondary-background-color); cursor: pointer; overflow: hidden; }

@@ -813,6 +813,8 @@ class RoadplannerPanel extends HTMLElement {
       };
       this._showToast("Park4Night-Position in den manuellen Kartenpunkt übernommen - bitte prüfen und bestätigen.", "success", 5000);
       this._render({ preserveScroll: true });
+    } else if (action === "place-link-lookup") {
+      void this._runPlaceLinkLookup(cleanText(target.dataset.stopId));
     } else if (action === "place-enrichment-submit") {
       void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {
@@ -1014,6 +1016,14 @@ class RoadplannerPanel extends HTMLElement {
         this._dialog = { type: "media-gallery", media, index };
         this._render({ preserveScroll: true });
       }
+    } else if (action === "media-filter") {
+      this._mediaFilter = cleanText(target.dataset.filter) || "all";
+      this._mediaPage = 0;
+      this._render({ preserveScroll: true });
+    } else if (action === "media-page") {
+      const delta = Number(target.dataset.delta || 0);
+      this._mediaPage = Math.max(0, Number(this._mediaPage || 0) + (Number.isFinite(delta) ? delta : 0));
+      this._render({ preserveScroll: true });
     } else if (action === "media-open") {
       const media = this._experienceData().media || [];
       const index = Math.max(0, Math.min(media.length - 1, Number(target.dataset.mediaIndex || 0)));

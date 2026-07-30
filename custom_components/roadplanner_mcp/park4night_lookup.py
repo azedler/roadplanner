@@ -55,6 +55,18 @@ Regeln:
 - Antworte ausschließlich im vorgegebenen JSON-Schema."""
 
 
+_PAGE_SYSTEM_INSTRUCTION = """Du liest genau eine Ortsseite (Stellplatz-, Campingplatz-, Unterkunfts-, Buchungs- oder sonstige Seite zu einem konkreten Ort) über den url_context-Abruf und gibst ausschließlich Fakten zurück, die auf dieser Seite stehen.
+
+Regeln:
+- Öffne ausschließlich die angegebene URL. Keine anderen Quellen und kein eigenes Wissen.
+- latitude/longitude: exakt die auf der Seite angegebene GPS-Position des Ortes. Wenn die Seite nicht erreichbar ist oder keine GPS-Angabe enthält, setze found=false und alle anderen Felder auf null. Schätze niemals Koordinaten - auch nicht aus einer Adresse.
+- name: der Titel des Ortes auf der Seite, ohne IDs oder Werbezusätze.
+- city/country_code: nur falls auf der Seite genannt (country_code als ISO-2).
+- price_text/rating_text: kurz und wörtlich von der Seite (zum Beispiel "80 SEK / 24h", "4,67/5"), sonst null.
+- summary: höchstens zwei kurze Sätze mit Ausstattung/Beschreibung laut Seite, sonst null.
+- Antworte ausschließlich im vorgegebenen JSON-Schema."""
+
+
 def _text(value: Any, maximum: int = 300) -> str:
     return " ".join(str(value or "").strip().split())[:maximum]
 
@@ -72,13 +84,49 @@ class Park4NightLookupService:
     async def async_lookup(self, url: str, *, hint_name: str = "") -> dict[str, Any] | None:
         """Return reviewable page facts, or None when nothing usable came back."""
         url = _text(url, 500)
-        if not url.startswith("https://park4night.com/") or not self.available:
+        if not url.startswith("https://park4night.com/"):
+            return None
+        return await self._async_lookup(
+            url,
+            hint_name=hint_name,
+            system_instruction=_SYSTEM_INSTRUCTION,
+            provider_name="park4night_ai",
+        )
+
+    async def async_lookup_page(
+        self, url: str, *, hint_name: str = ""
+    ) -> dict[str, Any] | None:
+        """Read ANY https place page (Booking, campsite homepage, ...).
+
+        Same trust model as the Park4Night reader: the result is only ever a
+        prefill for the user's manual confirmation, never written to the
+        roadbook on its own.
+        """
+        url = _text(url, 500)
+        if not url.startswith("https://"):
+            return None
+        return await self._async_lookup(
+            url,
+            hint_name=hint_name,
+            system_instruction=_PAGE_SYSTEM_INSTRUCTION,
+            provider_name="place_page_ai",
+        )
+
+    async def _async_lookup(
+        self,
+        url: str,
+        *,
+        hint_name: str,
+        system_instruction: str,
+        provider_name: str,
+    ) -> dict[str, Any] | None:
+        if not self.available:
             return None
         assert self._provider is not None
         try:
             async with asyncio.timeout(_LOOKUP_TIMEOUT_SECONDS):
                 result = await self._provider.async_generate_json_result(
-                    system_instruction=_SYSTEM_INSTRUCTION,
+                    system_instruction=system_instruction,
                     messages=[
                         {
                             "role": "user",
@@ -95,7 +143,7 @@ class Park4NightLookupService:
                     temperature=0.0,
                 )
         except Exception as err:  # An optional lookup must never break enrichment.
-            _LOGGER.warning("Park4Night lookup failed: %s", type(err).__name__)
+            _LOGGER.warning("Place page lookup failed: %s", type(err).__name__)
             return None
         value = result.value if isinstance(result.value, dict) else {}
         if value.get("found") is not True:
@@ -116,7 +164,7 @@ class Park4NightLookupService:
         if len(country_code) != 2 or not country_code.isalpha():
             country_code = ""
         return {
-            "provider": "park4night_ai",
+            "provider": provider_name,
             "url": url,
             "latitude": float(latitude),
             "longitude": float(longitude),
