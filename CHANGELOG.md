@@ -9,6 +9,13 @@ The project follows Semantic Versioning for public releases.
 ### Added
 
 - The Reisekosten overview now additionally shows ONE approximate EUR total ("≈ 3.148,22 € gesamt · EZB-Kurse vom 30.07.2026") whenever expenses span multiple currencies. Rates are the daily European Central Bank reference rates (no API key, fetched lazily, cached, last known rates keep serving on network failure); the per-currency sums and every original amount stay untouched and authoritative. A currency the ECB has no rate for is named in the label ("ohne XXX (kein Kurs)") instead of being silently dropped.
+- The Erinnerungen tab no longer cuts off after the 120 newest photos - with 200+ trip photos, every older photo was simply unreachable and could never be assigned. The photo grid now has assignment filters (Alle / Zugeordnet / Zu prüfen / Ohne Tag, each with live counts) and pages of 60 with "Neuere/Ältere" navigation and a "Bilder X–Y von Z" label; every photo of the trip is reachable and editable, on any page.
+
+### Fixed
+
+- With own photos present on a stop, the notice "Eigene Bilder vorhanden - Nur zusätzliche externe Planungsbilder konnten noch nicht ergänzt werden" is no longer shown at all: own photos are the best possible state, and a warning about missing EXTERNAL planning images is pure noise then. Without own photos, the failure notice (and its retry button) stays unchanged.
+- "Stopps anreichern" now takes a LINK: every place card has a "Link zum Ort" field (Google Maps, Park4Night, Booking, a campsite's own website, ...) with "Link lesen und übernehmen". Google-Maps links are resolved deterministically without any AI; Park4Night links use the existing specialized page reader; every other page is read by the Reisebegleiter (Gemini url_context) under the same never-guess rule (GPS only if the page literally states it). The result only prefills the manual-confirmation form - reviewing and confirming stays the user's explicit step, stored as manually confirmed, never as provider-verified.
+- Routes now refresh AUTOMATICALLY after route-relevant stop changes - adding or deleting a stop, reordering, changing its GPS/transport data, activating a Stellplatz option, or applying a handoff. A burst of quick edits is debounced into one refresh a few seconds after the last change; the existing per-day route input hash then skips every day whose route did not actually change (a notes- or time-only edit never even schedules one), so only genuinely affected days reach the routing provider - including a neighbouring day whose start moved via overnight continuity. No-op when routing is not configured; failures never surface as errors, the next manual calculation stays available as always.
 
 ## [4.12.0] - 2026-07-30
 
