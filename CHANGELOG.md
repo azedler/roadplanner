@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- (Audit) Submitting a place-enrichment archived the older pending handoff BEFORE the replacement was ingested - if the ingest then failed (active trip switched in another tab, a stop edited/removed in a racing panel action), the user's only pending confirmation was silently destroyed, archived as "superseded by a newer handoff" that never came to exist. The supersede now runs strictly after a successful ingest, never archives the replacement itself, and only archives handoffs strictly older than it - two racing submits can no longer archive EACH OTHER.
+- (Audit) Applying a handoff could leave it permanently wedged: the trip commit and the "mark applied" bookkeeping were not atomic, and the stored apply result embedded the FULL trip payload - beyond the 256-KiB envelope bound on a large trip, the bookkeeping raised AFTER the commit was already durable. The handoff then stayed "pending" forever: every re-apply hit a revision conflict and a rebased re-apply failed on already-existing IDs. The stored result is now compacted to the essential facts (both in the panel apply and the auto-apply path); live callers keep the full result.
+- (Audit) Destination galleries from a place-enrichment were persisted and shown at submit time even when the handoff was ingested as a duplicate or as a revision conflict. Galleries are now only published for a cleanly ingested handoff.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed

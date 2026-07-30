@@ -39,6 +39,9 @@ def find_superseded_enrichment_handoffs(
     pending_handoffs: list[dict[str, Any]],
     envelopes_by_id: dict[str, dict[str, Any]],
     new_stop_ids: set[str],
+    *,
+    exclude_id: str = "",
+    newer_than: tuple[str, str] | None = None,
 ) -> list[str]:
     """Return pending place-enrichment handoff ids replaced by a new submit.
 
@@ -58,6 +61,18 @@ def find_superseded_enrichment_handoffs(
         if str(item.get("source") or "") != _ENRICHMENT_SOURCE:
             continue
         handoff_id = str(item.get("id") or "")
+        if exclude_id and handoff_id == exclude_id:
+            # Never archive the replacement itself.
+            continue
+        if newer_than is not None and newer_than[0]:
+            # Only archive handoffs strictly OLDER than the replacement.
+            # Without this ordering, two racing submits that both finished
+            # ingesting would each see the other and archive it - leaving
+            # none. ISO-8601 timestamps compare lexicographically; the id
+            # breaks exact-timestamp ties deterministically.
+            candidate_marker = (str(item.get("received_at") or ""), handoff_id)
+            if candidate_marker >= newer_than:
+                continue
         envelope = envelopes_by_id.get(handoff_id)
         if not isinstance(envelope, dict):
             continue
@@ -122,13 +137,21 @@ class PlaceEnrichmentOrchestrator:
         }
 
     async def _async_supersede_stale_enrichment_handoffs(
-        self, new_stop_ids: set[str]
+        self,
+        new_stop_ids: set[str],
+        *,
+        new_handoff_id: str = "",
+        new_handoff_received_at: str = "",
     ) -> None:
         """Archive older pending enrichment handoffs for the same stops.
 
-        Best-effort: a failure here must never block the new submit - worst
-        case the old duplicate stays visible, which is exactly the previous
-        behavior.
+        Runs strictly AFTER the replacement was ingested successfully - the
+        old handoff must never be archived for a replacement that does not
+        exist (an ingest can still fail on a racing trip switch or stop
+        edit; archiving first silently destroyed the user's only pending
+        confirmation in that case). Best-effort: a failure here must never
+        block the submit - worst case the old duplicate stays visible,
+        which is exactly the pre-supersede behavior.
         """
         if not new_stop_ids:
             return
@@ -150,7 +173,11 @@ class PlaceEnrichmentOrchestrator:
                 except ValidationError:
                     continue
             for handoff_id in find_superseded_enrichment_handoffs(
-                candidates, envelopes_by_id, new_stop_ids
+                candidates,
+                envelopes_by_id,
+                new_stop_ids,
+                exclude_id=new_handoff_id,
+                newer_than=(new_handoff_received_at, new_handoff_id),
             ):
                 await self.manager.async_archive_handoff(
                     handoff_id=handoff_id,
@@ -244,9 +271,6 @@ class PlaceEnrichmentOrchestrator:
                 allow_nan=False,
             ).encode("utf-8")
         ).hexdigest()
-        await self._async_supersede_stale_enrichment_handoffs(
-            _stop_ids_of_operations(operations)
-        )
         ingest = await self.manager.async_ingest_external_changeset(
             changeset=changeset,
             title=title,
@@ -262,12 +286,31 @@ class PlaceEnrichmentOrchestrator:
             },
             source_payload_sha256=source_digest,
         )
-        if galleries:
+        new_handoff = (
+            ingest.get("handoff") if isinstance(ingest.get("handoff"), dict) else {}
+        )
+        clean_ingest = not ingest.get("duplicate") and str(
+            new_handoff.get("status") or ""
+        ) not in ("conflict", "failed")
+        if clean_ingest:
+            # Only now - the replacement provably exists - archive older
+            # pending enrichment handoffs for the same stops.
+            await self._async_supersede_stale_enrichment_handoffs(
+                _stop_ids_of_operations(operations),
+                new_handoff_id=str(new_handoff.get("id") or ""),
+                new_handoff_received_at=str(new_handoff.get("received_at") or ""),
+            )
+        if galleries and clean_ingest:
+            # Galleries stay a submit-time side effect only for a cleanly
+            # ingested handoff - a duplicate or conflict ingest must not
+            # publish media for a profile that may never be applied.
             await self.hass.async_add_executor_job(
                 self.store.upsert_destination_galleries,
                 trip_id,
                 galleries,
             )
+        else:
+            galleries = []
         self.hass.bus.async_fire(
             EVENT_ROADPLANNER_UPDATED,
             {

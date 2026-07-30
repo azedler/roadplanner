@@ -155,14 +155,22 @@ def verify_multi_stop_overlap_matches_on_any_shared_stop() -> None:
     ) == ["h-multi"]
 
 
-def verify_submit_path_calls_supersede_before_ingest() -> None:
+def verify_submit_path_calls_supersede_after_successful_ingest() -> None:
+    # Audit finding: archiving BEFORE ingest destroyed the user's only
+    # pending confirmation whenever the ingest then failed (racing trip
+    # switch / stop edit) - the old handoff was archived as "superseded by a
+    # newer handoff" that never came to exist. The order is now inverted:
+    # the replacement must provably exist first.
     source = (PACKAGE_ROOT / "place_enrichment_orchestrator.py").read_text(
         encoding="utf-8"
     )
-    supersede_at = source.index("_async_supersede_stale_enrichment_handoffs(\n            _stop_ids_of_operations")
-    ingest_at = source.index("async_ingest_external_changeset(", supersede_at)
-    assert supersede_at < ingest_at, (
-        "stale duplicates must be archived BEFORE the new handoff is ingested"
+    ingest_at = source.index("ingest = await self.manager.async_ingest_external_changeset(")
+    supersede_at = source.index(
+        "_async_supersede_stale_enrichment_handoffs(", ingest_at
+    )
+    assert ingest_at < supersede_at, (
+        "stale duplicates may only be archived AFTER the replacement was "
+        "ingested successfully"
     )
     assert 'resolution="superseded"' in source
 
@@ -172,5 +180,5 @@ if __name__ == "__main__":
     verify_no_new_stops_means_nothing_is_touched()
     verify_missing_envelope_or_garbage_is_skipped()
     verify_multi_stop_overlap_matches_on_any_shared_stop()
-    verify_submit_path_calls_supersede_before_ingest()
+    verify_submit_path_calls_supersede_after_successful_ingest()
     print("Enrichment handoff supersede tests passed.")
