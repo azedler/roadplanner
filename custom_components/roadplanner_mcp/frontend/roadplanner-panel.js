@@ -813,6 +813,8 @@ class RoadplannerPanel extends HTMLElement {
       };
       this._showToast("Park4Night-Position in den manuellen Kartenpunkt übernommen - bitte prüfen und bestätigen.", "success", 5000);
       this._render({ preserveScroll: true });
+    } else if (action === "place-link-lookup") {
+      void this._runPlaceLinkLookup(cleanText(target.dataset.stopId));
     } else if (action === "place-enrichment-submit") {
       void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {

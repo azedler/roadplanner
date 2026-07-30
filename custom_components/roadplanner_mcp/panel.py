@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 import voluptuous as vol
 
@@ -25,8 +27,9 @@ from .const import (
     ROLE_EDITOR,
     ROLE_VIEWER,
 )
-from .destination_intelligence import _PARK4NIGHT_ID_RE
+from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
+from .google_maps_link import async_resolve_google_maps_place_query
 from .frontend_static_http import async_register_frontend_static_view
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
@@ -82,6 +85,7 @@ _ACTIONS = {
     "prepare_place_enrichment",
     "submit_place_enrichment",
     "park4night_lookup",
+    "place_link_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -214,6 +218,8 @@ _PROVIDER_CALL_ACTIONS = {
     "export_trip_video",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
+    # Same bounded read for an arbitrary place link (enrichment dialog).
+    "place_link_lookup",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -226,6 +232,7 @@ _ASSISTANT_ACTIONS = {
     "prepare_place_enrichment",
     "submit_place_enrichment",
     "park4night_lookup",
+    "place_link_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -482,6 +489,53 @@ async def _execute_action(
             raise ValidationError(
                 "Die Park4Night-Seite konnte nicht gelesen werden oder enthält "
                 "keine GPS-Angabe"
+            )
+        return {"result": result}
+
+    if action == "place_link_lookup":
+        url = str(data.get("url") or "").strip().rstrip(".,;:")
+        hint = str(data.get("hint_name") or "")[:200]
+        if not url.lower().startswith("https://"):
+            raise ValidationError(
+                "Bitte einen vollständigen Link angeben (beginnend mit https://)"
+            )
+        host = (urlparse(url).hostname or "").casefold()
+        if _google_maps_host(host):
+            # Google-Maps links resolve deterministically - no AI involved.
+            resolved = await async_resolve_google_maps_place_query(hass, url)
+            if not resolved:
+                raise ValidationError(
+                    "Der Google-Maps-Link konnte nicht aufgelöst werden"
+                )
+            coordinate = re.fullmatch(
+                r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*", resolved
+            )
+            if coordinate:
+                return {
+                    "result": {
+                        "provider": "google_maps",
+                        "url": url,
+                        "latitude": float(coordinate.group(1)),
+                        "longitude": float(coordinate.group(2)),
+                        "name": "",
+                    }
+                }
+            return {"result": {"provider": "google_maps", "url": url, "name": resolved[:200]}}
+        lookup = runtime.experience.p4n_lookup
+        if not lookup.available:
+            raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
+        p4n_match = _PARK4NIGHT_ID_RE.search(url)
+        if p4n_match is not None:
+            result = await lookup.async_lookup(
+                f"https://park4night.com/lieu/{p4n_match.group('id')}/",
+                hint_name=hint,
+            )
+        else:
+            result = await lookup.async_lookup_page(url, hint_name=hint)
+        if result is None:
+            raise ValidationError(
+                "Die Seite konnte nicht gelesen werden oder enthält keine "
+                "eindeutige GPS-Angabe"
             )
         return {"result": result}
 
@@ -946,7 +1000,7 @@ async def _execute_action(
 
     if action == "add_stop":
         location = _location(data.get("location"))
-        return await manager.async_add_stop(
+        result = await manager.async_add_stop(
             day_id=data.get("day_id"),
             name=data.get("name"),
             actor=actor,
@@ -960,6 +1014,8 @@ async def _execute_action(
             position=_optional_int(data.get("position")),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        manager.schedule_route_refresh()
+        return result
 
     if action == "update_stop":
         patch = dict(data.get("patch") or {})
@@ -970,7 +1026,7 @@ async def _execute_action(
             patch["location"] = _location(patch["location"])
         if "details" in patch:
             patch["details"] = _details(patch["details"])
-        return await manager.async_update_stop(
+        result = await manager.async_update_stop(
             day_id=data.get("day_id"),
             stop_id=data.get("stop_id"),
             patch=patch,
@@ -979,6 +1035,15 @@ async def _execute_action(
             position=_optional_int(data.get("position")),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        # Only route-relevant edits schedule a refresh: GPS/order/transport
+        # changes. A notes- or time-only edit never touches the route. The
+        # refresh itself is additionally input-hash-guarded downstream.
+        if (
+            _optional_int(data.get("position")) is not None
+            or any(field in patch for field in ("location", "details", "type"))
+        ):
+            manager.schedule_route_refresh()
+        return result
 
     pitch_operations = {
         "pitch_option_save": "save_option",
@@ -989,7 +1054,7 @@ async def _execute_action(
     }
     if action in pitch_operations:
         operation = pitch_operations[action]
-        return await manager.async_mutate_overnight_plan(
+        result = await manager.async_mutate_overnight_plan(
             day_id=data.get("day_id"),
             operation=operation,
             payload=dict(data.get("payload") or {}),
@@ -997,6 +1062,11 @@ async def _execute_action(
             expected_revision=data.get("expected_revision"),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        if operation == "activate_option":
+            # Activating an option rewrites the overnight stop's GPS - the
+            # day's route (and the next day's start) changed.
+            manager.schedule_route_refresh()
+        return result
 
     if action == "pitch_update_preferences":
         preferences = data.get("preferences")
@@ -1010,13 +1080,15 @@ async def _execute_action(
         )
 
     if action == "remove_stop":
-        return await manager.async_remove_stop(
+        result = await manager.async_remove_stop(
             day_id=data.get("day_id"),
             stop_id=data.get("stop_id"),
             actor=actor,
             expected_revision=data.get("expected_revision"),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        manager.schedule_route_refresh()
+        return result
 
     if action == "calculate_day_route":
         trip_id = str(data.get("expected_trip_id") or data.get("trip_id") or "").strip()
@@ -1069,13 +1141,17 @@ async def _execute_action(
         )
 
     if action == "apply_handoff":
-        return await manager.async_apply_handoff(
+        result = await manager.async_apply_handoff(
             handoff_id=data.get("handoff_id"),
             actor=actor,
             expected_revision=data.get("expected_revision"),
             confirm_destructive=bool(data.get("confirm_destructive", False)),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        # An applied handoff can add/move stops across several days; the
+        # input hash limits the refresh to the days that actually changed.
+        manager.schedule_route_refresh()
+        return result
 
     if action == "archive_handoff":
         return await manager.async_archive_handoff(

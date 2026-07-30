@@ -116,6 +116,45 @@ def coordinate_from_location(location: Any) -> tuple[float, float] | None:
     return latitude, longitude
 
 
+class RouteRefreshScheduler:
+    """Debounce automatic route refreshes after roadbook stop changes.
+
+    Every schedule() call within the delay window resets the timer, so a
+    burst of quick edits (move a stop, fix its GPS, delete another) results
+    in exactly ONE refresh once the user pauses. The refresh itself is
+    hash-guarded downstream: days whose route input did not change are
+    skipped without any provider call, so scheduling is always safe.
+    """
+
+    def __init__(
+        self,
+        *,
+        delay: float,
+        call_later: Any,
+        create_task: Any,
+        refresh: Any,
+    ) -> None:
+        self._delay = delay
+        self._call_later = call_later
+        self._create_task = create_task
+        self._refresh = refresh
+        self._handle: Any = None
+
+    def schedule(self) -> None:
+        if self._handle is not None:
+            self._handle.cancel()
+        self._handle = self._call_later(self._delay, self._fire)
+
+    def cancel(self) -> None:
+        if self._handle is not None:
+            self._handle.cancel()
+            self._handle = None
+
+    def _fire(self) -> None:
+        self._handle = None
+        self._create_task(self._refresh())
+
+
 def route_input_hash(points: list[dict[str, Any]], profile: str) -> str:
     """Return a deterministic hash for provider-independent route caching."""
     payload = {
