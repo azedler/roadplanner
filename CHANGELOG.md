@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Confirming a stop's place profile twice left two pending "Ortsprofile vervollständigen" handoffs for the same stop under Übergaben - easy to do, because the "Ortsprofil vervollständigen" badge on the stop card stays visible while the first handoff sits unapplied. The older handoff then went stale as the trip revision advanced, showing a conflict warning that was pure noise. Submitting a new place-enrichment now automatically archives older pending enrichment handoffs that touch the same stop (marked "superseded"); handoffs from other sources or for other stops are never touched.
+
+### Changed
+
+- The "Ortsprofil vervollständigen" notice on a stop card now says where to actually do that: via the "Stopp anreichern" button below, and that the confirmed change then lands under "Übergaben" for the final apply - previously it asked for a confirmation without naming the place to give it, and didn't mention the second step at all.
+
 ## [4.11.2] - 2026-07-29
 
 ### Fixed
