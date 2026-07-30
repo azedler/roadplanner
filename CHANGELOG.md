@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.11.3] - 2026-07-30
+
 ### Fixed
 
 - Preparing an assistant change review could fail outright with "Änderungsentwurf konnte nicht erstellt werden / Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden", even though the stop existed - just under a different day than the operation referenced, either because the stop moved days after the draft was written (a handoff applied in between) or because the model paired a correctly-referenced stop with the wrong day. Stop IDs are globally unique, so a single match under another day identifies the real day deterministically; the day reference is now corrected automatically (the same stale-day-ID fallback the panel has always had) instead of the whole pending change being rejected. A stop that exists on no day at all remains a hard error - it was deleted or invented, and silently guessing would write to the wrong place.
