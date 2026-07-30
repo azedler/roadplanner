@@ -26,6 +26,7 @@ from .const import (
     ROLE_VIEWER,
 )
 from .destination_intelligence import _PARK4NIGHT_ID_RE
+from .currency_rates import EcbRateService, eur_total
 from .ffmpeg_runner import ffmpeg_available
 from .frontend_static_http import async_register_frontend_static_view
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
@@ -85,6 +86,7 @@ _ACTIONS = {
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
+    "get_exchange_rates",
     "archive_create_upload_ticket",
     "archive_create_download_ticket",
     "archive_analyze_document",
@@ -886,6 +888,24 @@ async def _execute_action(
             trip_id=data.get("trip_id"),
             expected_active_trip=data.get("expected_active_trip"),
         )
+
+    if action == "get_exchange_rates":
+        rates_key = f"{DOMAIN}_ecb_rates"
+        service = hass.data.get(rates_key)
+        if not isinstance(service, EcbRateService):
+            service = EcbRateService(hass)
+            hass.data[rates_key] = service
+        rates = await service.async_get_rates()
+        if rates is None:
+            raise ValidationError(
+                "Die EZB-Referenzkurse sind gerade nicht abrufbar - die "
+                "Summen je Währung bleiben unverändert verfügbar."
+            )
+        totals = data.get("totals_by_currency")
+        summary = (
+            eur_total(totals, rates["rates"]) if isinstance(totals, dict) else None
+        )
+        return {"rates": rates, "eur_total": summary}
 
     if action == "update_trip":
         patch = dict(data.get("patch") or {})

@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- The Reisekosten overview now additionally shows ONE approximate EUR total ("≈ 3.148,22 € gesamt · EZB-Kurse vom 30.07.2026") whenever expenses span multiple currencies. Rates are the daily European Central Bank reference rates (no API key, fetched lazily, cached, last known rates keep serving on network failure); the per-currency sums and every original amount stay untouched and authoritative. A currency the ECB has no rate for is named in the label ("ohne XXX (kein Kurs)") instead of being silently dropped.
+
 ## [4.12.0] - 2026-07-30
 
 ### Fixed
