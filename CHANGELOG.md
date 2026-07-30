@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- (Audit) Ferry details could be silently dropped: the compile response schema forbade the structured fields the prompt itself mandates (`changes.details` - including `details.transport` with the ferry role -, `travelers`, `vehicle`, `preferences`, preference `reason`). Under schema-constrained decoding the model physically could not emit them, so a booked ferry's terminals were stored without their ferry roles and the leg rendered as a car drive across the sea. The schema now allows these fields; every value is still fully re-validated server-side. A stray `changes.reason` echoed on other entity types is hoisted to the operation's reason instead of rejecting the draft.
+- (Audit) Several plausible model outputs hard-rejected a whole multi-operation draft over trivially salvageable shapes: an echoed identifying `changes` object on remove/move ("changes muss bei remove/move leer sein") is now dropped; a top-level `position` as digit-string ("2") or float (2.0) is now coerced instead of silently discarded (which misplaced new stops and killed position-only reorders); `changes.location` carrying only user-supplied coordinates ({"lat":..,"lng":..} or [lat, lon]) is now salvaged into a "lat, lon" place_query (verified server-side by reverse geocoding) instead of being destroyed and then failing the add for lacking a place_query.
+- (Audit) Operations referencing entities changed earlier in the SAME draft were validated against the pre-draft roadbook only: referencing a stop (or day) removed earlier in the draft passed sanitization and blew up the entire draft at changeset ingestion with a cryptic "ChangeSet-Operation N ist ungültig" - it now fails at sanitize time with a clear message naming the contradiction. Conversely, updating/moving/removing a stop ADDED earlier in the same draft (a natural compile shape the ChangeSet executor fully supports) was wrongly rejected as an unknown stop ID, discarding the whole draft - it now passes, with the day reference aligned to the add.
+- (Audit) The "wir haben hier geschlafen" duplicate-overnight protection only searched the bounded compile day window: for a target day outside the window (e.g. the previous day while the basket planned days far ahead), the existing overnight stop was not found and a DUPLICATE overnight stop was added - exactly what this logic exists to prevent. The lookup now falls back to the full stored day list.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed
