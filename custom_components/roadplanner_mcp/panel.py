@@ -1000,7 +1000,7 @@ async def _execute_action(
 
     if action == "add_stop":
         location = _location(data.get("location"))
-        return await manager.async_add_stop(
+        result = await manager.async_add_stop(
             day_id=data.get("day_id"),
             name=data.get("name"),
             actor=actor,
@@ -1014,6 +1014,8 @@ async def _execute_action(
             position=_optional_int(data.get("position")),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        manager.schedule_route_refresh()
+        return result
 
     if action == "update_stop":
         patch = dict(data.get("patch") or {})
@@ -1024,7 +1026,7 @@ async def _execute_action(
             patch["location"] = _location(patch["location"])
         if "details" in patch:
             patch["details"] = _details(patch["details"])
-        return await manager.async_update_stop(
+        result = await manager.async_update_stop(
             day_id=data.get("day_id"),
             stop_id=data.get("stop_id"),
             patch=patch,
@@ -1033,6 +1035,15 @@ async def _execute_action(
             position=_optional_int(data.get("position")),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        # Only route-relevant edits schedule a refresh: GPS/order/transport
+        # changes. A notes- or time-only edit never touches the route. The
+        # refresh itself is additionally input-hash-guarded downstream.
+        if (
+            _optional_int(data.get("position")) is not None
+            or any(field in patch for field in ("location", "details", "type"))
+        ):
+            manager.schedule_route_refresh()
+        return result
 
     pitch_operations = {
         "pitch_option_save": "save_option",
@@ -1043,7 +1054,7 @@ async def _execute_action(
     }
     if action in pitch_operations:
         operation = pitch_operations[action]
-        return await manager.async_mutate_overnight_plan(
+        result = await manager.async_mutate_overnight_plan(
             day_id=data.get("day_id"),
             operation=operation,
             payload=dict(data.get("payload") or {}),
@@ -1051,6 +1062,11 @@ async def _execute_action(
             expected_revision=data.get("expected_revision"),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        if operation == "activate_option":
+            # Activating an option rewrites the overnight stop's GPS - the
+            # day's route (and the next day's start) changed.
+            manager.schedule_route_refresh()
+        return result
 
     if action == "pitch_update_preferences":
         preferences = data.get("preferences")
@@ -1064,13 +1080,15 @@ async def _execute_action(
         )
 
     if action == "remove_stop":
-        return await manager.async_remove_stop(
+        result = await manager.async_remove_stop(
             day_id=data.get("day_id"),
             stop_id=data.get("stop_id"),
             actor=actor,
             expected_revision=data.get("expected_revision"),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        manager.schedule_route_refresh()
+        return result
 
     if action == "calculate_day_route":
         trip_id = str(data.get("expected_trip_id") or data.get("trip_id") or "").strip()
@@ -1123,13 +1141,17 @@ async def _execute_action(
         )
 
     if action == "apply_handoff":
-        return await manager.async_apply_handoff(
+        result = await manager.async_apply_handoff(
             handoff_id=data.get("handoff_id"),
             actor=actor,
             expected_revision=data.get("expected_revision"),
             confirm_destructive=bool(data.get("confirm_destructive", False)),
             expected_trip_id=data.get("expected_trip_id"),
         )
+        # An applied handoff can add/move stops across several days; the
+        # input hash limits the refresh to the days that actually changed.
+        manager.schedule_route_refresh()
+        return result
 
     if action == "archive_handoff":
         return await manager.async_archive_handoff(

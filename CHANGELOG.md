@@ -9,6 +9,7 @@ The project follows Semantic Versioning for public releases.
 ### Added
 
 - "Stopps anreichern" now takes a LINK: every place card has a "Link zum Ort" field (Google Maps, Park4Night, Booking, a campsite's own website, ...) with "Link lesen und übernehmen". Google-Maps links are resolved deterministically without any AI; Park4Night links use the existing specialized page reader; every other page is read by the Reisebegleiter (Gemini url_context) under the same never-guess rule (GPS only if the page literally states it). The result only prefills the manual-confirmation form - reviewing and confirming stays the user's explicit step, stored as manually confirmed, never as provider-verified.
+- Routes now refresh AUTOMATICALLY after route-relevant stop changes - adding or deleting a stop, reordering, changing its GPS/transport data, activating a Stellplatz option, or applying a handoff. A burst of quick edits is debounced into one refresh a few seconds after the last change; the existing per-day route input hash then skips every day whose route did not actually change (a notes- or time-only edit never even schedules one), so only genuinely affected days reach the routing provider - including a neighbouring day whose start moved via overnight continuity. No-op when routing is not configured; failures never surface as errors, the next manual calculation stays available as always.
 
 ## [4.12.0] - 2026-07-30
 

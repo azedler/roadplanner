@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import logging
 from functools import partial
 from typing import Any
 
@@ -21,6 +22,7 @@ from .roadplanner import (
 )
 from .routing import (
     OSRMRoutingClient,
+    RouteRefreshScheduler,
     RoutingError,
     combine_route_segments,
     disconnected_route_segment,
@@ -28,6 +30,8 @@ from .routing import (
     route_input_hash,
     split_route_segments,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 UpdateCallback = Callable[[dict[str, Any]], None]
 
@@ -79,6 +83,43 @@ class RoadplannerManager:
         self.allow_destructive_auto_apply = allow_destructive_auto_apply
         self._lock = asyncio.Lock()
         self._update_callback: UpdateCallback | None = None
+        self._route_refresh = RouteRefreshScheduler(
+            delay=5.0,
+            call_later=hass.loop.call_later,
+            create_task=hass.async_create_task,
+            refresh=self._async_auto_route_refresh,
+        )
+
+    def schedule_route_refresh(self) -> None:
+        """Debounced automatic route recalculation after a stop change.
+
+        No-op when routing is not configured. The refresh runs against the
+        whole active trip with force=False: the per-day input hash skips
+        every day whose route-relevant data (GPS points, order, transport
+        modes) did not change, so only genuinely affected days reach the
+        routing provider - including a NEIGHBOURING day whose start point
+        changed via overnight continuity.
+        """
+        if not self.router.configured:
+            return
+        self._route_refresh.schedule()
+
+    async def _async_auto_route_refresh(self) -> None:
+        try:
+            await self._async_calculate_routes(
+                trip_id=None,
+                day_ids=None,
+                actor="roadplanner_auto_route",
+                expected_revision=None,
+                force=False,
+                fail_if_single_error=False,
+            )
+        except RoadplannerError as err:
+            _LOGGER.debug("Automatische Routenaktualisierung übersprungen: %s", err)
+        except Exception:  # noqa: BLE001 - background freshness must never crash HA
+            _LOGGER.debug(
+                "Automatische Routenaktualisierung fehlgeschlagen", exc_info=True
+            )
 
     def set_update_callback(self, callback: UpdateCallback | None) -> None:
         self._update_callback = callback
@@ -418,11 +459,16 @@ class RoadplannerManager:
         trip_id: str | None,
         day_ids: list[str] | None,
         actor: str,
-        expected_revision: int,
+        expected_revision: int | None,
         force: bool,
         fail_if_single_error: bool,
     ) -> dict[str, Any]:
-        """Calculate routes outside the store lock and commit them atomically."""
+        """Calculate routes outside the store lock and commit them atomically.
+
+        ``expected_revision=None`` means "whatever is current" - used only by
+        the automatic post-edit refresh, which asserts no user intent about
+        the revision it saw.
+        """
         if not self.router.configured:
             raise RoutingError(
                 "Die Straßenroutenberechnung ist nicht aktiviert. "
@@ -436,7 +482,7 @@ class RoadplannerManager:
                     day_ids=day_ids,
                 )
             )
-        if plan["revision"] != expected_revision:
+        if expected_revision is not None and plan["revision"] != expected_revision:
             raise RevisionConflictError(expected_revision, plan["revision"])
 
         calculated: list[dict[str, Any]] = []
