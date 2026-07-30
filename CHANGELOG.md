@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- (Audit) A stop save, delete or reorder click was SILENTLY DISCARDED whenever another panel action was still running - e.g. saving the stop form during a multi-second route calculation, or clicking the reorder arrows twice in quick succession. The busy state only changed the cursor while the UI stayed fully clickable, and the action guard simply returned without a request, toast or error - the dialog closed and every edit was lost, indistinguishable from success. Actions are now queued and run in order instead of being dropped; long-running opt-outs like the video export bypass the queue so they never stall it.
+- (Audit) A background refresh queued while a form was open (any update event from copilot/media jobs) was flushed by the NEXT action even though the dialog was still open - the full re-render rebuilt the form from stale data, erasing typed input; the Park4Night prefill then wrote into the detached old form while the success toast claimed the data had been taken over. The queued refresh now waits until the dialog closes. A revision-conflict error with an open form likewise no longer triggers an immediate reload that would wipe the form.
+- (Audit) The stop form closed BEFORE the save request ran, so any server-side rejection (only one coordinate entered, revision changed in between) threw away everything that had been typed, leaving just a toast. The form now closes only after the server accepted the save - the same result-gated pattern the media/archive/crew forms have always used.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed
