@@ -1341,6 +1341,18 @@ class RoadplannerAssistant:
                 )
                 for day_ref in new_day_refs:
                     position_state.setdefault(day_ref, [])
+                # Cross-operation bookkeeping for the whole batch: stops/days
+                # added or removed earlier in the SAME draft, so later
+                # operations referencing them are handled at sanitize time
+                # (clear error / legal same-batch reference) instead of
+                # blowing up the whole draft at changeset ingestion.
+                batch_refs: dict[str, Any] = {}
+                stored_days = payload.get("days")
+                full_day_list = (
+                    stored_days.get("days") if isinstance(stored_days, dict) else None
+                )
+                if not isinstance(full_day_list, list):
+                    full_day_list = None
                 for index, raw in enumerate(prepared_raw_operations):
                     place_query = raw.get("place_query") if isinstance(raw, dict) else None
                     if isinstance(place_query, str) and place_query:
@@ -1357,6 +1369,8 @@ class RoadplannerAssistant:
                             new_day_refs=new_day_refs,
                             basket=session.basket,
                             position_state=position_state,
+                            batch_refs=batch_refs,
+                            full_days=full_day_list,
                         )
                     )
                 open_questions, open_questions_omitted = _normalize_text_items(

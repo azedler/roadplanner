@@ -617,6 +617,41 @@ def _normalize_compiled_operation_aliases(
                     if isinstance(candidate, str) and candidate.strip():
                         location_text = candidate.strip()
                         break
+                # No text at all, only coordinates: salvage them as a
+                # "lat, lon" place_query - the prompt itself allows exactly
+                # that form, and Roadplanner verifies it by reverse
+                # geocoding. Dropping them destroyed user-given GPS and
+                # hard-rejected the add for lacking a place_query. A textual
+                # label stays preferred when present (it geocodes to
+                # verified coordinates anyway).
+                if not location_text:
+                    latitude = stray_location.get(
+                        "latitude", stray_location.get("lat")
+                    )
+                    longitude = stray_location.get(
+                        "longitude",
+                        stray_location.get("lon", stray_location.get("lng")),
+                    )
+                    if (
+                        isinstance(latitude, (int, float))
+                        and not isinstance(latitude, bool)
+                        and isinstance(longitude, (int, float))
+                        and not isinstance(longitude, bool)
+                        and -90 <= latitude <= 90
+                        and -180 <= longitude <= 180
+                    ):
+                        location_text = f"{float(latitude)}, {float(longitude)}"
+            elif (
+                isinstance(stray_location, (list, tuple))
+                and len(stray_location) == 2
+                and all(
+                    isinstance(part, (int, float)) and not isinstance(part, bool)
+                    for part in stray_location
+                )
+                and -90 <= stray_location[0] <= 90
+                and -180 <= stray_location[1] <= 180
+            ):
+                location_text = f"{float(stray_location[0])}, {float(stray_location[1])}"
             if location_text and not _clean_text(result.get("place_query"), maximum=500):
                 result["place_query"] = location_text[:500]
 
@@ -642,6 +677,16 @@ def _normalize_compiled_operation_aliases(
         # preferences. Reject outright would discard real content the model
         # did extract just fine; salvage it into notes instead, the same
         # "real content, wrong key" approach used for changes.text above.
+        # ``changes.reason`` is only a valid field for entity_type=preference.
+        # The response schema must allow "reason" inside changes (preferences
+        # need it), so the model may echo an operation's reason there for
+        # other entities too - hoist it to the operation-level reason field
+        # instead of rejecting the draft over a redundant echo.
+        if entity_type != "preference" and "reason" in changes:
+            stray_reason = _clean_text(changes.pop("reason"), maximum=1_000)
+            if stray_reason and not _clean_text(result.get("reason"), maximum=1_000):
+                result["reason"] = stray_reason
+
         if entity_type != "preference" and "category" in changes:
             stray_category = _clean_text(changes.pop("category"), maximum=200)
             if stray_category:
@@ -963,6 +1008,20 @@ OPERATION_CHANGES_SCHEMA: dict[str, Any] = {
         "departure_time": {"type": "string", "maxLength": 20},
         "category": {"type": "string", "maxLength": 200},
         "text": {"type": "string", "maxLength": 2_000},
+        # The prompt explicitly mandates these structured fields (ferry
+        # terminals MUST set changes.details.transport, travelers as a JSON
+        # list, vehicle/details as JSON objects, preference reason) - with
+        # additionalProperties:false and only scalar fields declared, a
+        # schema-constrained response physically could not emit them: ferry
+        # roles were silently dropped and the leg rendered as a car drive
+        # across the sea. Values are fully re-validated server-side
+        # (changeset.py / trip_documents.py), so the schema stays permissive
+        # here on purpose.
+        "reason": {"type": "string", "maxLength": 1_000},
+        "details": {"type": "object", "additionalProperties": True},
+        "vehicle": {"type": "object", "additionalProperties": True},
+        "preferences": {"type": "object", "additionalProperties": True},
+        "travelers": {"type": "array"},
     },
     "additionalProperties": False,
 }
