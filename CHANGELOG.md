@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.12.0] - 2026-07-30
+
 ### Fixed
 
 - (Audit) Submitting a place-enrichment archived the older pending handoff BEFORE the replacement was ingested - if the ingest then failed (active trip switched in another tab, a stop edited/removed in a racing panel action), the user's only pending confirmation was silently destroyed, archived as "superseded by a newer handoff" that never came to exist. The supersede now runs strictly after a successful ingest, never archives the replacement itself, and only archives handoffs strictly older than it - two racing submits can no longer archive EACH OTHER.
