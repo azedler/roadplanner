@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 import voluptuous as vol
 
@@ -25,8 +27,9 @@ from .const import (
     ROLE_EDITOR,
     ROLE_VIEWER,
 )
-from .destination_intelligence import _PARK4NIGHT_ID_RE
+from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
+from .google_maps_link import async_resolve_google_maps_place_query
 from .frontend_static_http import async_register_frontend_static_view
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
@@ -82,6 +85,7 @@ _ACTIONS = {
     "prepare_place_enrichment",
     "submit_place_enrichment",
     "park4night_lookup",
+    "place_link_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -214,6 +218,8 @@ _PROVIDER_CALL_ACTIONS = {
     "export_trip_video",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
+    # Same bounded read for an arbitrary place link (enrichment dialog).
+    "place_link_lookup",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -226,6 +232,7 @@ _ASSISTANT_ACTIONS = {
     "prepare_place_enrichment",
     "submit_place_enrichment",
     "park4night_lookup",
+    "place_link_lookup",
     "assistant_test",
     "assistant_briefing",
     "assistant_diagnostics",
@@ -482,6 +489,53 @@ async def _execute_action(
             raise ValidationError(
                 "Die Park4Night-Seite konnte nicht gelesen werden oder enthält "
                 "keine GPS-Angabe"
+            )
+        return {"result": result}
+
+    if action == "place_link_lookup":
+        url = str(data.get("url") or "").strip().rstrip(".,;:")
+        hint = str(data.get("hint_name") or "")[:200]
+        if not url.lower().startswith("https://"):
+            raise ValidationError(
+                "Bitte einen vollständigen Link angeben (beginnend mit https://)"
+            )
+        host = (urlparse(url).hostname or "").casefold()
+        if _google_maps_host(host):
+            # Google-Maps links resolve deterministically - no AI involved.
+            resolved = await async_resolve_google_maps_place_query(hass, url)
+            if not resolved:
+                raise ValidationError(
+                    "Der Google-Maps-Link konnte nicht aufgelöst werden"
+                )
+            coordinate = re.fullmatch(
+                r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*", resolved
+            )
+            if coordinate:
+                return {
+                    "result": {
+                        "provider": "google_maps",
+                        "url": url,
+                        "latitude": float(coordinate.group(1)),
+                        "longitude": float(coordinate.group(2)),
+                        "name": "",
+                    }
+                }
+            return {"result": {"provider": "google_maps", "url": url, "name": resolved[:200]}}
+        lookup = runtime.experience.p4n_lookup
+        if not lookup.available:
+            raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
+        p4n_match = _PARK4NIGHT_ID_RE.search(url)
+        if p4n_match is not None:
+            result = await lookup.async_lookup(
+                f"https://park4night.com/lieu/{p4n_match.group('id')}/",
+                hint_name=hint,
+            )
+        else:
+            result = await lookup.async_lookup_page(url, hint_name=hint)
+        if result is None:
+            raise ValidationError(
+                "Die Seite konnte nicht gelesen werden oder enthält keine "
+                "eindeutige GPS-Angabe"
             )
         return {"result": result}
 

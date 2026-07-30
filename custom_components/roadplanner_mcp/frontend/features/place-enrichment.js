@@ -74,6 +74,7 @@ export const placeEnrichmentMixin = {
     const items = Array.isArray(preview.items) ? preview.items : [];
     const selections = dialog?.selections || {};
     const manualEntries = dialog?.manualEntries || {};
+    const linkInputs = dialog?.linkInputs || {};
     const cleanupConfirmations = dialog?.cleanupConfirmations || {};
     const selectedCount = Object.values(selections).filter(Boolean).length;
     const assistantConfigured = Boolean(this._data?.settings?.assistant_configured);
@@ -240,12 +241,17 @@ export const placeEnrichmentMixin = {
         </div>
         <button class="secondary-button" type="button" data-action="place-manual-select" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Manuellen Kartenpunkt bestätigen</button>
       </form>`;
+      const linkLookup = `<div class="place-link-lookup form-grid compact-form-grid">
+        <label class="form-field full"><span>Link zum Ort (Google Maps, Park4Night, Booking, Website …)</span><input type="url" data-place-link-input data-stop-id="${escapeHtml(stopId)}" value="${escapeHtml(linkInputs[stopId] || "")}" placeholder="https://…" autocomplete="off" inputmode="url"></label>
+        <div class="form-field full"><button class="secondary-button" type="button" data-action="place-link-lookup" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:link-variant"></ha-icon>Link lesen und übernehmen</button><small class="hint">Google-Maps-Links werden direkt aufgelöst, alle anderen Seiten liest der Reisebegleiter (KI). Die Werte landen zum Prüfen im manuellen Kartenpunkt - gespeichert wird erst nach deiner Bestätigung.</small></div>
+      </div>`;
       return `<section class="place-enrichment-item">
         <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml([intent.label ? `Erkannt: ${intent.label}` : "", currentSummary || "Noch kein bestätigtes Ortsprofil"].filter(Boolean).join(" · "))}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>
         ${cleanupCard}
         ${p4nCard}
         ${sourceHintLinks ? `<div class="button-row compact-row">${sourceHintLinks}</div>` : ""}
         <div class="place-candidates">${candidateCards}</div>
+        ${linkLookup}
         ${manualForm}
       </section>`;
     }).join("");
@@ -257,3 +263,48 @@ export const placeEnrichmentMixin = {
       <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Stopp" : "Stopps"} an Änderungsübersicht übergeben</button></div>`;
   },
 };
+
+Object.assign(placeEnrichmentMixin, {
+  async _runPlaceLinkLookup(stopId) {
+    if (this._dialog?.type !== "place-enrichment" || !stopId) return;
+    const input = this.shadowRoot.querySelector(`[data-place-link-input][data-stop-id='${stopId}']`);
+    const url = cleanText(input?.value);
+    if (!url) {
+      this._showToast("Bitte zuerst einen Link einfügen (https://…).", "error", 5000);
+      return;
+    }
+    // Keep the typed link across re-renders regardless of the outcome.
+    this._dialog.linkInputs = { ...(this._dialog.linkInputs || {}), [stopId]: url };
+    const result = await this._runAction("place_link_lookup", { url }, "", {
+      refresh: false,
+      errorTitle: "Link konnte nicht gelesen werden",
+    });
+    const facts = result?.result;
+    if (!facts || this._dialog?.type !== "place-enrichment") return;
+    // Prefill only - the manual confirmation stays the user's explicit step,
+    // stored as manually confirmed, never as provider-verified.
+    const entry = { ...(this._dialog.manualEntries?.[stopId] || {}) };
+    if (facts.name) entry.name = facts.name;
+    if (facts.city) entry.city = facts.city;
+    if (facts.country_code) entry.country_code = facts.country_code;
+    const hasCoordinates = facts.latitude != null && facts.longitude != null;
+    if (hasCoordinates) {
+      entry.latitude = String(facts.latitude);
+      entry.longitude = String(facts.longitude);
+    }
+    this._dialog.manualEntries = { ...(this._dialog.manualEntries || {}), [stopId]: entry };
+    if (hasCoordinates) {
+      this._dialog.selections = { ...(this._dialog.selections || {}), [stopId]: "__manual__" };
+    }
+    const summary = [facts.price_text, facts.rating_text ? `Bewertung ${facts.rating_text}` : "", facts.summary]
+      .filter(Boolean).join(" · ");
+    this._showToast(
+      hasCoordinates
+        ? `Vom Link übernommen${summary ? ` (${summary})` : ""} - bitte prüfen und bestätigen.`
+        : "Der Link nannte keine GPS-Position - Name/Ort wurden vorbefüllt, bitte Kartenpunkt ergänzen.",
+      hasCoordinates ? "success" : "error",
+      6500,
+    );
+    this._render({ preserveScroll: true });
+  },
+});
