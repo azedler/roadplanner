@@ -8,6 +8,7 @@ The project follows Semantic Versioning for public releases.
 
 ### Added
 
+- The Reisekosten overview now additionally shows ONE approximate EUR total ("≈ 3.148,22 € gesamt · EZB-Kurse vom 30.07.2026") whenever expenses span multiple currencies. Rates are the daily European Central Bank reference rates (no API key, fetched lazily, cached, last known rates keep serving on network failure); the per-currency sums and every original amount stay untouched and authoritative. A currency the ECB has no rate for is named in the label ("ohne XXX (kein Kurs)") instead of being silently dropped.
 - The Erinnerungen tab no longer cuts off after the 120 newest photos - with 200+ trip photos, every older photo was simply unreachable and could never be assigned. The photo grid now has assignment filters (Alle / Zugeordnet / Zu prüfen / Ohne Tag, each with live counts) and pages of 60 with "Neuere/Ältere" navigation and a "Bilder X–Y von Z" label; every photo of the trip is reachable and editable, on any page.
 
 ### Fixed
