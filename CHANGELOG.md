@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- (Audit finding, confirmed by two independent reviewers) Assistant stop operations targeting a day OUTSIDE the compile detail window silently corrupted that day's stop order. The compile context details only a bounded day window (basket-target days plus neighbours), while ID validation accepts any day of the whole trip - so an operation like "füge am letzten Reisetag einen Stellplatz hinzu" mid-trip, or one resolving an explicit date far ahead, passed validation but saw an EMPTY position-bookkeeping list for a day that really has stops: a new stop was forced to position 1 (in front of the day's start and everything else, instead of before the overnight stop or at the day's end), and a requested move position ("verschiebe auf Position 5") was silently clamped to 1. No error was raised; the broken order only showed up later in the roadbook. Position bookkeeping is now seeded from the full stored day list instead of the context window.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed
