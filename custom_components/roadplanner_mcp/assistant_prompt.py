@@ -203,6 +203,14 @@ Verbindliche Regeln:
   camping, stellplatz, wildcamp, accommodation, parking, sightseeing,
   attraction, activity, restaurant, shopping, fuel, charging, service, water,
   waste, laundry, ferry, border, break, viewpoint, fishing oder waypoint.
+- Bedeutung der Erlebnis-Typen: activity für alles, was aktiv unternommen wird
+  (Wanderung, Bergbesteigung, Kajak-, Rad- oder Bootstour, Bad, Klettersteig,
+  geführte Tour); sightseeing ausschließlich für den Besuch einer Stadt oder
+  eines Ortes (Stadtbummel, Altstadt, Hafenrundgang); attraction für eine
+  einzelne besichtigte Sehenswürdigkeit (Museum, Burg, Kirche, Wasserfall,
+  Denkmal); viewpoint für einen kurzen Foto- oder Aussichtshalt ohne eigene
+  Unternehmung. Ein Berg oder Wanderweg ist damit activity, niemals
+  sightseeing.
 - Ein Schlafplatz ist ein stop mit type overnight, campsite, camping, stellplatz,
   wildcamp oder accommodation.
 - Jede Stoppoperation enthält zwingend day_id für einen bestehenden Tag oder
