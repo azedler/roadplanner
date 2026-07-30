@@ -197,6 +197,37 @@ def _known_ids(context: dict[str, Any]) -> tuple[set[str], dict[str, set[str]], 
                 )
     return day_ids, stop_ids, preference_ids
 
+def seed_position_state(days: Any) -> dict[str, list[dict[str, str]]]:
+    """Seed the stop-position bookkeeping from the FULL trip day list.
+
+    Position bookkeeping must cover every day an operation may legally
+    reference. The compile context's ``days`` list is only a bounded detail
+    window (basket-target days plus neighbours), while ID validation accepts
+    any day of the trip - seeding from the window therefore left every
+    out-of-window day looking EMPTY, so an add on such a day was forced to
+    position 1 (in front of the day's real stops) and a requested move
+    position was silently clamped to 1. Callers must pass the full stored
+    day list (``payload["days"]["days"]``), never the context window.
+    """
+    state: dict[str, list[dict[str, str]]] = {}
+    if not isinstance(days, list):
+        return state
+    for day in days:
+        if not isinstance(day, dict):
+            continue
+        day_id = _clean_text(day.get("id"), maximum=200)
+        if not day_id:
+            continue
+        state[day_id] = [
+            {
+                "id": _clean_text(stop.get("id"), maximum=200),
+                "type": _clean_text(stop.get("type"), maximum=100).casefold(),
+            }
+            for stop in canonical_roadbook_stops(day)
+            if isinstance(stop, dict)
+        ]
+    return state
+
 def _context_day_sequence(context: dict[str, Any]) -> list[dict[str, str]]:
     """Return the bounded trip day sequence used for deterministic day inference."""
     sequence: list[dict[str, str]] = []
