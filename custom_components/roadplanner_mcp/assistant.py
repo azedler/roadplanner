@@ -15,6 +15,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from homeassistant.util import dt as dt_util
@@ -57,6 +58,7 @@ from .assistant_compile import (
     _prepare_compiled_operation_batch,
 )
 from .assistant_operation_sanitizer import _needs_research, _sanitize_operation
+from .destination_intelligence import _URL_RE, _google_maps_host
 from .assistant_shared import (
     _clean_reply,
     _clean_text,
@@ -187,8 +189,25 @@ class RoadplannerAssistant:
 
     @staticmethod
     def _should_enable_search(user_text: str) -> bool:
-        """Use current web grounding only for discovery-style questions."""
-        text = " ".join(str(user_text or "").casefold().split())
+        """Use current web grounding only for discovery-style questions.
+
+        A pasted link is the strongest research signal there is: the whole
+        point of the url_context tool is fetching a page the user hands
+        over (Komoot, AllTrails, Booking, Park4Night, ...). Without this,
+        "Prüfe den Link" ran without url_context - the model literally
+        could not open the link and asked the user to describe the tour
+        instead. Google-Maps links stay excluded: those are resolved
+        deterministically from their own URL structure, never fetched.
+        """
+        raw_text = str(user_text or "")
+        for url in _URL_RE.findall(raw_text):
+            try:
+                host = (urlparse(url.rstrip(".,;:")).hostname or "").casefold()
+            except ValueError:
+                continue
+            if host and not _google_maps_host(host):
+                return True
+        text = " ".join(raw_text.casefold().split())
         if not text:
             return False
         phrases = (

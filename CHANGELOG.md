@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pasting a tour or booking link into the Reisebegleiter chat (Komoot, AllTrails, Booking, Park4Night, ...) could get the answer "Da ich den genauen Inhalt des Links nicht direkt live auslesen kann..." even though the assistant is fully capable of reading such pages. The chat only enabled its web tools (Google-Suche + url_context page fetch) when the message sounded like a discovery question ("suche", "empfiehl", "in der Nähe", ...) - a pasted URL matched none of those phrases, so a message like "Prüfe den Link" ran without the very tool that opens links. A pasted link now always enables the web tools; Google-Maps links remain excluded, since they are resolved deterministically from their own URL structure and never need a fetch.
+
 ## [4.11.3] - 2026-07-30
 
 ### Fixed
