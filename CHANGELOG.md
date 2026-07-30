@@ -6,6 +6,11 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- "Park4Night-Daten lesen (KI)" in the stop form worked exactly ONCE per stop and then failed forever with "Kein Park4Night-Verweis gefunden". The first successful lookup overwrote the stop name - which carried the only copy of the p4n reference - with the clean place name, preserving the reference nowhere. The lookup now writes the reference into the notes ("Park4Night: https://park4night.com/lieu/<id>/") before the name is replaced, so repeat lookups keep working after saving.
+- A real park4night.com page link was not recognized as a Park4Night reference at all - the shared regex (frontend and backend alike) only matched shorthand forms like "p4n 506374", although the stop form's hint and the panel's error text both promise that pasting the link works. Links like https://park4night.com/lieu/506374/ and /de/place/506374 are now recognized everywhere the shorthand is.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed
