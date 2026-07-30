@@ -19,10 +19,13 @@ _MAX_IMAGE_QUERY_LENGTH = 180
 _MAX_QUERY_VARIANTS = 3
 _URL_RE = re.compile(r"https://[^\s<>\]\[\)\(\"']+", re.IGNORECASE)
 # Users write Park4Night place IDs in many shapes: "p4n 448383", "P4N-448383",
-# "Park4Night: 448383" or "Park4Night-ID 448383".  All of them must become the
-# same reviewable source hint.
+# "Park4Night: 448383" or "Park4Night-ID 448383" - and increasingly as real
+# page links like https://park4night.com/lieu/506374/ or /de/place/506374.
+# All of them must become the same reviewable source hint. The URL-path
+# branch deliberately contains no digits, so the place ID is never split.
 _PARK4NIGHT_ID_RE = re.compile(
     r"(?iu)(?:\(\s*)?(?:p4n|park\s*4\s*night)"
+    r"(?:\.com/[a-z/_\-]*)?"
     r"[\s#:.\-–—]*(?:id|nr\.?|platz)?"
     r"[\s#:.\-–—]*(?P<id>\d{3,12})(?:\s*\))?"
 )
