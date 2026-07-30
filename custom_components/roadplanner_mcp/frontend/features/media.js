@@ -328,9 +328,8 @@ export const mediaMixin = {
       ? Object.values(gallery.provider_errors).filter(Boolean)
       : [];
     const failed = gallery.status === "error" || errors.length;
-    if (hasOwnImages && failed) {
-      return `<div class="destination-gallery-inline neutral"><ha-icon icon="mdi:image-check-outline"></ha-icon><div><strong>Eigene Bilder vorhanden</strong><span>Nur zusätzliche externe Planungsbilder konnten noch nicht ergänzt werden.</span></div>${this._canEdit() ? `<button class="text-button" type="button" data-action="destination-gallery-refresh" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}">Externe Bilder erneut suchen</button>` : ""}</div>`;
-    }
+    // Own photos are the best possible state - a notice about missing
+    // EXTERNAL planning images is pure noise then (user feedback).
     if (hasOwnImages) return "";
     return `<div class="destination-gallery-inline ${failed ? "warning" : "neutral"}"><ha-icon icon="${failed ? "mdi:image-off-outline" : "mdi:image-search-outline"}"></ha-icon><div><strong>${failed ? "Bilder konnten noch nicht geladen werden" : "Noch keine passenden Planungsbilder"}</strong><span>${failed ? "Andere Stoppinformationen bleiben vollständig verfügbar." : "Roadplanner sucht im Hintergrund nach passenden Bildern."}</span></div>${this._canEdit() ? `<button class="text-button" type="button" data-action="destination-gallery-refresh" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}">Erneut versuchen</button>` : ""}</div>`;
   },
@@ -383,7 +382,30 @@ export const mediaMixin = {
     const syncState = oneDrive.sync_state || {};
     const scanStats = syncState.scan_stats || {};
     const statusText = oneDrive.connected ? `${oneDrive.account_name || "OneDrive"} verbunden` : oneDrive.configured ? "Bereit zur Microsoft-Anmeldung" : "Noch nicht eingerichtet";
-    const latest = media.slice(0, 120);
+    const mediaFilter = this._mediaFilter || "all";
+    const matchesFilter = (item) => {
+      if (mediaFilter === "unassigned") return (item.assignment_status || "unassigned") === "unassigned";
+      if (mediaFilter === "suggested") return item.assignment_status === "suggested";
+      if (mediaFilter === "assigned") return ["automatic", "manual"].includes(item.assignment_status);
+      return true;
+    };
+    // Keep the ABSOLUTE index into experience.media - media-open and the
+    // detail dialog navigate the full list by that index.
+    const filtered = media
+      .map((item, absoluteIndex) => ({ item, absoluteIndex }))
+      .filter(({ item }) => matchesFilter(item));
+    const pageSize = 60;
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const page = Math.max(0, Math.min(Number(this._mediaPage || 0), pageCount - 1));
+    const latest = filtered.slice(page * pageSize, (page + 1) * pageSize);
+    const filterChip = (value, label, count) => `<button class="text-button media-filter-chip ${mediaFilter === value ? "active" : ""}" type="button" data-action="media-filter" data-filter="${value}">${label}${Number.isFinite(count) ? ` (${count})` : ""}</button>`;
+    const counts = {
+      all: media.length,
+      unassigned: media.filter((item) => (item.assignment_status || "unassigned") === "unassigned").length,
+      suggested: media.filter((item) => item.assignment_status === "suggested").length,
+      assigned: media.filter((item) => ["automatic", "manual"].includes(item.assignment_status)).length,
+    };
+    const mediaControls = `<div class="media-controls"><div class="media-filter-row">${filterChip("all", "Alle", counts.all)}${filterChip("assigned", "Zugeordnet", counts.assigned)}${filterChip("suggested", "Zu prüfen", counts.suggested)}${filterChip("unassigned", "Ohne Tag", counts.unassigned)}</div>${pageCount > 1 ? `<div class="media-page-row"><button class="text-button" type="button" data-action="media-page" data-delta="-1" ${page <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon>Neuere</button><span>Bilder ${filtered.length ? page * pageSize + 1 : 0}–${Math.min((page + 1) * pageSize, filtered.length)} von ${filtered.length}</span><button class="text-button" type="button" data-action="media-page" data-delta="1" ${page >= pageCount - 1 ? "disabled" : ""}>Ältere<ha-icon icon="mdi:chevron-right"></ha-icon></button></div>` : ""}</div>`;
     const phase = syncState.mode || "";
     const phaseLabel = { initial_scan: "Selektiver Erstscan", delta_catchup: "Änderungen seit Scan nachziehen", delta: "Nur Änderungen" }[phase] || "Synchronisierung";
     const currentFolderValue = String(scanStats.current_folder || "");
@@ -421,7 +443,8 @@ export const mediaMixin = {
         ${this._mediaStat("mdi:help-circle-outline", "Zu prüfen", experience.stats?.suggested_count || 0)}
         ${this._mediaStat("mdi:image-off-outline", "Ohne Tag", experience.stats?.unassigned_count || 0)}
       </section>
-      ${latest.length ? `<section class="media-grid">${latest.map((item, index) => this._renderMediaCard(item, index)).join("")}</section>` : `<div class="empty-state"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><h2>Noch keine OneDrive-Fotos</h2><p>Verbinde OneDrive Personal und starte anschließend eine Synchronisierung. Bereits vorhandene Fotos im gewählten Kameraordner werden anhand von Datum und GPS zugeordnet.</p></div>`}
+      ${media.length ? mediaControls : ""}
+      ${latest.length ? `<section class="media-grid">${latest.map(({ item, absoluteIndex }) => this._renderMediaCard(item, absoluteIndex)).join("")}</section>` : media.length ? `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-filter-none"></ha-icon><h2>Keine Bilder in dieser Auswahl</h2><p>Wähle oben einen anderen Filter.</p></div>` : `<div class="empty-state"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><h2>Noch keine OneDrive-Fotos</h2><p>Verbinde OneDrive Personal und starte anschließend eine Synchronisierung. Bereits vorhandene Fotos im gewählten Kameraordner werden anhand von Datum und GPS zugeordnet.</p></div>`}
     `;
   },
 

@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- The Erinnerungen tab no longer cuts off after the 120 newest photos - with 200+ trip photos, every older photo was simply unreachable and could never be assigned. The photo grid now has assignment filters (Alle / Zugeordnet / Zu prüfen / Ohne Tag, each with live counts) and pages of 60 with "Neuere/Ältere" navigation and a "Bilder X–Y von Z" label; every photo of the trip is reachable and editable, on any page.
+
+### Fixed
+
+- With own photos present on a stop, the notice "Eigene Bilder vorhanden - Nur zusätzliche externe Planungsbilder konnten noch nicht ergänzt werden" is no longer shown at all: own photos are the best possible state, and a warning about missing EXTERNAL planning images is pure noise then. Without own photos, the failure notice (and its retry button) stays unchanged.
+
 ## [4.12.0] - 2026-07-30
 
 ### Fixed
