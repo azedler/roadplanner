@@ -145,8 +145,31 @@ def _normalize_image(value: Any) -> dict[str, Any]:
     return result
 
 
+# Keep in sync with experience_helpers.OPTION_STOP_PREFIX (importing it here
+# would create an import cycle). Galleries for a Stellplatz-Option are keyed
+# "option:<option-id>" - the colon is deliberate so a synthetic key can never
+# collide with a real stop id.
+OPTION_GALLERY_PREFIX = "option:"
+
+
+def validate_gallery_stop_id(value: Any, field_name: str) -> str:
+    """Gallery keys are a real stop id OR a synthetic 'option:<id>' key.
+
+    validate_identifier rejects the colon, which made every save/refresh of
+    an option gallery raise and every stored one be dropped on load - option
+    photos could never be persisted at all. Gallery keys live only as dict
+    keys in the experience store JSON (never in filenames), so accepting the
+    prefixed form is safe; the suffix stays a strictly validated identifier.
+    """
+    raw = value if isinstance(value, str) else ""
+    if raw.startswith(OPTION_GALLERY_PREFIX):
+        suffix = validate_identifier(raw[len(OPTION_GALLERY_PREFIX):], field_name)
+        return f"{OPTION_GALLERY_PREFIX}{suffix}"
+    return validate_identifier(value, field_name)
+
+
 def normalize_destination_gallery(raw: dict[str, Any]) -> dict[str, Any]:
-    stop_id = validate_identifier(raw.get("stop_id"), "destination_gallery.stop_id")
+    stop_id = validate_gallery_stop_id(raw.get("stop_id"), "destination_gallery.stop_id")
     day_id = validate_identifier(raw.get("day_id"), "destination_gallery.day_id")
     images: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -655,7 +678,7 @@ class ExperienceStore:
     ) -> dict[str, Any]:
         with self._lock:
             state = self.load(trip_id)
-            stop_id = validate_identifier(stop_id, "stop_id")
+            stop_id = validate_gallery_stop_id(stop_id, "stop_id")
             existing = (state.get("destination_galleries") or {}).get(stop_id)
             if not isinstance(existing, dict):
                 raise ValidationError(f"Bildergalerie nicht gefunden: {stop_id}")
@@ -667,7 +690,7 @@ class ExperienceStore:
     def delete_destination_gallery(self, trip_id: str, stop_id: str) -> None:
         with self._lock:
             state = self.load(trip_id)
-            stop_id = validate_identifier(stop_id, "stop_id")
+            stop_id = validate_gallery_stop_id(stop_id, "stop_id")
             if stop_id not in state.get("destination_galleries", {}):
                 return
             state["destination_galleries"].pop(stop_id, None)
