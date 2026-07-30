@@ -732,10 +732,36 @@ def _sanitize_operation(
         else:
             if not day_id:
                 raise ValidationError("Bestehende Stopps müssen über day_id referenziert werden")
-            if not entity_id or entity_id not in stop_ids.get(day_id, set()):
+            if not entity_id:
                 raise ValidationError(
-                    f"Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden: {entity_id or 'fehlt'}"
+                    "Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden: fehlt"
                 )
+            if entity_id not in stop_ids.get(day_id, set()):
+                # The stop may have moved to another day since the draft was
+                # written (a handoff applied in between), or the model guessed
+                # the wrong day for a stop it referenced correctly. Stop IDs
+                # are globally unique, so exactly one match elsewhere
+                # identifies the real day deterministically - same principle
+                # as _find_stop's stale-day-ID fallback in the panel. Only a
+                # stop found NOWHERE stays an error (deleted or invented).
+                matching_days = [
+                    known_day_id
+                    for known_day_id, known_stops in stop_ids.items()
+                    if entity_id in known_stops
+                ]
+                if len(matching_days) == 1:
+                    _LOGGER.debug(
+                        "Corrected stale day reference for stop %s: %s -> %s",
+                        entity_id,
+                        day_id,
+                        matching_days[0],
+                    )
+                    day_id = matching_days[0]
+                    operation["day_id"] = day_id
+                else:
+                    raise ValidationError(
+                        f"Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden: {entity_id}"
+                    )
             if "type" in operation["changes"]:
                 stop_type = _clean_text(
                     operation["changes"].get("type"),

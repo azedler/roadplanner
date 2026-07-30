@@ -22,6 +22,52 @@ from .place_enrichment import PlaceEnrichmentService
 from .roadplanner import ValidationError
 
 
+_ENRICHMENT_SOURCE = "roadplanner_place_enrichment"
+
+
+def _stop_ids_of_operations(operations: Any) -> set[str]:
+    return {
+        str(operation.get("entity_id"))
+        for operation in (operations if isinstance(operations, list) else [])
+        if isinstance(operation, dict)
+        and operation.get("entity_type") == "stop"
+        and operation.get("entity_id")
+    }
+
+
+def find_superseded_enrichment_handoffs(
+    pending_handoffs: list[dict[str, Any]],
+    envelopes_by_id: dict[str, dict[str, Any]],
+    new_stop_ids: set[str],
+) -> list[str]:
+    """Return pending place-enrichment handoff ids replaced by a new submit.
+
+    Confirming a stop's place profile again (easy to do: the "Ortsprofil
+    vervollständigen" badge stays visible while the first handoff sits
+    unapplied under Übergaben) used to just add a second pending handoff
+    for the same stop. The older one then went stale as the trip revision
+    advanced, showing a conflict that was pure noise - the newer handoff
+    already contains the fresher confirmation of the same place.
+    """
+    if not new_stop_ids:
+        return []
+    superseded: list[str] = []
+    for item in pending_handoffs:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("source") or "") != _ENRICHMENT_SOURCE:
+            continue
+        handoff_id = str(item.get("id") or "")
+        envelope = envelopes_by_id.get(handoff_id)
+        if not isinstance(envelope, dict):
+            continue
+        changeset = envelope.get("changeset")
+        operations = changeset.get("operations") if isinstance(changeset, dict) else []
+        if _stop_ids_of_operations(operations) & new_stop_ids:
+            superseded.append(handoff_id)
+    return superseded
+
+
 class PlaceEnrichmentOrchestrator:
     """Prepare and submit reviewable place-enrichment ChangeSets."""
 
@@ -74,6 +120,48 @@ class PlaceEnrichmentOrchestrator:
             "preview": preview,
             "experience": await self._get_panel_payload(trip_id),
         }
+
+    async def _async_supersede_stale_enrichment_handoffs(
+        self, new_stop_ids: set[str]
+    ) -> None:
+        """Archive older pending enrichment handoffs for the same stops.
+
+        Best-effort: a failure here must never block the new submit - worst
+        case the old duplicate stays visible, which is exactly the previous
+        behavior.
+        """
+        if not new_stop_ids:
+            return
+        try:
+            pending = await self.manager.async_list_handoffs(limit=100)
+            candidates = [
+                item
+                for item in pending.get("handoffs", [])
+                if isinstance(item, dict)
+                and str(item.get("source") or "") == _ENRICHMENT_SOURCE
+            ]
+            envelopes_by_id: dict[str, dict[str, Any]] = {}
+            for item in candidates:
+                handoff_id = str(item.get("id") or "")
+                try:
+                    envelopes_by_id[handoff_id] = await self.manager.async_get_handoff(
+                        handoff_id
+                    )
+                except ValidationError:
+                    continue
+            for handoff_id in find_superseded_enrichment_handoffs(
+                candidates, envelopes_by_id, new_stop_ids
+            ):
+                await self.manager.async_archive_handoff(
+                    handoff_id=handoff_id,
+                    resolution="superseded",
+                    note=(
+                        "Durch eine neuere Ortsprofil-Übergabe für denselben "
+                        "Stopp ersetzt."
+                    ),
+                )
+        except Exception:  # noqa: BLE001 - cleanup must never block the submit
+            return
 
     async def async_submit_place_enrichment(
         self,
@@ -156,6 +244,9 @@ class PlaceEnrichmentOrchestrator:
                 allow_nan=False,
             ).encode("utf-8")
         ).hexdigest()
+        await self._async_supersede_stale_enrichment_handoffs(
+            _stop_ids_of_operations(operations)
+        )
         ingest = await self.manager.async_ingest_external_changeset(
             changeset=changeset,
             title=title,
