@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The assistant filed a mountain hike (Skuleberget) as "Stadtbesichtigung" (sightseeing). The compile prompt listed the allowed stop types as a bare enumeration with no semantics - only the sleep-place types had an explicit meaning rule, so the model guessed for everything else. The prompt now carries a short meaning rule for the experience types: `activity` for anything actively undertaken (hike, summit, kayak/bike/boat tour, swim, via ferrata, guided tour), `sightseeing` exclusively for visiting a town (stroll, old town, harbour walk), `attraction` for a single visited sight (museum, castle, church, waterfall), `viewpoint` for a short photo/scenic halt - with the explicit anchor that a mountain or hiking trail is activity, never sightseeing.
+
 ## [4.11.3] - 2026-07-30
 
 ### Fixed
