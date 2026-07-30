@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- "Stopps anreichern" now takes a LINK: every place card has a "Link zum Ort" field (Google Maps, Park4Night, Booking, a campsite's own website, ...) with "Link lesen und übernehmen". Google-Maps links are resolved deterministically without any AI; Park4Night links use the existing specialized page reader; every other page is read by the Reisebegleiter (Gemini url_context) under the same never-guess rule (GPS only if the page literally states it). The result only prefills the manual-confirmation form - reviewing and confirming stays the user's explicit step, stored as manually confirmed, never as provider-verified.
+
 ## [4.12.0] - 2026-07-30
 
 ### Fixed
