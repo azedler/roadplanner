@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Preparing an assistant change review could fail outright with "Änderungsentwurf konnte nicht erstellt werden / Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden", even though the stop existed - just under a different day than the operation referenced, either because the stop moved days after the draft was written (a handoff applied in between) or because the model paired a correctly-referenced stop with the wrong day. Stop IDs are globally unique, so a single match under another day identifies the real day deterministically; the day reference is now corrected automatically (the same stale-day-ID fallback the panel has always had) instead of the whole pending change being rejected. A stop that exists on no day at all remains a hard error - it was deleted or invented, and silently guessing would write to the wrong place.
+- Confirming a stop's place profile twice left two pending "Ortsprofile vervollständigen" handoffs for the same stop under Übergaben - easy to do, because the "Ortsprofil vervollständigen" badge on the stop card stays visible while the first handoff sits unapplied. The older handoff then went stale as the trip revision advanced, showing a conflict warning that was pure noise. Submitting a new place-enrichment now automatically archives older pending enrichment handoffs that touch the same stop (marked "superseded"); handoffs from other sources or for other stops are never touched.
+
+### Changed
+
+- The "Ortsprofil vervollständigen" notice on a stop card now says where to actually do that: via the "Stopp anreichern" button below, and that the confirmed change then lands under "Übergaben" for the final apply - previously it asked for a confirmation without naming the place to give it, and didn't mention the second step at all.
+
 ## [4.11.2] - 2026-07-29
 
 ### Fixed
