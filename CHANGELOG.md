@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- (Audit) Photos for a Stellplatz-Option could never actually be saved: the synthetic gallery key "option:<id>" failed the strict identifier check (no colon allowed), so every save and refresh of an option gallery raised a validation error, and any gallery that ever made it into storage was silently dropped on load. Option covers therefore never appeared. Gallery keys now accept the "option:" prefix (the suffix stays strictly validated); real stop ids are unchanged.
+- (Audit) Activating a Stellplatz "Plan B" demoted the OLD activation-time snapshot of the previous stop instead of its current state - manual corrections made after activation (fixed GPS, renamed stop, rewritten notes) were silently thrown away, and re-activating "Plan A" restored stale data. Demotion now takes the stop's live name/GPS/notes and keeps only metadata (pros/cons, price, features, source) from the snapshot.
+- (Audit) Switching to a backup pitch was completely blocked when the day's existing overnight stop didn't pass strict option validation - e.g. an address-only location without GPS or an overlong name, both legitimate roadbook states. The activation aborted with an error about a field the user never entered. Demotion now clamps overlong fields instead of rejecting, and preserves an address-only location in the backup's notes instead of dropping it.
+
 ## [4.11.4] - 2026-07-30
 
 ### Fixed
