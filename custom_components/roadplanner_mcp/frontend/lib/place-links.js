@@ -7,7 +7,10 @@
 // cleanup stays part of the reviewed enrichment flow); these helpers only
 // clean what the PANEL shows and turn the reference into a proper link.
 
-const P4N_RE = /(?:\(\s*)?(?:p4n|park\s*4\s*night)[\s#:.\-–—]*(?:id|nr\.?|platz)?[\s#:.\-–—]*(\d{3,12})(?:\s*\))?/giu;
+// The optional ".com/<path>/" branch also matches real page links like
+// https://park4night.com/lieu/506374/ or /de/place/506374 - the path class
+// deliberately contains no digits, so the place ID is never split.
+const P4N_RE = /(?:\(\s*)?(?:p4n|park\s*4\s*night)(?:\.com\/[a-z\/_\-]*)?[\s#:.\-–—]*(?:id|nr\.?|platz)?[\s#:.\-–—]*(\d{3,12})(?:\s*\))?/giu;
 
 export const park4nightReference = (...texts) => {
   for (const text of texts) {
@@ -20,6 +23,19 @@ export const park4nightReference = (...texts) => {
     }
   }
   return null;
+};
+
+// Guarantee a Park4Night reference survives in the notes. The stop form's
+// lookup overwrites a name that carries the reference with the clean place
+// name - without this, the very first successful lookup DESTROYED the only
+// copy of the reference and every later lookup failed with "Kein
+// Park4Night-Verweis gefunden".
+export const withPark4nightReference = (notes, reference) => {
+  const text = typeof notes === "string" ? notes : "";
+  if (!reference || !reference.id || text.includes(reference.id)) return text;
+  const line = `Park4Night: ${reference.url}`;
+  const trimmed = text.replace(/\s+$/u, "");
+  return trimmed ? `${trimmed}\n${line}` : line;
 };
 
 export const cleanPlaceName = (name) => {

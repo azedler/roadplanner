@@ -197,6 +197,37 @@ def _known_ids(context: dict[str, Any]) -> tuple[set[str], dict[str, set[str]], 
                 )
     return day_ids, stop_ids, preference_ids
 
+def seed_position_state(days: Any) -> dict[str, list[dict[str, str]]]:
+    """Seed the stop-position bookkeeping from the FULL trip day list.
+
+    Position bookkeeping must cover every day an operation may legally
+    reference. The compile context's ``days`` list is only a bounded detail
+    window (basket-target days plus neighbours), while ID validation accepts
+    any day of the trip - seeding from the window therefore left every
+    out-of-window day looking EMPTY, so an add on such a day was forced to
+    position 1 (in front of the day's real stops) and a requested move
+    position was silently clamped to 1. Callers must pass the full stored
+    day list (``payload["days"]["days"]``), never the context window.
+    """
+    state: dict[str, list[dict[str, str]]] = {}
+    if not isinstance(days, list):
+        return state
+    for day in days:
+        if not isinstance(day, dict):
+            continue
+        day_id = _clean_text(day.get("id"), maximum=200)
+        if not day_id:
+            continue
+        state[day_id] = [
+            {
+                "id": _clean_text(stop.get("id"), maximum=200),
+                "type": _clean_text(stop.get("type"), maximum=100).casefold(),
+            }
+            for stop in canonical_roadbook_stops(day)
+            if isinstance(stop, dict)
+        ]
+    return state
+
 def _context_day_sequence(context: dict[str, Any]) -> list[dict[str, str]]:
     """Return the bounded trip day sequence used for deterministic day inference."""
     sequence: list[dict[str, str]] = []
@@ -480,8 +511,20 @@ def _infer_missing_stop_day_id(
         return detailed_ids[0]
     return ""
 
-def _day_detail(context: dict[str, Any], day_id: str) -> dict[str, Any] | None:
+def _day_detail(
+    context: dict[str, Any],
+    day_id: str,
+    *,
+    full_days: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     for day in context.get("days", []):
+        if isinstance(day, dict) and str(day.get("id") or "") == day_id:
+            return day
+    # context["days"] is only the bounded compile detail window, but day_id
+    # can legally point at ANY trip day (trip_index covers the whole trip).
+    # Without this fallback the past-overnight dedup saw no overnight stop on
+    # an out-of-window day and ADDED a duplicate instead of updating.
+    for day in full_days or []:
         if isinstance(day, dict) and str(day.get("id") or "") == day_id:
             return day
     return None
@@ -515,6 +558,8 @@ def _sanitize_operation(
     new_day_refs: set[str],
     basket: list[dict[str, Any]] | None = None,
     position_state: dict[str, list[dict[str, str]]] | None = None,
+    batch_refs: dict[str, Any] | None = None,
+    full_days: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValidationError(f"Assistenten-Operation {index + 1} ist kein Objekt")
@@ -594,6 +639,17 @@ def _sanitize_operation(
         if value:
             operation[field] = value
     position = raw.get("position")
+    # MIME-only JSON fallbacks emit numbers as strings ("2") or floats (2.0).
+    # Silently dropping them misplaced new stops (the requested position
+    # vanished) and hard-rejected position-only reorders further down.
+    if isinstance(position, str) and position.strip().isdigit():
+        position = int(position.strip())
+    elif (
+        isinstance(position, float)
+        and not isinstance(position, bool)
+        and position.is_integer()
+    ):
+        position = int(position)
     if isinstance(position, int) and not isinstance(position, bool) and position > 0:
         operation["position"] = position
 
@@ -626,6 +682,8 @@ def _sanitize_operation(
             raise ValidationError(
                 f"Bestehende Tages-ID ist nicht im aktuellen Roadbook vorhanden: {entity_id or 'fehlt'}"
             )
+        if action == "remove" and entity_id and batch_refs is not None:
+            batch_refs.setdefault("removed_days", set()).add(entity_id)
     elif entity_type == "stop":
         day_id, day_ref = _normalize_compiled_day_reference(
             operation,
@@ -655,6 +713,15 @@ def _sanitize_operation(
             raise ValidationError(f"Tages-ID der Stoppoperation ist unbekannt: {day_id}")
         if day_ref and day_ref not in new_day_refs:
             raise ValidationError(f"day_ref verweist nicht auf einen neuen Tag: {day_ref}")
+        if (
+            batch_refs is not None
+            and day_id
+            and day_id in batch_refs.get("removed_days", set())
+        ):
+            raise ValidationError(
+                "Der Reisetag wurde im selben Entwurf entfernt und kann nicht "
+                f"mehr referenziert werden: {day_id}"
+            )
 
         # "Wir haben hier geschlafen" describes the actual overnight point
         # that ended the previous travel day and starts the current one. If
@@ -665,7 +732,7 @@ def _sanitize_operation(
             and day_id
             and _is_actual_past_overnight(raw, basket=basket)
         ):
-            day_detail = _day_detail(context, day_id)
+            day_detail = _day_detail(context, day_id, full_days=full_days)
             overnight_stops = [
                 stop
                 for stop in canonical_roadbook_stops(day_detail or {})
@@ -686,6 +753,10 @@ def _sanitize_operation(
         if action == "add":
             if not entity_id:
                 operation["entity_id"] = f"new-stop-{uuid4().hex[:12]}"
+            if batch_refs is not None:
+                batch_refs.setdefault("added_stops", {})[
+                    str(operation["entity_id"])
+                ] = str(day_id or day_ref or "")
             if not _clean_text(operation["changes"].get("name"), maximum=500):
                 raise ValidationError("Ein neuer Stopp benötigt einen Namen")
             stop_type = _clean_text(
@@ -730,13 +801,39 @@ def _sanitize_operation(
                     },
                 )
         else:
-            if not day_id:
-                raise ValidationError("Bestehende Stopps müssen über day_id referenziert werden")
+            added_stops = batch_refs.get("added_stops", {}) if batch_refs else {}
+            removed_stops = batch_refs.get("removed_stops", set()) if batch_refs else set()
             if not entity_id:
                 raise ValidationError(
                     "Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden: fehlt"
                 )
-            if entity_id not in stop_ids.get(day_id, set()):
+            if entity_id in removed_stops:
+                raise ValidationError(
+                    "Der Stopp wurde im selben Entwurf bereits entfernt und "
+                    f"kann nicht mehr geändert werden: {entity_id}"
+                )
+            if entity_id in added_stops:
+                # Reference to a stop ADDED earlier in the same draft (add
+                # then move/update/remove is a natural compile shape and the
+                # canonical ChangeSet executor resolves just-added stops).
+                # Previously this hard-rejected the whole draft as an
+                # unknown stop ID. Align the day reference to the add's
+                # parent - the add is authoritative about where the stop is.
+                parent = added_stops[entity_id]
+                if parent in new_day_refs:
+                    operation.pop("day_id", None)
+                    operation["day_ref"] = parent
+                    day_id, day_ref = "", parent
+                elif parent:
+                    operation.pop("day_ref", None)
+                    operation["day_id"] = parent
+                    day_id, day_ref = parent, ""
+                if action == "remove" and batch_refs is not None:
+                    batch_refs["added_stops"].pop(entity_id, None)
+                    batch_refs.setdefault("removed_stops", set()).add(entity_id)
+            elif not day_id:
+                raise ValidationError("Bestehende Stopps müssen über day_id referenziert werden")
+            elif entity_id not in stop_ids.get(day_id, set()):
                 # The stop may have moved to another day since the draft was
                 # written (a handoff applied in between), or the model guessed
                 # the wrong day for a stop it referenced correctly. Stop IDs
@@ -762,6 +859,12 @@ def _sanitize_operation(
                     raise ValidationError(
                         f"Bestehende Stopp-ID ist nicht im aktuellen Reisetag vorhanden: {entity_id}"
                     )
+            if (
+                action == "remove"
+                and batch_refs is not None
+                and entity_id not in added_stops
+            ):
+                batch_refs.setdefault("removed_stops", set()).add(entity_id)
             if "type" in operation["changes"]:
                 stop_type = _clean_text(
                     operation["changes"].get("type"),
@@ -770,8 +873,9 @@ def _sanitize_operation(
                 if stop_type not in _ALLOWED_STOP_TYPES:
                     raise ValidationError(f"Nicht unterstützter Stopptyp: {stop_type}")
                 operation["changes"]["type"] = stop_type
-            if position_state is not None and day_id:
-                state = position_state.setdefault(day_id, [])
+            parent_ref = str(day_id or day_ref or "")
+            if position_state is not None and parent_ref:
+                state = position_state.setdefault(parent_ref, [])
                 current_index = next(
                     (
                         state_index
@@ -841,5 +945,15 @@ def _sanitize_operation(
             "Eine Aktualisierung benötigt Änderungen, eine Position oder place_query"
         )
     if action in {"remove", "move"} and operation["changes"]:
-        raise ValidationError("changes muss bei remove/move leer sein")
+        # Gemini routinely echoes identifying fields (name, type, ...) into
+        # changes on delete/move operations. The echo carries no user data -
+        # the referenced entity is identified by its ID - so drop it instead
+        # of rejecting the whole multi-operation draft over it.
+        _LOGGER.debug(
+            "Dropped echoed changes on %s operation %s: %s",
+            action,
+            index + 1,
+            sorted(operation["changes"]),
+        )
+        operation["changes"] = {}
     return operation

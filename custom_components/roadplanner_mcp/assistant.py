@@ -23,7 +23,6 @@ from homeassistant.util import dt as dt_util
 from .assistant_context import AssistantContextBuilder
 from .canonical_day import (
     canonical_day_stops,
-    canonical_roadbook_stops,
     location_status,
 )
 from .assistant_plugins import (
@@ -57,7 +56,11 @@ from .assistant_compile import (
     _bounded_context,
     _prepare_compiled_operation_batch,
 )
-from .assistant_operation_sanitizer import _needs_research, _sanitize_operation
+from .assistant_operation_sanitizer import (
+    _needs_research,
+    _sanitize_operation,
+    seed_position_state,
+)
 from .destination_intelligence import _URL_RE, _google_maps_host
 from .assistant_shared import (
     _clean_reply,
@@ -1323,23 +1326,33 @@ class RoadplannerAssistant:
                 prepared_raw_operations, new_day_refs = (
                     _prepare_compiled_operation_batch(raw_operations)
                 )
-                position_state: dict[str, list[dict[str, str]]] = {}
-                for context_day in context.get("days", []):
-                    if not isinstance(context_day, dict):
-                        continue
-                    context_day_id = _clean_text(context_day.get("id"), maximum=200)
-                    if not context_day_id:
-                        continue
-                    position_state[context_day_id] = [
-                        {
-                            "id": _clean_text(stop.get("id"), maximum=200),
-                            "type": _clean_text(stop.get("type"), maximum=100).casefold(),
-                        }
-                        for stop in canonical_roadbook_stops(context_day)
-                        if isinstance(stop, dict)
-                    ]
+                # Seed from the FULL stored day list, not context["days"]:
+                # the compile context is a bounded detail window, but ID
+                # validation accepts any day of the trip. Seeding from the
+                # window made out-of-window days look empty, forcing their
+                # stops to position 1.
+                stored_days = payload.get("days")
+                position_state: dict[str, list[dict[str, str]]] = (
+                    seed_position_state(
+                        stored_days.get("days")
+                        if isinstance(stored_days, dict)
+                        else None
+                    )
+                )
                 for day_ref in new_day_refs:
                     position_state.setdefault(day_ref, [])
+                # Cross-operation bookkeeping for the whole batch: stops/days
+                # added or removed earlier in the SAME draft, so later
+                # operations referencing them are handled at sanitize time
+                # (clear error / legal same-batch reference) instead of
+                # blowing up the whole draft at changeset ingestion.
+                batch_refs: dict[str, Any] = {}
+                stored_days = payload.get("days")
+                full_day_list = (
+                    stored_days.get("days") if isinstance(stored_days, dict) else None
+                )
+                if not isinstance(full_day_list, list):
+                    full_day_list = None
                 for index, raw in enumerate(prepared_raw_operations):
                     place_query = raw.get("place_query") if isinstance(raw, dict) else None
                     if isinstance(place_query, str) and place_query:
@@ -1356,6 +1369,8 @@ class RoadplannerAssistant:
                             new_day_refs=new_day_refs,
                             basket=session.basket,
                             position_state=position_state,
+                            batch_refs=batch_refs,
+                            full_days=full_day_list,
                         )
                     )
                 open_questions, open_questions_omitted = _normalize_text_items(

@@ -1,6 +1,6 @@
 import { escapeHtml, cleanText, cloneObject } from "../lib/core-helpers.js";
 import { stopIcons } from "../lib/constants.js";
-import { park4nightReference, cleanPlaceName } from "../lib/place-links.js";
+import { park4nightReference, cleanPlaceName, withPark4nightReference } from "../lib/place-links.js";
 
 export const tripDayStopMixin = {
   _isOvernightStop(stop) {
@@ -550,6 +550,14 @@ export const tripDayStopMixin = {
     setField("longitude", facts.longitude, { overwrite: true });
     setField("city", facts.city);
     setField("country_code", facts.country_code);
+    // Before the clean place name replaces a name that carries the p4n
+    // reference, make sure the reference survives in the notes - otherwise
+    // the first successful lookup destroys the only copy and every later
+    // lookup fails with "Kein Park4Night-Verweis gefunden".
+    const notesInput = form.querySelector("[name='notes']");
+    if (notesInput) {
+      notesInput.value = withPark4nightReference(notesInput.value, reference);
+    }
     const nameInput = form.querySelector("[name='name']");
     if (nameInput && facts.name && (!cleanText(nameInput.value) || park4nightReference(nameInput.value))) {
       nameInput.value = facts.name;

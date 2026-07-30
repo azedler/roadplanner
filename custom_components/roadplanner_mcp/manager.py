@@ -32,6 +32,30 @@ from .routing import (
 UpdateCallback = Callable[[dict[str, Any]], None]
 
 
+def _compact_apply_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Bound the apply result persisted into a handoff envelope.
+
+    apply_changeset returns the FULL coordinator payload under "trip" -
+    unbounded, and easily beyond the 256-KiB envelope limit on a large
+    enriched trip. mark_applied then raised AFTER the commit was already
+    durable, leaving an applied handoff stuck as "pending" forever (every
+    re-apply hits a revision conflict, a rebase re-apply fails on
+    already-existing IDs). Only the compact facts are persisted; callers
+    that need the fresh payload keep using the live return value.
+    """
+    if not isinstance(result, dict):
+        return {}
+    compact = {
+        key: value
+        for key, value in result.items()
+        if key != "trip" and isinstance(value, (bool, int, float, str))
+    }
+    trip = result.get("trip")
+    if isinstance(trip, dict) and trip.get("id"):
+        compact["trip_id"] = str(trip.get("id"))
+    return compact
+
+
 class RoadplannerManager:
     """Serialize all file operations and keep Home Assistant responsive."""
 
@@ -138,7 +162,7 @@ class RoadplannerManager:
             else:
                 applied = self.handoff_store.mark_applied(
                     handoff_id=current_id,
-                    result=apply_result,
+                    result=_compact_apply_result(apply_result),
                 )
                 result["applied"].append(applied)
         return result
@@ -830,7 +854,7 @@ class RoadplannerManager:
                 partial(
                     self.handoff_store.mark_applied,
                     handoff_id=handoff_id,
-                    result=apply_result,
+                    result=_compact_apply_result(apply_result),
                 )
             )
             payload = await self.hass.async_add_executor_job(

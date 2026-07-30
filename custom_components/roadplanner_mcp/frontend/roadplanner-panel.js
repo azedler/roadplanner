@@ -50,6 +50,7 @@ class RoadplannerPanel extends HTMLElement {
     this._eventUnsubscribe = null;
     this._eventRefreshTimer = null;
     this._refreshQueued = false;
+    this._actionChain = Promise.resolve();
     this._narrow = false;
     this._mapModels = new Map();
     this._mapHelpersPromise = null;
@@ -328,8 +329,25 @@ class RoadplannerPanel extends HTMLElement {
     if (progress) progress.toggleAttribute("hidden", !this._busy);
   }
 
-  async _runAction(action, data = {}, successMessage = "Änderung gespeichert", options = {}) {
-    if (this._busy) return null;
+  _runAction(action, data = {}, successMessage = "Änderung gespeichert", options = {}) {
+    // Actions are SERIALIZED, never silently dropped: the old
+    // `if (this._busy) return null` discarded a save/move/delete without
+    // any feedback whenever another action was still running (e.g. a
+    // multi-second route calculation) - the dialog closed and every edit
+    // was lost, indistinguishable from success. Long-running opt-outs
+    // (blockUi: false, e.g. video export) bypass the queue so they never
+    // stall it.
+    const opts = options || {};
+    if (opts.blockUi === false) {
+      return this._runActionNow(action, data, successMessage, opts);
+    }
+    const run = () => this._runActionNow(action, data, successMessage, opts);
+    const chained = this._actionChain.then(run, run);
+    this._actionChain = chained.catch(() => {});
+    return chained;
+  }
+
+  async _runActionNow(action, data = {}, successMessage = "Änderung gespeichert", options = {}) {
     const {
       refresh = true,
       errorMode = "toast",
@@ -379,12 +397,22 @@ class RoadplannerPanel extends HTMLElement {
         this._showToast(message, "error", 6500);
       }
       if (String(error?.code || "").includes("revision")) {
-        await this._loadData({ silent: true, force: true });
+        // With a dialog open, reloading now would re-render the shadow
+        // root and rebuild the form from stale data, wiping typed input
+        // right when the user needs it to retry - queue instead; the
+        // refresh flushes when the dialog closes.
+        if (this._dialog) this._refreshQueued = true;
+        else await this._loadData({ silent: true, force: true });
       }
       return null;
     } finally {
       if (blockUi) this._setBusy(false);
-      if (this._refreshQueued) {
+      // Never flush a queued refresh while a dialog is open: _loadData
+      // re-renders the whole shadow root, erasing typed form input and
+      // detaching the form element mid-interaction (the Park4Night
+      // prefill then wrote into detached DOM while the toast claimed
+      // success). _closeDialog flushes the queue instead.
+      if (this._refreshQueued && !this._dialog) {
         this._refreshQueued = false;
         await this._loadData({ silent: true, force: true });
       }
@@ -1932,12 +1960,16 @@ class RoadplannerPanel extends HTMLElement {
         position: nullableNumber(values.position, true),
         expected_revision: expectedRevision,
       };
-      this._closeDialog({ flushRefresh: false });
       this._expandedDays.add(common.day_id);
+      // Close only AFTER the server accepted the save: closing first threw
+      // away every typed field on any rejection (lone latitude, stale
+      // revision, ...) with nothing but a toast - the same result-gated
+      // pattern the media/archive/crew forms have always used.
+      let result;
       if (mode === "add") {
-        await this._runAction("add_stop", common, "Stopp hinzugefügt");
+        result = await this._runAction("add_stop", common, "Stopp hinzugefügt");
       } else {
-        await this._runAction("update_stop", {
+        result = await this._runAction("update_stop", {
           day_id: common.day_id,
           stop_id: form.dataset.stopId,
           expected_revision: common.expected_revision,
@@ -1953,6 +1985,7 @@ class RoadplannerPanel extends HTMLElement {
           },
         }, "Stopp gespeichert");
       }
+      if (result) this._closeDialog();
     }
   }
 
