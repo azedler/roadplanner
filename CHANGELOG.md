@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Briefly leaving the app while the assistant was working showed "Änderungsentwurf konnte nicht erstellt werden / Connection lost" - even though nothing failed: backgrounding the mobile app kills the WebSocket, but assistant_prepare (like the chat, the video export and the page lookups) is shielded server-side and runs to completion; the draft/handoff arrives anyway. The scary error dialog made users retry and produced duplicate handoffs. A connection-lost failure on such a server-continuing action now shows a calm "Roadplanner arbeitet auf dem Server weiter - bitte nicht erneut starten" toast and automatically re-checks a few seconds later, so the arrived result (e.g. the new entry under Übergaben) shows up on its own. Real failures and ordinary actions keep the loud error path unchanged.
+
 ## [4.14.2] - 2026-07-31
 
 ### Fixed

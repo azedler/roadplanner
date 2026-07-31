@@ -27,6 +27,18 @@ import { tripDayStopMixin } from "./features/trip-day-stop.js";
 import { crewMixin } from "./features/crew.js";
 import { pitchesMixin } from "./features/pitches.js";
 
+// Mirror of panel.py's _PROVIDER_CALL_ACTIONS: these run shielded
+// server-side and finish even when the client connection dies.
+const SERVER_CONTINUING_ACTIONS = new Set([
+  "assistant_chat",
+  "assistant_prepare",
+  "assistant_test",
+  "assistant_briefing",
+  "export_trip_video",
+  "park4night_lookup",
+  "place_link_lookup",
+]);
+
 class RoadplannerPanel extends HTMLElement {
   constructor() {
     super();
@@ -387,6 +399,22 @@ class RoadplannerPanel extends HTMLElement {
       return result;
     } catch (error) {
       const message = this._errorMessage(error);
+      if (this._isConnectionLostError(error) && SERVER_CONTINUING_ACTIONS.has(action)) {
+        // Backgrounding the app kills the WebSocket, but these actions are
+        // shielded server-side and run to completion anyway (the draft/
+        // reply/handoff arrives regardless). A scary error dialog here made
+        // users retry and produced duplicates - inform, then re-check.
+        this._showToast(
+          "Verbindung kurz unterbrochen - Roadplanner arbeitet auf dem Server weiter. Das Ergebnis erscheint gleich automatisch (z. B. unter „Übergaben“). Bitte nicht erneut starten.",
+          "success",
+          9000,
+        );
+        window.setTimeout(() => {
+          if (this._dialog) this._refreshQueued = true;
+          else void this._loadData({ silent: true, force: true });
+        }, 5000);
+        return null;
+      }
       if (errorMode === "dialog") {
         this._showActionError(message, {
           title: errorTitle,
@@ -473,6 +501,12 @@ class RoadplannerPanel extends HTMLElement {
       textarea.remove();
       this._showToast("Fehlerdetails kopiert", "success", 3000);
     }
+  }
+
+  _isConnectionLostError(error) {
+    if (Number(error?.code) === 3) return true;
+    const message = String(error?.message || error?.error?.message || error || "").toLowerCase();
+    return message.includes("connection lost") || message.includes("connection is closed");
   }
 
   _showToast(message, type = "success", duration = 3500) {
