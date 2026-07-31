@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- The Stellplätze tab now calculates REAL road routes per candidate ("Routen je Option berechnen"): the active overnight stop and every non-rejected option with GPS get an OSRM route through the day's corridor (last GPS stop before the overnight -> candidate -> first own stop of the next day). The direct corridor route is the baseline, so every candidate shows its true detour ("+12 min · +8,4 km Umweg") as a chip on its row and in a summary line, and all routes are drawn on the day's map as colored overlays. With strategy "route_optimal", options are ranked by computed detour. Results are display-only (nothing is written to the roadbook), hash-cached (re-opening the tab costs zero provider calls until a coordinate changes), and options without GPS are named instead of silently skipped.
+
 ## [4.13.0] - 2026-07-30
 
 ### Added

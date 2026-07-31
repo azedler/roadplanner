@@ -255,6 +255,8 @@ export const PANEL_STYLES = `<style>
       .pitch-chip ha-icon { --mdc-icon-size: 14px; }
       .pitch-chip-pro { background: rgba(76, 175, 80, 0.16); color: #4caf50; }
       .pitch-chip-con { background: rgba(244, 67, 54, 0.14); color: #f44336; }
+      .pitch-chip-route { background: rgba(33, 150, 243, 0.14); color: var(--primary-color); }
+      .pitch-route-summary span { display: block; }
       .pitch-option-cover { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
       .pitch-plan-b-cover { width: 100%; max-height: 160px; border-radius: 14px; object-fit: cover; margin-bottom: 10px; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
