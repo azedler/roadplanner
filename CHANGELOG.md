@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.1] - 2026-07-31
+
 ### Fixed
 
 - (Found by the new pipeline simulation on its FIRST run) "Add a stop, then move/update it in the same draft" passed the assistant sanitizer but still failed at ChangeSet execution with "Stopp nicht gefunden": the dialect adapter translated the same-batch reference as a direct stop_id, while the executor resolves batch-added entities only through the client-id registries. Same-batch references to just-added stops AND days are now rewritten onto the ref channel during normalization, so the whole add-then-modify shape finally works end-to-end.
