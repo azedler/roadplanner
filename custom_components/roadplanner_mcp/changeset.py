@@ -921,6 +921,29 @@ def normalize_changeset(raw: Any) -> dict[str, Any]:
         _adapt_operation_dialect(operation, index)
         for index, operation in enumerate(raw_operations)
     ]
+    # A later operation may reference an entity ADDED earlier in the same
+    # ChangeSet by its client id ("add stop, then move it" - the assistant
+    # dialect uses one entity_id for both). The executor resolves batch-added
+    # entities only through the *_ref registries (client id -> minted id), so
+    # a direct stop_id/day_id carrying a client id would fail with
+    # "nicht gefunden". Rewrite those references onto the ref channel.
+    added_stop_client_ids: set[str] = set()
+    added_day_client_ids: set[str] = set()
+    for operation in adapted_operations:
+        op_name = operation.get("op")
+        if op_name == "add_stop" and operation.get("client_id"):
+            added_stop_client_ids.add(str(operation["client_id"]))
+        elif op_name == "add_day" and operation.get("client_id"):
+            added_day_client_ids.add(str(operation["client_id"]))
+        else:
+            stop_id = operation.get("stop_id")
+            if stop_id is not None and str(stop_id) in added_stop_client_ids:
+                operation.pop("stop_id", None)
+                operation["stop_ref"] = str(stop_id)
+            day_id = operation.get("day_id")
+            if day_id is not None and str(day_id) in added_day_client_ids:
+                operation.pop("day_id", None)
+                operation["day_ref"] = str(day_id)
     operations = [
         _normalize_operation(operation, index)
         for index, operation in enumerate(adapted_operations)
