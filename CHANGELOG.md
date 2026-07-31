@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.2] - 2026-07-31
+
 ### Fixed
 
 - Preparing an assistant change review could fail outright with "Änderungsentwurf konnte nicht erstellt werden / Nicht erlaubte Felder für stop: travelers". Since the ferry-details fix, the response schema legitimately allows travelers/vehicle/preferences inside changes (for the TRIP) - so the model sometimes echoes them on a stop or day too, and the strict per-entity field check rejected the whole multi-operation draft over that redundant echo. Such strays are now salvaged into the notes as compact text ("Reisende: Aron, Michaela, Levi"), the same approach used for stray category/text; canonical trip-level crew and vehicle data stays untouched, and an empty echo is dropped without a noise note.
