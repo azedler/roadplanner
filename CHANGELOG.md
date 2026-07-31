@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-07-31
+
 ### Added
 
 - Trip handovers with MULTIPLE overnight candidates per day ("Übernachtung - Plan A/B/C" blocks, e.g. from a ChatGPT-planned route) now land as real Stellplatz-Optionen: the assistant files Plan A as the day's overnight stop and every further candidate into the day's overnight plan - with its Park4Night link as source, the equipment list as pros/cons chips and the rest as notes. The merge happens server-side against the STORED day (the ChangeSet merges details only one level deep, so a raw model plan would have replaced existing options wholesale): user-created options always survive, the same Park4Night place is never added twice (dedup by p4n id, then url, then name), candidates are validated leniently and capped at 6, and model-provided coordinates are never accepted - the option's link is the reviewable path to real GPS. Combined with the new per-option detour routes, a pasted A/B/C plan becomes a fully comparable Stellplatz decision per day.
