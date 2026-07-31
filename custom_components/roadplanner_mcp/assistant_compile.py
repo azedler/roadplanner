@@ -135,6 +135,26 @@ _ALLOWED_STOP_TYPES = {
 }
 
 
+def _stray_value_text(value: Any, *, maximum: int = 500) -> str:
+    """Render a stray structured value as short human-readable German text."""
+    parts: list[str] = []
+    if isinstance(value, str):
+        parts.append(value.strip())
+    elif isinstance(value, list):
+        for item in value[:10]:
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+            elif isinstance(item, dict):
+                name = str(item.get("name") or item.get("title") or "").strip()
+                if name:
+                    parts.append(name)
+    elif isinstance(value, dict):
+        for key, item in list(value.items())[:10]:
+            if isinstance(item, (str, int, float)) and str(item).strip():
+                parts.append(f"{key}: {str(item).strip()}")
+    return ", ".join(part for part in parts if part)[:maximum]
+
+
 def _normalize_compiled_operation_aliases(
     raw: dict[str, Any],
     *,
@@ -686,6 +706,29 @@ def _normalize_compiled_operation_aliases(
             stray_reason = _clean_text(changes.pop("reason"), maximum=1_000)
             if stray_reason and not _clean_text(result.get("reason"), maximum=1_000):
                 result["reason"] = stray_reason
+
+        # Trip-only structured fields (travelers/vehicle/preferences) are
+        # allowed in the response schema since the ferry-details fix - the
+        # model therefore sometimes echoes them on a stop or day ("Crew:
+        # Aron, Michaela, ..."). Rejecting the whole draft over that echo
+        # ("Nicht erlaubte Felder für stop: travelers") throws away every
+        # other change; salvage a compact text into notes instead - the
+        # canonical crew/vehicle data on the trip stays untouched.
+        if entity_type != "trip":
+            for stray_field, label in (
+                ("travelers", "Reisende"),
+                ("vehicle", "Fahrzeug"),
+                ("preferences", "Präferenzen"),
+            ):
+                if stray_field not in changes:
+                    continue
+                summary = _stray_value_text(changes.pop(stray_field))
+                if summary:
+                    existing_notes = _clean_text(changes.get("notes"), maximum=8_000)
+                    note = f"{label}: {summary}"
+                    changes["notes"] = (
+                        f"{existing_notes}\n{note}" if existing_notes else note
+                    )[:8_000]
 
         if entity_type != "preference" and "category" in changes:
             stray_category = _clean_text(changes.pop("category"), maximum=200)
