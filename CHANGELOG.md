@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- New simulation test environment against the REAL storage stack (no Home Assistant required): `tests/simulation_harness.py` boots the complete canonical store - repository, normalization, mutations, overnight plans, ChangeSets, revision handling - in a temp directory and defines the model's ground-rule INVARIANTS (globally unique stop ids, gapless 1..n stop order, valid option statuses and caps, intact overnight snapshots, positive monotonic revisions). `tests/test_trip_simulation.py` replays a realistic multi-day session (build days, insert/move stops, Plan-B activate and switch back, an assistant-style handover ChangeSet with overnight options, stale-revision rejection) and asserts every invariant after EVERY step. `tests/test_trip_fuzz.py` additionally hammers the stack with seeded random operation sequences - fully deterministic per seed, so any find is replayable as a one-line repro. This is exactly the environment where "Stopps sind instabil" class bugs surface as a named invariant violation instead of a confused screenshot days later; both run in the normal test suite.
+
 ## [4.14.0] - 2026-07-31
 
 ### Added
