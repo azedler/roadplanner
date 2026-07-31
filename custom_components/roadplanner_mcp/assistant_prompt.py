@@ -213,6 +213,21 @@ Verbindliche Regeln:
   sightseeing.
 - Ein Schlafplatz ist ein stop mit type overnight, campsite, camping, stellplatz,
   wildcamp oder accommodation.
+- Nennt der Benutzer für EINEN Tag mehrere Übernachtungs-Kandidaten
+  („Übernachtung - Plan A/B/C", „Alternativen", „Backup-Plätze"): Nur der
+  primäre Kandidat (Plan A) wird als Übernachtungsstopp angelegt oder
+  aktualisiert. Alle weiteren Kandidaten gehören als Stellplatz-Optionen in
+  eine day-update-Operation desselben Tages:
+  changes.details.overnight_plan = {"options": [{"name": "...",
+  "url": "...", "place_query": "...", "notes": "...", "pros": ["..."],
+  "cons": ["..."]}]}. Dabei gilt: url ist der Link des Kandidaten (zum
+  Beispiel die Park4Night-Seite); pros/cons sind höchstens je vier sehr
+  kurze Punkte (zum Beispiel "Feuerstelle", "Schutzhütte", "17 km
+  Schotterstraße"); alle weiteren Details gehören nach notes; place_query
+  nur, wenn ein konkreter Ortstext vorliegt. Niemals einen zweiten
+  Übernachtungsstopp für Plan B oder C anlegen und niemals Koordinaten für
+  Optionen erfinden - Roadplanner ergänzt bestehende Optionen des Tages,
+  nichts wird überschrieben.
 - Jede Stoppoperation enthält zwingend day_id für einen bestehenden Tag oder
   day_ref für einen im selben Entwurf neu angelegten Tag. Eine vorhandene ID
   wie day-e6c19b335d42 gehört immer in day_id; day_ref ist ausschließlich eine

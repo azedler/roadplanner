@@ -13,6 +13,7 @@ commit around these transformations lives in trip_mutations.py.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from .assistant_shared import OVERNIGHT_STOP_TYPES
@@ -228,6 +229,96 @@ def apply_set_option_status(day_document: dict[str, Any], option_id: str, status
     option["updated_at"] = now
     _write_plan(day, plan)
     return option
+
+
+_P4N_URL_ID_RE = re.compile(r"park\s*4\s*night[^0-9]*?(\d{3,12})", re.IGNORECASE)
+_MAX_ASSISTANT_OPTIONS_PER_BATCH = 12
+
+
+def _option_identity(option: dict[str, Any]) -> tuple[str, str]:
+    """Stable identity for dedup: Park4Night id beats url beats name."""
+    source = option.get("source") if isinstance(option.get("source"), dict) else {}
+    url = str(source.get("url") or option.get("url") or "").strip()
+    match = _P4N_URL_ID_RE.search(url)
+    if match:
+        return ("p4n", match.group(1))
+    if url:
+        return ("url", url.casefold())
+    return ("name", str(option.get("name") or "").strip().casefold())
+
+
+def merge_assistant_overnight_plan(
+    day: dict[str, Any] | None,
+    incoming: Any,
+    *,
+    now: str,
+) -> dict[str, Any]:
+    """Merge assistant-supplied overnight candidates into a day's plan.
+
+    The ChangeSet merges ``details`` only ONE level deep, so whatever lands
+    under ``details.overnight_plan`` replaces the stored plan wholesale. The
+    model must therefore never hand-write that structure: this helper takes
+    the raw candidate list from a compiled operation, validates each
+    candidate leniently (clamp instead of reject), dedupes against the
+    day's EXISTING options (Park4Night id, url, then name), and returns
+    existing + new, capped at MAX_OVERNIGHT_OPTIONS - user-created options
+    are never lost. Model-provided coordinates are deliberately dropped:
+    AI/model GPS is never trusted; the option's url/place_query is the
+    reviewable path to real coordinates.
+    """
+    plan = get_overnight_plan(day or {})
+    raw_options: list[Any] = []
+    if isinstance(incoming, dict):
+        candidates = incoming.get("options")
+        raw_options = candidates if isinstance(candidates, list) else []
+        strategy = incoming.get("strategy")
+        if strategy in OVERNIGHT_STRATEGIES:
+            plan["strategy"] = strategy
+    elif isinstance(incoming, list):
+        raw_options = incoming
+    seen = {_option_identity(option) for option in plan["options"]}
+    for raw in raw_options[:_MAX_ASSISTANT_OPTIONS_PER_BATCH]:
+        if not isinstance(raw, dict):
+            continue
+        name = " ".join(str(raw.get("name") or "").split())[: _MAX_TEXT["name"]]
+        if not name:
+            continue
+        raw_source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+        url = str(raw.get("url") or raw_source.get("url") or "").strip()[: _MAX_TEXT["url"]]
+        p4n_match = _P4N_URL_ID_RE.search(url)
+        pros = [
+            " ".join(str(item).split())[:200]
+            for item in (raw.get("pros") if isinstance(raw.get("pros"), list) else [])
+            if str(item).strip()
+        ][:_MAX_PROS_CONS]
+        cons = [
+            " ".join(str(item).split())[:200]
+            for item in (raw.get("cons") if isinstance(raw.get("cons"), list) else [])
+            if str(item).strip()
+        ][:_MAX_PROS_CONS]
+        candidate = {
+            "name": name,
+            "place_query": str(raw.get("place_query") or "")[: _MAX_TEXT["place_query"]],
+            "notes": str(raw.get("notes") or "")[: _MAX_TEXT["notes"]],
+            "pros": pros,
+            "cons": cons,
+            "status": "backup",
+            "source": {
+                "type": "assistant",
+                "provider": "park4night" if p4n_match else None,
+                "provider_id": p4n_match.group(1) if p4n_match else None,
+                "url": url or None,
+            },
+        }
+        option = validate_option_input(candidate, now=now)
+        identity = _option_identity(option)
+        if identity in seen:
+            continue
+        if len(plan["options"]) >= MAX_OVERNIGHT_OPTIONS:
+            break
+        plan["options"].append(option)
+        seen.add(identity)
+    return plan
 
 
 def apply_set_strategy(day_document: dict[str, Any], strategy: str) -> str:
