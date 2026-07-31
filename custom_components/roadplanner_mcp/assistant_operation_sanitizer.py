@@ -28,12 +28,14 @@ from .assistant_compile import (
 )
 from .assistant_shared import (
     OVERNIGHT_STOP_TYPES,
+    _utc_now_iso,
     _ALLOWED_ENTITY_TYPES,
     _GERMAN_DATE_IN_TEXT,
     _ISO_DATE_IN_TEXT,
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops
+from .pitch_options import merge_assistant_overnight_plan
 from .destination_intelligence import (
     _PARK4NIGHT_ID_RE,
     _URL_RE,
@@ -684,6 +686,22 @@ def _sanitize_operation(
             )
         if action == "remove" and entity_id and batch_refs is not None:
             batch_refs.setdefault("removed_days", set()).add(entity_id)
+        day_changes_details = operation["changes"].get("details")
+        if isinstance(day_changes_details, dict) and "overnight_plan" in day_changes_details:
+            # The model hands over overnight CANDIDATES (Plan B/C blocks),
+            # never the stored structure: details merges only one level deep
+            # at apply time, so a raw model plan would replace the day's
+            # existing options wholesale. Merge server-side against the
+            # stored day instead - existing options survive, new ones are
+            # validated leniently, deduped and capped.
+            existing_day = None
+            if action != "add" and entity_id:
+                existing_day = _day_detail(context, entity_id, full_days=full_days)
+            day_changes_details["overnight_plan"] = merge_assistant_overnight_plan(
+                existing_day,
+                day_changes_details.get("overnight_plan"),
+                now=_utc_now_iso(),
+            )
     elif entity_type == "stop":
         day_id, day_ref = _normalize_compiled_day_reference(
             operation,

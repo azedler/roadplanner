@@ -32,6 +32,7 @@ from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
 from .google_maps_link import async_resolve_google_maps_place_query
 from .frontend_static_http import async_register_frontend_static_view
+from .pitch_routing import PitchRouteService
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
 
@@ -63,6 +64,7 @@ _ACTIONS = {
     "pitch_update_preferences",
     "calculate_day_route",
     "calculate_trip_routes",
+    "pitch_route_overview",
     "export_trip_pdf",
     "export_trip_video",
     "scan_handoffs",
@@ -148,6 +150,7 @@ _EDIT_ACTIONS = {
     "pitch_update_preferences",
     "calculate_day_route",
     "calculate_trip_routes",
+    "pitch_route_overview",
     "search_destination_images",
     "refresh_destination_gallery",
     "save_destination_gallery",
@@ -1109,6 +1112,17 @@ async def _execute_action(
         )
         manager.schedule_route_refresh()
         return result
+
+    if action == "pitch_route_overview":
+        day_id = str(data.get("day_id") or "").strip()
+        if not day_id:
+            raise ValidationError("Für die Routenübersicht fehlt der Reisetag")
+        service_key = f"{DOMAIN}_pitch_routes"
+        service = hass.data.get(service_key)
+        if not isinstance(service, PitchRouteService):
+            service = PitchRouteService(hass, manager)
+            hass.data[service_key] = service
+        return await service.async_overview(day_id)
 
     if action == "calculate_day_route":
         trip_id = str(data.get("expected_trip_id") or data.get("trip_id") or "").strip()
