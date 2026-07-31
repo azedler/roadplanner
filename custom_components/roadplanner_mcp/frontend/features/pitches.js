@@ -93,6 +93,21 @@ export const pitchesMixin = {
     return days[0]?.id || null;
   },
 
+  async _loadPitchRoutes(dayId) {
+    if (!dayId || this._pitchRoutesLoading) return;
+    this._pitchRoutesLoading = dayId;
+    this._render({ preserveScroll: true });
+    const result = await this._runAction("pitch_route_overview", { day_id: dayId }, "", {
+      refresh: false,
+      errorTitle: "Routenübersicht fehlgeschlagen",
+    });
+    this._pitchRoutesLoading = null;
+    if (result) {
+      this._pitchRoutes = { ...(this._pitchRoutes || {}), [dayId]: result };
+    }
+    this._render({ preserveScroll: true });
+  },
+
   _pitchRouteContext(day) {
     const days = this._data?.days?.days || [];
     const index = days.findIndex((item) => item.id === day?.id);
@@ -221,10 +236,35 @@ export const pitchesMixin = {
   _renderPitchDayCard(day, canEdit) {
     const plan = this._pitchPlan(day);
     const stop = this._pitchActiveStop(day);
-    const backups = plan.options.filter((item) => item.status !== "rejected");
+    let backups = plan.options.filter((item) => item.status !== "rejected");
     const rejected = plan.options.filter((item) => item.status === "rejected");
     const isToday = day.id === this._data?.summary?.next_day?.id;
     const context = this._pitchRouteContext(day);
+    const routes = this._pitchRoutes?.[day.id] || null;
+    const routeByOption = new Map((routes?.candidates || []).map((candidate) => [candidate.option_id, candidate]));
+    if (routes && plan.strategy === "route_optimal") {
+      // Strategy is rank-only: with real detours available, route_optimal
+      // orders the list by extra travel time. Options without a computed
+      // route keep their manual order at the end.
+      backups = [...backups].sort((left, right) => {
+        const a = routeByOption.get(left.id)?.extra_duration_minutes;
+        const b = routeByOption.get(right.id)?.extra_duration_minutes;
+        if (a == null && b == null) return 0;
+        if (a == null) return 1;
+        if (b == null) return -1;
+        return a - b;
+      });
+    }
+    const routePaths = (routes?.candidates || [])
+      .filter((candidate) => Array.isArray(candidate.geometry) && candidate.geometry.length > 1)
+      .map((candidate) => ({
+        title: `${candidate.name}${candidate.extra_duration_minutes != null ? ` (+${candidate.extra_duration_minutes} min)` : ""}`,
+        mode: "driving",
+        points: candidate.geometry.map(([lon, lat]) => ({ lat, lon })),
+      }));
+    const routeSummary = routes
+      ? `<div class="notice neutral pitch-route-summary"><ha-icon icon="mdi:routes"></ha-icon><div><strong>Umwege je Kandidat${routes.baseline ? ` · direkte Strecke ${routes.baseline.duration_minutes} min / ${routes.baseline.distance_km} km` : ""}</strong><span>${(routes.candidates || []).map((candidate) => `${candidate.kind === "active" ? "★ " : ""}${escapeHtml(candidate.name)}: ${candidate.extra_duration_minutes != null ? `+${candidate.extra_duration_minutes} min · +${candidate.extra_distance_km} km` : `${candidate.duration_minutes} min · ${candidate.distance_km} km`}`).join(" · ")}</span>${routes.skipped?.length ? `<small>Ohne GPS übersprungen: ${routes.skipped.map((name) => escapeHtml(name)).join(", ")}</small>` : ""}${routes.errors?.length ? `<small>Fehler: ${routes.errors.map((text) => escapeHtml(text)).join(" · ")}</small>` : ""}</div></div>`
+      : "";
     return `<section class="panel-card pitch-day-card">
       <div class="section-heading compact">
         <div>
@@ -236,7 +276,9 @@ export const pitchesMixin = {
         </select></label>
       </div>
       ${context.fromLabel || context.toLabel ? `<div class="pitch-route-flow"><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.fromLabel || "?")}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:weather-night"></ha-icon> ${escapeHtml(stop?.name || "Übernachtung")}</span>${context.hasNextDay ? `<ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.toLabel || "?")}</span>` : ""}</div>` : ""}
-      ${this._renderMap(`pitch-map-${day.id}`, context.points, day.title, [], "Karte zeigt: gestrigen Ankunftsort (falls vorhanden), die Optionen dieses Tages (B) und den ersten Stopp des Folgetags.")}
+      ${this._renderMap(`pitch-map-${day.id}`, context.points, day.title, routePaths, routePaths.length ? "Karte zeigt die berechneten Straßenrouten je Kandidat durch den Korridor Gestern → Übernachtung → Morgen." : "Karte zeigt: gestrigen Ankunftsort (falls vorhanden), die Optionen dieses Tages (B) und den ersten Stopp des Folgetags.")}
+      <div class="button-row compact-row"><button class="secondary-button" type="button" data-action="pitch-routes" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:routes"></ha-icon> ${routes ? "Routen aktualisieren" : "Routen je Option berechnen"}</button>${this._pitchRoutesLoading === day.id ? `<span class="hint">Routen werden berechnet …</span>` : ""}</div>
+      ${routeSummary}
       ${stop
         ? `<div class="setting-row pitch-active-row"><span><ha-icon icon="mdi:weather-night"></ha-icon> Aktiver Platz</span><strong>${escapeHtml(stop.name)}</strong></div>`
         : `<div class="notice neutral">Dieser Tag hat noch keinen Übernachtungsstopp. Beim Aktivieren einer Option wird er automatisch angelegt.</div>`}
@@ -255,6 +297,10 @@ export const pitchesMixin = {
     if (option.price?.amount != null) meta.push(`${option.price.amount} ${escapeHtml(option.price.currency || "EUR")}/Nacht`);
     if (featureLabels.length) meta.push(featureLabels.join(" · "));
     if (option.location?.latitude != null) meta.push("GPS vorhanden");
+    const routeInfo = (this._pitchRoutes?.[day.id]?.candidates || []).find((candidate) => candidate.option_id === option.id) || null;
+    const routeChip = routeInfo
+      ? `<span class="pitch-chip pitch-chip-route"><ha-icon icon="mdi:routes"></ha-icon>${routeInfo.extra_duration_minutes != null ? `+${routeInfo.extra_duration_minutes} min · +${routeInfo.extra_distance_km} km Umweg` : `${routeInfo.duration_minutes} min · ${routeInfo.distance_km} km`}</span>`
+      : "";
     const prosChips = (option.pros || []).map((text) => `<span class="pitch-chip pitch-chip-pro"><ha-icon icon="mdi:plus"></ha-icon>${escapeHtml(text)}</span>`).join("");
     const consChips = (option.cons || []).map((text) => `<span class="pitch-chip pitch-chip-con"><ha-icon icon="mdi:minus"></ha-icon>${escapeHtml(text)}</span>`).join("");
     const cover = this._pitchOptionCover(option);
@@ -266,7 +312,7 @@ export const pitchesMixin = {
       <div class="crew-row-body">
         <strong>${escapeHtml(option.name)}</strong>
         ${meta.length ? `<span>${meta.map((item) => escapeHtml(item)).join(" · ")}</span>` : ""}
-        ${prosChips || consChips ? `<div class="pitch-chip-row">${prosChips}${consChips}</div>` : ""}
+        ${routeChip || prosChips || consChips ? `<div class="pitch-chip-row">${routeChip}${prosChips}${consChips}</div>` : ""}
         ${option.notes ? `<span>${escapeHtml(option.notes)}</span>` : ""}
       </div>
       ${canEdit ? `<div class="button-row">
