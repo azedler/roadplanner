@@ -88,7 +88,11 @@ def location_status(stop: Any) -> str:
     coordinate = _coordinate(stop)
     status = _text(_geocoding_details(stop).get("status")).casefold()
     if coordinate is not None:
-        if not status or status == "resolved":
+        # "manual_confirmed" is the user's DELIBERATE final decision about
+        # this map point - it must count as resolved, otherwise the stop is
+        # offered for enrichment forever right after being confirmed there
+        # (live report: "wird mir wieder anreichern angeboten").
+        if not status or status in ("resolved", "manual_confirmed"):
             return "resolved"
         return "unverified"
     if "ambiguous" in status:
