@@ -532,10 +532,17 @@ class PlaceEnrichmentService:
         self._previews: dict[str, _PreviewEntry] = {}
         self._lock = asyncio.Lock()
 
-    async def _p4n_page_facts(self, intent: DestinationIntent) -> dict[str, Any] | None:
-        """Fetch the stop's Park4Night page facts when a p4n hint exists."""
-        if self._p4n_lookup is None or not self._p4n_lookup.available:
-            return None
+    async def _p4n_page_facts(
+        self, intent: DestinationIntent
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Fetch the stop's Park4Night page facts when a p4n hint exists.
+
+        Returns (facts, error_message). A silent None used to be
+        indistinguishable from "this stop has no Park4Night link" - live
+        report: with the AI provider unavailable the adoption button just
+        never appeared and nothing said why. A failed read of an EXISTING
+        p4n hint now carries an explanation for the dialog.
+        """
         hint = next(
             (
                 item
@@ -545,10 +552,24 @@ class PlaceEnrichmentService:
             None,
         )
         if hint is None:
-            return None
-        return await self._p4n_lookup.async_lookup(
+            return None, None
+        if self._p4n_lookup is None or not self._p4n_lookup.available:
+            return None, (
+                "Der Park4Night-Link wurde erkannt, aber der KI-Provider ist "
+                "nicht konfiguriert - die Seite kann nicht automatisch gelesen "
+                "werden. Koordinaten bitte manuell eintragen."
+            )
+        facts = await self._p4n_lookup.async_lookup(
             str(hint["url"]), hint_name=intent.name
         )
+        if facts is None:
+            return None, (
+                "Die Park4Night-Seite konnte gerade nicht gelesen werden "
+                "(KI-Provider nicht erreichbar, Kontingent erschöpft oder "
+                "Seite ohne GPS-Angabe). Später erneut versuchen oder die "
+                "Koordinaten von der Seite manuell eintragen."
+            )
+        return facts, None
 
     def _purge(self) -> None:
         now = time.monotonic()
@@ -911,7 +932,7 @@ class PlaceEnrichmentService:
         # page facts (incl. the page's stated GPS) matter most exactly when
         # geocoding the generic name fails, so fetch them regardless of the
         # provider search outcome below.
-        p4n_facts = await self._p4n_page_facts(intent)
+        p4n_facts, p4n_error = await self._p4n_page_facts(intent)
         query = intent.primary_query or (
             search_address.full_query(original_query)
             if search_address.has_address_detail
@@ -927,6 +948,7 @@ class PlaceEnrichmentService:
                 "structured_address": structured.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
                 "p4n_lookup": p4n_facts,
+                "p4n_lookup_error": p4n_error,
                 "candidates": [],
                 "selected_candidate_id": None,
                 "message": "Für diesen Stopp fehlen Angaben für eine Ortssuche.",
@@ -948,6 +970,7 @@ class PlaceEnrichmentService:
                 "structured_address": search_address.as_dict(),
                 "ai_cleanup": deepcopy(cleanup_suggestion),
                 "p4n_lookup": p4n_facts,
+                "p4n_lookup_error": p4n_error,
                 "candidates": [],
                 "selected_candidate_id": None,
                 "message": str(err)[:1_000],
@@ -1012,6 +1035,7 @@ class PlaceEnrichmentService:
             "structured_address": search_address.as_dict(),
             "ai_cleanup": deepcopy(cleanup_suggestion),
             "p4n_lookup": p4n_facts,
+            "p4n_lookup_error": p4n_error,
             "candidates": profiles,
             "selected_candidate_id": selected,
             "message": message,
