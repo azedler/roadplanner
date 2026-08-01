@@ -216,13 +216,19 @@ def verify_enrichment_wiring_attaches_page_facts_for_review() -> None:
         "finds nothing - all three result paths must carry them"
     )
     manager = (PACKAGE_ROOT / "experience_manager.py").read_text(encoding="utf-8")
-    assert "self.p4n_lookup = Park4NightLookupService(provider)" in manager, (
+    assert "self.p4n_lookup = Park4NightLookupService(" in manager, (
         "the service must be exposed on the experience manager (stop form) "
         "AND shared with the enrichment flow"
     )
+    assert "session=async_get_clientsession(hass)" in manager, (
+        "the session enables the direct (AI-free) Park4Night page fetch"
+    )
     assert "p4n_lookup=self.p4n_lookup" in manager
     dialog = (PACKAGE_ROOT / "frontend/features/place-enrichment.js").read_text(encoding="utf-8")
-    assert "Von der Park4Night-Seite gelesen (KI)" in dialog
+    assert "Von der Park4Night-Seite gelesen" in dialog
+    assert 'p4nLookup.provider === "park4night_page"' in dialog, (
+        "the dialog must only label AI-read facts as (KI), not the direct fetch"
+    )
     assert 'data-action="place-p4n-apply"' in dialog
     panel_js = (PACKAGE_ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
     assert '"place-p4n-apply"' in panel_js
