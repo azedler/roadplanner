@@ -249,7 +249,10 @@ export const placeEnrichmentMixin = {
           ${this._field("latitude", "Breitengrad", storedManual.latitude ?? currentLocation.latitude ?? "", "text", true, "", "", "")}
           ${this._field("longitude", "Längengrad", storedManual.longitude ?? currentLocation.longitude ?? "", "text", true, "", "", "")}
         </div>
-        <button class="secondary-button" type="button" data-action="place-manual-select" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Manuellen Kartenpunkt bestätigen</button>
+        <div class="button-row compact-row">
+          <button class="secondary-button" type="button" data-action="place-manual-select" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Manuellen Kartenpunkt bestätigen</button>
+          <button class="text-button" type="button" data-action="place-manual-check-map"><ha-icon icon="mdi:google-maps"></ha-icon>In Google Maps prüfen</button>
+        </div>
       </form>`;
       const linkLookup = `<div class="place-link-lookup form-grid compact-form-grid">
         <label class="form-field full"><span>Link zum Ort (Google Maps, Park4Night, Booking, Website …)</span><input type="url" data-place-link-input data-stop-id="${escapeHtml(stopId)}" value="${escapeHtml(linkInputs[stopId] || "")}" placeholder="https://…" autocomplete="off" inputmode="url"></label>

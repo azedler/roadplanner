@@ -821,6 +821,27 @@ class RoadplannerPanel extends HTMLElement {
         [selectedStopId]: "__manual__",
       };
       this._render({ preserveScroll: true });
+    } else if (action === "place-manual-check-map") {
+      // Open the coordinates AS CURRENTLY TYPED so the user can verify the
+      // point on Google Maps BEFORE confirming it - nothing is saved here.
+      const form = target.closest("form[data-place-manual-form]");
+      if (!form) return;
+      const values = Object.fromEntries(new FormData(form).entries());
+      const latitudeText = cleanText(values.latitude).replace(",", ".");
+      const longitudeText = cleanText(values.longitude).replace(",", ".");
+      const latitude = Number(latitudeText);
+      const longitude = Number(longitudeText);
+      if (!latitudeText || !longitudeText
+        || !Number.isFinite(latitude) || !Number.isFinite(longitude)
+        || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+        this._showToast("Bitte zuerst Breiten- und Längengrad eintragen, dann prüfen.", "error", 5000);
+        return;
+      }
+      window.open(
+        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
     } else if (action === "stop-p4n-lookup" && this._canEdit()) {
       void this._runStopFormP4nLookup(target.closest("form[data-form='stop']"));
     } else if (action === "place-p4n-apply") {
