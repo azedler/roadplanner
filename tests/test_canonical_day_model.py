@@ -188,6 +188,24 @@ assert unverified_model["location_complete"] is False
 assert unverified_model["route_complete"] is True
 assert unverified_model["data_quality"] == {"sequence": "complete", "locations": "review", "score": 0}
 
+# A manually CONFIRMED map point is the user's deliberate final decision -
+# it must count as resolved and never be offered for enrichment again
+# (live report: right after confirming, "Stopps anreichern" reappeared).
+manual_stop = stop(
+    "manual",
+    "Bewusst bestätigter Punkt",
+    1,
+    lat=63.1353,
+    lon=18.5161,
+    geocoding_status="manual_confirmed",
+)
+manual_stop["details"]["place_profile"] = {"confirmed_at": "2026-08-01T19:33:00Z"}
+manual_model = module.canonical_day_model([{"id": "manual-day", "stops": [manual_stop]}], 0)
+assert manual_model["stops"][0]["location_status"] == "resolved"
+assert manual_model["stops"][0]["location_requires_attention"] is False
+assert manual_model["location_attention_nodes"] == []
+assert manual_model["location_complete"] is True
+
 # Legacy labels remain available only when the day has no real Roadbook stops.
 legacy_days = [{"id": "legacy", "start": "A", "end": "B", "stops": []}]
 legacy_model = module.canonical_day_model(legacy_days, 0)

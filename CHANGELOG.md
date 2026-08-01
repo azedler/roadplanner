@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.6] - 2026-08-01
+
+### Fixed
+
+- A manually CONFIRMED map point no longer keeps being offered for enrichment: the derived location status treated only provider-resolved geocoding as done, so a deliberate manual confirmation stayed "unverified" forever - right after confirming, "Stopps anreichern (1)" and the "GPS-Prüfung offen" notice reappeared for the very same stop. "manual_confirmed" now counts as resolved: the stop drops out of the enrichment offer, the day shows its location data as complete, and already-confirmed stops heal automatically on the next payload build. The stored provenance (manually confirmed, not provider-verified) remains untouched for anyone inspecting the details.
+
 ## [4.14.5] - 2026-08-01
 
 ### Added
