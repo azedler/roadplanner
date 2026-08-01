@@ -14,7 +14,8 @@ The project follows Semantic Versioning for public releases.
 
 ### Changed
 
-- Gemini cost/quality tuning: the default FALLBACK model is now `gemini-3.5-flash-lite` (was `gemini-2.5-flash`). The primary stays `gemini-3.5-flash` on purpose - the Reisebegleiter's travel advice and multi-day route/ChangeSet compilation need the full Flash tier's long-context instruction following. The lite fallback kicks in exactly when the primary is rate-limited: it has its own (higher) quota at a fraction of the cost, so rate-limit bursts now degrade to a cheaper model instead of failing - and unlike the old 2.5 fallback it supports structured output combined with search/url tools, so no capability is lost on fallback. Manually configured models remain untouched.
+- Gemini cost/quality tuning: the defaults are now `gemini-3.6-flash` (primary) and `gemini-3.5-flash` (fallback) - the Reisebegleiter's travel advice and multi-day route/ChangeSet compilation get the newest full Flash tier, and a rate-limited primary falls back to the previous full-quality tier instead of failing. Deliberately NOT a floating alias like `gemini-flash-latest`: the client builds requests differently per model generation (structured output combined with search/url tools, temperature handling), so an alias that silently swaps the model underneath would degrade the pipeline. Manually configured models remain untouched.
+- Bounded schema-extraction tasks - receipt/document analysis (Rechnungen/Belege aus Bildern und PDFs) and vision photo curation - now run on the cheap `gemini-3.5-flash-lite` tier first, with the configured primary model as automatic in-call backup. These calls use no search and no long context, so the lite tier's quality is sufficient there at a fraction of the cost; the advisory chat, compile and research paths stay on the full tier.
 
 ## [4.14.2] - 2026-07-31
 

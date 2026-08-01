@@ -108,14 +108,19 @@ DEFAULT_NON_ADMIN_ROLE = ROLE_VIEWER
 
 DEFAULT_ASSISTANT_PROVIDER = "gemini"
 DEFAULT_GEMINI_API_KEY = ""
-# Primary stays the full Flash tier: the Reisebegleiter's advisory chat and
-# the multi-day route/ChangeSet compilation need strong long-context
-# instruction following - the -lite tier produces noticeably more malformed
-# operations and shallower travel advice. The -lite FALLBACK is deliberate:
-# it kicks in exactly when the primary is rate-limited, and the lite tier
-# has its own (higher) quota at a fraction of the cost.
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
-DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
+# Full Flash tier for the Reisebegleiter: advisory chat and multi-day
+# route/ChangeSet compilation need strong long-context instruction
+# following - the -lite tier produces noticeably more malformed operations
+# and shallower travel advice there. Pinned versions on purpose: the client
+# builds requests differently per model generation (structured output with
+# search tools, temperature handling), so a floating alias like
+# "gemini-flash-latest" would silently degrade the pipeline.
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.5-flash"
+# Bounded schema-extraction tasks (receipt/document analysis, photo
+# curation) run on the cheap lite tier first, with the primary model as
+# in-call backup - no search, no long context, so lite quality suffices.
+DEFAULT_GEMINI_LITE_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_ASSISTANT_REQUEST_TIMEOUT = 75
 DEFAULT_ASSISTANT_RETRY_ATTEMPTS = 2
 DEFAULT_ASSISTANT_MIN_REQUEST_INTERVAL = 2.0

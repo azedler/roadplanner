@@ -101,6 +101,7 @@ from .const import (
     DEFAULT_HANDOFF_PATH,
     DEFAULT_GEMINI_API_KEY,
     DEFAULT_GEMINI_FALLBACK_MODEL,
+    DEFAULT_GEMINI_LITE_MODEL,
     DEFAULT_GEMINI_MODEL,
     DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
     DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
@@ -344,6 +345,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             fallback_model=str(
                 options.get(CONF_GEMINI_FALLBACK_MODEL, DEFAULT_GEMINI_FALLBACK_MODEL)
             ),
+            lite_model=DEFAULT_GEMINI_LITE_MODEL,
             request_timeout=int(
                 options.get(
                     CONF_ASSISTANT_REQUEST_TIMEOUT,
