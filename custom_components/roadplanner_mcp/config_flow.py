@@ -39,7 +39,9 @@ from .const import (
     CONF_ENABLE_HANDOFF_WEBHOOK,
     CONF_GEMINI_API_KEY,
     CONF_GEMINI_FALLBACK_MODEL,
+    CONF_GEMINI_LITE_MODEL,
     CONF_GEMINI_MODEL,
+    CONF_GEMINI_MODEL_MODE,
     CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
     CONF_MEDIA_VISION_MAX_CANDIDATES,
     CONF_MEDIA_VISION_DAILY_LIMIT,
@@ -91,7 +93,10 @@ from .const import (
     DEFAULT_ENABLE_HANDOFF_WEBHOOK,
     DEFAULT_GEMINI_API_KEY,
     DEFAULT_GEMINI_FALLBACK_MODEL,
+    DEFAULT_GEMINI_LITE_MODEL,
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_GEMINI_MODEL_MODE,
+    GEMINI_MODEL_MODES,
     MAX_MEDIA_VISION_MAX_HIGHLIGHTS,
     MIN_MEDIA_VISION_MAX_HIGHLIGHTS,
     MAX_MEDIA_VISION_MAX_CANDIDATES,
@@ -263,18 +268,23 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ): vol.In(("gemini",)),
             vol.Optional(CONF_GEMINI_API_KEY): str,
             vol.Required(
+                CONF_GEMINI_MODEL_MODE,
+                default=defaults.get(
+                    CONF_GEMINI_MODEL_MODE,
+                    DEFAULT_GEMINI_MODEL_MODE,
+                ),
+            ): vol.In(GEMINI_MODEL_MODES),
+            vol.Optional(
                 CONF_GEMINI_MODEL,
-                default=defaults.get(
-                    CONF_GEMINI_MODEL,
-                    DEFAULT_GEMINI_MODEL,
-                ),
+                default=defaults.get(CONF_GEMINI_MODEL, ""),
             ): str,
-            vol.Required(
+            vol.Optional(
                 CONF_GEMINI_FALLBACK_MODEL,
-                default=defaults.get(
-                    CONF_GEMINI_FALLBACK_MODEL,
-                    DEFAULT_GEMINI_FALLBACK_MODEL,
-                ),
+                default=defaults.get(CONF_GEMINI_FALLBACK_MODEL, ""),
+            ): str,
+            vol.Optional(
+                CONF_GEMINI_LITE_MODEL,
+                default=defaults.get(CONF_GEMINI_LITE_MODEL, ""),
             ): str,
             vol.Required(
                 CONF_ASSISTANT_REQUEST_TIMEOUT,
@@ -612,16 +622,31 @@ def _normalize_input(
         result[CONF_GOOGLE_PLACES_API_KEY] = current[CONF_GOOGLE_PLACES_API_KEY]
     else:
         result[CONF_GOOGLE_PLACES_API_KEY] = DEFAULT_GOOGLE_PLACES_API_KEY
-    result[CONF_GEMINI_MODEL] = (
-        str(result.get(CONF_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL).strip()
-        or DEFAULT_GEMINI_MODEL
-    )
-    result[CONF_GEMINI_FALLBACK_MODEL] = str(
-        result.get(CONF_GEMINI_FALLBACK_MODEL, DEFAULT_GEMINI_FALLBACK_MODEL)
-        or ""
-    ).strip()
-    if result[CONF_GEMINI_FALLBACK_MODEL] == result[CONF_GEMINI_MODEL]:
+    result[CONF_GEMINI_MODEL_MODE] = str(
+        result.get(CONF_GEMINI_MODEL_MODE) or DEFAULT_GEMINI_MODEL_MODE
+    ).strip().casefold()
+    if result[CONF_GEMINI_MODEL_MODE] not in GEMINI_MODEL_MODES:
+        result[CONF_GEMINI_MODEL_MODE] = DEFAULT_GEMINI_MODEL_MODE
+    if result[CONF_GEMINI_MODEL_MODE] == "auto":
+        # Never persist a literal model name in auto mode - the effective
+        # models must keep following the release defaults.
+        result[CONF_GEMINI_MODEL] = ""
         result[CONF_GEMINI_FALLBACK_MODEL] = ""
+        result[CONF_GEMINI_LITE_MODEL] = ""
+    else:
+        result[CONF_GEMINI_MODEL] = (
+            str(result.get(CONF_GEMINI_MODEL) or "").strip()
+            or DEFAULT_GEMINI_MODEL
+        )
+        result[CONF_GEMINI_FALLBACK_MODEL] = str(
+            result.get(CONF_GEMINI_FALLBACK_MODEL) or ""
+        ).strip()
+        result[CONF_GEMINI_LITE_MODEL] = (
+            str(result.get(CONF_GEMINI_LITE_MODEL) or "").strip()
+            or DEFAULT_GEMINI_LITE_MODEL
+        )
+        if result[CONF_GEMINI_FALLBACK_MODEL] == result[CONF_GEMINI_MODEL]:
+            result[CONF_GEMINI_FALLBACK_MODEL] = ""
     if not result.get(CONF_ASSISTANT_COPILOT_ENABLED):
         result[CONF_ASSISTANT_COPILOT_AUTO_BRIEFING] = False
     result[CONF_MEDIA_CURATION_MODE] = str(

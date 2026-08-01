@@ -35,8 +35,23 @@ generate_json_result = PROVIDER.split("async def async_generate_json_result")[1]
 assert "_lite_model_chain" not in generate_text
 assert "_lite_model_chain" not in generate_json_result
 
-# The integration passes the lite default through, and health reports it.
-assert "lite_model=DEFAULT_GEMINI_LITE_MODEL" in INIT
+# The integration resolves all three roles through the model mode, and
+# health reports the lite model.
+assert "def resolve_gemini_models" in INIT
+assert 'lite_model=gemini_models["lite_model"]' in INIT
 assert '"lite_model": self._lite_model' in PROVIDER
+
+# Model mode: "auto" never persists a literal model name (config flow
+# clears the fields), so release-side default bumps reach every auto
+# installation; migration folds frozen historical defaults into auto.
+CONFIG_FLOW = Path("custom_components/roadplanner_mcp/config_flow.py").read_text(encoding="utf-8")
+assert 'GEMINI_MODEL_MODES = ("auto", "custom")' in CONST
+assert 'DEFAULT_GEMINI_MODEL_MODE = "auto"' in CONST
+assert "vol.In(GEMINI_MODEL_MODES)" in CONFIG_FLOW
+auto_branch = CONFIG_FLOW.split('== "auto"')[1].split("else:")[0]
+assert 'result[CONF_GEMINI_MODEL] = ""' in auto_branch
+assert 'result[CONF_GEMINI_LITE_MODEL] = ""' in auto_branch
+assert "_HISTORICAL_DEFAULT_GEMINI_MODELS" in INIT
+assert "def _migrate_gemini_model_options" in INIT
 
 print("Gemini lite routing contract tests passed.")

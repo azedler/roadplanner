@@ -9,7 +9,7 @@ INTEGRATION_VERSION = "4.14.3"
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
 
-CONFIG_ENTRY_VERSION = 13
+CONFIG_ENTRY_VERSION = 14
 
 EVENT_ROADPLANNER_UPDATED = "roadplanner_mcp_updated"
 EVENT_HANDOFF_RECEIVED = f"{DOMAIN}_handoff_received"
@@ -35,8 +35,10 @@ CONF_INITIALIZED_PATH = "initialized_path"
 
 CONF_ASSISTANT_PROVIDER = "assistant_provider"
 CONF_GEMINI_API_KEY = "gemini_api_key"
+CONF_GEMINI_MODEL_MODE = "gemini_model_mode"
 CONF_GEMINI_MODEL = "gemini_model"
 CONF_GEMINI_FALLBACK_MODEL = "gemini_fallback_model"
+CONF_GEMINI_LITE_MODEL = "gemini_lite_model"
 CONF_ASSISTANT_REQUEST_TIMEOUT = "assistant_request_timeout"
 CONF_ASSISTANT_RETRY_ATTEMPTS = "assistant_retry_attempts"
 CONF_ASSISTANT_MIN_REQUEST_INTERVAL = "assistant_min_request_interval"
@@ -108,6 +110,12 @@ DEFAULT_NON_ADMIN_ROLE = ROLE_VIEWER
 
 DEFAULT_ASSISTANT_PROVIDER = "gemini"
 DEFAULT_GEMINI_API_KEY = ""
+# "auto" follows the pinned recommendations below on every Roadplanner
+# release; "custom" honors the three manually configured model roles.
+# Only the MODE is persisted in auto - never a literal model name, so a
+# release-side default bump reaches every auto installation immediately.
+GEMINI_MODEL_MODES = ("auto", "custom")
+DEFAULT_GEMINI_MODEL_MODE = "auto"
 # Full Flash tier for the Reisebegleiter: advisory chat and multi-day
 # route/ChangeSet compilation need strong long-context instruction
 # following - the -lite tier produces noticeably more malformed operations

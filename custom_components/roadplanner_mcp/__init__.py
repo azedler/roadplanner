@@ -38,7 +38,9 @@ from .const import (
     CONF_HANDOFF_PATH,
     CONF_GEMINI_API_KEY,
     CONF_GEMINI_FALLBACK_MODEL,
+    CONF_GEMINI_LITE_MODEL,
     CONF_GEMINI_MODEL,
+    CONF_GEMINI_MODEL_MODE,
     CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
     CONF_MEDIA_VISION_MAX_CANDIDATES,
     CONF_MEDIA_VISION_DAILY_LIMIT,
@@ -103,6 +105,8 @@ from .const import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_GEMINI_LITE_MODEL,
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_GEMINI_MODEL_MODE,
+    GEMINI_MODEL_MODES,
     DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
     DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
     DEFAULT_MEDIA_VISION_DAILY_LIMIT,
@@ -204,6 +208,37 @@ class RoadplannerRuntimeData:
     crew: CrewManager
     trip_pdf: TripPdfExporter
     trip_video: TripVideoExporter
+
+
+def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
+    """Resolve the three effective Gemini model roles from the options.
+
+    In "auto" mode the pinned release recommendations apply - no literal
+    model name is ever read from the entry, so a release-side default bump
+    reaches every auto installation immediately. "custom" honors the
+    manually configured roles, each falling back to its recommendation
+    when left empty.
+    """
+    mode = str(
+        options.get(CONF_GEMINI_MODEL_MODE, DEFAULT_GEMINI_MODEL_MODE) or ""
+    ).strip().casefold()
+    if mode != "custom":
+        return {
+            "mode": "auto",
+            "model": DEFAULT_GEMINI_MODEL,
+            "fallback_model": DEFAULT_GEMINI_FALLBACK_MODEL,
+            "lite_model": DEFAULT_GEMINI_LITE_MODEL,
+        }
+    return {
+        "mode": "custom",
+        "model": str(options.get(CONF_GEMINI_MODEL) or "").strip()
+        or DEFAULT_GEMINI_MODEL,
+        "fallback_model": str(
+            options.get(CONF_GEMINI_FALLBACK_MODEL) or ""
+        ).strip(),
+        "lite_model": str(options.get(CONF_GEMINI_LITE_MODEL) or "").strip()
+        or DEFAULT_GEMINI_LITE_MODEL,
+    }
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -338,14 +373,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     provider = None
     if assistant_provider == "gemini":
+        gemini_models = resolve_gemini_models(options)
         provider = GeminiClient(
             hass,
             api_key=str(options.get(CONF_GEMINI_API_KEY, DEFAULT_GEMINI_API_KEY)),
-            model=str(options.get(CONF_GEMINI_MODEL, DEFAULT_GEMINI_MODEL)),
-            fallback_model=str(
-                options.get(CONF_GEMINI_FALLBACK_MODEL, DEFAULT_GEMINI_FALLBACK_MODEL)
-            ),
-            lite_model=DEFAULT_GEMINI_LITE_MODEL,
+            model=gemini_models["model"],
+            fallback_model=gemini_models["fallback_model"],
+            lite_model=gemini_models["lite_model"],
             request_timeout=int(
                 options.get(
                     CONF_ASSISTANT_REQUEST_TIMEOUT,
@@ -675,6 +709,48 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+# Historical DEFAULT_GEMINI_MODEL values: entries created before the model
+# mode existed froze the then-current default as a literal (the field was
+# Required). A stored literal matching any historical default was never a
+# deliberate choice, so it migrates to "auto" and keeps following releases.
+_HISTORICAL_DEFAULT_GEMINI_MODELS = {
+    "",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash",
+    DEFAULT_GEMINI_MODEL,
+}
+
+
+def _migrate_gemini_model_options(effective: dict[str, Any]) -> dict[str, Any]:
+    stored_mode = str(effective.get(CONF_GEMINI_MODEL_MODE) or "").strip().casefold()
+    stored_model = str(effective.get(CONF_GEMINI_MODEL) or "").strip()
+    if stored_mode in GEMINI_MODEL_MODES:
+        mode = stored_mode
+    elif stored_model.casefold() in _HISTORICAL_DEFAULT_GEMINI_MODELS:
+        mode = "auto"
+    else:
+        mode = "custom"
+    if mode == "auto":
+        return {
+            CONF_GEMINI_MODEL_MODE: "auto",
+            CONF_GEMINI_MODEL: "",
+            CONF_GEMINI_FALLBACK_MODEL: "",
+            CONF_GEMINI_LITE_MODEL: "",
+        }
+    return {
+        CONF_GEMINI_MODEL_MODE: "custom",
+        CONF_GEMINI_MODEL: stored_model or DEFAULT_GEMINI_MODEL,
+        CONF_GEMINI_FALLBACK_MODEL: str(
+            effective.get(CONF_GEMINI_FALLBACK_MODEL) or ""
+        ).strip(),
+        CONF_GEMINI_LITE_MODEL: str(
+            effective.get(CONF_GEMINI_LITE_MODEL) or ""
+        ).strip(),
+    }
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate legacy single-file config entries to the split-roadbook model."""
     if entry.version > CONFIG_ENTRY_VERSION:
@@ -738,14 +814,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_GEMINI_API_KEY,
             DEFAULT_GEMINI_API_KEY,
         ),
-        CONF_GEMINI_MODEL: effective.get(
-            CONF_GEMINI_MODEL,
-            DEFAULT_GEMINI_MODEL,
-        ),
-        CONF_GEMINI_FALLBACK_MODEL: effective.get(
-            CONF_GEMINI_FALLBACK_MODEL,
-            DEFAULT_GEMINI_FALLBACK_MODEL,
-        ),
+        **_migrate_gemini_model_options(effective),
         CONF_ASSISTANT_REQUEST_TIMEOUT: effective.get(
             CONF_ASSISTANT_REQUEST_TIMEOUT,
             DEFAULT_ASSISTANT_REQUEST_TIMEOUT,
