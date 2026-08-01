@@ -14,7 +14,7 @@ The project follows Semantic Versioning for public releases.
 
 ### Changed
 
-- Gemini API cost optimization: switched default models from `gemini-3.5-flash` / `gemini-2.5-flash` to the `-lite` variants (`gemini-3.5-flash-lite` / `gemini-2.5-flash-lite`). The `-lite` models are 20× cheaper, have identical quality for story generation, and shorter latency. If you have manually configured the non-lite models, they remain in use; users relying on defaults will see ~95% lower Gemini API costs going forward.
+- Gemini cost/quality tuning: the default FALLBACK model is now `gemini-3.5-flash-lite` (was `gemini-2.5-flash`). The primary stays `gemini-3.5-flash` on purpose - the Reisebegleiter's travel advice and multi-day route/ChangeSet compilation need the full Flash tier's long-context instruction following. The lite fallback kicks in exactly when the primary is rate-limited: it has its own (higher) quota at a fraction of the cost, so rate-limit bursts now degrade to a cheaper model instead of failing - and unlike the old 2.5 fallback it supports structured output combined with search/url tools, so no capability is lost on fallback. Manually configured models remain untouched.
 
 ## [4.14.2] - 2026-07-31
 
