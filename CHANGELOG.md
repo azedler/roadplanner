@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.7] - 2026-08-01
+
+### Fixed
+
+- The trip hero image no longer changes again and again: the Vision-picked trip cover was re-evaluated whenever its selection fingerprint changed - and the fingerprint includes the candidate photo list and the model name, so every synced OneDrive photo batch (and any model change) triggered a fresh Vision pick with a different hero image. A once-chosen ready trip cover is now STICKY: it stays as long as its photo remains among the cover candidates, and only disappears through an explicit re-evaluation, the photo being removed, or a manually chosen cover (which always wins anyway). Stop and day highlights keep their existing refresh behavior.
+
 ## [4.14.6] - 2026-08-01
 
 ### Fixed
