@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.4] - 2026-08-01
+
+### Fixed
+
+- Park4Night pages are now read DIRECTLY (plain page fetch + deterministic HTML parsing of the stated GPS position, title and rating) instead of exclusively through the Gemini url_context reader. Live report: with the Gemini pay-as-you-go credit exhausted, every p4n adoption failed with "Die Seite konnte nicht gelesen werden oder enthält keine eindeutige GPS-Angabe" - even though the coordinates are right there on the page. The AI reader remains only a fallback for p4n pages that fail to parse, and stays the sole reader for generic place pages (Booking, campsite websites, ...). The trust model is unchanged: page-derived coordinates only prefill the manual confirmation, never the roadbook directly. The enrichment dialog labels AI-read facts as "(KI)" and drops that label for the direct page fetch.
+
 ## [4.14.3] - 2026-08-01
 
 ### Fixed

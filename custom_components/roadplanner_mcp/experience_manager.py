@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import AssistantProvider
 from .decision_manager import DecisionManager
@@ -88,8 +89,11 @@ class RoadplannerExperienceManager:
             media_vision_daily_limit=media_vision_daily_limit,
         )
         # Shared with the enrichment flow AND exposed directly so the stop
-        # add/edit form can trigger the same page lookup.
-        self.p4n_lookup = Park4NightLookupService(provider)
+        # add/edit form can trigger the same page lookup. The session enables
+        # the direct (AI-free) Park4Night page fetch.
+        self.p4n_lookup = Park4NightLookupService(
+            provider, session=async_get_clientsession(hass)
+        )
         self.place_enrichment = (
             PlaceEnrichmentService(
                 geocoder,

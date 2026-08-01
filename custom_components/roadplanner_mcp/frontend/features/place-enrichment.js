@@ -168,7 +168,7 @@ export const placeEnrichmentMixin = {
       const p4nLookup = item?.p4n_lookup && typeof item.p4n_lookup === "object" ? item.p4n_lookup : null;
       const p4nCard = p4nLookup && Number.isFinite(Number(p4nLookup.latitude)) && Number.isFinite(Number(p4nLookup.longitude))
         ? `<div class="place-cleanup-suggestion place-p4n-suggestion">
-            <div><span class="eyebrow">Von der Park4Night-Seite gelesen (KI)</span><strong>${escapeHtml(p4nLookup.name || current.stop_name || "Park4Night-Platz")}</strong><small>${escapeHtml([
+            <div><span class="eyebrow">Von der Park4Night-Seite gelesen${p4nLookup.provider === "park4night_page" ? "" : " (KI)"}</span><strong>${escapeHtml(p4nLookup.name || current.stop_name || "Park4Night-Platz")}</strong><small>${escapeHtml([
               `GPS ${Number(p4nLookup.latitude).toFixed(5)}, ${Number(p4nLookup.longitude).toFixed(5)}`,
               p4nLookup.city,
               p4nLookup.price_text,
