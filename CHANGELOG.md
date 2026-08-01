@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.5] - 2026-08-01
+
+### Added
+
+- The manual map point form in "Stopps anreichern" has a new "In Google Maps prüfen" button: it opens the coordinates AS CURRENTLY TYPED on Google Maps, so the point can be verified BEFORE confirming it. Nothing is saved by the check; German decimal commas are accepted, empty or out-of-range values show a hint instead of opening 0,0.
+
 ## [4.14.4] - 2026-08-01
 
 ### Fixed

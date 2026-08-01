@@ -44,6 +44,8 @@ for (const required of [
   'cleanup_confirmations',
   'data-action="place-enrichment-ai-retry"',
   'data-action="place-manual-select"',
+  'data-action="place-manual-check-map"',
+  'In Google Maps prüfen',
   'data-action="place-cleanup-toggle"',
   '__manual__',
   'Die Zuordnung eines Reisetags war nicht eindeutig.',
@@ -74,6 +76,12 @@ if (!source.includes('übernommen und angewendet')) {
 }
 if (!source.includes('dort bitte anwenden')) {
   throw new Error("The review fallback no longer tells the user to apply the handoff");
+}
+if (!source.includes('Math.abs(latitude) > 90 || Math.abs(longitude) > 180')) {
+  throw new Error("The manual map check must validate typed coordinates (incl. empty fields) before opening Maps");
+}
+if (!source.includes('.replace(",", ".")')) {
+  throw new Error("The manual map check must accept German decimal commas");
 }
 if (!source.includes('place_profile?.confirmed_at')) {
   throw new Error("Stop cards do not distinguish reviewed place profiles");
