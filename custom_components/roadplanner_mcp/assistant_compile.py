@@ -84,6 +84,9 @@ _CHANGE_FIELDS_BY_ENTITY = {
         "status",
         "notes",
         "details",
+        # Only meaningful on remove-day operations; changeset.py accepts it
+        # there, so it must survive the assistant validation layer too.
+        "remove_stops",
     },
     "stop": {
         "name",
