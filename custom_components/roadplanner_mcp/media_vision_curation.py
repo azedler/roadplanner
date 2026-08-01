@@ -243,6 +243,19 @@ class VisionCurationEngine:
             and str(existing.get("fingerprint") or "") == fingerprint
         ):
             return deepcopy(existing)
+        if (
+            not force
+            and kind == "trip"
+            and isinstance(existing, dict)
+            and existing.get("status") == "ready"
+            and str(existing.get("cover_id") or "") in allowed_ids
+        ):
+            # A once-chosen trip cover is STICKY: it stays until the photo
+            # disappears from the candidates or the user forces a fresh
+            # evaluation. Without this, every synced photo batch (and every
+            # model change) altered the fingerprint, Vision re-ran, and the
+            # trip showed a different hero image again and again.
+            return {**deepcopy(existing), "fingerprint": fingerprint}
 
         local_value = {
             "stop_id": str(stop.get("id") or ""),
