@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.8] - 2026-08-01
+
+### Fixed
+
+- Asking the assistant to delete a trip day no longer fails with "Änderungsentwurf konnte nicht erstellt werden / ChangeSet-Operation 'remove_day' ist ungültig: Der Reisetag enthält Stopps. Zum Löschen muss remove_stops=true gesetzt sein." The executor's remove_stops gate protects scripted callers - for a reviewed assistant draft the user's request to delete the day obviously includes its stops, and the loud destructive confirmation at apply time stays in place. The sanitizer now sets the flag whenever the day still carries stops, a model-provided flag survives the remove-echo cleanup (it was previously dropped along with echoed junk), and the assistant schema layer accepts the field at all (it was previously rejected as "Nicht erlaubte Felder für day").
+
 ## [4.14.7] - 2026-08-01
 
 ### Fixed

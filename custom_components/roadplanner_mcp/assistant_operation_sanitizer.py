@@ -686,6 +686,23 @@ def _sanitize_operation(
             )
         if action == "remove" and entity_id and batch_refs is not None:
             batch_refs.setdefault("removed_days", set()).add(entity_id)
+        if action == "remove" and entity_id:
+            # Removing a day that still carries stops is exactly what the
+            # user asked for - the executor's remove_stops gate protects
+            # scripted callers, not a reviewed draft, and killing the whole
+            # draft over the missing flag was a live failure
+            # ("Der Reisetag enthält Stopps. Zum Löschen muss
+            # remove_stops=true gesetzt sein."). Set it explicitly whenever
+            # the day (still) has stops; the draft stays destructive and
+            # requires the loud confirmation at apply time as before.
+            removed_in_batch = (
+                batch_refs.get("removed_stops", set()) if batch_refs else set()
+            )
+            day_stop_ids = stop_ids.get(str(entity_id))
+            if day_stop_ids is None or (set(day_stop_ids) - set(removed_in_batch)):
+                operation["changes"]["remove_stops"] = True
+            else:
+                operation["changes"].pop("remove_stops", None)
         day_changes_details = operation["changes"].get("details")
         if isinstance(day_changes_details, dict) and "overnight_plan" in day_changes_details:
             # The model hands over overnight CANDIDATES (Plan B/C blocks),
@@ -966,12 +983,23 @@ def _sanitize_operation(
         # Gemini routinely echoes identifying fields (name, type, ...) into
         # changes on delete/move operations. The echo carries no user data -
         # the referenced entity is identified by its ID - so drop it instead
-        # of rejecting the whole multi-operation draft over it.
-        _LOGGER.debug(
-            "Dropped echoed changes on %s operation %s: %s",
-            action,
-            index + 1,
-            sorted(operation["changes"]),
-        )
-        operation["changes"] = {}
+        # of rejecting the whole multi-operation draft over it. The one
+        # legitimate remove-payload survives: remove_stops on a day removal
+        # (the executor requires it for a day that still carries stops).
+        preserved: dict[str, Any] = {}
+        if (
+            action == "remove"
+            and entity_type == "day"
+            and operation["changes"].get("remove_stops") is True
+        ):
+            preserved["remove_stops"] = True
+        dropped = sorted(set(operation["changes"]) - set(preserved))
+        if dropped:
+            _LOGGER.debug(
+                "Dropped echoed changes on %s operation %s: %s",
+                action,
+                index + 1,
+                dropped,
+            )
+        operation["changes"] = preserved
     return operation
