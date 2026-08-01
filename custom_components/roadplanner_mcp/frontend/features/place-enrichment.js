@@ -62,9 +62,17 @@ export const placeEnrichmentMixin = {
     });
     if (!result) return null;
     this._dialog = null;
-    this._activeTab = "handoffs";
-    await this._loadData({ silent: true, force: true });
-    this._showToast(`${Number(result.operation_count || 0)} Ortsprofile an die Änderungsübersicht übergeben`, "success", 5500);
+    const count = Number(result.operation_count || 0);
+    if (result.applied) {
+      // The confirmed profiles were applied directly - no second
+      // confirmation round under Übergaben, the coordinates are live now.
+      await this._loadData({ silent: true, force: true });
+      this._showToast(`${count} ${count === 1 ? "Ortsprofil" : "Ortsprofile"} übernommen und angewendet - Kartenpunkte sind aktualisiert`, "success", 6000);
+    } else {
+      this._activeTab = "handoffs";
+      await this._loadData({ silent: true, force: true });
+      this._showToast(`${count} ${count === 1 ? "Ortsprofil" : "Ortsprofile"} an die Änderungsübersicht übergeben - dort bitte anwenden${result.apply_error ? ` (Direktübernahme nicht möglich: ${result.apply_error})` : ""}`, result.apply_error ? "error" : "success", 8000);
+    }
     this._render({ preserveScroll: false });
     return result;
   },
@@ -169,7 +177,9 @@ export const placeEnrichmentMixin = {
             ].filter(Boolean).join(" · "))}</small></div>
             <button class="secondary-button" type="button" data-action="place-p4n-apply" data-stop-id="${escapeHtml(stopId)}" data-latitude="${escapeHtml(String(p4nLookup.latitude))}" data-longitude="${escapeHtml(String(p4nLookup.longitude))}" data-name="${escapeHtml(p4nLookup.name || "")}" data-city="${escapeHtml(p4nLookup.city || "")}" data-country-code="${escapeHtml(p4nLookup.country_code || "")}"><ha-icon icon="mdi:map-marker-down"></ha-icon>In den manuellen Kartenpunkt übernehmen</button>
           </div>`
-        : "";
+        : cleanText(item?.p4n_lookup_error)
+          ? `<div class="notice warning place-p4n-error"><ha-icon icon="mdi:alert-outline"></ha-icon><div><strong>Park4Night-Link erkannt, Seite nicht lesbar</strong><span>${escapeHtml(cleanText(item.p4n_lookup_error))}</span></div></div>`
+          : "";
       const candidateCards = candidates.length
         ? candidates.map((candidate) => {
           const candidateId = cleanText(candidate.id);

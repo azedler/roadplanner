@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.3] - 2026-08-01
+
+### Fixed
+
+- "Stopps anreichern" confirmed coordinates finally LAND: the enrichment submit only parked a review handoff pinned to the trip revision at submit time - background writes (automatic route refresh, photo assignment, other handoffs) bump the revision within seconds, so the parked handoff turned into a stale-revision conflict and the confirmed coordinates silently never changed ("Auch anreichern ändert nicht die Koordinaten"). Since every operation was already individually confirmed by the user in the preview dialog, the ChangeSet is now applied DIRECTLY after a clean ingest ("3 Ortsprofile übernommen und angewendet - Kartenpunkte sind aktualisiert"); only a genuine race falls back to the review handoff, now with the reason shown.
+- A recognized Park4Night link whose page could not be read (AI provider not configured, unreachable, or out of quota) failed SILENTLY - the "In den manuellen Kartenpunkt übernehmen" button just never appeared and nothing said why. The enrichment dialog now shows a clear warning card ("Park4Night-Link erkannt, Seite nicht lesbar") with the reason and the manual-coordinates way out.
+
+- Briefly leaving the app while the assistant was working showed "Änderungsentwurf konnte nicht erstellt werden / Connection lost" - even though nothing failed: backgrounding the mobile app kills the WebSocket, but assistant_prepare (like the chat, the video export and the page lookups) is shielded server-side and runs to completion; the draft/handoff arrives anyway. The scary error dialog made users retry and produced duplicate handoffs. A connection-lost failure on such a server-continuing action now shows a calm "Roadplanner arbeitet auf dem Server weiter - bitte nicht erneut starten" toast and automatically re-checks a few seconds later, so the arrived result (e.g. the new entry under Übergaben) shows up on its own. Real failures and ordinary actions keep the loud error path unchanged.
+
+### Changed
+
+- Gemini cost/quality tuning: the defaults are now `gemini-3.6-flash` (primary) and `gemini-3.5-flash` (fallback) - the Reisebegleiter's travel advice and multi-day route/ChangeSet compilation get the newest full Flash tier, and a rate-limited primary falls back to the previous full-quality tier instead of failing. Deliberately NOT a floating alias like `gemini-flash-latest`: the client builds requests differently per model generation (structured output combined with search/url tools, temperature handling), so an alias that silently swaps the model underneath would degrade the pipeline. Manually configured models remain untouched.
+- The Gemini model configuration is now a MODE choice: "auto" (recommended, the new default) follows the Roadplanner model recommendations and updates with every release - previously the options dialog froze the then-current default as a literal model name on save, so release-side model upgrades silently never reached existing installations. "custom" exposes all three model roles (primary for advice/planning, fallback for rate-limit/error relief, lite for bounded extraction tasks). Existing entries migrate automatically: a stored model matching any historical default becomes "auto"; a genuinely hand-picked model becomes "custom" and stays untouched.
+- Bounded schema-extraction tasks - receipt/document analysis (Rechnungen/Belege aus Bildern und PDFs) and vision photo curation - now run on the cheap `gemini-3.5-flash-lite` tier first, with the configured primary model as automatic in-call backup. These calls use no search and no long context, so the lite tier's quality is sufficient there at a fraction of the cost; the advisory chat, compile and research paths stay on the full tier.
+
 ## [4.14.2] - 2026-07-31
 
 ### Fixed

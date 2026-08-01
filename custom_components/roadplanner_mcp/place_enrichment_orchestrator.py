@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Awaitable, Callable
 
 from homeassistant.core import HomeAssistant
@@ -23,6 +24,8 @@ from .roadplanner import ValidationError
 
 
 _ENRICHMENT_SOURCE = "roadplanner_place_enrichment"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _stop_ids_of_operations(operations: Any) -> set[str]:
@@ -300,6 +303,34 @@ class PlaceEnrichmentOrchestrator:
                 new_handoff_id=str(new_handoff.get("id") or ""),
                 new_handoff_received_at=str(new_handoff.get("received_at") or ""),
             )
+        applied_handoff: dict[str, Any] | None = None
+        apply_error: str | None = None
+        if clean_ingest:
+            # Every operation in this ChangeSet was individually confirmed by
+            # the user in the enrichment preview - a second confirmation under
+            # Übergaben is redundant, and worse: background writes (automatic
+            # route refresh, photo assignment, ...) bump the trip revision
+            # within seconds, turning the parked handoff into a stale-revision
+            # conflict that silently never changes the coordinates. Apply
+            # directly; only a genuine race falls back to the review handoff.
+            try:
+                apply_outcome = await self.manager.async_apply_handoff(
+                    handoff_id=str(new_handoff.get("id") or ""),
+                    actor=actor,
+                    expected_revision=revision,
+                )
+                applied_handoff = (
+                    apply_outcome.get("handoff")
+                    if isinstance(apply_outcome.get("handoff"), dict)
+                    else None
+                )
+            except Exception as err:  # noqa: BLE001 - fall back to review
+                apply_error = str(err)[:500]
+                _LOGGER.warning(
+                    "Direct apply of place enrichment failed, handoff stays "
+                    "under review: %s",
+                    apply_error,
+                )
         if galleries and clean_ingest:
             # Galleries stay a submit-time side effect only for a cleanly
             # ingested handoff - a duplicate or conflict ingest must not
@@ -323,7 +354,9 @@ class PlaceEnrichmentOrchestrator:
             "request_id": preview_id,
             "changeset_id": changeset_id,
             "operation_count": count,
-            "handoff": ingest.get("handoff"),
+            "applied": applied_handoff is not None,
+            "apply_error": apply_error,
+            "handoff": applied_handoff or ingest.get("handoff"),
             "preview": ingest.get("preview"),
             "experience": await self._get_panel_payload(trip_id),
         }

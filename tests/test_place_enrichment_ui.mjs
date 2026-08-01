@@ -66,8 +66,14 @@ if (!source.includes('class="google-maps-label" translate="no">Google Maps</span
 if (!source.includes('font-family: Roboto, Sans-Serif') || !source.includes('font-weight: 400')) {
   throw new Error("Google text attribution styling contract is missing");
 }
-if (!source.includes('Ortsprofile an die Änderungsübersicht übergeben')) {
-  throw new Error("Review-only handoff confirmation is missing");
+if (!source.includes('an Änderungsübersicht übergeben')) {
+  throw new Error("The submit button no longer names the review handoff target");
+}
+if (!source.includes('übernommen und angewendet')) {
+  throw new Error("Direct apply of confirmed enrichments is missing");
+}
+if (!source.includes('dort bitte anwenden')) {
+  throw new Error("The review fallback no longer tells the user to apply the handoff");
 }
 if (!source.includes('place_profile?.confirmed_at')) {
   throw new Error("Stop cards do not distinguish reviewed place profiles");

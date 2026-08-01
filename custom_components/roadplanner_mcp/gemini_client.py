@@ -96,6 +96,7 @@ class GeminiClient:
         model: str,
         fallback_model: str = "gemini-2.5-flash",
         image_model: str = "gemini-2.5-flash-image",
+        lite_model: str = "gemini-3.5-flash-lite",
         request_timeout: int = 75,
         retry_attempts: int = 2,
         min_request_interval: float = 2.0,
@@ -108,6 +109,11 @@ class GeminiClient:
         if self._fallback_model == self._model:
             self._fallback_model = ""
         self._image_model = image_model.strip() or "gemini-2.5-flash-image"
+        # Bounded schema-extraction tasks (receipt/document analysis, photo
+        # curation) run on the cheap lite tier first, with the full primary
+        # model as the in-call fallback - they use no search and no long
+        # context, so the lite tier's quality is sufficient there.
+        self._lite_model = lite_model.strip() or "gemini-3.5-flash-lite"
         self._request_timeout = max(20, min(int(request_timeout), 180))
         self._retry_attempts = max(0, min(int(retry_attempts), 5))
         self._min_request_interval = max(0.5, min(float(min_request_interval), 15.0))
@@ -172,6 +178,13 @@ class GeminiClient:
     def configured(self) -> bool:
         return bool(self._api_key)
 
+    def _lite_model_chain(self) -> list[str]:
+        """Model order for bounded extraction tasks: lite first, primary as backup."""
+        chain = [self._lite_model]
+        if self._model and self._model != self._lite_model:
+            chain.append(self._model)
+        return chain
+
     @staticmethod
     def _supports_structured_tools(model: str) -> bool:
         """Gemini 3 supports structured output together with built-in tools."""
@@ -187,6 +200,7 @@ class GeminiClient:
             "configured": self.configured,
             "primary_model": self._model,
             "fallback_model": self.fallback_model,
+            "lite_model": self._lite_model,
             "request_timeout": self._request_timeout,
             "retry_attempts": self._retry_attempts,
             "min_request_interval": self._min_request_interval,
@@ -1255,6 +1269,7 @@ class GeminiClient:
         payload, diagnostics = await self._post(
             body_for_model,
             search_requested=False,
+            models_override=self._lite_model_chain(),
         )
         candidate = self._candidate(payload)
         text = self._text(candidate)
@@ -1455,7 +1470,11 @@ class GeminiClient:
             }
             return [("binary_schema", structured), ("binary_json_mime", plain)]
 
-        payload, diagnostics = await self._post(body_for_model, search_requested=False)
+        payload, diagnostics = await self._post(
+            body_for_model,
+            search_requested=False,
+            models_override=self._lite_model_chain(),
+        )
         candidate = self._candidate(payload)
         text = self._text(candidate)
         try:
