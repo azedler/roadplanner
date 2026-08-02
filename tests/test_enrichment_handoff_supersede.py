@@ -175,7 +175,32 @@ def verify_submit_path_calls_supersede_after_successful_ingest() -> None:
     assert 'resolution="superseded"' in source
 
 
+def verify_normalized_envelope_dialect_matches_too() -> None:
+    # Stored handoff envelopes contain the NORMALIZED changeset (op/stop_id),
+    # not the entity dialect. Matching only entity_type/entity_id meant the
+    # supersede NEVER matched a stored envelope - found by the orchestration
+    # simulation on its first run; this fixture had masked the bug by
+    # hand-building entity-dialect envelopes.
+    pending = [
+        {"id": "h-normalized", "source": "roadplanner_place_enrichment"},
+        {"id": "h-day-op", "source": "roadplanner_place_enrichment"},
+    ]
+    envelopes = {
+        "h-normalized": _envelope(
+            [{"op": "update_stop", "stop_id": "stop-1", "day_id": "day-1", "patch": {}}]
+        ),
+        "h-day-op": _envelope(
+            [{"op": "update_day", "day_id": "day-1", "patch": {}}]
+        ),
+    }
+    result = module.find_superseded_enrichment_handoffs(pending, envelopes, {"stop-1"})
+    assert result == ["h-normalized"], (
+        f"the normalized op dialect must match stored envelopes - got {result}"
+    )
+
+
 if __name__ == "__main__":
+    verify_normalized_envelope_dialect_matches_too()
     verify_only_same_stop_enrichment_handoffs_are_superseded()
     verify_no_new_stops_means_nothing_is_touched()
     verify_missing_envelope_or_garbage_is_skipped()

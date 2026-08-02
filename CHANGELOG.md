@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.11] - 2026-08-02
+
+### Added
+
+- Orchestration-level simulation environment (`tests/orchestration_harness.py` + `tests/test_orchestration_simulation.py`): boots the REAL manager, handoff store and enrichment orchestrator on the real store - without Home Assistant - and replays exactly the race patterns that hurt live this week: a clean submit applies directly, a background write before ingest yields a VISIBLE conflict handoff, a background write before apply falls back to a visible review handoff with the reason, a re-submit supersedes the stale pending handoff, and seeded random interleavings of user edits, background writes and submits check the store invariants plus a new orchestration invariant after every step: a confirmed enrichment is never silently swallowed - it is either applied or visible as a pending/conflict handoff.
+
+### Fixed
+
+- (Found by the new orchestration simulation on its FIRST run) Superseding stale enrichment handoffs never actually worked against stored handoffs: ingest stores the NORMALIZED ChangeSet (`op`/`stop_id`), but the supersede matching only read the entity dialect (`entity_type`/`entity_id`) - so the match against stored envelopes was always empty and outdated pending confirmations for the same stop were never archived. The matcher now understands both dialects; the old unit test had masked the bug with hand-built entity-dialect envelopes and now covers the stored shape too.
+
 ## [4.14.10] - 2026-08-02
 
 ### Fixed
