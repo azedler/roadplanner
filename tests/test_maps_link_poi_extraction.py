@@ -93,7 +93,32 @@ def verify_garbage_stays_none() -> None:
     assert extract("https://maps.google.com/?q=0.0,0.0") is None, "0,0 is never a place"
 
 
+def verify_link_preview_metadata_fallback() -> None:
+    preview = module._extract_place_query_from_preview_html
+    # The og:image static map encodes the place position.
+    html = (
+        '<meta property="og:title" content="ICA Supermarket Jädraås · Google Maps">'
+        '<meta property="og:image" content="https://maps.google.com/maps/api/staticmap'
+        '?center=60.8412345%2C16.5812345&zoom=15&markers=60.8412345%2C16.5812345">'
+    )
+    assert preview(html) == "60.8412345,16.5812345"
+    # Without a static map the cleaned og:title is used as a text query.
+    assert preview(
+        '<meta content="Apotheket Hjärtat - Google Maps" property="og:title">'
+    ) == "Apotheket Hjärtat"
+    # A consent page or generic title yields nothing - fail open.
+    assert preview('<meta property="og:title" content="Google Maps">') is None
+    assert preview("") is None
+    # The wiring: preview fetch only runs when the URL itself was unreadable.
+    source = Path("custom_components/roadplanner_mcp/google_maps_link.py").read_text(encoding="utf-8")
+    assert "preview_query = await _async_link_preview_query" in source
+    assert source.index("_extract_place_query_from_url(canonical_url)") < source.index(
+        "preview_query = await _async_link_preview_query"
+    )
+
+
 if __name__ == "__main__":
+    verify_link_preview_metadata_fallback()
     verify_marker_position_beats_viewport_center()
     verify_data_blob_without_place_name_or_at_segment()
     verify_query_parameter_forms()
