@@ -1,14 +1,17 @@
 """Resolve a Google Maps link into a deterministic place_query.
 
-Only the URL structure is read. Short links (``maps.app.goo.gl``, ``goo.gl``)
-are resolved by following the HTTP redirect and reading the ``Location``
-header - never by fetching or parsing Google's rendered page content, which
-would be scraping. If the canonical URL carries an ``@lat,lng`` segment, that
-takes priority (an exact coordinate pair, verified through the normal
-GPS-Prüfung reverse-geocoding path); otherwise the place name in the URL path
-is used as a text query. This never invents data and fails open (returns
-``None``) on any error, network condition, or unrecognized link shape so a
-stop can always still be completed manually.
+The URL structure is read first. Short links (``maps.app.goo.gl``,
+``goo.gl``) are resolved by following the HTTP redirect and reading the
+``Location`` header. If the canonical URL carries a precise ``!3d/!4d``
+marker, an ``@lat,lng`` segment, a place/search name or a ``q=`` parameter,
+that is used directly. Only when the URL itself carries nothing readable
+(e.g. cid-only POI shares) does a bounded LINK-PREVIEW fetch run: it reads
+exclusively the page's meta tags (og:title and the static-map preview
+image, which encodes the place position) - the same data any messenger
+shows for a pasted link, never the rendered maps application content.
+This never invents data and fails open (returns ``None``) on any error,
+network condition, or unrecognized link shape so a stop can always still
+be completed manually.
 """
 
 from __future__ import annotations
@@ -38,6 +41,64 @@ _PLACE_NAME_IN_PATH_RE = re.compile(r"/maps/(?:place|search)/([^/@]+)", re.IGNOR
 # silently ignored (live report).
 _MARKER_IN_DATA_RE = re.compile(r"!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)")
 _COORDINATE_PAIR_RE = re.compile(r"^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$")
+
+
+_MAX_PREVIEW_BYTES = 512_000
+_PREVIEW_TIMEOUT_SECONDS = 8.0
+# The og:image of a maps place page is a static-map URL whose center (or
+# markers parameter) encodes the PLACE position.
+_META_STATICMAP_CENTER_RE = re.compile(
+    r"(?:center|markers)=(?:[^\"&]*?%7C)?(-?\d{1,3}\.\d+)(?:%2C|,)(-?\d{1,3}\.\d+)",
+    re.IGNORECASE,
+)
+_META_OG_TITLE_RE = re.compile(
+    r'<meta[^>]+property="og:title"[^>]+content="([^"]{1,300})"'
+    r'|<meta[^>]+content="([^"]{1,300})"[^>]+property="og:title"',
+    re.IGNORECASE,
+)
+
+
+def _extract_place_query_from_preview_html(page_html: str) -> str | None:
+    """Read only link-preview metadata: static-map position, then og:title."""
+    if not page_html:
+        return None
+    center_match = _META_STATICMAP_CENTER_RE.search(page_html)
+    if center_match and _valid_pair(*center_match.groups()):
+        latitude, longitude = center_match.groups()
+        return f"{latitude},{longitude}"
+    title_match = _META_OG_TITLE_RE.search(page_html)
+    if title_match:
+        raw_title = title_match.group(1) or title_match.group(2) or ""
+        name = re.sub(
+            r"\s*[·\-–|]\s*Google\s*Maps\s*$", "", raw_title, flags=re.IGNORECASE
+        ).strip()
+        if name and name.casefold() != "google maps":
+            return name[:500]
+    return None
+
+
+async def _async_link_preview_query(hass: HomeAssistant, url: str) -> str | None:
+    """Bounded meta-tag fetch for maps links whose URL carries nothing."""
+    session = async_get_clientsession(hass)
+    try:
+        async with asyncio.timeout(_PREVIEW_TIMEOUT_SECONDS):
+            async with session.get(
+                url,
+                headers={
+                    "Accept-Language": "de,en;q=0.8",
+                    # Best effort to skip the EU consent interstitial, which
+                    # carries no place metadata. Failing is fine: fail open.
+                    "Cookie": "CONSENT=YES+cb",
+                },
+            ) as response:
+                if response.status != 200:
+                    return None
+                raw = await response.content.read(_MAX_PREVIEW_BYTES)
+    except (ClientError, TimeoutError):
+        return None
+    return _extract_place_query_from_preview_html(
+        raw.decode("utf-8", errors="replace")
+    )
 
 
 def _valid_pair(latitude: str, longitude: str) -> bool:
@@ -150,5 +211,13 @@ async def async_resolve_google_maps_place_query(
         place_query = _extract_place_query_from_url(canonical_url)
         if place_query:
             return place_query
+        # cid-only POI shares carry nothing readable in the URL itself -
+        # last resort is the link-preview metadata of the canonical page
+        # (live report: such a shared POI link was silently ignored).
+        preview_query = await _async_link_preview_query(hass, canonical_url)
+        if preview_query:
+            _LOGGER.debug("Resolved Maps link via link-preview metadata")
+            return preview_query
+        _LOGGER.debug("Maps link carried no readable place data: %s", canonical_url)
         return None
     return None

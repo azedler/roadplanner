@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.15] - 2026-08-02
+
+### Fixed
+
+- "Der Google-Maps-Link konnte nicht aufgelöst werden" for shared POI links whose canonical URL carries nothing readable at all (cid-only shares): as a last resort the resolver now reads the page's LINK-PREVIEW metadata - the og:title and the static-map preview image, whose center/markers parameter encodes the place position. Deterministic, no AI, the same data any messenger shows for a pasted link; the rendered maps application content is never parsed. A consent interstitial or generic title still fails open to manual completion.
+
 ## [4.14.14] - 2026-08-02
 
 ### Fixed
