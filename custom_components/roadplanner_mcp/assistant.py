@@ -70,7 +70,7 @@ from .assistant_shared import (
     _utc_now_iso,
 )
 from .geocoding import GeocodingError, NominatimGeocoder
-from .google_maps_link import async_resolve_google_maps_place_query
+from .google_maps_link import async_resolve_google_maps_place
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
 
@@ -1356,13 +1356,17 @@ class RoadplannerAssistant:
                 for index, raw in enumerate(prepared_raw_operations):
                     place_query = raw.get("place_query") if isinstance(raw, dict) else None
                     resolved_from_user_link = False
+                    resolved_poi_name = ""
                     if isinstance(place_query, str) and place_query:
-                        resolved_place_query = await async_resolve_google_maps_place_query(
+                        resolved_place = await async_resolve_google_maps_place(
                             self.manager.hass, place_query
                         )
-                        if resolved_place_query:
-                            raw["place_query"] = resolved_place_query
+                        if resolved_place:
+                            raw["place_query"] = str(resolved_place["place_query"])
                             resolved_from_user_link = True
+                            resolved_poi_name = str(
+                                resolved_place.get("name") or ""
+                            ).strip()
                     sanitized = _sanitize_operation(
                         raw,
                         index=index,
@@ -1379,6 +1383,38 @@ class RoadplannerAssistant:
                         # user shared - the geocoding plugin treats its
                         # coordinates like a manually confirmed map point.
                         sanitized["place_query_origin"] = "user_google_maps_link"
+                        if (
+                            resolved_poi_name
+                            and sanitized.get("action") == "add"
+                            and sanitized.get("entity_type") == "stop"
+                            and isinstance(sanitized.get("changes"), dict)
+                        ):
+                            # A NEW stop created from a user-shared link
+                            # adopts the POI's real name - the model tends
+                            # to label it only generically ("Essen", live
+                            # report). A differing model label is kept in
+                            # the notes so no intent is lost. Existing
+                            # stops are never renamed this way.
+                            changes = sanitized["changes"]
+                            model_name = str(changes.get("name") or "").strip()
+                            if (
+                                model_name.casefold()
+                                != resolved_poi_name.casefold()
+                            ):
+                                changes["name"] = resolved_poi_name[:500]
+                                if model_name:
+                                    notes = str(
+                                        changes.get("notes") or ""
+                                    ).strip()
+                                    if (
+                                        model_name.casefold()
+                                        not in notes.casefold()
+                                    ):
+                                        changes["notes"] = (
+                                            f"{notes}\n{model_name}".strip()
+                                            if notes
+                                            else model_name
+                                        )
                     operations.append(sanitized)
                 open_questions, open_questions_omitted = _normalize_text_items(
                     compiled.get("open_questions"),

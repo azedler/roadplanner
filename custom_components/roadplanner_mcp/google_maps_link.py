@@ -4,8 +4,9 @@ The URL structure is read first. Short links (``maps.app.goo.gl``,
 ``goo.gl``) are resolved by following the HTTP redirect and reading the
 ``Location`` header. If the canonical URL carries a precise ``!3d/!4d``
 marker, an ``@lat,lng`` segment, a place/search name or a ``q=`` parameter,
-that is used directly. Only when the URL itself carries nothing readable
-(e.g. cid-only POI shares) does a bounded LINK-PREVIEW fetch run: it reads
+that is used directly. Only when the URL itself is missing something (the
+coordinates of cid-only POI shares, or the NAME of marker-only shares)
+does a bounded LINK-PREVIEW fetch run: it reads
 exclusively the page's meta tags (og:title and the static-map preview
 image, which encodes the place position) - the same data any messenger
 shows for a pasted link, never the rendered maps application content.
@@ -19,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from aiohttp import ClientError
@@ -58,14 +60,16 @@ _META_OG_TITLE_RE = re.compile(
 )
 
 
-def _extract_place_query_from_preview_html(page_html: str) -> str | None:
-    """Read only link-preview metadata: static-map position, then og:title."""
+def _extract_place_preview(page_html: str) -> dict[str, Any]:
+    """Read only link-preview metadata: static-map position and og:title."""
+    preview: dict[str, Any] = {}
     if not page_html:
-        return None
+        return preview
     center_match = _META_STATICMAP_CENTER_RE.search(page_html)
     if center_match and _valid_pair(*center_match.groups()):
         latitude, longitude = center_match.groups()
-        return f"{latitude},{longitude}"
+        preview["latitude"] = float(latitude)
+        preview["longitude"] = float(longitude)
     title_match = _META_OG_TITLE_RE.search(page_html)
     if title_match:
         raw_title = title_match.group(1) or title_match.group(2) or ""
@@ -73,11 +77,18 @@ def _extract_place_query_from_preview_html(page_html: str) -> str | None:
             r"\s*[·\-–|]\s*Google\s*Maps\s*$", "", raw_title, flags=re.IGNORECASE
         ).strip()
         if name and name.casefold() != "google maps":
-            return name[:500]
-    return None
+            preview["name"] = name[:500]
+    return preview
 
 
-async def _async_link_preview_query(hass: HomeAssistant, url: str) -> str | None:
+def _extract_place_query_from_preview_html(page_html: str) -> str | None:
+    preview = _extract_place_preview(page_html)
+    if "latitude" in preview:
+        return f"{preview['latitude']},{preview['longitude']}"
+    return preview.get("name")
+
+
+async def _async_link_preview(hass: HomeAssistant, url: str) -> dict[str, Any]:
     """Bounded meta-tag fetch for maps links whose URL carries nothing."""
     session = async_get_clientsession(hass)
     try:
@@ -92,13 +103,11 @@ async def _async_link_preview_query(hass: HomeAssistant, url: str) -> str | None
                 },
             ) as response:
                 if response.status != 200:
-                    return None
+                    return {}
                 raw = await response.content.read(_MAX_PREVIEW_BYTES)
     except (ClientError, TimeoutError):
-        return None
-    return _extract_place_query_from_preview_html(
-        raw.decode("utf-8", errors="replace")
-    )
+        return {}
+    return _extract_place_preview(raw.decode("utf-8", errors="replace"))
 
 
 def _valid_pair(latitude: str, longitude: str) -> bool:
@@ -113,28 +122,30 @@ def _is_short_link_host(host: str) -> bool:
     return _host_matches(host, "maps.app.goo.gl") or _host_matches(host, "goo.gl")
 
 
-def _extract_place_query_from_url(url: str) -> str | None:
-    """Return a place_query derived deterministically from a Maps URL's own
-    structure - a coordinate pair if present, otherwise a place name.
+def _extract_place_info_from_url(url: str) -> dict[str, Any]:
+    """Read coordinates AND a place name from a Maps URL's own structure.
 
-    Priority: the precise !3d/!4d marker position from the data blob, then
-    the @lat,lng viewport center, then a /maps/place|search/<name> path
-    segment, then a q=/query= parameter (coordinates or text).
+    Coordinates: the precise !3d/!4d marker position from the data blob
+    beats the @lat,lng viewport center, which beats a coordinate-shaped
+    q=/query= parameter. Name: the /maps/place|search/<name> path segment,
+    otherwise a textual q=/query= parameter. Both are collected
+    independently, so a shared POI link yields its NAME alongside the pin
+    (live report: a shared restaurant was adopted only as generic "Essen").
     """
+    info: dict[str, Any] = {}
     parsed = urlparse(url)
     marker_match = _MARKER_IN_DATA_RE.search(unquote(url))
     if marker_match and _valid_pair(*marker_match.groups()):
-        latitude, longitude = marker_match.groups()
-        return f"{latitude},{longitude}"
-    coordinate_match = _COORDINATE_IN_PATH_RE.search(parsed.path)
-    if coordinate_match and _valid_pair(*coordinate_match.groups()):
-        latitude, longitude = coordinate_match.groups()
-        return f"{latitude},{longitude}"
+        info["latitude"], info["longitude"] = marker_match.groups()
+    if "latitude" not in info:
+        coordinate_match = _COORDINATE_IN_PATH_RE.search(parsed.path)
+        if coordinate_match and _valid_pair(*coordinate_match.groups()):
+            info["latitude"], info["longitude"] = coordinate_match.groups()
     name_match = _PLACE_NAME_IN_PATH_RE.search(parsed.path)
     if name_match:
         name = unquote(name_match.group(1)).replace("+", " ").strip()
         if name:
-            return name[:500]
+            info["name"] = name[:500]
     query_params = parse_qs(parsed.query)
     for key in ("q", "query", "destination"):
         for raw_value in query_params.get(key, []):
@@ -143,12 +154,22 @@ def _extract_place_query_from_url(url: str) -> str | None:
                 continue
             pair_match = _COORDINATE_PAIR_RE.match(value)
             if pair_match:
-                if _valid_pair(*pair_match.groups()):
-                    latitude, longitude = pair_match.groups()
-                    return f"{latitude},{longitude}"
+                if "latitude" not in info and _valid_pair(*pair_match.groups()):
+                    info["latitude"], info["longitude"] = pair_match.groups()
                 continue
-            return value[:500]
-    return None
+            if "name" not in info:
+                info["name"] = value[:500]
+    return info
+
+
+def _extract_place_query_from_url(url: str) -> str | None:
+    """Return a place_query derived deterministically from a Maps URL's own
+    structure - a coordinate pair if present, otherwise a place name.
+    """
+    info = _extract_place_info_from_url(url)
+    if "latitude" in info:
+        return f"{info['latitude']},{info['longitude']}"
+    return info.get("name")
 
 
 async def _async_follow_redirects(hass: HomeAssistant, url: str) -> str | None:
@@ -183,14 +204,17 @@ async def _async_follow_redirects(hass: HomeAssistant, url: str) -> str | None:
     return None
 
 
-async def async_resolve_google_maps_place_query(
+async def async_resolve_google_maps_place(
     hass: HomeAssistant, text: str
-) -> str | None:
-    """Find a Google Maps link in free text and resolve it to a place_query.
+) -> dict[str, Any] | None:
+    """Find a Google Maps link in free text and resolve it into place data.
 
-    Returns None if no Google Maps link is present, or if it cannot be
-    resolved into a coordinate pair or place name - the caller should then
-    fall back to whatever place_query it already had.
+    Returns a dict with ``place_query`` (a coordinate pair if known,
+    otherwise the place name) plus, when readable, ``name`` and
+    ``latitude``/``longitude`` - so callers can adopt the POI's NAME
+    alongside its pin. Returns None if no Google Maps link is present or
+    nothing readable could be derived - the caller should then fall back
+    to whatever it already had.
     """
     for raw_url in _URL_RE.findall(str(text or "")):
         url = raw_url.rstrip(".,;:")
@@ -208,16 +232,46 @@ async def async_resolve_google_maps_place_query(
                 _LOGGER.debug("Could not resolve Google Maps short link redirect")
                 return None
             canonical_url = resolved
-        place_query = _extract_place_query_from_url(canonical_url)
-        if place_query:
-            return place_query
-        # cid-only POI shares carry nothing readable in the URL itself -
-        # last resort is the link-preview metadata of the canonical page
-        # (live report: such a shared POI link was silently ignored).
-        preview_query = await _async_link_preview_query(hass, canonical_url)
-        if preview_query:
-            _LOGGER.debug("Resolved Maps link via link-preview metadata")
-            return preview_query
-        _LOGGER.debug("Maps link carried no readable place data: %s", canonical_url)
-        return None
+        info = _extract_place_info_from_url(canonical_url)
+        if "latitude" not in info or "name" not in info:
+            # cid-only POI shares carry nothing readable in the URL itself,
+            # and marker-only shares carry no NAME - the link-preview
+            # metadata of the canonical page fills the gaps (live reports:
+            # a shared POI link was silently ignored; a shared restaurant
+            # was adopted only as generic "Essen").
+            preview = await _async_link_preview(hass, canonical_url)
+            if "latitude" not in info and "latitude" in preview:
+                info["latitude"] = preview["latitude"]
+                info["longitude"] = preview["longitude"]
+            if "name" not in info and "name" in preview:
+                info["name"] = preview["name"]
+        if "latitude" in info:
+            # The place_query keeps the URL's original digits (incl.
+            # trailing zeros); the numeric fields are for form prefills.
+            info["place_query"] = f"{info['latitude']},{info['longitude']}"
+            info["latitude"] = float(info["latitude"])
+            info["longitude"] = float(info["longitude"])
+        elif info.get("name"):
+            info["place_query"] = info["name"]
+        else:
+            _LOGGER.debug(
+                "Maps link carried no readable place data: %s", canonical_url
+            )
+            return None
+        return info
     return None
+
+
+async def async_resolve_google_maps_place_query(
+    hass: HomeAssistant, text: str
+) -> str | None:
+    """Find a Google Maps link in free text and resolve it to a place_query.
+
+    Returns None if no Google Maps link is present, or if it cannot be
+    resolved into a coordinate pair or place name - the caller should then
+    fall back to whatever place_query it already had.
+    """
+    info = await async_resolve_google_maps_place(hass, text)
+    if info is None:
+        return None
+    return str(info["place_query"])

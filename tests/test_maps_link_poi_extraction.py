@@ -95,13 +95,19 @@ def verify_garbage_stays_none() -> None:
 
 def verify_link_preview_metadata_fallback() -> None:
     preview = module._extract_place_query_from_preview_html
-    # The og:image static map encodes the place position.
+    # The og:image static map encodes the place position - and the rich
+    # preview keeps position AND name together.
     html = (
         '<meta property="og:title" content="ICA Supermarket Jädraås · Google Maps">'
         '<meta property="og:image" content="https://maps.google.com/maps/api/staticmap'
         '?center=60.8412345%2C16.5812345&zoom=15&markers=60.8412345%2C16.5812345">'
     )
     assert preview(html) == "60.8412345,16.5812345"
+    assert module._extract_place_preview(html) == {
+        "latitude": 60.8412345,
+        "longitude": 16.5812345,
+        "name": "ICA Supermarket Jädraås",
+    }
     # Without a static map the cleaned og:title is used as a text query.
     assert preview(
         '<meta content="Apotheket Hjärtat - Google Maps" property="og:title">'
@@ -109,16 +115,79 @@ def verify_link_preview_metadata_fallback() -> None:
     # A consent page or generic title yields nothing - fail open.
     assert preview('<meta property="og:title" content="Google Maps">') is None
     assert preview("") is None
-    # The wiring: preview fetch only runs when the URL itself was unreadable.
-    source = Path("custom_components/roadplanner_mcp/google_maps_link.py").read_text(encoding="utf-8")
-    assert "preview_query = await _async_link_preview_query" in source
-    assert source.index("_extract_place_query_from_url(canonical_url)") < source.index(
-        "preview_query = await _async_link_preview_query"
+
+
+def verify_url_info_carries_name_and_coordinates_together() -> None:
+    info = module._extract_place_info_from_url(
+        "https://www.google.com/maps/place/Ravintola+Kappeli/"
+        "@60.1670000,24.9500000,17z/data=!3m1!4b1!8m2!3d60.1673456!4d24.9512345"
     )
+    assert info == {
+        "latitude": "60.1673456",
+        "longitude": "24.9512345",
+        "name": "Ravintola Kappeli",
+    }, info
+    assert module._extract_place_info_from_url("https://www.google.com/maps") == {}
+
+
+def verify_rich_resolver_fills_missing_name_from_preview() -> None:
+    # Live report: "wir haben hier gegessen" + shared restaurant link - the
+    # marker gave coordinates, but the POI NAME was lost and the stop was
+    # created only as generic "Essen". The resolver now fetches the
+    # link-preview metadata whenever the URL lacks name OR coordinates.
+    import asyncio
+
+    canonical = (
+        "https://www.google.com/maps/place//data=!8m2!3d61.5012345!4d23.7612345"
+    )
+
+    async def fake_redirects(hass, url):
+        return canonical
+
+    async def fake_preview(hass, url):
+        assert url == canonical
+        return {"name": "Ravintola Näsinneula"}
+
+    module._async_follow_redirects = fake_redirects
+    module._async_link_preview = fake_preview
+    info = asyncio.run(
+        module.async_resolve_google_maps_place(
+            None, "wir haben hier gegessen https://maps.app.goo.gl/zHxYqvPmQk"
+        )
+    )
+    assert info["place_query"] == "61.5012345,23.7612345"
+    assert info["name"] == "Ravintola Näsinneula"
+    assert info["latitude"] == 61.5012345 and info["longitude"] == 23.7612345
+
+    # The string wrapper (webhook path) still yields just the place_query.
+    query = asyncio.run(
+        module.async_resolve_google_maps_place_query(
+            None, "https://maps.app.goo.gl/zHxYqvPmQk"
+        )
+    )
+    assert query == "61.5012345,23.7612345"
+
+
+def verify_poi_name_adoption_is_wired() -> None:
+    # assistant.py: a NEW stop from a user-shared link adopts the POI name;
+    # the model's own label survives in the notes. Updates never rename.
+    source = Path("custom_components/roadplanner_mcp/assistant.py").read_text(encoding="utf-8")
+    assert "async_resolve_google_maps_place(" in source
+    assert 'sanitized.get("action") == "add"' in source
+    assert 'sanitized.get("entity_type") == "stop"' in source
+    assert 'changes["name"] = resolved_poi_name[:500]' in source
+    # panel.py: the manual link lookup returns name AND coordinates together
+    # so the Stellplatz/stop forms are prefilled completely.
+    panel_source = Path("custom_components/roadplanner_mcp/panel.py").read_text(encoding="utf-8")
+    assert "await async_resolve_google_maps_place(hass, url)" in panel_source
+    assert '"name": str(resolved.get("name") or "")[:200]' in panel_source
 
 
 if __name__ == "__main__":
     verify_link_preview_metadata_fallback()
+    verify_url_info_carries_name_and_coordinates_together()
+    verify_rich_resolver_fills_missing_name_from_preview()
+    verify_poi_name_adoption_is_wired()
     verify_marker_position_beats_viewport_center()
     verify_data_blob_without_place_name_or_at_segment()
     verify_query_parameter_forms()
