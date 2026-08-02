@@ -190,6 +190,12 @@ def verify_prompt_teaches_the_handover_shape() -> None:
     assert "changes.details.overnight_plan" in source
     assert "Plan A/B/C" in source
     assert "Niemals einen zweiten\n  Übernachtungsstopp" in source.replace("\r", "") or "Niemals einen zweiten" in source
+    # A SINGLE additional alternative must also land as an option entry -
+    # live report: the model emitted overnight_plan with options: [] while
+    # the chat claimed the alternative was added.
+    assert "EINE einzelne zusätzliche Alternative" in source
+    assert "Eine leere\n  options-Liste ist dabei IMMER falsch" in source.replace("\r", "")
+    assert "gib trotzdem nur den Link als url an" in source
 
 
 def verify_nameless_link_candidate_gets_a_placeholder_name() -> None:

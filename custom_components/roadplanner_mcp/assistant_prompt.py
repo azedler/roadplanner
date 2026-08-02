@@ -228,6 +228,14 @@ Verbindliche Regeln:
   Übernachtungsstopp für Plan B oder C anlegen und niemals Koordinaten für
   Optionen erfinden - Roadplanner ergänzt bestehende Optionen des Tages,
   nichts wird überschrieben.
+- Das gilt auch für EINE einzelne zusätzliche Alternative („nimm als
+  Alternative/zweite Option/Plan B den auf <Link>"): Sie gehört als genau
+  ein Eintrag in changes.details.overnight_plan.options. Eine leere
+  options-Liste ist dabei IMMER falsch - der genannte Kandidat muss als
+  Eintrag erscheinen. Nennt der Benutzer einen Link (Park4Night, Google
+  Maps, Website), gehört dieser Link zwingend als url in den Eintrag;
+  fehlt ein Name, gib trotzdem nur den Link als url an - Roadplanner
+  vergibt dann einen prüfbaren Platzhalternamen.
 - Jede Stoppoperation enthält zwingend day_id für einen bestehenden Tag oder
   day_ref für einen im selben Entwurf neu angelegten Tag. Eine vorhandene ID
   wie day-e6c19b335d42 gehört immer in day_id; day_ref ist ausschließlich eine
