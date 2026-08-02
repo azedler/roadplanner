@@ -160,7 +160,9 @@ class RoadplannerPanel extends HTMLElement {
     this.shadowRoot.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this._dialog) this._closeDialog();
       const textarea = event.target?.closest?.("textarea[name='message']");
-      if (textarea && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      // Enter inserts a NEWLINE (live request: plain Enter kept sending
+      // half-typed messages); sending is the button or Ctrl/Cmd+Enter.
+      if (textarea && event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
         event.preventDefault();
         const form = textarea.closest("form[data-form='assistant-chat']");
         void this._submitAssistantComposer(form);

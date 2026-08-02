@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from aiohttp import ClientError
 from homeassistant.core import HomeAssistant
@@ -30,7 +30,22 @@ _MAX_REDIRECT_HOPS = 4
 _REDIRECT_TIMEOUT_SECONDS = 6.0
 
 _COORDINATE_IN_PATH_RE = re.compile(r"@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)")
-_PLACE_NAME_IN_PATH_RE = re.compile(r"/maps/place/([^/@]+)", re.IGNORECASE)
+_PLACE_NAME_IN_PATH_RE = re.compile(r"/maps/(?:place|search)/([^/@]+)", re.IGNORECASE)
+# The data blob of a shared POI carries the PRECISE marker position as
+# !3d<lat>!4d<lon> - unlike @lat,lng, which is only the viewport center.
+# Mobile share links (maps.app.goo.gl, "?g_st=ic") often resolve to URLs
+# without any @segment or place name, so without this the whole link was
+# silently ignored (live report).
+_MARKER_IN_DATA_RE = re.compile(r"!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)")
+_COORDINATE_PAIR_RE = re.compile(r"^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$")
+
+
+def _valid_pair(latitude: str, longitude: str) -> bool:
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except ValueError:
+        return False
+    return -90 <= lat <= 90 and -180 <= lon <= 180 and not (lat == 0 and lon == 0)
 
 
 def _is_short_link_host(host: str) -> bool:
@@ -39,10 +54,19 @@ def _is_short_link_host(host: str) -> bool:
 
 def _extract_place_query_from_url(url: str) -> str | None:
     """Return a place_query derived deterministically from a Maps URL's own
-    structure - a coordinate pair if present, otherwise a place name."""
+    structure - a coordinate pair if present, otherwise a place name.
+
+    Priority: the precise !3d/!4d marker position from the data blob, then
+    the @lat,lng viewport center, then a /maps/place|search/<name> path
+    segment, then a q=/query= parameter (coordinates or text).
+    """
     parsed = urlparse(url)
+    marker_match = _MARKER_IN_DATA_RE.search(unquote(url))
+    if marker_match and _valid_pair(*marker_match.groups()):
+        latitude, longitude = marker_match.groups()
+        return f"{latitude},{longitude}"
     coordinate_match = _COORDINATE_IN_PATH_RE.search(parsed.path)
-    if coordinate_match:
+    if coordinate_match and _valid_pair(*coordinate_match.groups()):
         latitude, longitude = coordinate_match.groups()
         return f"{latitude},{longitude}"
     name_match = _PLACE_NAME_IN_PATH_RE.search(parsed.path)
@@ -50,6 +74,19 @@ def _extract_place_query_from_url(url: str) -> str | None:
         name = unquote(name_match.group(1)).replace("+", " ").strip()
         if name:
             return name[:500]
+    query_params = parse_qs(parsed.query)
+    for key in ("q", "query", "destination"):
+        for raw_value in query_params.get(key, []):
+            value = unquote(str(raw_value)).replace("+", " ").strip()
+            if not value:
+                continue
+            pair_match = _COORDINATE_PAIR_RE.match(value)
+            if pair_match:
+                if _valid_pair(*pair_match.groups()):
+                    latitude, longitude = pair_match.groups()
+                    return f"{latitude},{longitude}"
+                continue
+            return value[:500]
     return None
 
 
