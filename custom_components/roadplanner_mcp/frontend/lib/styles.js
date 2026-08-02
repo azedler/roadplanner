@@ -245,6 +245,8 @@ export const PANEL_STYLES = `<style>
       .pitch-day-card .pitch-active-row { margin-bottom: 10px; }
       .pitch-day-card .pitch-active-row span { display: inline-flex; align-items: center; gap: 7px; }
       .pitch-option-list .secondary-button, .pitch-option-list .text-button { min-height: 36px; padding: 0 10px; }
+      .pitch-options-heading { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; padding-top: 14px; border-top: 1px solid var(--divider-color); font-size: 17px; }
+      .pitch-options-heading ha-icon { color: var(--primary-color); }
       .pitch-plan-b .setting-row span { display: inline-flex; align-items: center; gap: 7px; }
       .pitch-route-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--secondary-text-color); font-size: 14px; }
       .pitch-route-flow span { display: inline-flex; align-items: center; gap: 5px; }

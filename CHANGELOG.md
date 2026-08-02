@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.18] - 2026-08-02
+
+### Fixed
+
+- "Der Google-Maps-Link konnte nicht aufgelöst werden" / link lookup filled only the name: the resolver now handles Google's EU consent interstitial - a redirect to consent.google.com is never followed (the consent page carries no place data), instead its `continue` parameter IS the canonical maps URL and is used directly; the consent cookie is also sent while following short-link redirects. Additionally, the link-preview reader now parses the page's canonical/og:url metadata, which carries the FULL maps URL including the precise !3d/!4d marker - so coordinates are found even when the static-map preview image is missing.
+
+### Changed
+
+- Stellplatz options are easier to spot: a counted heading "Backup-Optionen (N)" with divider now sits above the option list.
+- The pitch map now says explicitly which options are NOT shown because they have no GPS yet, with a pointer to "Bearbeiten" → "Link lesen und übernehmen" (live question: only one of two spots appeared on the map - the second had no coordinates).
+
 ## [4.14.17] - 2026-08-02
 
 ### Fixed

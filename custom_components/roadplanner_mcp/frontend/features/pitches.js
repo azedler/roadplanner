@@ -262,6 +262,9 @@ export const pitchesMixin = {
         mode: "driving",
         points: candidate.geometry.map(([lon, lat]) => ({ lat, lon })),
       }));
+    const optionsWithoutGps = backups.filter(
+      (option) => option.location?.latitude == null || option.location?.longitude == null,
+    );
     const routeSummary = routes
       ? `<div class="notice neutral pitch-route-summary"><ha-icon icon="mdi:routes"></ha-icon><div><strong>Umwege je Kandidat${routes.baseline ? ` · direkte Strecke ${routes.baseline.duration_minutes} min / ${routes.baseline.distance_km} km` : ""}</strong><span>${(routes.candidates || []).map((candidate) => `${candidate.kind === "active" ? "★ " : ""}${escapeHtml(candidate.name)}: ${candidate.extra_duration_minutes != null ? `+${candidate.extra_duration_minutes} min · +${candidate.extra_distance_km} km` : `${candidate.duration_minutes} min · ${candidate.distance_km} km`}`).join(" · ")}</span>${routes.skipped?.length ? `<small>Ohne GPS übersprungen: ${routes.skipped.map((name) => escapeHtml(name)).join(", ")}</small>` : ""}${routes.errors?.length ? `<small>Fehler: ${routes.errors.map((text) => escapeHtml(text)).join(" · ")}</small>` : ""}</div></div>`
       : "";
@@ -282,8 +285,12 @@ export const pitchesMixin = {
       ${stop
         ? `<div class="setting-row pitch-active-row"><span><ha-icon icon="mdi:weather-night"></ha-icon> Aktiver Platz</span><strong>${escapeHtml(stop.name)}</strong></div>`
         : `<div class="notice neutral">Dieser Tag hat noch keinen Übernachtungsstopp. Beim Aktivieren einer Option wird er automatisch angelegt.</div>`}
+      ${optionsWithoutGps.length
+        ? `<div class="notice neutral"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><span>Ohne GPS nicht auf der Karte: ${optionsWithoutGps.map((option) => escapeHtml(option.name)).join(", ")} - über „Bearbeiten" → „Link lesen und übernehmen" die Koordinaten holen.</span></div>`
+        : ""}
       ${backups.length
-        ? `<ul class="crew-list pitch-option-list">${backups.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul>`
+        ? `<h3 class="pitch-options-heading"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Backup-Optionen (${backups.length})</h3>
+          <ul class="crew-list pitch-option-list">${backups.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul>`
         : `<p class="hint">Noch keine Backup-Option für diesen Tag${stop ? " - wenn der Platz voll ist, gibt es keinen Plan B" : ""}.</p>`}
       ${rejected.length ? `<details class="crew-retired"><summary>Verworfene Optionen (${rejected.length})</summary><ul class="crew-list pitch-option-list">${rejected.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul></details>` : ""}
       ${canEdit ? `<div class="button-row"><button class="secondary-button" type="button" data-action="pitch-add-option" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Option hinzufügen</button></div>` : ""}

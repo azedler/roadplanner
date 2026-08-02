@@ -117,6 +117,40 @@ def verify_link_preview_metadata_fallback() -> None:
     assert preview("") is None
 
 
+def verify_consent_interstitial_is_unwrapped_not_followed() -> None:
+    # Live report: "Der Google-Maps-Link konnte nicht aufgelöst werden" -
+    # in the EU the short link can redirect to consent.google.com, whose
+    # page carries no place data. Its continue parameter IS the canonical
+    # maps URL.
+    unwrap = module._continue_url_from_consent
+    wrapped = (
+        "https://consent.google.com/m?continue="
+        "https%3A%2F%2Fwww.google.com%2Fmaps%2Fplace%2FRavintola%2BKappeli%2F"
+        "%4060.16%2C24.95%2C17z&gl=DE&hl=de"
+    )
+    assert unwrap(wrapped) == (
+        "https://www.google.com/maps/place/Ravintola+Kappeli/@60.16,24.95,17z"
+    )
+    assert unwrap("https://consent.google.com/m?continue=https%3A%2F%2Fevil.example%2F") is None
+    assert unwrap("https://www.google.com/maps/place/X") is None
+
+
+def verify_preview_reads_canonical_url_marker() -> None:
+    # The page's canonical/og:url metadata carries the full maps URL with
+    # the precise !3d/!4d marker - the position source when the static-map
+    # image is missing (live report: link lookup filled only the name).
+    html = (
+        '<meta property="og:title" content="Ravintola Kappeli · Google Maps">'
+        '<link rel="canonical" href="https://www.google.com/maps/place/Ravintola+Kappeli/'
+        '@60.16,24.95,17z/data=!3m1!4b1!8m2!3d60.1673456!4d24.9512345?hl=de&amp;gl=DE">'
+    )
+    assert module._extract_place_preview(html) == {
+        "latitude": 60.1673456,
+        "longitude": 24.9512345,
+        "name": "Ravintola Kappeli",
+    }
+
+
 def verify_url_info_carries_name_and_coordinates_together() -> None:
     info = module._extract_place_info_from_url(
         "https://www.google.com/maps/place/Ravintola+Kappeli/"
@@ -185,6 +219,8 @@ def verify_poi_name_adoption_is_wired() -> None:
 
 if __name__ == "__main__":
     verify_link_preview_metadata_fallback()
+    verify_consent_interstitial_is_unwrapped_not_followed()
+    verify_preview_reads_canonical_url_marker()
     verify_url_info_carries_name_and_coordinates_together()
     verify_rich_resolver_fills_missing_name_from_preview()
     verify_poi_name_adoption_is_wired()
