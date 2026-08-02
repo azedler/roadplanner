@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.17] - 2026-08-02
+
+### Fixed
+
+- A stop created from a user-shared Google-Maps POI link now adopts the POI's real NAME, not just its pin (live report: "wir haben hier gegessen" + restaurant link produced a stop called only "Essen"). The deterministic resolver reads name and coordinates TOGETHER from the canonical URL, and fetches the link-preview metadata whenever either is missing - marker-only mobile shares get their name from og:title, name-only links get their position from the static-map preview. The model's own label survives in the notes so no intent is lost; existing stops are never renamed this way.
+
+### Changed
+
+- "In Google Maps prüfen"/link lookup in the manual forms now prefills name AND coordinates together when the link carries both, instead of one or the other.
+
 ## [4.14.16] - 2026-08-02
 
 ### Fixed

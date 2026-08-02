@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -30,7 +29,7 @@ from .const import (
 from .currency_rates import EcbRateService, eur_total
 from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
-from .google_maps_link import async_resolve_google_maps_place_query
+from .google_maps_link import async_resolve_google_maps_place
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
@@ -507,25 +506,20 @@ async def _execute_action(
         host = (urlparse(url).hostname or "").casefold()
         if _google_maps_host(host):
             # Google-Maps links resolve deterministically - no AI involved.
-            resolved = await async_resolve_google_maps_place_query(hass, url)
+            resolved = await async_resolve_google_maps_place(hass, url)
             if not resolved:
                 raise ValidationError(
                     "Der Google-Maps-Link konnte nicht aufgelöst werden"
                 )
-            coordinate = re.fullmatch(
-                r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*", resolved
-            )
-            if coordinate:
-                return {
-                    "result": {
-                        "provider": "google_maps",
-                        "url": url,
-                        "latitude": float(coordinate.group(1)),
-                        "longitude": float(coordinate.group(2)),
-                        "name": "",
-                    }
-                }
-            return {"result": {"provider": "google_maps", "url": url, "name": resolved[:200]}}
+            result: dict[str, Any] = {
+                "provider": "google_maps",
+                "url": url,
+                "name": str(resolved.get("name") or "")[:200],
+            }
+            if "latitude" in resolved:
+                result["latitude"] = float(resolved["latitude"])
+                result["longitude"] = float(resolved["longitude"])
+            return {"result": result}
         lookup = runtime.experience.p4n_lookup
         if not lookup.available:
             raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
