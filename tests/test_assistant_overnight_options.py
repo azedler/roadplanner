@@ -221,7 +221,63 @@ def verify_nameless_link_candidate_gets_a_placeholder_name() -> None:
     assert empty["options"] == []
 
 
+def verify_empty_plan_is_salvaged_from_reason_and_basket() -> None:
+    # Live report (three times): the model emitted overnight_plan with
+    # options: [] although the user named the candidate link - the chat
+    # claimed success while nothing was added. The sanitizer now pulls the
+    # candidate out of the raw plan/reason, or as last resort out of basket
+    # decisions that talk about an alternative.
+    operation = {
+        "operation_id": "op-1",
+        "action": "update",
+        "entity_type": "day",
+        "entity_id": "day-1",
+        "changes": {"details": {"overnight_plan": {
+            "schema_version": 1, "strategy": "route_optimal", "options": [],
+        }}},
+        "reason": "Fügt den Platz https://park4night.com/de/place/603309 als Alternative hinzu.",
+    }
+    result = sanitizer._sanitize_operation(
+        operation, index=0, context=CONTEXT, new_day_refs=set(),
+        full_days=FULL_DAYS,
+    )
+    plan = result["changes"]["details"]["overnight_plan"]
+    names = [option["name"] for option in plan["options"]]
+    assert "Park4Night #603309" in names, names
+    assert "Bestehende Option" in names, "stored options still survive"
+
+    # Last resort: nothing in plan/reason, but a basket decision names the
+    # alternative link.
+    basket_operation = {
+        "operation_id": "op-2",
+        "action": "update",
+        "entity_type": "day",
+        "entity_id": "day-1",
+        "changes": {"details": {"overnight_plan": {"options": []}}},
+        "reason": "Aktualisierung der Übernachtungsoptionen.",
+    }
+    result = sanitizer._sanitize_operation(
+        basket_operation, index=0, context=CONTEXT, new_day_refs=set(),
+        full_days=FULL_DAYS,
+        basket=[{"text": "Als Alternative haben wir diese Übernachtung geplant: https://park4night.com/de/place/603309"}],
+    )
+    plan = result["changes"]["details"]["overnight_plan"]
+    assert any(o["name"] == "Park4Night #603309" for o in plan["options"]), plan["options"]
+
+    # A basket without alternative intent contributes nothing.
+    result = sanitizer._sanitize_operation(
+        {**basket_operation, "operation_id": "op-3"},
+        index=0, context=CONTEXT, new_day_refs=set(), full_days=FULL_DAYS,
+        basket=[{"text": "Heute schlafen wir hier: https://park4night.com/de/place/110490"}],
+    )
+    plan = result["changes"]["details"]["overnight_plan"]
+    assert all(o["name"] != "Park4Night #110490" for o in plan["options"]), (
+        "the Plan-A link must not be salvaged as a backup option"
+    )
+
+
 if __name__ == "__main__":
+    verify_empty_plan_is_salvaged_from_reason_and_basket()
     verify_nameless_link_candidate_gets_a_placeholder_name()
     verify_plan_bc_becomes_options_with_p4n_source()
     verify_existing_options_survive_and_dedupe()
