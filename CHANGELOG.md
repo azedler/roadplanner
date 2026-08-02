@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.13] - 2026-08-02
+
+### Fixed
+
+- The compile prompt now explicitly covers adding ONE single overnight alternative ("nimm als Alternative/zweite Option den auf <Link>"): the model repeatedly emitted `overnight_plan` with an EMPTY options list while the chat claimed the alternative was added - the 4.14.10 merge salvage can only keep candidates the model actually includes. The prompt now states that an empty options list is always wrong for such a request, that the single candidate must appear as exactly one entry, and that a user-provided link belongs in `url` even without a name (Roadplanner then assigns the reviewable placeholder name from 4.14.10).
+
 ## [4.14.12] - 2026-08-02
 
 ### Changed
