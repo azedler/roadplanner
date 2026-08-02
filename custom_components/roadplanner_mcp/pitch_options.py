@@ -280,12 +280,22 @@ def merge_assistant_overnight_plan(
     for raw in raw_options[:_MAX_ASSISTANT_OPTIONS_PER_BATCH]:
         if not isinstance(raw, dict):
             continue
-        name = " ".join(str(raw.get("name") or "").split())[: _MAX_TEXT["name"]]
-        if not name:
-            continue
         raw_source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
         url = str(raw.get("url") or raw_source.get("url") or "").strip()[: _MAX_TEXT["url"]]
         p4n_match = _P4N_URL_ID_RE.search(url)
+        name = " ".join(str(raw.get("name") or "").split())[: _MAX_TEXT["name"]]
+        if not name and url:
+            # "Nimm als Alternative den auf <Link>" arrives without a name -
+            # silently dropping the candidate produced an EMPTY options patch
+            # that looked like success (live report). The link is the
+            # candidate's identity, so derive a reviewable placeholder name.
+            name = (
+                f"Park4Night #{p4n_match.group(1)}"
+                if p4n_match
+                else "Stellplatz (Link)"
+            )
+        if not name:
+            continue
         pros = [
             " ".join(str(item).split())[:200]
             for item in (raw.get("pros") if isinstance(raw.get("pros"), list) else [])

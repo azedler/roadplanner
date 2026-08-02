@@ -332,7 +332,9 @@ export const pitchesMixin = {
     const add = !dialog.option;
     const location = option.location || {};
     return `${this._renderModalHeader(add ? "Stellplatz-Option hinzufügen" : "Stellplatz-Option bearbeiten")}
-      <form data-form="pitch-option" data-day-id="${escapeHtml(dialog.dayId)}" data-option-id="${escapeHtml(option.id || "")}" class="form-grid">
+      <form data-form="pitch-option" data-day-id="${escapeHtml(dialog.dayId)}" data-option-id="${escapeHtml(option.id || "")}" data-source-url="${escapeHtml(option.source?.url || "")}" class="form-grid">
+        ${this._field("url", "Link zum Platz (Park4Night, Google Maps, Website …)", option.source?.url || "", "url", false, "full")}
+        <div class="form-field full"><button class="secondary-button" type="button" data-action="pitch-option-link-lookup"><ha-icon icon="mdi:link-variant"></ha-icon>Link lesen und übernehmen</button><small class="hint">Park4Night-Seiten werden direkt gelesen, Google-Maps-Links aufgelöst, andere Seiten liest der Reisebegleiter (KI). Die Werte füllen nur dieses Formular vor - gespeichert wird erst mit dem Speichern-Knopf.</small></div>
         ${this._field("name", "Name des Platzes", option.name || "", "text", true, "full")}
         ${this._field("place_query", "Suchbegriff für Karte/Geocoding (optional)", option.place_query || "", "text", false, "full")}
         ${this._field("latitude", "Breitengrad (optional)", location.latitude ?? "", "number")}
@@ -374,6 +376,43 @@ export const pitchesMixin = {
     </section>`;
   },
 
+  async _runPitchOptionLinkLookup(form) {
+    if (!form) return;
+    const input = form.querySelector("input[name='url']");
+    const url = cleanText(input?.value);
+    if (!url) {
+      this._showToast("Bitte zuerst einen Link einfügen (https://…).", "error", 5000);
+      return;
+    }
+    const result = await this._runAction("place_link_lookup", { url }, "", {
+      refresh: false,
+      errorTitle: "Link konnte nicht gelesen werden",
+    });
+    const facts = result?.result;
+    if (!facts) return;
+    // Prefill only - the option is saved exclusively via the submit button.
+    const setValue = (name, value, overwrite = false) => {
+      const element = form.querySelector(`[name='${name}']`);
+      if (element && (overwrite || !cleanText(element.value))) element.value = value;
+    };
+    if (facts.name) setValue("name", facts.name);
+    if (facts.latitude != null && facts.longitude != null) {
+      setValue("latitude", String(facts.latitude), true);
+      setValue("longitude", String(facts.longitude), true);
+      setValue("place_query", `${facts.latitude},${facts.longitude}`);
+    }
+    const summary = [facts.price_text, facts.rating_text ? `Bewertung ${facts.rating_text}` : "", facts.summary]
+      .filter(Boolean).join(" · ");
+    if (summary) setValue("notes", summary);
+    this._showToast(
+      facts.latitude != null
+        ? "Vom Link übernommen - bitte prüfen und speichern."
+        : "Der Link nannte keine GPS-Position - Name/Notizen wurden vorbefüllt.",
+      facts.latitude != null ? "success" : "error",
+      6000,
+    );
+  },
+
   async _submitPitchOptionForm(form, values) {
     const dayId = cleanText(form.dataset.dayId);
     const optionId = cleanText(form.dataset.optionId);
@@ -390,6 +429,13 @@ export const pitchesMixin = {
       ),
     };
     if (optionId) option.id = optionId;
+    const sourceUrl = cleanText(values.url);
+    if (sourceUrl !== cleanText(form.dataset.sourceUrl)) {
+      // Only when the link actually changed: an untouched assistant option
+      // keeps its stored provenance (e.g. park4night) instead of being
+      // rewritten to a plain user source on every edit.
+      option.source = sourceUrl ? { type: "user", url: sourceUrl } : {};
+    }
     const latitude = Number.parseFloat(values.latitude);
     const longitude = Number.parseFloat(values.longitude);
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {

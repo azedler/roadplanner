@@ -124,9 +124,13 @@ def verify_cap_and_garbage_tolerance() -> None:
     plan = pitch.merge_assistant_overnight_plan({}, many, now=NOW)
     assert len(plan["options"]) == pitch.MAX_OVERNIGHT_OPTIONS
     assert pitch.merge_assistant_overnight_plan({}, "kaputt", now=NOW)["options"] == []
-    assert pitch.merge_assistant_overnight_plan(
+    tolerated = pitch.merge_assistant_overnight_plan(
         {}, {"options": [{"url": "https://x"}, "kein dict", {"name": "  "}]}, now=NOW
-    )["options"] == [], "nameless or malformed candidates are skipped, never fatal"
+    )["options"]
+    assert [item["name"] for item in tolerated] == ["Stellplatz (Link)"], (
+        "malformed candidates are skipped, never fatal - but a URL-only "
+        "candidate survives with a placeholder name"
+    )
 
 
 FULL_DAYS = [
@@ -188,7 +192,31 @@ def verify_prompt_teaches_the_handover_shape() -> None:
     assert "Niemals einen zweiten\n  Übernachtungsstopp" in source.replace("\r", "") or "Niemals einen zweiten" in source
 
 
+def verify_nameless_link_candidate_gets_a_placeholder_name() -> None:
+    # Live report: "Nimm als Alternative den auf <Link>" produced a candidate
+    # WITHOUT a name - it was silently dropped and the patch showed
+    # options: [] while the chat claimed success.
+    plan = pitch.merge_assistant_overnight_plan(
+        {},
+        {"options": [
+            {"url": "https://park4night.com/lieu/513700/"},
+            {"url": "https://maps.app.goo.gl/E86Vj7HVaotksCej8", "place_query": "60.19,17.62"},
+        ]},
+        now=NOW,
+    )
+    assert len(plan["options"]) == 2, plan["options"]
+    assert plan["options"][0]["name"] == "Park4Night #513700"
+    assert plan["options"][1]["name"] == "Stellplatz (Link)"
+    assert plan["options"][1]["source"]["url"].startswith("https://maps.app.goo.gl/")
+    # Entirely empty candidates still vanish - there is nothing to review.
+    empty = pitch.merge_assistant_overnight_plan(
+        {}, {"options": [{"notes": "kein Name, kein Link"}]}, now=NOW
+    )
+    assert empty["options"] == []
+
+
 if __name__ == "__main__":
+    verify_nameless_link_candidate_gets_a_placeholder_name()
     verify_plan_bc_becomes_options_with_p4n_source()
     verify_existing_options_survive_and_dedupe()
     verify_cap_and_garbage_tolerance()
