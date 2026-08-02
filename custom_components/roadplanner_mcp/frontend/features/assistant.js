@@ -546,6 +546,14 @@ export const assistantMixin = {
 
       ${showRetryNotice ? `<div class="notice warning assistant-retry-notice"><ha-icon icon="mdi:reload-alert"></ha-icon><div><strong>Die letzte Nachricht wurde nicht beantwortet</strong><span>Der Text bleibt erhalten. Roadplanner kann ihn mit aktuellem Reisekontext erneut senden.</span></div><button class="secondary-button compact-button" type="button" data-action="assistant-retry"><ha-icon icon="mdi:reload"></ha-icon> Erneut senden</button></div>` : ""}
 
+      ${basketEnabled && basket.length ? `<section class="assistant-basket-quickbar panel-card">
+        <span class="basket-quick-label"><ha-icon icon="mdi:playlist-check"></ha-icon><strong>Änderungskorb: ${basket.length} vorgemerkt</strong></span>
+        <div class="button-row compact-row">
+          <button class="primary-button compact-button" type="button" data-action="assistant-prepare" aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}" ${this._data.selected_is_active && !this._assistantPrepareInFlight ? "" : "disabled"}><ha-icon icon="${this._assistantPrepareInFlight ? "mdi:loading mdi-spin" : "mdi:clipboard-text-search-outline"}"></ha-icon> ${this._assistantPrepareInFlight ? "Entwurf wird erstellt …" : "Änderungen prüfen"}</button>
+          <button class="text-button" type="button" data-action="assistant-scroll-basket"><ha-icon icon="mdi:arrow-down"></ha-icon> Details ansehen</button>
+        </div>
+      </section>` : ""}
+
       <section class="assistant-layout">
         <div class="assistant-chat panel-card newest-first">
           ${composer}
