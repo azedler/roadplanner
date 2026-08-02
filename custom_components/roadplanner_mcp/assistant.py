@@ -1355,24 +1355,31 @@ class RoadplannerAssistant:
                     full_day_list = None
                 for index, raw in enumerate(prepared_raw_operations):
                     place_query = raw.get("place_query") if isinstance(raw, dict) else None
+                    resolved_from_user_link = False
                     if isinstance(place_query, str) and place_query:
                         resolved_place_query = await async_resolve_google_maps_place_query(
                             self.manager.hass, place_query
                         )
                         if resolved_place_query:
                             raw["place_query"] = resolved_place_query
-                    operations.append(
-                        _sanitize_operation(
-                            raw,
-                            index=index,
-                            context=context,
-                            new_day_refs=new_day_refs,
-                            basket=session.basket,
-                            position_state=position_state,
-                            batch_refs=batch_refs,
-                            full_days=full_day_list,
-                        )
+                            resolved_from_user_link = True
+                    sanitized = _sanitize_operation(
+                        raw,
+                        index=index,
+                        context=context,
+                        new_day_refs=new_day_refs,
+                        basket=session.basket,
+                        position_state=position_state,
+                        batch_refs=batch_refs,
+                        full_days=full_day_list,
                     )
+                    if resolved_from_user_link and sanitized.get("place_query"):
+                        # Server-set AFTER sanitizing, so the model can never
+                        # supply it: this pin came from a Google-Maps link the
+                        # user shared - the geocoding plugin treats its
+                        # coordinates like a manually confirmed map point.
+                        sanitized["place_query_origin"] = "user_google_maps_link"
+                    operations.append(sanitized)
                 open_questions, open_questions_omitted = _normalize_text_items(
                     compiled.get("open_questions"),
                     maximum_items=100,

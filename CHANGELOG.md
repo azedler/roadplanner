@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.9] - 2026-08-02
+
+### Fixed
+
+- A stop created from a user-shared Google-Maps link no longer keeps demanding verification: the link's coordinates were adopted exactly, but when reverse geocoding could not attach a confident address the stop stayed at "Ort noch prüfen - GPS vorhanden, aber noch nicht bestätigt" forever - although the user had picked that exact pin themselves. Coordinates deterministically extracted from a user-provided Maps link now count as manually confirmed (provider "google_maps_link", never provider-verified), with no open review question. The provenance flag is server-set AFTER validation as a server-controlled operation field, so a model can never mark its own coordinates as user-confirmed; plain coordinate inputs without link provenance keep the review question unchanged.
+
 ## [4.14.8] - 2026-08-01
 
 ### Fixed

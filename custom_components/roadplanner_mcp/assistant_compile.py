@@ -58,6 +58,10 @@ _SERVER_CONTROLLED_OPERATION_FIELDS = {
     "kind",
     "version",
     "metadata",
+    # Set server-side after sanitizing when a user-shared Google-Maps link
+    # was resolved; a model-supplied value is always discarded so invented
+    # coordinates can never masquerade as user-confirmed.
+    "place_query_origin",
 }
 _CHANGE_FIELDS_BY_ENTITY = {
     # Keep this compatibility schema aligned with changeset.py. The assistant
