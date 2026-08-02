@@ -90,6 +90,13 @@ assert.match(tab, /data-action="pitch-activate"/);
 assert.match(tab, /Verworfene Optionen \(1\)/);
 assert.match(tab, /data-action="pitch-strategy"/);
 assert.match(tab, /pitch-add-option/);
+// Live report: the options were hard to spot below the active place - a
+// counted heading now announces them, and options without GPS get an
+// explicit map notice (they cannot appear on the map).
+assert.match(tab, /Backup-Optionen \(1\)/);
+assert.match(tab, /pitch-options-heading/);
+assert.match(tab, /Ohne GPS nicht auf der Karte: Waldparkplatz am See/);
+assert.match(tab, /Link lesen und übernehmen/);
 
 // Preferences card shows stored values.
 assert.match(tab, /Stellplatz-Präferenzen/);

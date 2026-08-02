@@ -58,6 +58,16 @@ _META_OG_TITLE_RE = re.compile(
     r'|<meta[^>]+content="([^"]{1,300})"[^>]+property="og:title"',
     re.IGNORECASE,
 )
+# The page's canonical/og:url metadata carries the FULL maps URL including
+# the data blob with the precise !3d/!4d marker - often the only place the
+# position survives when the share URL itself is opaque.
+_META_CANONICAL_URL_RE = re.compile(
+    r'<link[^>]+rel="canonical"[^>]+href="([^"]{1,2000})"'
+    r'|<link[^>]+href="([^"]{1,2000})"[^>]+rel="canonical"'
+    r'|<meta[^>]+property="og:url"[^>]+content="([^"]{1,2000})"'
+    r'|<meta[^>]+content="([^"]{1,2000})"[^>]+property="og:url"',
+    re.IGNORECASE,
+)
 
 
 def _extract_place_preview(page_html: str) -> dict[str, Any]:
@@ -65,11 +75,24 @@ def _extract_place_preview(page_html: str) -> dict[str, Any]:
     preview: dict[str, Any] = {}
     if not page_html:
         return preview
-    center_match = _META_STATICMAP_CENTER_RE.search(page_html)
-    if center_match and _valid_pair(*center_match.groups()):
-        latitude, longitude = center_match.groups()
-        preview["latitude"] = float(latitude)
-        preview["longitude"] = float(longitude)
+    for canonical_match in _META_CANONICAL_URL_RE.finditer(page_html):
+        canonical = next(
+            (group for group in canonical_match.groups() if group), ""
+        ).replace("&amp;", "&")
+        url_info = _extract_place_info_from_url(canonical)
+        if "latitude" in url_info:
+            preview["latitude"] = float(url_info["latitude"])
+            preview["longitude"] = float(url_info["longitude"])
+        if "name" in url_info:
+            preview.setdefault("name", url_info["name"])
+        if "latitude" in preview:
+            break
+    if "latitude" not in preview:
+        center_match = _META_STATICMAP_CENTER_RE.search(page_html)
+        if center_match and _valid_pair(*center_match.groups()):
+            latitude, longitude = center_match.groups()
+            preview["latitude"] = float(latitude)
+            preview["longitude"] = float(longitude)
     title_match = _META_OG_TITLE_RE.search(page_html)
     if title_match:
         raw_title = title_match.group(1) or title_match.group(2) or ""
@@ -172,18 +195,53 @@ def _extract_place_query_from_url(url: str) -> str | None:
     return info.get("name")
 
 
+def _continue_url_from_consent(location: str) -> str | None:
+    """Extract the real maps URL a Google consent interstitial wraps.
+
+    In the EU, Google may redirect to consent.google.com with the actual
+    destination in the ``continue`` parameter - following that redirect
+    would land on a consent page carrying no place data at all (live
+    report: a shared restaurant link failed to resolve). The wrapped URL
+    is only accepted when it is itself an https Google URL.
+    """
+    parsed = urlparse(location)
+    host = parsed.hostname or ""
+    if not _host_matches(host, "consent.google.com"):
+        return None
+    for candidate in parse_qs(parsed.query).get("continue", []):
+        target = unquote(str(candidate))
+        target_parsed = urlparse(target)
+        target_host = target_parsed.hostname or ""
+        if target_parsed.scheme == "https" and (
+            _host_matches(target_host, "google.com")
+            or _google_maps_host(target_host)
+        ):
+            return target
+    return None
+
+
 async def _async_follow_redirects(hass: HomeAssistant, url: str) -> str | None:
     """Follow HTTP redirects from a Google short link to its canonical URL.
 
     Reads only response headers (never the response body) and only ever
-    follows redirects that stay on a Google-controlled host.
+    follows redirects that stay on a Google-controlled host. A consent
+    interstitial is never followed - its ``continue`` parameter IS the
+    canonical URL.
     """
     session = async_get_clientsession(hass)
     current = url
     for _ in range(_MAX_REDIRECT_HOPS):
         try:
             async with asyncio.timeout(_REDIRECT_TIMEOUT_SECONDS):
-                async with session.get(current, allow_redirects=False) as response:
+                async with session.get(
+                    current,
+                    allow_redirects=False,
+                    headers={
+                        "Accept-Language": "de,en;q=0.8",
+                        # Best effort to skip the EU consent interstitial.
+                        "Cookie": "CONSENT=YES+cb",
+                    },
+                ) as response:
                     if response.status not in (301, 302, 303, 307, 308):
                         return current if response.status < 400 else None
                     location = response.headers.get("Location")
@@ -193,6 +251,9 @@ async def _async_follow_redirects(hass: HomeAssistant, url: str) -> str | None:
             return None
         if not location.startswith("http"):
             return None
+        continue_url = _continue_url_from_consent(location)
+        if continue_url:
+            return continue_url
         parsed = urlparse(location)
         redirect_host = parsed.hostname or ""
         stays_on_google = _host_matches(redirect_host, "google.com") or _google_maps_host(
