@@ -221,15 +221,22 @@ class GeocodingAssistantPlugin:
             for candidate in (alternatives or [])[:3]
             if candidate is not None
         ]
+        confirmed_by_link = status == "manual_confirmed"
         geocoding_details: dict[str, Any] = {
-            "provider": "nominatim",
+            "provider": "google_maps_link" if confirmed_by_link else "nominatim",
             "status": status,
             "query": query,
             "mode": resolution_mode,
-            "requires_confirmation": True,
+            "requires_confirmation": not confirmed_by_link,
             "candidates": candidates,
-            "attribution": "© OpenStreetMap contributors",
         }
+        if confirmed_by_link:
+            # The user shared this exact pin themselves - stored like a
+            # manually confirmed coordinate, never as provider-verified.
+            geocoding_details["provider_verified"] = False
+            geocoding_details["confirmed_by"] = "user_google_maps_link"
+        else:
+            geocoding_details["attribution"] = "© OpenStreetMap contributors"
         if error:
             geocoding_details["error"] = str(error)[:1_000]
         if coordinate_query is not None:
@@ -273,15 +280,30 @@ class GeocodingAssistantPlugin:
         for operation in operations:
             value = deepcopy(operation)
             query = str(value.pop("place_query", "") or "").strip()
+            # Server-set provenance: "user_google_maps_link" means the
+            # coordinates were deterministically extracted from a Google-Maps
+            # link the USER provided. Never model-settable (stripped as a
+            # server-controlled field before validation).
+            origin = str(value.pop("place_query_origin", "") or "")
             if value.get("entity_type") != "stop" or not query:
                 result.append(value)
                 continue
 
             coordinate_query = parse_coordinate_pair(query)
             resolution_mode = "reverse" if coordinate_query is not None else "search"
+            # A pin the user shared themselves is their explicit choice of
+            # map point - exactly like a manually confirmed coordinate. When
+            # reverse geocoding cannot attach an address, the position still
+            # must not degrade to "Ort noch prüfen" (live report: an exact
+            # user-shared Maps pin kept demanding verification forever).
+            user_pinned = (
+                coordinate_query is not None and origin == "user_google_maps_link"
+            )
 
             if not self._geocoder.enabled:
-                if coordinate_query is not None:
+                if user_pinned:
+                    status = "manual_confirmed"
+                elif coordinate_query is not None:
                     questions.append(
                         f"Die angegebenen GPS-Koordinaten für '{query}' wurden übernommen, "
                         "konnten aber nicht per Reverse-Geocoding geprüft werden, weil "
@@ -319,7 +341,9 @@ class GeocodingAssistantPlugin:
                     language=self._language,
                 )
             except GeocodingError as err:
-                if coordinate_query is not None:
+                if user_pinned:
+                    status = "manual_confirmed"
+                elif coordinate_query is not None:
                     questions.append(
                         f"Die angegebenen GPS-Koordinaten für '{query}' wurden übernommen, "
                         f"die Adressprüfung ist jedoch fehlgeschlagen: {err}. Bitte den "
@@ -357,7 +381,9 @@ class GeocodingAssistantPlugin:
                     candidate.display_name for candidate in alternatives[:3]
                 )
                 suffix = f" Mögliche Treffer: {options}." if options else ""
-                if coordinate_query is not None:
+                if user_pinned:
+                    status = "manual_confirmed"
+                elif coordinate_query is not None:
                     questions.append(
                         f"Die GPS-Koordinaten '{query}' wurden unverändert übernommen, "
                         f"konnten aber keiner sicheren Adresse zugeordnet werden.{suffix} "
