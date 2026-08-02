@@ -10,7 +10,9 @@ and stop-ordering position bookkeeping. Nothing here talks to a provider.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import logging
+import re
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -35,7 +37,38 @@ from .assistant_shared import (
     _clean_text,
 )
 from .canonical_day import canonical_roadbook_stops
-from .pitch_options import merge_assistant_overnight_plan
+from .pitch_options import get_overnight_plan, merge_assistant_overnight_plan
+
+# Candidate links inside model output / basket decisions: Park4Night place
+# pages and Google-Maps links (incl. share short links).
+_P4N_CANDIDATE_RE = re.compile(
+    r"park4night\.com/(?:[a-z]{2}/)?(?:place|lieu)/(\d+)", re.IGNORECASE
+)
+_MAPS_CANDIDATE_RE = re.compile(
+    r"https://(?:maps\.app\.goo\.gl|goo\.gl/maps|(?:www\.)?google\.[a-z.]+/maps|maps\.google\.[a-z.]+)[^\s\"'<>]*",
+    re.IGNORECASE,
+)
+_ALTERNATIVE_INTENT_RE = re.compile(
+    r"alternativ|zweite\s+option|plan\s*b|backup|ausweich", re.IGNORECASE
+)
+
+
+def _overnight_candidates_from_text(material: str) -> list[dict[str, str]]:
+    """Deterministically extract overnight candidates from free text."""
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for p4n_id in _P4N_CANDIDATE_RE.findall(material or ""):
+        if p4n_id in seen:
+            continue
+        seen.add(p4n_id)
+        candidates.append({"url": f"https://park4night.com/lieu/{p4n_id}/"})
+    for url in _MAPS_CANDIDATE_RE.findall(material or ""):
+        cleaned = url.rstrip(".,;:)")
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        candidates.append({"url": cleaned})
+    return candidates[:3]
 from .destination_intelligence import (
     _PARK4NIGHT_ID_RE,
     _URL_RE,
@@ -714,11 +747,51 @@ def _sanitize_operation(
             existing_day = None
             if action != "add" and entity_id:
                 existing_day = _day_detail(context, entity_id, full_days=full_days)
-            day_changes_details["overnight_plan"] = merge_assistant_overnight_plan(
+            incoming_plan = day_changes_details.get("overnight_plan")
+            merged_plan = merge_assistant_overnight_plan(
                 existing_day,
-                day_changes_details.get("overnight_plan"),
+                incoming_plan,
                 now=_utc_now_iso(),
             )
+            existing_option_count = len(
+                get_overnight_plan(existing_day or {}).get("options") or []
+            )
+            if len(merged_plan.get("options") or []) <= existing_option_count:
+                # The model keeps emitting overnight_plan with an EMPTY
+                # options list although the user's request names the
+                # candidate ("nimm als Alternative den auf <Link>") - the
+                # chat then claimed success while nothing was added (live
+                # report, three times). Server-side salvage: pull the
+                # candidate links out of the raw plan, the operation reason
+                # and - as last resort - basket decisions that talk about
+                # an alternative. Every salvaged option stays a reviewable
+                # backup with the link as its identity.
+                salvaged = _overnight_candidates_from_text(
+                    json.dumps(incoming_plan, ensure_ascii=False, default=str)
+                    + " "
+                    + str(operation.get("reason") or "")
+                )
+                if not salvaged and basket:
+                    salvaged = _overnight_candidates_from_text(
+                        " ".join(
+                            str(item.get("text") or item.get("title") or "")
+                            for item in basket
+                            if isinstance(item, dict)
+                            and _ALTERNATIVE_INTENT_RE.search(
+                                str(item.get("text") or item.get("title") or "")
+                            )
+                        )
+                    )
+                if salvaged:
+                    merged_plan = merge_assistant_overnight_plan(
+                        existing_day,
+                        {
+                            "strategy": merged_plan.get("strategy"),
+                            "options": salvaged,
+                        },
+                        now=_utc_now_iso(),
+                    )
+            day_changes_details["overnight_plan"] = merged_plan
     elif entity_type == "stop":
         day_id, day_ref = _normalize_compiled_day_reference(
             operation,

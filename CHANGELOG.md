@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.16] - 2026-08-02
+
+### Fixed
+
+- Overnight alternatives from the chat are now guaranteed server-side: when the model emits an overnight_plan whose merge adds ZERO new options (the repeated live failure - the chat claimed "als Alternative aufgenommen" while the draft contained options: []), the sanitizer deterministically salvages the candidate links from the raw plan and the operation reason, and as last resort from basket decisions that talk about an alternative (alternativ/zweite Option/Plan B/Backup). Salvaged candidates become reviewable backup options with the link as identity and placeholder name; the Plan-A link from an unrelated basket decision is never turned into an option.
+
 ## [4.14.15] - 2026-08-02
 
 ### Fixed
