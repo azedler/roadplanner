@@ -235,3 +235,46 @@ assert.equal(searchContext.query, "Stellplatz Wiese am Fluss Rostock");
 assert.equal(searchContext.location.latitude, 54.2);
 
 console.log("Pitch options UI tests passed.");
+
+// The option form offers "Link lesen und übernehmen": Park4Night pages are
+// read directly (AI-free), Google-Maps links resolved, other pages via the
+// Reisebegleiter - values only prefill the form, saving stays explicit.
+const optionForm = panel._renderPitchOptionForm({ dayId: "day-2", option: null });
+assert.match(optionForm, /name="url"/, "the option form must carry a link field");
+assert.match(optionForm, /data-action="pitch-option-link-lookup"/);
+assert.match(optionForm, /Link lesen und übernehmen/);
+
+{
+  const fields = {
+    url: { value: "https://park4night.com/lieu/513700/" },
+    name: { value: "" },
+    latitude: { value: "" },
+    longitude: { value: "" },
+    place_query: { value: "" },
+    notes: { value: "" },
+  };
+  const fakeForm = {
+    dataset: { dayId: "day-2", sourceUrl: "" },
+    querySelector: (selector) => {
+      const match = /\[name='([^']+)'\]|input\[name='([^']+)'\]/.exec(selector);
+      const key = match && (match[1] || match[2]);
+      return key ? fields[key] || null : null;
+    },
+  };
+  panel._runAction = async (action, data) => {
+    assert.equal(action, "place_link_lookup");
+    assert.equal(data.url, "https://park4night.com/lieu/513700/");
+    return { result: { name: "Skogsglänta", latitude: 60.19, longitude: 17.62, rating_text: "4.5/5" } };
+  };
+  panel.toasts = [];
+  panel._showToast = (message, type) => panel.toasts.push({ message, type });
+  await panel._runPitchOptionLinkLookup(fakeForm);
+  assert.equal(fields.name.value, "Skogsglänta");
+  assert.equal(fields.latitude.value, "60.19");
+  assert.equal(fields.longitude.value, "17.62");
+  assert.equal(fields.place_query.value, "60.19,17.62");
+  assert.match(fields.notes.value, /Bewertung 4.5\/5/);
+  assert.equal(panel.toasts[0].type, "success");
+}
+
+console.log("Pitch option link lookup UI tests passed.");

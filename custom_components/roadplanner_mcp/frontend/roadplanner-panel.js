@@ -872,6 +872,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._loadPitchRoutes(cleanText(target.dataset.dayId));
     } else if (action === "place-link-lookup") {
       void this._runPlaceLinkLookup(cleanText(target.dataset.stopId));
+    } else if (action === "pitch-option-link-lookup" && this._canEdit()) {
+      void this._runPitchOptionLinkLookup(target.closest("form[data-form='pitch-option']"));
     } else if (action === "place-enrichment-submit") {
       void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {

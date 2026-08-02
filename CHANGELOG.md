@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.10] - 2026-08-02
+
+### Fixed
+
+- "Nimm für heute als alternativen Stellplatz den auf <Link>" no longer produces an EMPTY overnight-options patch that looked like success: a candidate arriving with a link but without a name was silently dropped by the overnight-plan merge, so the chat claimed the option was added while the reviewable draft contained "options": []. A URL-only candidate now survives with a reviewable placeholder name ("Park4Night #51373" / "Stellplatz (Link)"); entirely empty candidates still vanish.
+
+### Added
+
+- The Stellplatz option form (add/edit) now has a "Link zum Platz" field with "Link lesen und übernehmen": Park4Night pages are read directly (AI-free), Google-Maps links are resolved deterministically, all other place pages are read by the Reisebegleiter (KI). The values only PREFILL the form (name, GPS, place query, notes with price/rating) - saving stays the explicit button, and an untouched link keeps the option's stored provenance (e.g. park4night) instead of rewriting it on every edit.
+
 ## [4.14.9] - 2026-08-02
 
 ### Fixed
