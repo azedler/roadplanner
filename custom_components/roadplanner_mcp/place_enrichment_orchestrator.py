@@ -29,13 +29,24 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _stop_ids_of_operations(operations: Any) -> set[str]:
-    return {
-        str(operation.get("entity_id"))
-        for operation in (operations if isinstance(operations, list) else [])
-        if isinstance(operation, dict)
-        and operation.get("entity_type") == "stop"
-        and operation.get("entity_id")
-    }
+    """Stop ids referenced by operations - in BOTH ChangeSet dialects.
+
+    Fresh submits carry entity-dialect operations (entity_type/entity_id),
+    but stored handoff envelopes contain the NORMALIZED changeset
+    (op/stop_id). Reading only the entity dialect meant the supersede match
+    against stored envelopes was always empty - found by the orchestration
+    simulation on its first run: stale enrichment handoffs were never
+    archived.
+    """
+    ids: set[str] = set()
+    for operation in operations if isinstance(operations, list) else []:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get("entity_type") == "stop" and operation.get("entity_id"):
+            ids.add(str(operation["entity_id"]))
+        elif operation.get("stop_id") and str(operation.get("op") or "").endswith("_stop"):
+            ids.add(str(operation["stop_id"]))
+    return ids
 
 
 def find_superseded_enrichment_handoffs(
