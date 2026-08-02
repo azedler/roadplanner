@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.12] - 2026-08-02
+
+### Changed
+
+- No more scrolling past the whole chat history to reach a freshly filed change: when the Änderungskorb is non-empty, a compact quick bar appears directly under the message composer with the basket count, the same "Änderungen prüfen" action, and a "Details ansehen" jump that scrolls the full Änderungskorb into view. With an empty basket the bar stays hidden.
+
 ## [4.14.11] - 2026-08-02
 
 ### Added

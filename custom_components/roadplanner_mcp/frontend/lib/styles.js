@@ -261,6 +261,8 @@ export const PANEL_STYLES = `<style>
       .pitch-plan-b-cover { width: 100%; max-height: 160px; border-radius: 14px; object-fit: cover; margin-bottom: 10px; }
       .crew-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
       .trip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+      .assistant-basket-quickbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; margin: 12px 0; border-left: 4px solid var(--primary-color); }
+      .assistant-basket-quickbar .basket-quick-label { display: inline-flex; align-items: center; gap: 8px; }
       .trip-card { overflow: hidden; }
       .trip-card.active { border-color: color-mix(in srgb, var(--success-color, #2e7d32) 65%, var(--divider-color)); }
       .trip-card.selected { box-shadow: 0 0 0 2px var(--primary-color); }
