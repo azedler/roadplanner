@@ -525,6 +525,7 @@ export const assistantMixin = {
           <button class="primary-button assistant-send" type="button" data-action="assistant-send" title="Nachricht senden" ${this._assistantSubmitInFlight ? "disabled aria-busy=\"true\"" : "aria-busy=\"false\""}><ha-icon icon="mdi:send"></ha-icon><span>${this._assistantSubmitInFlight ? "Wird gesendet …" : "Senden"}</span></button>
         </div>
       </div>
+      <div class="assistant-hint"><ha-icon icon="mdi:keyboard-return"></ha-icon>Enter erzeugt einen Zeilenumbruch · Senden über den Knopf oder Strg/Cmd+Enter.</div>
       <div class="assistant-hint"><ha-icon icon="mdi:shield-check-outline"></ha-icon>Im Gespräch wird nichts automatisch gespeichert.${basketEnabled ? " Eindeutige Entscheidungen können vorgemerkt werden." : " Der Änderungskorb ist in diesem Autonomiemodus deaktiviert."}</div>
     </form>`;
 

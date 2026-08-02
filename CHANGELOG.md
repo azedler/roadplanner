@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.14] - 2026-08-02
+
+### Fixed
+
+- Shared Google-Maps POI links (maps.app.goo.gl, "?g_st=ic") are no longer silently ignored: their canonical URLs often carry NO @lat,lng segment and NO /maps/place/<name> - the precise marker position sits in the data blob as !3d<lat>!4d<lon>, or the link resolves to a q=/query= parameter form. The deterministic link resolver now reads the precise marker (preferred over the @viewport center, which could be zoomed far away), /maps/search/<name> paths and q=/query=/destination parameters (coordinates or text), each range-validated; unreadable forms (e.g. cid-only links) still fail open to the model's text query.
+
+### Changed
+
+- Enter in the Reisebegleiter chat now inserts a NEWLINE instead of sending the half-typed message; sending is the send button or Ctrl/Cmd+Enter. A hint under the input field explains both.
+
 ## [4.14.13] - 2026-08-02
 
 ### Fixed
