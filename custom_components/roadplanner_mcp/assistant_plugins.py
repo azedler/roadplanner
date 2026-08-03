@@ -205,6 +205,7 @@ class GeocodingAssistantPlugin:
         alternatives: list[Any] | None = None,
         coordinate_query: tuple[float, float] | None = None,
         error: str | None = None,
+        link_origin: str = "user_google_maps_link",
     ) -> dict[str, Any]:
         """Keep an operation reviewable while marking unresolved GPS state."""
         changes = value.setdefault("changes", {})
@@ -222,8 +223,13 @@ class GeocodingAssistantPlugin:
             if candidate is not None
         ]
         confirmed_by_link = status == "manual_confirmed"
+        link_provider = (
+            "google_maps_link"
+            if link_origin == "user_google_maps_link"
+            else "shared_link"
+        )
         geocoding_details: dict[str, Any] = {
-            "provider": "google_maps_link" if confirmed_by_link else "nominatim",
+            "provider": link_provider if confirmed_by_link else "nominatim",
             "status": status,
             "query": query,
             "mode": resolution_mode,
@@ -234,7 +240,9 @@ class GeocodingAssistantPlugin:
             # The user shared this exact pin themselves - stored like a
             # manually confirmed coordinate, never as provider-verified.
             geocoding_details["provider_verified"] = False
-            geocoding_details["confirmed_by"] = "user_google_maps_link"
+            geocoding_details["confirmed_by"] = (
+                link_origin or "user_google_maps_link"
+            )
         else:
             geocoding_details["attribution"] = "© OpenStreetMap contributors"
         if error:
@@ -297,7 +305,8 @@ class GeocodingAssistantPlugin:
             # must not degrade to "Ort noch prüfen" (live report: an exact
             # user-shared Maps pin kept demanding verification forever).
             user_pinned = (
-                coordinate_query is not None and origin == "user_google_maps_link"
+                coordinate_query is not None
+                and origin in ("user_google_maps_link", "user_shared_link")
             )
 
             if not self._geocoder.enabled:
@@ -323,6 +332,7 @@ class GeocodingAssistantPlugin:
                         status=status,
                         resolution_mode=resolution_mode,
                         coordinate_query=coordinate_query,
+                        link_origin=origin,
                     )
                 )
                 diagnostics.append(
@@ -364,6 +374,7 @@ class GeocodingAssistantPlugin:
                         resolution_mode=resolution_mode,
                         coordinate_query=coordinate_query,
                         error=str(err),
+                        link_origin=origin,
                     )
                 )
                 diagnostics.append(
@@ -404,6 +415,7 @@ class GeocodingAssistantPlugin:
                         resolution_mode=resolution_mode,
                         alternatives=alternatives,
                         coordinate_query=coordinate_query,
+                        link_origin=origin,
                     )
                 )
                 diagnostics.append(

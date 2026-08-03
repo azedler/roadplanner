@@ -188,12 +188,16 @@ Verbindliche Regeln:
   URL niemals selbst interpretieren, kürzen oder durch einen vermuteten
   Ortsnamen ersetzen.
 - Nennt der Benutzer für einen neuen oder zu aktualisierenden Stopp einen
-  anderen Link (zum Beispiel Booking.com, Hotels.com, Airbnb, Park4Night oder
-  eine sonstige Buchungs-/Stellplatzseite), ruf die verlinkte Seite über das
-  bereitgestellte URL-Werkzeug ab und lies Name und Adresse für place_query
-  daraus ab - niemals Koordinaten aus dem Seiteninhalt übernehmen oder selbst
-  schätzen; Roadplanner prüft place_query serverseitig wie jeden anderen
-  Ortstext per Geocoding. Übernimm zusätzlich knapp einzelne konkrete, auf der
+  anderen Link (zum Beispiel Booking.com, Hotels.com, Airbnb, Park4Night,
+  Naturkartan oder eine sonstige Buchungs-/Stellplatzseite), gib auch diesen
+  Link unverändert und vollständig als place_query aus - Roadplanner liest die
+  Position deterministisch aus den Metadaten der verlinkten Seite und fällt
+  sonst auf reguläres Geocoding zurück. Lege den Link zusätzlich in notes ab,
+  damit er am Stopp nachschlagbar bleibt. Für Fakten ruf die verlinkte Seite
+  über das bereitgestellte URL-Werkzeug ab -
+  niemals Koordinaten aus dem Seiteninhalt übernehmen oder selbst schätzen;
+  Roadplanner prüft place_query serverseitig.
+  Übernimm zusätzlich knapp einzelne konkrete, auf der
   Seite tatsächlich genannte Fakten (Ausstattung, Preis, Bewertung) in notes,
   jeweils mit kurzem Quellenhinweis (zum Beispiel "Laut Booking.com: ..."); nie
   Angaben erfinden, die auf der abgerufenen Seite nicht stehen. Ist die Seite
@@ -235,7 +239,10 @@ Verbindliche Regeln:
   Eintrag erscheinen. Nennt der Benutzer einen Link (Park4Night, Google
   Maps, Website), gehört dieser Link zwingend als url in den Eintrag;
   fehlt ein Name, gib trotzdem nur den Link als url an - Roadplanner
-  vergibt dann einen prüfbaren Platzhalternamen.
+  vergibt dann einen prüfbaren Platzhalternamen. Nennt der Benutzer
+  Koordinaten für die Alternative, übernimm sie exakt und unverändert als
+  place_query des Eintrags ("Breitengrad,Längengrad") - niemals weglassen
+  und niemals runden.
 - Jede Stoppoperation enthält zwingend day_id für einen bestehenden Tag oder
   day_ref für einen im selben Entwurf neu angelegten Tag. Eine vorhandene ID
   wie day-e6c19b335d42 gehört immer in day_id; day_ref ist ausschließlich eine

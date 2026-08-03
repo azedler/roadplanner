@@ -423,9 +423,11 @@ export const tripDayStopMixin = {
     const mapUrl = stop?.navigation?.google_maps_search_url;
     const navigationUrl = stop?.navigation?.google_maps_navigation_url;
     const p4n = park4nightReference(stop.name, stop.notes, stop?.details?.source, stop?.details?.source_url);
+    const sharedLinks = this._stopSharedLinks(stop, { excludeP4n: Boolean(p4n) });
     const externalActions = [
       this._externalLink(mapUrl, "Google Maps", "mdi:google-maps"),
       p4n ? this._externalLink(p4n.url, `Park4Night #${p4n.id}`, "mdi:caravan") : "",
+      ...sharedLinks.map((link) => this._externalLink(link.url, link.label, "mdi:link-variant")),
       this._externalLink(navigationUrl, "Navigieren", "mdi:navigation-variant-outline", "primary-button"),
     ].filter(Boolean).join("");
     return `<article class="stop-card ${inherited ? "inherited-stop" : ""}">
@@ -449,6 +451,37 @@ export const tripDayStopMixin = {
         ${this._canEdit() && !inherited ? `<div class="button-row stop-actions"><button class="secondary-button" type="button" data-action="edit-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Bearbeiten</button>${cleanText(stop?.location_status) !== "resolved" || !stop?.details?.place_profile?.confirmed_at ? `<button class="secondary-button" type="button" data-action="complete-stop-place" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon> Stopp anreichern</button>` : ""}<button class="secondary-button" type="button" data-action="search-stop-images" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:image-multiple-outline"></ha-icon> Bilder verwalten</button>${destinationImages.length ? `<button class="text-button danger-text" type="button" data-action="destination-gallery-delete" data-stop-id="${escapeHtml(stop.id)}">Galerie entfernen</button>` : media ? `<button class="text-button danger-text" type="button" data-action="remove-stop-image" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}">Bild entfernen</button>` : ""}<button class="text-button danger-text" type="button" data-action="delete-stop" data-day-id="${escapeHtml(day.id)}" data-stop-id="${escapeHtml(stop.id)}"><ha-icon icon="mdi:trash-can-outline"></ha-icon> Stopp löschen</button></div>` : ""}
       </div>
     </article>`;
+  },
+
+  _stopSharedLinks(stop, { excludeP4n = false } = {}) {
+    // Links the user shared for this stop (naturkartan.se, campsite
+    // website ...) stay reachable directly on the stop card - live
+    // request: "Er sollte wenigstens den Link anbieten um es nachschlagen
+    // zu können". Deterministic: read every https URL out of the stop's
+    // notes and details, skip Google-Maps (own button) and optionally
+    // Park4Night (own button), dedupe, cap at three.
+    const material = `${stop?.notes || ""} ${JSON.stringify(stop?.details || {})}`;
+    const matches = material.match(/https:\/\/[^\s"'<>\\)\]]+/g) || [];
+    const links = [];
+    const seen = new Set();
+    for (const raw of matches) {
+      const url = raw.replace(/[.,;:]+$/, "");
+      let host = "";
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch (err) {
+        continue;
+      }
+      if (!host || seen.has(url)) continue;
+      if (/(^|\.)google\.[a-z.]+$|(^|\.)goo\.gl$|(^|\.)maps\.app\.goo\.gl$/.test(host)) continue;
+      if (excludeP4n && /(^|\.)park4night\.com$/.test(host)) continue;
+      // Image/CDN links from stored galleries are not lookup pages.
+      if (/\.(jpg|jpeg|png|webp|avif|gif|svg)(\?|$)/i.test(url)) continue;
+      seen.add(url);
+      links.push({ url, label: host.replace(/^www\./, "") });
+      if (links.length >= 3) break;
+    }
+    return links;
   },
 
   _renderTotalDay(day) {

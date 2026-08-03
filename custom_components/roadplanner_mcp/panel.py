@@ -30,6 +30,7 @@ from .currency_rates import EcbRateService, eur_total
 from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
 from .google_maps_link import async_resolve_google_maps_place
+from .page_images import async_fetch_page_place
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
@@ -521,9 +522,24 @@ async def _execute_action(
                 result["longitude"] = float(resolved["longitude"])
             return {"result": result}
         lookup = runtime.experience.p4n_lookup
+        p4n_match = _PARK4NIGHT_ID_RE.search(url)
+        if p4n_match is None:
+            # Deterministic first: many place pages (naturkartan.se,
+            # campsite websites) carry their position in JSON-LD/geo
+            # metadata - no AI needed. The AI reader stays the fallback.
+            page_place = await async_fetch_page_place(hass, url)
+            if "latitude" in page_place:
+                return {
+                    "result": {
+                        "provider": "shared_link",
+                        "url": url,
+                        "latitude": float(page_place["latitude"]),
+                        "longitude": float(page_place["longitude"]),
+                        "name": str(page_place.get("name") or hint or "")[:200],
+                    }
+                }
         if not lookup.available:
             raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
-        p4n_match = _PARK4NIGHT_ID_RE.search(url)
         if p4n_match is not None:
             result = await lookup.async_lookup(
                 f"https://park4night.com/lieu/{p4n_match.group('id')}/",

@@ -125,8 +125,12 @@ def verify_model_cannot_set_the_origin_itself() -> None:
         "_SERVER_CONTROLLED_OPERATION_FIELDS"
     )[1].split("}")[0], "the origin must be a server-controlled operation field"
     assistant_source = (PACKAGE_ROOT / "assistant.py").read_text(encoding="utf-8")
-    assert 'sanitized["place_query_origin"] = "user_google_maps_link"' in assistant_source, (
+    assert 'sanitized["place_query_origin"] = resolved_origin' in assistant_source, (
         "the origin is set server-side AFTER sanitizing"
+    )
+    assert 'resolved_origin = "user_google_maps_link"' in assistant_source
+    assert 'resolved_origin = "user_shared_link"' in assistant_source, (
+        "shared non-Google place links carry their own server-set origin"
     )
 
 

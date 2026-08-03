@@ -264,6 +264,38 @@ def verify_empty_plan_is_salvaged_from_reason_and_basket() -> None:
     plan = result["changes"]["details"]["overnight_plan"]
     assert any(o["name"] == "Park4Night #603309" for o in plan["options"]), plan["options"]
 
+    # Live case (3rd report): the alternative was a NATURKARTAN link plus
+    # user-dictated coordinates - neither is a Park4Night or Maps link, so
+    # it was silently dropped. Salvage now covers any https place link,
+    # derives a readable name from the URL slug, and re-attaches the
+    # coordinates named in the decision text as the option's reviewable
+    # position.
+    naturkartan_operation = {
+        "operation_id": "op-nk",
+        "action": "update",
+        "entity_type": "day",
+        "entity_id": "day-1",
+        "changes": {"details": {"overnight_plan": {"options": []}}},
+        "reason": (
+            "Alternative Übernachtung: Koordinaten 59.924128, 15.284795 - "
+            "https://www.naturkartan.se/de/orebro-lan/rastplats-storbergsudden"
+        ),
+    }
+    result = sanitizer._sanitize_operation(
+        naturkartan_operation, index=0, context=CONTEXT, new_day_refs=set(),
+        full_days=FULL_DAYS,
+    )
+    plan = result["changes"]["details"]["overnight_plan"]
+    option = next(
+        (o for o in plan["options"] if o["name"] == "Rastplats Storbergsudden"),
+        None,
+    )
+    assert option is not None, [o["name"] for o in plan["options"]]
+    assert option["source"]["url"].startswith("https://www.naturkartan.se/")
+    assert option["location"] == {"latitude": 59.924128, "longitude": 15.284795}, (
+        "the coordinates named in the decision text are the option's position"
+    )
+
     # A basket without alternative intent contributes nothing.
     result = sanitizer._sanitize_operation(
         {**basket_operation, "operation_id": "op-3"},

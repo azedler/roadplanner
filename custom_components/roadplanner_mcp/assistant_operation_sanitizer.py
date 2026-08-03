@@ -14,7 +14,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from .assistant_basket import _deep_without_none
@@ -51,11 +51,29 @@ _MAPS_CANDIDATE_RE = re.compile(
 _ALTERNATIVE_INTENT_RE = re.compile(
     r"alternativ|zweite\s+option|plan\s*b|backup|ausweich", re.IGNORECASE
 )
+_GENERIC_URL_CANDIDATE_RE = re.compile(r"https://[^\s\"'<>\)\]]+")
+# A typed coordinate pair with real precision (>= 3 decimals) - version
+# numbers and prices never look like this.
+_COORD_CANDIDATE_RE = re.compile(
+    r"(-?\d{1,3}\.\d{3,8})\s*,\s*(-?\d{1,3}\.\d{3,8})"
+)
 
 
-def _overnight_candidates_from_text(material: str) -> list[dict[str, str]]:
+def _name_from_url_slug(url: str) -> str:
+    """Derive a readable placeholder name from a page URL's last segment."""
+    path = urlparse(url).path.rstrip("/")
+    slug = path.rsplit("/", 1)[-1] if path else ""
+    if not slug or slug.isdigit():
+        return ""
+    words = re.sub(r"[-_]+", " ", unquote(slug)).strip()
+    if not words or len(words) < 3:
+        return ""
+    return words[:200].title()
+
+
+def _overnight_candidates_from_text(material: str) -> list[dict[str, Any]]:
     """Deterministically extract overnight candidates from free text."""
-    candidates: list[dict[str, str]] = []
+    candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
     for p4n_id in _P4N_CANDIDATE_RE.findall(material or ""):
         if p4n_id in seen:
@@ -68,6 +86,46 @@ def _overnight_candidates_from_text(material: str) -> list[dict[str, str]]:
             continue
         seen.add(cleaned)
         candidates.append({"url": cleaned})
+    for url in _GENERIC_URL_CANDIDATE_RE.findall(material or ""):
+        # Any other place page the text names (naturkartan.se, campsite
+        # website ...) is a candidate too - live report: a naturkartan
+        # alternative was silently dropped because only Park4Night and
+        # Google-Maps links were salvaged.
+        cleaned = url.rstrip(".,;:)")
+        if cleaned in seen or _P4N_CANDIDATE_RE.search(cleaned) or _MAPS_CANDIDATE_RE.match(cleaned):
+            continue
+        seen.add(cleaned)
+        candidate: dict[str, Any] = {"url": cleaned}
+        slug_name = _name_from_url_slug(cleaned)
+        if slug_name:
+            candidate["name"] = slug_name
+        candidates.append(candidate)
+    coordinate_pairs = [
+        (latitude, longitude)
+        for latitude, longitude in _COORD_CANDIDATE_RE.findall(material or "")
+        if -90 <= float(latitude) <= 90
+        and -180 <= float(longitude) <= 180
+        and float(latitude) != 0
+    ]
+    if coordinate_pairs:
+        # Coordinates named in the decision text (typically the user's own
+        # numbers) become the candidate's place_query - and its reviewable
+        # position (live report: "Koordinaten: 59.924128, 15.284795" was
+        # acknowledged in chat and then lost entirely).
+        latitude, longitude = coordinate_pairs[0]
+        pair_query = f"{latitude},{longitude}"
+        location = {"latitude": float(latitude), "longitude": float(longitude)}
+        if candidates:
+            candidates[0].setdefault("place_query", pair_query)
+            candidates[0].setdefault("location", location)
+        else:
+            candidates.append(
+                {
+                    "name": "Stellplatz (Koordinaten)",
+                    "place_query": pair_query,
+                    "location": location,
+                }
+            )
     return candidates[:3]
 from .destination_intelligence import (
     _PARK4NIGHT_ID_RE,
@@ -791,6 +849,33 @@ def _sanitize_operation(
                         },
                         now=_utc_now_iso(),
                     )
+                    # The merge deliberately drops MODEL-provided GPS. The
+                    # salvaged coordinates were extracted server-side from
+                    # the recorded decision text (typically the user's own
+                    # numbers), so they are re-attached to the matching
+                    # option - reviewable in the Änderungsübersicht like
+                    # every other value.
+                    for candidate in salvaged:
+                        location = candidate.get("location")
+                        if not isinstance(location, dict):
+                            continue
+                        for option in merged_plan.get("options") or []:
+                            same_url = candidate.get("url") and (
+                                (option.get("source") or {}).get("url")
+                                == candidate.get("url")
+                            )
+                            same_name = candidate.get("name") and (
+                                option.get("name") == candidate.get("name")
+                            )
+                            if (same_url or same_name) and not (
+                                option.get("location") or {}
+                            ).get("latitude"):
+                                option["location"] = dict(location)
+                                option.setdefault(
+                                    "place_query",
+                                    str(candidate.get("place_query") or ""),
+                                )
+                                break
             day_changes_details["overnight_plan"] = merged_plan
     elif entity_type == "stop":
         day_id, day_ref = _normalize_compiled_day_reference(

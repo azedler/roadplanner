@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.20] - 2026-08-03
+
+### Fixed
+
+- Alternatives with a naturkartan/website link and user-dictated coordinates are no longer lost (live report: "Nimm als Alternativen Stellplatz auf: Koordinaten ... Naturkartan: ..." was acknowledged in chat, then nothing was saved): the server-side salvage now covers ANY https place link (not just Park4Night/Google Maps), derives a readable option name from the URL slug (e.g. "Rastplats Storbergsudden"), and re-attaches coordinates named in the decision text as the option's reviewable position - so the option also appears on the pitch map.
+- Stops created from a shared non-Google place link (naturkartan.se, campsite website ...) no longer end as "Ort fehlt": the link now goes verbatim into place_query and Roadplanner reads the position DETERMINISTICALLY from the page's own metadata (JSON-LD GeoCoordinates, geo.position/ICBM meta, og:title as name). Such a pin counts like a user-confirmed map point (provenance "user_shared_link", never provider-verified). "Link lesen und übernehmen" uses the same deterministic reader BEFORE falling back to the AI page reader.
+- An overnight option whose place_query is a precise coordinate pair now gets that pair as its map position - user-dictated coordinates stay visible and reviewable instead of silently disappearing.
+
+### Added
+
+- The stop card now offers the links the user shared for the stop (naturkartan.se, website ...) as buttons next to Google Maps/Park4Night - "Er sollte wenigstens den Link anbieten um es nachschlagen zu können". The Reisebegleiter is also instructed to keep shared links in the stop's notes so they stay reachable.
+
 ## [4.14.19] - 2026-08-03
 
 ### Added

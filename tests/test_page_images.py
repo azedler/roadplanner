@@ -47,6 +47,7 @@ def load(name: str):
 
 
 load("const")
+load("destination_intelligence")
 module = load("page_images")
 
 PAGE_URL = "https://www.naturkartan.se/sv/dalarnas-lan/lumsenkojan"
@@ -118,6 +119,68 @@ def verify_source_hint_fetch_skips_covered_providers() -> None:
     assert asyncio.run(module.async_images_from_source_hints(None, [])) == []
 
 
+PLACE_HTML = """
+<meta property="og:title" content="Rastplats Storbergsudden | Naturkartan">
+<script type="application/ld+json">
+{"@type": "Place", "name": "Rastplats Storbergsudden",
+ "geo": {"@type": "GeoCoordinates", "latitude": 59.924128, "longitude": 15.284795}}
+</script>
+"""
+
+
+def verify_page_place_extraction() -> None:
+    place = module.extract_page_place(PLACE_HTML)
+    assert place == {
+        "latitude": 59.924128,
+        "longitude": 15.284795,
+        "name": "Rastplats Storbergsudden",
+    }, place
+    # meta geo.position fallback, og:title suffix split.
+    meta_only = (
+        '<meta name="geo.position" content="59.995313;15.359499">'
+        '<meta property="og:title" content="Lumsenkojan | Naturkartan">'
+    )
+    place = module.extract_page_place(meta_only)
+    assert place["latitude"] == 59.995313 and place["longitude"] == 15.359499
+    assert place["name"] == "Lumsenkojan"
+    assert module.extract_page_place("<p>nichts</p>") == {}
+
+
+def verify_shared_page_resolver_contract() -> None:
+    async def fake_fetch_place(hass, url):
+        assert "naturkartan" in url
+        return {"latitude": 59.924128, "longitude": 15.284795, "name": "Rastplats Storbergsudden"}
+
+    module.async_fetch_page_place = fake_fetch_place
+    info = asyncio.run(
+        module.async_resolve_shared_page_place(
+            None,
+            "Nimm den hier: https://www.naturkartan.se/de/orebro-lan/rastplats-storbergsudden",
+        )
+    )
+    assert info["place_query"] == "59.924128,15.284795"
+    assert info["name"] == "Rastplats Storbergsudden"
+    # Google links are NOT handled here - the maps resolver owns them.
+    assert asyncio.run(
+        module.async_resolve_shared_page_place(None, "https://maps.app.goo.gl/xyz")
+    ) is None
+    # A shared-page pin counts as a user-confirmed point like a maps pin.
+    assistant_source = (PACKAGE_ROOT / "assistant.py").read_text(encoding="utf-8")
+    assert "async_resolve_shared_page_place" in assistant_source
+    assert '"user_shared_link"' in assistant_source
+    plugins_source = (PACKAGE_ROOT / "assistant_plugins.py").read_text(encoding="utf-8")
+    assert 'origin in ("user_google_maps_link", "user_shared_link")' in plugins_source
+    # Manual link lookup: deterministic page metadata beats the AI reader.
+    panel_source = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    assert "page_place = await async_fetch_page_place(hass, url)" in panel_source
+    assert panel_source.index("async_fetch_page_place(hass, url)") < panel_source.index(
+        "async_lookup_page(url, hint_name=hint)"
+    )
+    # The stop card offers the user-shared links for lookup.
+    stop_card_source = (PACKAGE_ROOT / "frontend/features/trip-day-stop.js").read_text(encoding="utf-8")
+    assert "_stopSharedLinks" in stop_card_source
+
+
 def verify_gallery_and_enrichment_wiring() -> None:
     gallery_source = (PACKAGE_ROOT / "destination_gallery_manager.py").read_text(encoding="utf-8")
     assert "async_images_from_source_hints" in gallery_source
@@ -132,6 +195,8 @@ def verify_gallery_and_enrichment_wiring() -> None:
 
 if __name__ == "__main__":
     verify_extraction_shapes_and_filters()
+    verify_page_place_extraction()
+    verify_shared_page_resolver_contract()
     verify_source_hint_fetch_skips_covered_providers()
     verify_gallery_and_enrichment_wiring()
     print("Shared-page image extraction tests passed.")
