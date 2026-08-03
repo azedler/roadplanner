@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
+import re
 import time
 from typing import Any
 import uuid
@@ -20,8 +21,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .canonical_day import canonical_roadbook_stops
+from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError, ValidationError
-from .trip_export_photos import async_fetch_day_photos
+from .trip_export_photos import async_fetch_day_photos, async_fetch_media_photo
 from .trip_pdf import (
     MAX_PHOTOS_PER_DAY,
     PdfCrewMember,
@@ -33,6 +35,83 @@ from .trip_pdf import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _media_mentioning(
+    media: list[dict[str, Any]], name: str
+) -> list[dict[str, Any]]:
+    """Photos whose caption mentions ``name``, best quality first."""
+    cleaned = str(name or "").strip()
+    if len(cleaned) < 2:
+        return []
+    pattern = re.compile(rf"(?<!\w){re.escape(cleaned)}(?!\w)", re.IGNORECASE)
+    matches = [
+        item
+        for item in media
+        if pattern.search(str(item.get("caption") or ""))
+    ]
+    matches.sort(key=media_quality_score, reverse=True)
+    return matches
+
+
+_HIGHLIGHT_STOP_TYPES = {
+    "activity",
+    "attraction",
+    "sightseeing",
+    "viewpoint",
+    "ferry",
+    "fishing",
+}
+_OVERNIGHT_STOP_TYPES = {
+    "overnight",
+    "campsite",
+    "camping",
+    "stellplatz",
+    "wildcamp",
+    "accommodation",
+}
+
+
+def _day_highlights(
+    stops: list[dict[str, Any]],
+    media_by_stop: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    """Deterministic keyword bullets for a day - no AI, no invented text."""
+    highlights = [
+        str(stop.get("name") or "").strip()[:40]
+        for stop in stops
+        if str(stop.get("type") or "").casefold() in _HIGHLIGHT_STOP_TYPES
+        and str(stop.get("name") or "").strip()
+    ][:3]
+    if not highlights:
+        overnight = next(
+            (
+                stop
+                for stop in stops
+                if str(stop.get("type") or "").casefold() in _OVERNIGHT_STOP_TYPES
+                and str(stop.get("name") or "").strip()
+            ),
+            None,
+        )
+        if overnight:
+            highlights = [str(overnight.get("name") or "").strip()[:40]]
+    media_count = sum(
+        len(media_by_stop.get(str(stop.get("id") or ""), [])) for stop in stops
+    )
+    if media_count:
+        highlights.append(
+            f"{media_count} eigene Fotos" if media_count > 1 else "1 eigenes Foto"
+        )
+    return highlights
+
+
+_PERSON_SUMMARY_PROMPT = (
+    "Du fasst für den Reise-Rückblick einer Camperreise zusammen, was EINE "
+    "Person laut den Bildunterschriften ihrer Fotos erlebt hat. Nutze "
+    "ausschließlich die genannten Bildunterschriften und die Kurznotiz - "
+    "erfinde nichts dazu. Maximal 2 kurze, warmherzige Sätze auf Deutsch in "
+    "der dritten Person, keine Anführungszeichen, keine Emojis."
+)
 
 
 def _optional_float(value: Any) -> float | None:
@@ -66,12 +145,45 @@ class _PdfTicket:
 class TripPdfExporter:
     """Build a downloadable trip-summary PDF and issue short-lived tickets."""
 
-    def __init__(self, hass: HomeAssistant, manager: Any, experience: Any) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        manager: Any,
+        experience: Any,
+        provider: Any = None,
+    ) -> None:
         self.hass = hass
         self.manager = manager
         self.experience = experience
+        self.provider = provider
         self._tickets_lock = asyncio.Lock()
         self._tickets: dict[str, _PdfTicket] = {}
+
+    async def _async_person_summary(
+        self, name: str, note: str, captions: list[str]
+    ) -> str:
+        if not captions:
+            return ""
+        if self.provider is None:
+            return " · ".join(captions[:2])[:200]
+        facts = f"Person: {name}\nNotiz: {note or '-'}\nBildunterschriften:\n" + "\n".join(
+            f"- {caption}" for caption in captions
+        )
+        try:
+            result = await self.provider.async_generate_text(
+                system_instruction=_PERSON_SUMMARY_PROMPT,
+                messages=[{"role": "user", "content": facts}],
+                enable_search=False,
+                max_output_tokens=160,
+                temperature=0.4,
+            )
+        except RoadplannerError as err:
+            _LOGGER.debug(
+                "PDF person summary generation failed: %s", type(err).__name__
+            )
+            return " · ".join(captions[:2])[:200]
+        text = str(getattr(result, "text", "") or "").strip()
+        return text[:300] or " · ".join(captions[:2])[:200]
 
     async def async_generate(self, trip_id: str) -> bytes:
         trip_id = str(trip_id or "").strip()
@@ -121,15 +233,37 @@ class TripPdfExporter:
             if isinstance(experience_state.get("destination_galleries"), dict)
             else {}
         )
+        all_media = [
+            item
+            for item in experience_state.get("media") or []
+            if isinstance(item, dict)
+        ]
         media_by_stop: dict[str, list[dict[str, Any]]] = {}
-        for item in experience_state.get("media") or []:
-            if not isinstance(item, dict):
-                continue
+        for item in all_media:
             stop_id = str(item.get("linked_stop_id") or "")
             if stop_id:
                 media_by_stop.setdefault(stop_id, []).append(item)
 
         session = async_get_clientsession(self.hass)
+
+        # Persönliche Crew-Karten: photo captions that mention a crew
+        # member's name yield their portrait photo and a short personal
+        # trip summary (live request: "bissel persönliches reinbringen").
+        for member in crew:
+            mentions = _media_mentioning(all_media, member.name)
+            if not mentions:
+                continue
+            member.photo = await async_fetch_media_photo(
+                session, self.experience, trip_id, mentions[0]
+            )
+            captions = [
+                str(item.get("caption") or "").strip()[:200]
+                for item in mentions[:6]
+                if str(item.get("caption") or "").strip()
+            ]
+            member.summary = await self._async_person_summary(
+                member.name, member.note, captions
+            )
         country_codes: set[str] = set()
         days: list[PdfDay] = []
         for day in days_raw:
@@ -172,6 +306,7 @@ class TripPdfExporter:
                     duration_minutes=_optional_minutes(
                         day.get("drive_minutes", day.get("duration_minutes"))
                     ),
+                    highlights=_day_highlights(stops, media_by_stop),
                 )
             )
 
