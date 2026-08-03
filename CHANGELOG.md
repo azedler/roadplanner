@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.25] - 2026-08-03
+
+### Fixed
+
+- Downloaded trip videos were 17 bytes (live report): the library download view required Home Assistant session authentication, but the companion app performs the link download WITHOUT an auth token - so every download saved the literal "401: Unauthorized" body as the video. The view now works like the PDF ticket download: no session required, the unguessable 128-bit uuid4-hex filename IS the access token, strictly pattern-validated, never listed, only handed out through authenticated panel actions and the owner's notification.
+
 ## [4.14.24] - 2026-08-03
 
 ### Changed

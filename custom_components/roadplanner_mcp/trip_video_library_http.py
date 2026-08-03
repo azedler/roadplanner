@@ -1,11 +1,15 @@
-"""Authenticated download view for the durable trip-video library.
+"""Download view for the durable trip-video library.
 
-Unlike the PDF export's short-lived ticket-protected view, a generated
-video is written to disk (see trip_video_export.py's module docstring for
-why) and served here under normal Home Assistant session authentication -
-there is no ticket to expire, so the link in the "video ready" persistent
-notification keeps working whenever the user is logged in, even long after
-the export finished.
+A generated video is written to disk (see trip_video_export.py's module
+docstring for why) and served here WITHOUT Home Assistant session
+authentication - exactly like the PDF ticket view: the download is
+triggered as a plain link click, and the mobile companion app performs
+that download without attaching an auth token, which turned every video
+into a 17-byte "401: Unauthorized" file (live report). The capability IS
+the filename: a random 128-bit uuid4 hex generated server-side, validated
+against a strict pattern, never listed anywhere, only handed out through
+authenticated panel actions and the owner's notification. Guessing it is
+as hard as guessing a PDF ticket token.
 """
 
 from __future__ import annotations
@@ -38,7 +42,10 @@ class RoadplannerTripVideoLibraryView(HomeAssistantView):
 
     url = DOWNLOAD_URL
     name = "api:roadplanner:trip_video_library"
-    requires_auth = True
+    # The unguessable uuid4-hex filename is the access token - see module
+    # docstring. Session auth would break the companion app's plain-link
+    # download (401 body saved as the "video").
+    requires_auth = False
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
