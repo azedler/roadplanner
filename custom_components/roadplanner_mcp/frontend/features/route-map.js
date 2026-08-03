@@ -80,21 +80,90 @@ export const routeMapMixin = {
         style: this._videoStyle || "highlight",
       }, "", {
         refresh: false,
-        errorTitle: "Video konnte nicht erstellt werden",
+        errorTitle: "Video konnte nicht gestartet werden",
         blockUi: false,
       });
-      if (!result?.download_url) return;
-      const link = document.createElement("a");
-      link.href = result.download_url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.download = "";
-      link.click();
-      this._showToast("Reise als Video erstellt", "success", 4500);
+      if (!result?.status) return;
+      this._tripVideoStatus = result.status;
+      this._showToast("Video-Erstellung gestartet - der Fortschritt erscheint unter dem Knopf", "success", 5000);
+      this._pollTripVideoStatus();
     } finally {
       this._exportingTripVideo = false;
       this._render({ preserveScroll: true });
     }
+  },
+
+  async _pollTripVideoStatus() {
+    // The build runs server-side in the background; poll until it settles.
+    // Bounded: at most ~30 minutes of polling, then the manual status
+    // button still works.
+    if (this._tripVideoPolling) return;
+    this._tripVideoPolling = true;
+    try {
+      for (let attempt = 0; attempt < 360; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        if (!this.isConnected) return;
+        const status = await this._fetchTripVideoStatus({ silent: true });
+        if (!status || status.state !== "running") {
+          if (status?.state === "ready") {
+            this._showToast("Reise-Video ist fertig - Download unter dem Video-Knopf", "success", 8000);
+          } else if (status?.state === "error") {
+            this._showToast(`Video-Erstellung fehlgeschlagen: ${status.error || "unbekannter Fehler"}`, "error", 10000);
+          }
+          return;
+        }
+      }
+    } finally {
+      this._tripVideoPolling = false;
+    }
+  },
+
+  async _fetchTripVideoStatus({ silent = false } = {}) {
+    try {
+      const result = await this._runAction("trip_video_status", {}, "", {
+        refresh: false,
+        blockUi: false,
+        errorTitle: silent ? "" : "Video-Status konnte nicht geladen werden",
+      });
+      if (result?.status) {
+        this._tripVideoStatus = result.status;
+        this._render({ preserveScroll: true });
+        return result.status;
+      }
+    } catch (err) {
+      if (!silent) throw err;
+    }
+    return null;
+  },
+
+  async _openLastTripVideo() {
+    const status = await this._fetchTripVideoStatus();
+    const last = status?.last_video;
+    if (!last?.url) {
+      this._showToast("Es wurde noch kein Video erstellt", "info", 5000);
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = last.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.download = "";
+    link.click();
+  },
+
+  _renderTripVideoStatusLine() {
+    const status = this._tripVideoStatus;
+    if (!status) return "";
+    if (status.state === "running") {
+      return `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Video wird erstellt (${escapeHtml(status.style === "full" ? "ausführlicher Rückblick" : "Highlight-Reel")}): ${escapeHtml(status.stage || "läuft")} …</span></div>`;
+    }
+    if (status.state === "error") {
+      return `<div class="notice warning trip-video-status"><ha-icon icon="mdi:movie-open-off-outline"></ha-icon><span>Video-Erstellung fehlgeschlagen: ${escapeHtml(status.error || "unbekannter Fehler")}</span></div>`;
+    }
+    if (status.state === "ready" && status.download_url) {
+      return `<div class="notice success trip-video-status"><ha-icon icon="mdi:movie-check-outline"></ha-icon><span>Video fertig.</span> <a class="text-button" href="${escapeHtml(status.download_url)}" target="_blank" rel="noopener noreferrer">Herunterladen</a></div>`;
+    }
+    return "";
   },
 
   _coordinate(stop, day = null, index = 0) {
@@ -385,12 +454,14 @@ export const routeMapMixin = {
               <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>
               <option value="full" ${this._videoStyle === "full" ? "selected" : ""}>Ausführlicher Rückblick</option>
             </select>
-            <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._exportingTripVideo ? "Erstelle Video… (kann einige Minuten dauern)" : "Reise als Video"}</button>
+            <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo || this._tripVideoStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._tripVideoStatus?.state === "running" ? "Video wird erstellt …" : "Reise als Video"}</button>
+            <button class="text-button" type="button" data-action="open-last-trip-video" title="Zuletzt erstelltes Video herunterladen"><ha-icon icon="mdi:movie-search-outline"></ha-icon> Letztes Video${this._tripVideoStatus?.last_video ? ` (${escapeHtml(String(this._tripVideoStatus.last_video.size_mb))} MB)` : ""}</button>
           ` : `
             <button class="secondary-button" type="button" disabled title="ffmpeg wurde auf diesem Home-Assistant-Host nicht gefunden"><ha-icon icon="mdi:movie-open-outline"></ha-icon> Reise als Video</button>
           `}
         </div>
       </section>
+      ${this._renderTripVideoStatusLine()}
       ${!routingConfigured ? '<div class="notice neutral">Aktiviere Straßenrouting in den Roadplanner-Optionen, um Kilometer und Fahrzeiten zu berechnen.</div>' : ""}
       ${metrics.stale_day_count ? `<div class="notice warning">${metrics.stale_day_count} gespeicherte ${metrics.stale_day_count === 1 ? "Route ist" : "Routen sind"} nach Änderungen veraltet.</div>` : ""}
       ${metrics.routing_gap_count ? `<div class="notice warning">${metrics.routing_gap_count} ${metrics.routing_gap_count === 1 ? "Routenabschnitt ist" : "Routenabschnitte sind"} noch unvollständig modelliert. Eine Fähre benötigt Abfahrts- und Ankunftsterminal als getrennte Stopps.</div>` : ""}

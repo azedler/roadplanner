@@ -1454,6 +1454,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._exportTripPdf();
     } else if (action === "export-trip-video") {
       void this._exportTripVideo();
+    } else if (action === "open-last-trip-video") {
+      void this._openLastTripVideo();
     } else if (action === "search-stop-images" && this._canEdit()) {
       const stop = this._findStop(dayId, stopId);
       const day = this._findDay(dayId);

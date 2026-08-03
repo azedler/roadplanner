@@ -17,6 +17,7 @@ the result survives regardless of what the client did in the meantime.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import logging
 from pathlib import Path
@@ -29,6 +30,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .canonical_day import canonical_roadbook_stops
+from .experience_store import utc_now_iso
 from .const import MAX_STORED_TRIP_VIDEOS
 from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
 from .map_snapshot import async_fetch_snapshot
@@ -121,12 +123,109 @@ class TripVideoExporter:
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
         self.library_dir = library_dir
+        self._status: dict[str, Any] = {"state": "idle"}
+        self._task: Any = None
+
+    def _set_stage(self, stage: str) -> None:
+        if self._status.get("state") == "running":
+            self._status["stage"] = stage
+
+    def async_start(self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE) -> dict[str, Any]:
+        """Start one background video build; reject a second parallel run.
+
+        The build takes minutes - a request held open for that long dies on
+        every mobile connection change (live report: "Video erstellen"
+        pressed, nothing traceable afterwards). The panel polls
+        ``async_status`` instead.
+        """
+        if self._task is not None and not self._task.done():
+            raise ValidationError(
+                "Es läuft bereits eine Video-Erstellung - Status siehe "
+                "Gesamtroute; bitte warten, bis sie abgeschlossen ist"
+            )
+        if not ffmpeg_available():
+            raise RoadplannerError(
+                "Der Video-Export ist auf diesem Home-Assistant-Host nicht "
+                "verfügbar (ffmpeg wurde nicht gefunden)"
+            )
+        self._status = {
+            "state": "running",
+            "style": style,
+            "stage": "Vorbereitung",
+            "started_at": utc_now_iso(),
+        }
+        self._task = self.hass.async_create_task(self._async_run(trip_id, style))
+        return dict(self._status)
+
+    async def _async_run(self, trip_id: str, style: str) -> None:
+        try:
+            download_url = await self.async_generate_and_publish(trip_id, style=style)
+        except (RoadplannerError, ValidationError) as err:
+            self._status.update(
+                {
+                    "state": "error",
+                    "stage": "Fehlgeschlagen",
+                    "error": str(err)[:500],
+                    "finished_at": utc_now_iso(),
+                }
+            )
+            _LOGGER.warning("Trip video build failed: %s", err)
+        except Exception as err:  # noqa: BLE001 - status must always resolve
+            self._status.update(
+                {
+                    "state": "error",
+                    "stage": "Fehlgeschlagen",
+                    "error": f"Unerwarteter Fehler ({type(err).__name__})",
+                    "finished_at": utc_now_iso(),
+                }
+            )
+            _LOGGER.exception("Trip video build crashed")
+        else:
+            self._status.update(
+                {
+                    "state": "ready",
+                    "stage": "Fertig",
+                    "download_url": download_url,
+                    "finished_at": utc_now_iso(),
+                }
+            )
+
+    def _library_latest(self) -> dict[str, Any] | None:
+        """Newest stored video - blocking, executor only."""
+        try:
+            videos = sorted(
+                self.library_dir.glob("*.mp4"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+        if not videos:
+            return None
+        stat = videos[0].stat()
+        return {
+            "url": f"/api/roadplanner/trip_video_library/{videos[0].name}",
+            "created_at": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
+            "size_mb": round(stat.st_size / 1_000_000, 1),
+        }
+
+    async def async_status(self) -> dict[str, Any]:
+        """Current build state plus the newest retrievable library video."""
+        status = dict(self._status)
+        status["available"] = ffmpeg_available()
+        status["last_video"] = await self.hass.async_add_executor_job(
+            self._library_latest
+        )
+        return status
 
     async def async_generate_and_publish(
         self, trip_id: str, *, style: str = DEFAULT_VIDEO_STYLE
     ) -> str:
         """Generate the video, save it to the library, notify, return its URL."""
         trip_title, video_bytes = await self.async_generate(trip_id, style=style)
+        self._set_stage("Video speichern")
         filename = await self.hass.async_add_executor_job(
             self._save_to_library, video_bytes
         )
@@ -147,6 +246,7 @@ class TripVideoExporter:
             raise ValidationError("Für den Video-Export fehlt die Reise-ID")
         style = style if style in _MAX_CHAPTERS else DEFAULT_VIDEO_STYLE
 
+        self._set_stage("Reisedaten und Fotos laden")
         payload = await self.manager.async_get_assistant_payload(trip_id)
         if str(payload.get("selected_trip_id") or "") != trip_id:
             raise ValidationError(
@@ -198,7 +298,12 @@ class TripVideoExporter:
 
         session = async_get_clientsession(self.hass)
         chapters: list[VideoChapter] = []
-        for day in days_for_style[:max_chapters]:
+        chapter_days = days_for_style[:max_chapters]
+        for chapter_index, day in enumerate(chapter_days):
+            self._set_stage(
+                f"Kapitel {chapter_index + 1}/{len(chapter_days)}: "
+                "Fotos, Karte und Text"
+            )
             stops = [
                 stop for stop in canonical_roadbook_stops(day) if isinstance(stop, dict)
             ]
@@ -259,6 +364,7 @@ class TripVideoExporter:
                 "-c:v", "libx264",
                 str(output_path),
             ]
+            self._set_stage("Video rendern (ffmpeg)")
             await async_run_ffmpeg(ffmpeg_args, timeout_seconds=_FFMPEG_TIMEOUT_SECONDS)
             return data.title, output_path.read_bytes()
 

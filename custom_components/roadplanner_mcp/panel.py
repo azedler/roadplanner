@@ -67,6 +67,7 @@ _ACTIONS = {
     "pitch_route_overview",
     "export_trip_pdf",
     "export_trip_video",
+    "trip_video_status",
     "scan_handoffs",
     "preview_handoff",
     "apply_handoff",
@@ -1170,10 +1171,13 @@ async def _execute_action(
         if not trip_id:
             raise ValidationError("Für den Video-Export wurde keine Reise ausgewählt")
         style = str(data.get("style") or "highlight").strip()
-        download_url = await runtime.trip_video.async_generate_and_publish(
-            trip_id, style=style
-        )
-        return {"download_url": download_url}
+        # Starts a BACKGROUND build and returns immediately - the render
+        # takes minutes and an open request would die on every mobile
+        # connection change. Progress is polled via trip_video_status.
+        return {"status": runtime.trip_video.async_start(trip_id, style=style)}
+
+    if action == "trip_video_status":
+        return {"status": await runtime.trip_video.async_status()}
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()

@@ -20,12 +20,28 @@ ROOT = Path("custom_components/roadplanner_mcp")
 panel_source = (ROOT / "panel.py").read_text(encoding="utf-8")
 assert '"export_trip_video"' in panel_source
 assert 'if action == "export_trip_video":' in panel_source
-assert "runtime.trip_video.async_generate_and_publish(" in panel_source
+assert "runtime.trip_video.async_start(trip_id, style=style)" in panel_source, (
+    "export_trip_video must START a background build and return immediately - "
+    "a request held open for minutes dies on every mobile connection change "
+    "(live report: 'Video erstellen' pressed, nothing traceable afterwards)"
+)
+assert 'if action == "trip_video_status":' in panel_source
+assert "await runtime.trip_video.async_status()" in panel_source
 assert '"export_trip_video",' in panel_source, (
     "export_trip_video must be in _PROVIDER_CALL_ACTIONS - it calls Gemini "
     "and runs a long ffmpeg encode, both of which must survive a dropped "
     "mobile connection"
 )
+video_export_source = (ROOT / "trip_video_export.py").read_text(encoding="utf-8")
+assert "def async_start(" in video_export_source
+assert "async def async_status(" in video_export_source
+assert '"last_video"' in video_export_source, (
+    "the newest library video must be retrievable via the status"
+)
+route_map_source = (ROOT / "frontend/features/route-map.js").read_text(encoding="utf-8")
+assert "_pollTripVideoStatus" in route_map_source
+assert "open-last-trip-video" in route_map_source
+assert "trip_video_status" in route_map_source
 
 init_source = (ROOT / "__init__.py").read_text(encoding="utf-8")
 assert "from .trip_video_export import TripVideoExporter" in init_source

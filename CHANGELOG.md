@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.24] - 2026-08-03
+
+### Changed
+
+- The trip video build is traceable now (live report: "Video erstellen" pressed, nothing observable afterwards): pressing "Reise als Video" starts a BACKGROUND build and returns immediately - a status line under the toolbar shows the current stage (loading data, chapter X/Y, ffmpeg render, saving), updates every few seconds, and announces success (with download link) or the exact error. A second parallel build is rejected with a clear message.
+- The last created video is retrievable at any time: a new "Letztes Video" button next to the export fetches the newest entry of the durable video library (with size) and downloads it - no more relying on the one notification link.
+
 ## [4.14.23] - 2026-08-03
 
 ### Fixed

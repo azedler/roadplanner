@@ -107,6 +107,8 @@ export const PANEL_STYLES = `<style>
       .notice.info { background: color-mix(in srgb, var(--info-color, #0288d1) 12%, transparent); }
       .notice.warning { background: color-mix(in srgb, var(--warning-color, #f57c00) 13%, transparent); }
       .notice.danger { background: color-mix(in srgb, var(--error-color, #d32f2f) 12%, transparent); }
+      .notice.success { background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent); }
+      .trip-video-status .text-button { margin-left: 4px; }
       .view-notice { margin-top: 0; }
       .day-cover-hero { padding: 0; overflow: hidden; display: grid; grid-template-columns: minmax(280px, 42%) minmax(0, 1fr); min-height: 240px; }
       .day-cover-image { min-height: 240px; }
