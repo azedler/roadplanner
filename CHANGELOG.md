@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.19] - 2026-08-03
+
+### Added
+
+- Photos from a page the user shared for a stop (Park4Night, naturkartan.se, campsite website ...) are now taken over as planning-image candidates (live request: "Könnte er aus dieser Anweisung nicht auch die Bilder mitnehmen?"). A new deterministic reader extracts the page's own photos - og:image/twitter:image metadata, JSON-LD image entries and plain img tags, with logo/icon/map junk filtered out - and ranks them AHEAD of the generic image search, because they show the actual place. Reference-only like every other image source: the files stay with the linked website, every image keeps the page as source and attribution. Wired into both the planning galleries (auto + refresh) and the "Stopps anreichern" preview; Google-Maps/Wikipedia/OSM links are skipped (consent walls, already covered by Commons). Fails open - an unreachable page never breaks the gallery.
+
 ## [4.14.18] - 2026-08-02
 
 ### Fixed

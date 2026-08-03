@@ -203,6 +203,16 @@ cleanup = types.ModuleType(f"{PACKAGE_NAME}.place_cleanup")
 cleanup.PlaceCleanupService = object
 sys.modules[cleanup.__name__] = cleanup
 
+page_images = types.ModuleType(f"{PACKAGE_NAME}.page_images")
+
+
+async def _no_page_images(*args, **kwargs):
+    return []
+
+
+page_images.async_images_from_source_hints = _no_page_images
+sys.modules[page_images.__name__] = page_images
+
 spec = spec_from_file_location(
     f"{PACKAGE_NAME}.place_enrichment",
     PACKAGE_ROOT / "place_enrichment.py",
