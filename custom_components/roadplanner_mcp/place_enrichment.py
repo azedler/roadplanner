@@ -23,6 +23,7 @@ from urllib.parse import quote_plus, urlparse
 
 from .canonical_day import canonical_day_stops, location_status
 from .destination_images import DestinationImageProvider
+from .page_images import async_images_from_source_hints
 from .destination_intelligence import (
     DestinationIntent,
     analyze_destination,
@@ -707,6 +708,17 @@ class PlaceEnrichmentService:
     ) -> dict[str, Any]:
         image_query = _image_query(day, stop, candidate, intent=intent)
         image_result: dict[str, Any]
+        # Photos from a page the user shared for this stop come first -
+        # they show the actual place. Fail-open: errors yield [].
+        try:
+            async with asyncio.timeout(18):
+                shared_images = await async_images_from_source_hints(
+                    getattr(self._image_provider, "hass", None),
+                    intent.source_hints,
+                    limit=_MAX_IMAGES,
+                )
+        except TimeoutError:
+            shared_images = []
         try:
             async with asyncio.timeout(18):
                 image_result = await self._image_provider.async_search(
@@ -720,9 +732,17 @@ class PlaceEnrichmentService:
                 "results": [],
                 "provider_errors": {"roadplanner": "Bildsuche nicht verfügbar"},
             }
+        seen_urls = {str(item.get("image_url") or "") for item in shared_images}
         images = [
             deepcopy(item)
-            for item in list(image_result.get("results") or [])[:_MAX_IMAGES]
+            for item in (
+                shared_images
+                + [
+                    result_item
+                    for result_item in list(image_result.get("results") or [])
+                    if str(result_item.get("image_url") or "") not in seen_urls
+                ]
+            )[:_MAX_IMAGES]
             if isinstance(item, dict)
         ]
         percent, label = _confidence(candidate)

@@ -306,6 +306,7 @@ export const mediaMixin = {
       google_places: "Google",
       manual: "Manuell",
       onedrive: "OneDrive",
+      shared_link: "Geteilter Link",
     };
     return labels[cleanText(provider)] || cleanText(provider) || "Bildquelle";
   },

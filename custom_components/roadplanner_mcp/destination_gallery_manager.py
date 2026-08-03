@@ -26,6 +26,7 @@ from .experience_helpers import _all_days, _day_date, _find_stop, _parse_datetim
 from .experience_store import ExperienceStore, utc_now_iso
 from .manager import RoadplannerManager
 from .media_vision_curation import VisionCurationEngine
+from .page_images import async_images_from_source_hints
 from .roadplanner import RoadplannerError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
@@ -237,7 +238,8 @@ class DestinationGalleryManager:
         force_vision: bool = False,
     ) -> dict[str, Any]:
         """Build a locally ranked gallery, optionally semantically curated."""
-        query = self._destination_query(day, stop)
+        intent = analyze_destination(day, stop)
+        query = destination_image_query(day, stop, intent=intent)
         if not query:
             raise ValidationError("Für diesen Stopp fehlen Angaben für die Bildsuche")
         location = stop.get("location") if isinstance(stop.get("location"), dict) else {}
@@ -246,13 +248,27 @@ class DestinationGalleryManager:
             if self._vision_curation.vision_enabled
             else _DESTINATION_GALLERY_SIZE
         )
+        # Photos from a page the user shared for this stop (Park4Night,
+        # naturkartan, campsite website ...) come FIRST - they show the
+        # actual place, not a lookalike from a generic search.
+        shared_images = await async_images_from_source_hints(
+            self.hass, intent.source_hints
+        )
         result = await self.image_provider.async_search(
             query,
             limit=search_limit,
             latitude=location.get("latitude", location.get("lat")),
             longitude=location.get("longitude", location.get("lon", location.get("lng"))),
         )
-        candidates = list(result.get("results") or [])[:search_limit]
+        seen_urls = {
+            str(image.get("image_url") or "") for image in shared_images
+        }
+        candidates = shared_images + [
+            item
+            for item in list(result.get("results") or [])
+            if str(item.get("image_url") or "") not in seen_urls
+        ]
+        candidates = candidates[: max(search_limit, len(shared_images))]
         errors = dict(result.get("provider_errors") or {})
         existing_curation = (
             existing_gallery.get("curation")
