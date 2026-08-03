@@ -155,7 +155,7 @@ export const routeMapMixin = {
     const status = this._tripVideoStatus;
     if (!status) return "";
     if (status.state === "running") {
-      return `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Video wird erstellt (${escapeHtml(status.style === "full" ? "ausführlicher Rückblick" : "Highlight-Reel")}): ${escapeHtml(status.stage || "läuft")} …</span></div>`;
+      return `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Video wird erstellt (${escapeHtml(status.style === "full" ? "ausführlicher Rückblick" : "Highlight-Reel")}): ${escapeHtml(status.stage || "läuft")} …${status.stats ? ` Bisher ${status.stats.photos} Fotos und ${status.stats.map_snapshots} Kartenbilder.` : ""}</span></div>`;
     }
     if (status.state === "error") {
       return `<div class="notice warning trip-video-status"><ha-icon icon="mdi:movie-open-off-outline"></ha-icon><span>Video-Erstellung fehlgeschlagen: ${escapeHtml(status.error || "unbekannter Fehler")}</span></div>`;

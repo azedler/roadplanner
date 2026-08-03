@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.26] - 2026-08-03
+
+### Fixed
+
+- "Für diese Reise wurden keine Fotos für das Video gefunden" despite 254 memories (live report): the photo fetch is far more resilient now. Personal photos try up to three candidates per stop, each as ORIGINAL first and then as the large thumbnail (the exact image the panel displays reliably) - one failing OneDrive download URL no longer sinks the stop. Stock galleries whose PRIMARY image is a Google photo (server-side not downloadable) fall through to the next non-Google image instead of giving up.
+- When a build still ends without a single image, the error now says exactly what happened ("X Stopps haben eigene Fotos, Y Planungsbilder, alle Downloads fehlgeschlagen - Details im Log, typische Ursachen: OneDrive-Anmeldung abgelaufen / kein Internetzugriff"), and the video status shows live counts ("Bisher 12 Fotos und 6 Kartenbilder") while building. Failed photo resolutions are logged at INFO level with media id and size.
+
 ## [4.14.25] - 2026-08-03
 
 ### Fixed
