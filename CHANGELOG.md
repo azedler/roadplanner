@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.30] - 2026-08-03
+
+### Fixed
+
+- "Für diese Reise wurden keine Fotos für das Video gefunden" despite 255 memories - root cause found: both the video and the PDF export looked EXCLUSIVELY at photos linked to a stop. Photos that are assigned to a travel DAY but to no individual stop were invisible to them. Day-linked photos now fill the remaining photo slots of a chapter/day page (best quality first, never duplicating a photo already used through its stop), the highlight-day preselection counts them, and the day's photo-count chip includes them.
+- The crew reference-photo picker was unusable on iOS (live report "Da kann man aber kein Bild zuordnen"): the tiles collapsed into ragged full-height columns because Safari/WebView ignores `aspect-ratio` on a `<button>`. Tiles now have a fixed height, the selected photo gets a clear ring plus a checkmark badge, and the current assignment is shown as a preview with a "Zuordnung entfernen" button.
+
 ## [4.14.29] - 2026-08-03
 
 ### Added

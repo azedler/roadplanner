@@ -17,6 +17,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
 
+from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,8 +35,15 @@ async def async_fetch_day_photos(
     destination_galleries: dict[str, Any],
     *,
     max_photos: int,
+    day_media: list[dict[str, Any]] | None = None,
 ) -> list[bytes]:
-    """Best-effort download of up to ``max_photos`` photos, one per stop.
+    """Best-effort download of up to ``max_photos`` photos for one day.
+
+    Priority per stop: the stop's own personal photo, else its planning
+    gallery image. Photos that are only linked to the DAY (not to any
+    stop) are used to fill the remaining slots - live report: a trip with
+    255 memories produced "keine Fotos gefunden" because every exporter
+    looked exclusively at stop-linked media.
 
     Only a plain, directly fetchable HTTPS image URL is ever downloaded
     (Wikimedia Commons/Openverse for stock images; a temporary Microsoft
@@ -57,6 +65,24 @@ async def async_fetch_day_photos(
             )
         if photo:
             photos.append(photo)
+    if len(photos) < max_photos and day_media:
+        used_stop_media = {
+            str(item.get("id") or "")
+            for stop in stops
+            for item in media_by_stop.get(str(stop.get("id") or ""), [])
+        }
+        remaining = [
+            item
+            for item in day_media
+            if str(item.get("id") or "") not in used_stop_media
+        ]
+        remaining.sort(key=media_quality_score, reverse=True)
+        for item in remaining:
+            if len(photos) >= max_photos:
+                break
+            photo = await async_fetch_media_photo(session, experience, trip_id, item)
+            if photo:
+                photos.append(photo)
     return photos
 
 

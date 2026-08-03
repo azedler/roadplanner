@@ -131,7 +131,75 @@ def verify_stock_gallery_skips_google_primary_to_next_image() -> None:
     assert "https://g/x" not in session.requested
 
 
+def verify_day_linked_photos_fill_the_remaining_slots() -> None:
+    # THE live cause of "Für diese Reise wurden keine Fotos für das Video
+    # gefunden" on a trip with 255 memories: photos assigned to a DAY but
+    # to no stop were invisible to both exporters.
+    session = FakeSession(
+        {"https://cdn/day-1.jpg": b"DAY1", "https://cdn/day-2.jpg": b"DAY2"}
+    )
+    experience = FakeExperience(
+        {
+            ("d1", "original"): "https://cdn/day-1.jpg",
+            ("d2", "original"): "https://cdn/day-2.jpg",
+        }
+    )
+    stops = [{"id": "stop-1"}]
+    photos = asyncio.run(
+        module.async_fetch_day_photos(
+            session,
+            experience,
+            "trip-1",
+            stops,
+            {},  # no stop-linked media at all
+            {},  # no planning galleries
+            max_photos=2,
+            day_media=[{"id": "d1", "is_cover": True}, {"id": "d2"}],
+        )
+    )
+    assert photos == [b"DAY1", b"DAY2"], photos
+
+    # A photo already used through its stop is not repeated as day media.
+    session = FakeSession({"https://cdn/stop.jpg": b"STOP", "https://cdn/day-2.jpg": b"DAY2"})
+    experience = FakeExperience(
+        {
+            ("s1", "original"): "https://cdn/stop.jpg",
+            ("d2", "original"): "https://cdn/day-2.jpg",
+        }
+    )
+    photos = asyncio.run(
+        module.async_fetch_day_photos(
+            session,
+            experience,
+            "trip-1",
+            [{"id": "stop-1"}],
+            {"stop-1": [{"id": "s1"}]},
+            {},
+            max_photos=3,
+            day_media=[{"id": "s1"}, {"id": "d2"}],
+        )
+    )
+    assert photos == [b"STOP", b"DAY2"], photos
+
+
+def verify_crew_reference_picker_ui_contract() -> None:
+    # Live report: the picker grid rendered as ragged full-height columns
+    # and the selection was not recognizable.
+    styles = Path("custom_components/roadplanner_mcp/frontend/lib/styles.js").read_text(encoding="utf-8")
+    assert "aspect-ratio" not in styles.split(".crew-photo-choice {")[1].split("}")[0], (
+        "Safari/WebView ignores aspect-ratio on <button> - the tile needs a "
+        "fixed height instead"
+    )
+    assert ".crew-photo-choice.selected::after" in styles, "the selection needs a visible badge"
+    crew_ui = Path("custom_components/roadplanner_mcp/frontend/features/crew.js").read_text(encoding="utf-8")
+    assert "_setCrewReferencePhoto" in crew_ui
+    assert "data-crew-photo-current" in crew_ui, "the current selection is shown as a preview"
+    assert 'data-thumb-url=' in crew_ui
+
+
 if __name__ == "__main__":
     verify_personal_photo_falls_back_to_thumbnail_and_next_candidate()
     verify_stock_gallery_skips_google_primary_to_next_image()
+    verify_day_linked_photos_fill_the_remaining_slots()
+    verify_crew_reference_picker_ui_contract()
     print("Trip export photo fallback tests passed.")

@@ -272,12 +272,19 @@ class TripVideoExporter:
             else {}
         )
         media_by_stop: dict[str, list[dict[str, Any]]] = {}
+        media_by_day: dict[str, list[dict[str, Any]]] = {}
         for item in experience_state.get("media") or []:
             if not isinstance(item, dict):
                 continue
             stop_id = str(item.get("linked_stop_id") or "")
             if stop_id:
                 media_by_stop.setdefault(stop_id, []).append(item)
+            # Photos linked only to the DAY were invisible to the export
+            # before - the live cause of "keine Fotos gefunden" on a trip
+            # with 255 memories.
+            day_id = str(item.get("linked_day_id") or "")
+            if day_id:
+                media_by_day.setdefault(day_id, []).append(item)
 
         max_photos = _MAX_PHOTOS_PER_CHAPTER[style]
         max_chapters = _MAX_CHAPTERS[style]
@@ -287,7 +294,8 @@ class TripVideoExporter:
             days_with_media = [
                 day
                 for day in days_raw
-                if any(
+                if media_by_day.get(str(day.get("id") or ""))
+                or any(
                     str(stop.get("id") or "") in media_by_stop
                     or destination_galleries.get(str(stop.get("id") or ""))
                     for stop in canonical_roadbook_stops(day)
@@ -315,6 +323,7 @@ class TripVideoExporter:
                 media_by_stop,
                 destination_galleries,
                 max_photos=max_photos,
+                day_media=media_by_day.get(str(day.get("id") or "")),
             )
             map_snapshot = await self._async_fetch_chapter_map_snapshot(session, stops)
             narrative = await self._async_generate_narrative(day, stops)
@@ -335,6 +344,9 @@ class TripVideoExporter:
             for day in chapter_days
             for stop in canonical_roadbook_stops(day)
             if isinstance(stop, dict) and str(stop.get("id") or "") in media_by_stop
+        ) + sum(
+            len(media_by_day.get(str(day.get("id") or ""), []))
+            for day in chapter_days
         )
         stops_with_gallery = sum(
             1

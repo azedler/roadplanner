@@ -109,10 +109,16 @@ export const PANEL_STYLES = `<style>
       .notice.danger { background: color-mix(in srgb, var(--error-color, #d32f2f) 12%, transparent); }
       .notice.success { background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent); }
       .crew-photo-picker summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
-      .crew-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 10px; max-height: 240px; overflow-y: auto; }
-      .crew-photo-choice { padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: none; cursor: pointer; aspect-ratio: 1; }
+      .crew-photo-current { display: flex; align-items: center; gap: 12px; margin: 10px 0; padding: 8px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .crew-photo-current img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; display: block; }
+      /* Fixed tile height instead of aspect-ratio: Safari/WebView ignores
+         aspect-ratio on <button>, which made the grid collapse into ragged
+         columns of full-height photos (live report). */
+      .crew-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; margin-top: 10px; max-height: 320px; overflow-y: auto; padding: 2px; }
+      .crew-photo-choice { position: relative; display: block; width: 100%; height: 82px; padding: 0; border: 2px solid var(--divider-color); border-radius: 10px; overflow: hidden; background: var(--secondary-background-color); cursor: pointer; }
       .crew-photo-choice img { width: 100%; height: 100%; object-fit: cover; display: block; }
-      .crew-photo-choice.selected { border-color: var(--primary-color); }
+      .crew-photo-choice.selected { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 45%, transparent); }
+      .crew-photo-choice.selected::after { content: "✓"; position: absolute; right: 4px; bottom: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--primary-color); color: #fff; font: 700 13px/20px system-ui, sans-serif; text-align: center; }
       .trip-video-status .text-button { margin-left: 4px; }
       .view-notice { margin-top: 0; }
       .day-cover-hero { padding: 0; overflow: hidden; display: grid; grid-template-columns: minmax(280px, 42%) minmax(0, 1fr); min-height: 240px; }

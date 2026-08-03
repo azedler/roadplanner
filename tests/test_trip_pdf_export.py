@@ -353,9 +353,14 @@ def verify_day_highlights_are_deterministic() -> None:
         {"id": "s2", "name": "Tanken", "type": "fuel"},
         {"id": "s3", "name": "Aussicht Söderåsen", "type": "viewpoint"},
     ]
-    media_by_stop = {"s1": [{}, {}], "s3": [{}]}
+    media_by_stop = {"s1": [{"id": "a"}, {"id": "b"}], "s3": [{"id": "c"}]}
     highlights = export_module._day_highlights(stops, media_by_stop)
     assert highlights == ["Wanderdünen Łeba", "Aussicht Söderåsen", "3 eigene Fotos"], highlights
+    # Photos linked only to the DAY count too (live cause of "keine Fotos").
+    with_day_media = export_module._day_highlights(
+        stops, media_by_stop, [{"id": "c"}, {"id": "d"}]
+    )
+    assert with_day_media[-1] == "4 eigene Fotos", with_day_media
     # Without highlight-typed stops the overnight place is the keyword.
     overnight_only = [{"id": "s9", "name": "Lumsenkojan", "type": "wildcamp"}]
     assert export_module._day_highlights(overnight_only, {}) == ["Lumsenkojan"]
