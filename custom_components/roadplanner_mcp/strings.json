@@ -191,7 +191,15 @@
           "media_curation_mode": "Photo highlight selection",
           "media_vision_max_candidates": "Maximum locally preselected images per stop",
           "media_vision_max_highlights": "Maximum highlights per stop",
-          "media_vision_daily_limit": "Maximum Gemini Vision selections per day"
+          "media_vision_daily_limit": "Maximum Gemini Vision selections per day",
+          "google_places_enabled": "Enable Google Places",
+          "google_places_api_key": "Google Places API key",
+          "google_places_mode": "Google Places usage",
+          "map_snapshot_provider": "Map snapshots for the trip video",
+          "google_places_daily_limit": "Google Places daily request limit",
+          "google_places_request_timeout": "Google Places request timeout (seconds)",
+          "google_photos_enabled": "Use Google place photos",
+          "google_photos_daily_limit": "Google photos daily request limit"
         },
         "data_description": {
           "roadbook_path": "Path relative to /config. Default: www/roadbook. active_trip.json remains the active-trip pointer.",
@@ -245,7 +253,15 @@
           "media_curation_mode": "local keeps every image on-device and uses deterministic metadata quality, duplicate and burst filtering. hybrid performs the same local prefilter first and then sends only the bounded candidates to the configured Gemini model for semantic cover and highlight selection. Existing installations default to local until explicitly changed.",
           "media_vision_max_candidates": "Maximum number of locally filtered thumbnails that may be sent in one hybrid Vision request. Range: 3 to 15. Recommended: 12.",
           "media_vision_max_highlights": "Maximum cover/highlight selection shown for one stop. Range: 1 to 8. Recommended: 5.",
-          "media_vision_daily_limit": "Per-trip UTC daily limit for external Vision calls. Zero disables Vision calls. Repeated unchanged candidate sets are cached and do not consume another call. Recommended: 5."
+          "media_vision_daily_limit": "Per-trip UTC daily limit for external Vision calls. Zero disables Vision calls. Repeated unchanged candidate sets are cached and do not consume another call. Recommended: 5.",
+          "google_places_enabled": "Use Google Places as a source for place profiles and enrichment. Requires an API key.",
+          "google_places_api_key": "API key from Google Cloud with Places API (New) enabled. Leave empty to keep the stored key.",
+          "google_places_mode": "'fallback' asks Google only when OpenStreetMap finds nothing; 'preferred' asks Google first for place searches.",
+          "map_snapshot_provider": "Only used for the chapter maps in the trip video export. 'openstreetmap' is free (with attribution); 'google_static_maps' looks nicer, uses your Google API key and costs about $2 per 1000 map images.",
+          "google_places_daily_limit": "Hard daily cap for Places text searches. When reached, everything falls back to OpenStreetMap until midnight.",
+          "google_places_request_timeout": "How long a single Google request may take before falling back.",
+          "google_photos_enabled": "Additionally show the original Google photos of matched places in planning galleries. Billed separately by Google (about $7 per 1000 photo loads) and capped by the photos daily limit below. When off or the limit is reached, images come from Wikimedia Commons/Openverse and shared links only.",
+          "google_photos_daily_limit": "Hard daily cap for Google photo loads. 0 disables photo loads even when the option above is on; around 50 is a sensible, cost-bounded value."
         }
       }
     },

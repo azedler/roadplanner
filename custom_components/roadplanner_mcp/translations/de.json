@@ -191,7 +191,15 @@
           "media_curation_mode": "Auswahl der Foto-Highlights",
           "media_vision_max_candidates": "Maximal lokal vorausgewählte Bilder je Stopp",
           "media_vision_max_highlights": "Maximale Highlights je Stopp",
-          "media_vision_daily_limit": "Maximale Gemini-Vision-Auswahlen pro Tag"
+          "media_vision_daily_limit": "Maximale Gemini-Vision-Auswahlen pro Tag",
+          "google_places_enabled": "Google Places aktivieren",
+          "google_places_api_key": "Google-Places-API-Schlüssel",
+          "google_places_mode": "Google-Places-Nutzung",
+          "map_snapshot_provider": "Kartenbilder für das Reise-Video",
+          "google_places_daily_limit": "Tageslimit für Google-Places-Anfragen",
+          "google_places_request_timeout": "Zeitlimit je Google-Anfrage (Sekunden)",
+          "google_photos_enabled": "Google-Ortsfotos verwenden",
+          "google_photos_daily_limit": "Tageslimit für Google-Foto-Abrufe"
         },
         "data_description": {
           "roadbook_path": "Pfad relativ zu /config. Standard: www/roadbook. active_trip.json bleibt der Zeiger auf die aktive Reise.",
@@ -245,7 +253,15 @@
           "media_curation_mode": "local verarbeitet Bilder ausschließlich lokal anhand von Metadaten, Qualität, Dubletten und Serien. hybrid führt dieselbe lokale Vorauswahl zuerst aus und sendet anschließend nur die begrenzten Kandidaten an das konfigurierte Gemini-Modell, um Titelbild und Highlights semantisch auszuwählen. Bestehende Installationen bleiben bis zur ausdrücklichen Umstellung auf local.",
           "media_vision_max_candidates": "Maximale Zahl lokal gefilterter Vorschaubilder pro hybrider Vision-Anfrage. Bereich: 3 bis 15. Empfehlung: 12.",
           "media_vision_max_highlights": "Maximale Zahl von Titelbild und Highlights pro Stopp. Bereich: 1 bis 8. Empfehlung: 5.",
-          "media_vision_daily_limit": "UTC-Tageslimit je Reise für externe Vision-Aufrufe. Null deaktiviert Vision-Aufrufe. Unveränderte Kandidatensätze werden nicht erneut analysiert. Empfehlung: 5."
+          "media_vision_daily_limit": "UTC-Tageslimit je Reise für externe Vision-Aufrufe. Null deaktiviert Vision-Aufrufe. Unveränderte Kandidatensätze werden nicht erneut analysiert. Empfehlung: 5.",
+          "google_places_enabled": "Google Places als Quelle für Ortsprofile und Anreicherung nutzen. Benötigt einen API-Schlüssel.",
+          "google_places_api_key": "API-Schlüssel aus Google Cloud mit aktivierter Places API (New). Leer lassen, um den gespeicherten Schlüssel zu behalten.",
+          "google_places_mode": "'fallback' fragt Google nur, wenn OpenStreetMap nichts findet; 'preferred' fragt Google bei Ortssuchen zuerst.",
+          "map_snapshot_provider": "Wird nur für die Kapitel-Karten im Reise-Video-Export genutzt. 'openstreetmap' ist kostenlos (mit Attribution); 'google_static_maps' sieht hübscher aus, nutzt deinen Google-API-Schlüssel und kostet rund 2 $ pro 1000 Kartenbilder.",
+          "google_places_daily_limit": "Hartes Tageslimit für Places-Textsuchen. Ist es erreicht, fällt alles bis Mitternacht auf OpenStreetMap zurück.",
+          "google_places_request_timeout": "Wie lange eine einzelne Google-Anfrage dauern darf, bevor der Fallback greift.",
+          "google_photos_enabled": "Zusätzlich die Original-Google-Fotos gefundener Orte in Planungsgalerien anzeigen. Wird von Google separat berechnet (ca. 7 $ pro 1000 Foto-Abrufe) und über das Foto-Tageslimit unten gedeckelt. Aus bzw. bei erreichtem Limit kommen Bilder nur aus Wikimedia Commons/Openverse und geteilten Links.",
+          "google_photos_daily_limit": "Hartes Tageslimit für Google-Foto-Abrufe. 0 deaktiviert Foto-Abrufe trotz eingeschalteter Option; rund 50 ist ein sinnvoller, kostenbegrenzter Wert."
         }
       }
     },

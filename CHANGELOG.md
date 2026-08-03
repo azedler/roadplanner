@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.23] - 2026-08-03
+
+### Fixed
+
+- The Google/map configuration options showed their raw keys without any explanation (live report): google_places_enabled, google_places_api_key, google_places_mode, map_snapshot_provider, google_places_daily_limit, google_places_request_timeout, google_photos_enabled and google_photos_daily_limit now have proper German and English labels plus descriptions that explain what each option does, what it costs and what the fallback behavior is (e.g. map snapshots only affect the trip video export; Google photo loads are billed separately and capped by their own daily limit).
+
 ## [4.14.22] - 2026-08-03
 
 ### Fixed
