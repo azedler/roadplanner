@@ -98,6 +98,40 @@ assert.match(tab, /pitch-options-heading/);
 assert.match(tab, /Ohne GPS nicht auf der Karte: Waldparkplatz am See/);
 assert.match(tab, /Link lesen und übernehmen/);
 
+// Live request: "bekommen wir das intuitiver unterschieden zwischen den
+// unterschiedlichen Punkten?" - fixed semantics: blue star = active place,
+// colored B1/B2 = options (route line in the same color), green arrow =
+// tomorrow, gray dots = the day's own route.
+const semanticDay = {
+  id: "day-sem",
+  sequence: 9,
+  title: "Semantik",
+  details: {
+    overnight_plan: {
+      schema_version: 1,
+      strategy: "best_first",
+      options: [
+        { id: "sem-1", name: "Backup Eins", status: "backup", location: { latitude: 60.1, longitude: 15.1 } },
+        { id: "sem-2", name: "Backup Zwei", status: "backup", location: { latitude: 60.2, longitude: 15.2 } },
+      ],
+    },
+  },
+  stops: [
+    { id: "sem-stop", name: "Hafenplatz", type: "stellplatz", location: { latitude: 60.0, longitude: 15.0 } },
+  ],
+};
+const semanticContext = panel._pitchRouteContext(semanticDay);
+const star = semanticContext.points.find((point) => point.markerLabel === "★");
+assert.ok(star, "the active overnight place is a star marker");
+assert.equal(star.color, "#039be5");
+assert.match(star.label, /Aktiver Platz: Hafenplatz/);
+const b1 = semanticContext.points.find((point) => point.markerLabel === "B1");
+const b2 = semanticContext.points.find((point) => point.markerLabel === "B2");
+assert.ok(b1 && b2, "options are numbered B1/B2");
+assert.notEqual(b1.color, b2.color, "each option gets its own color");
+assert.equal(b1.color, panel._pitchOptionColor(0));
+assert.equal(panel._pitchOptionColorById(semanticDay).get("sem-2"), panel._pitchOptionColor(1));
+
 // Preferences card shows stored values.
 assert.match(tab, /Stellplatz-Präferenzen/);
 assert.match(tab, /value="25"/);

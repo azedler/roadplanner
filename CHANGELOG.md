@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.21] - 2026-08-03
+
+### Changed
+
+- The pitch map now distinguishes its points intuitively (live request): the ACTIVE overnight place is a blue STAR, backup options are numbered colored markers (B1 amber, B2 violet, ...) whose ROUTE LINE uses the same color, tomorrow's first stop is a green arrow, and the day's own route stays gray dots. The legend chips under the map, the "Umwege je Kandidat" summary and each option row carry the same color, so list, summary and map read as one unit. The map caption explains the semantics in one line.
+
 ## [4.14.20] - 2026-08-03
 
 ### Fixed

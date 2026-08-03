@@ -108,10 +108,28 @@ export const pitchesMixin = {
     this._render({ preserveScroll: true });
   },
 
+  // Fixed, theme-independent semantics for the pitch map: gray dots are the
+  // day's own route, the BLUE STAR is the active overnight place, numbered
+  // AMBER/VIOLET markers are the backup options (B1, B2 ...) and the GREEN
+  // arrow is tomorrow's first stop. Route lines reuse the same colors.
+  _pitchOptionColor(index) {
+    const palette = ["#ef8f00", "#ab47bc", "#00897b", "#d81b60", "#5c6bc0"];
+    return palette[index % palette.length];
+  },
+
   _pitchRouteContext(day) {
     const days = this._data?.days?.days || [];
     const index = days.findIndex((item) => item.id === day?.id);
-    const points = this._dayRoutePoints(day).map((point) => ({ ...point, markerLabel: "•" }));
+    const activeStop = this._pitchActiveStop(day);
+    const points = this._dayRoutePoints(day).map((point) => {
+      const isActive = activeStop && point.label === activeStop.name;
+      return {
+        ...point,
+        markerLabel: isActive ? "★" : "•",
+        color: isActive ? "#039be5" : "#90a4ae",
+        label: isActive ? `Aktiver Platz: ${point.label}` : point.label,
+      };
+    });
     const fromLabel = points[0]?.label || "";
     let toLabel = "";
     const nextDay = index >= 0 ? days[index + 1] : null;
@@ -121,22 +139,37 @@ export const pitchesMixin = {
       if (nextFirst) {
         const point = this._coordinate(nextFirst, nextDay, 0);
         toLabel = nextFirst.name || "";
-        if (point) points.push({ ...point, label: `Morgen: ${toLabel}`, markerLabel: "→" });
+        if (point) points.push({ ...point, label: `Morgen: ${toLabel}`, markerLabel: "→", color: "#43a047" });
       }
     }
     const plan = this._pitchPlan(day);
+    let optionIndex = 0;
     for (const option of plan.options) {
       if (option.status === "rejected") continue;
+      const color = this._pitchOptionColor(optionIndex);
+      optionIndex += 1;
       if (option.location?.latitude == null || option.location?.longitude == null) continue;
       points.push({
         lat: option.location.latitude,
         lon: option.location.longitude,
-        label: `Option: ${option.name}`,
-        markerLabel: "B",
+        label: `Option B${optionIndex}: ${option.name}`,
+        markerLabel: `B${optionIndex}`,
+        color,
         timestamp: new Date(),
       });
     }
     return { points, fromLabel, toLabel, hasNextDay: Boolean(nextDay) };
+  },
+
+  _pitchOptionColorById(day) {
+    const colors = new Map();
+    let optionIndex = 0;
+    for (const option of this._pitchPlan(day).options) {
+      if (option.status === "rejected") continue;
+      colors.set(option.id, this._pitchOptionColor(optionIndex));
+      optionIndex += 1;
+    }
+    return colors;
   },
 
   async _runPitchAction(action, dayId, payload, successMessage) {
@@ -255,18 +288,24 @@ export const pitchesMixin = {
         return a - b;
       });
     }
+    const optionColors = this._pitchOptionColorById(day);
     const routePaths = (routes?.candidates || [])
       .filter((candidate) => Array.isArray(candidate.geometry) && candidate.geometry.length > 1)
       .map((candidate) => ({
         title: `${candidate.name}${candidate.extra_duration_minutes != null ? ` (+${candidate.extra_duration_minutes} min)` : ""}`,
         mode: "driving",
+        // The active place's route stays blue; each option's route uses the
+        // SAME color as its B-marker, so line and marker read as one unit.
+        color: candidate.kind === "active"
+          ? "#039be5"
+          : optionColors.get(candidate.option_id) || "#ef8f00",
         points: candidate.geometry.map(([lon, lat]) => ({ lat, lon })),
       }));
     const optionsWithoutGps = backups.filter(
       (option) => option.location?.latitude == null || option.location?.longitude == null,
     );
     const routeSummary = routes
-      ? `<div class="notice neutral pitch-route-summary"><ha-icon icon="mdi:routes"></ha-icon><div><strong>Umwege je Kandidat${routes.baseline ? ` · direkte Strecke ${routes.baseline.duration_minutes} min / ${routes.baseline.distance_km} km` : ""}</strong><span>${(routes.candidates || []).map((candidate) => `${candidate.kind === "active" ? "★ " : ""}${escapeHtml(candidate.name)}: ${candidate.extra_duration_minutes != null ? `+${candidate.extra_duration_minutes} min · +${candidate.extra_distance_km} km` : `${candidate.duration_minutes} min · ${candidate.distance_km} km`}`).join(" · ")}</span>${routes.skipped?.length ? `<small>Ohne GPS übersprungen: ${routes.skipped.map((name) => escapeHtml(name)).join(", ")}</small>` : ""}${routes.errors?.length ? `<small>Fehler: ${routes.errors.map((text) => escapeHtml(text)).join(" · ")}</small>` : ""}</div></div>`
+      ? `<div class="notice neutral pitch-route-summary"><ha-icon icon="mdi:routes"></ha-icon><div><strong>Umwege je Kandidat${routes.baseline ? ` · direkte Strecke ${routes.baseline.duration_minutes} min / ${routes.baseline.distance_km} km` : ""}</strong><span>${(routes.candidates || []).map((candidate) => `<span class="pitch-route-dot" style="background:${candidate.kind === "active" ? "#039be5" : (optionColors.get(candidate.option_id) || "#ef8f00")}"></span>${candidate.kind === "active" ? "★ " : ""}${escapeHtml(candidate.name)}: ${candidate.extra_duration_minutes != null ? `+${candidate.extra_duration_minutes} min · +${candidate.extra_distance_km} km` : `${candidate.duration_minutes} min · ${candidate.distance_km} km`}`).join(" · ")}</span>${routes.skipped?.length ? `<small>Ohne GPS übersprungen: ${routes.skipped.map((name) => escapeHtml(name)).join(", ")}</small>` : ""}${routes.errors?.length ? `<small>Fehler: ${routes.errors.map((text) => escapeHtml(text)).join(" · ")}</small>` : ""}</div></div>`
       : "";
     return `<section class="panel-card pitch-day-card">
       <div class="section-heading compact">
@@ -279,7 +318,7 @@ export const pitchesMixin = {
         </select></label>
       </div>
       ${context.fromLabel || context.toLabel ? `<div class="pitch-route-flow"><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.fromLabel || "?")}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:weather-night"></ha-icon> ${escapeHtml(stop?.name || "Übernachtung")}</span>${context.hasNextDay ? `<ha-icon icon="mdi:arrow-right-thin"></ha-icon><span><ha-icon icon="mdi:map-marker-outline"></ha-icon> ${escapeHtml(context.toLabel || "?")}</span>` : ""}</div>` : ""}
-      ${this._renderMap(`pitch-map-${day.id}`, context.points, day.title, routePaths, routePaths.length ? "Karte zeigt die berechneten Straßenrouten je Kandidat durch den Korridor Gestern → Übernachtung → Morgen." : "Karte zeigt: gestrigen Ankunftsort (falls vorhanden), die Optionen dieses Tages (B) und den ersten Stopp des Folgetags.")}
+      ${this._renderMap(`pitch-map-${day.id}`, context.points, day.title, routePaths, "★ blau = aktiver Platz · B1/B2 farbig = Optionen (Routenlinie in derselben Farbe) · → grün = erster Stopp von morgen · • grau = übrige Tagesroute.")}
       <div class="button-row compact-row"><button class="secondary-button" type="button" data-action="pitch-routes" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:routes"></ha-icon> ${routes ? "Routen aktualisieren" : "Routen je Option berechnen"}</button>${this._pitchRoutesLoading === day.id ? `<span class="hint">Routen werden berechnet …</span>` : ""}</div>
       ${routeSummary}
       ${stop
@@ -317,7 +356,7 @@ export const pitchesMixin = {
         ? `<img class="pitch-option-cover" src="${escapeHtml(coverUrl)}" alt="${escapeHtml(option.name)}" loading="lazy">`
         : `<ha-icon icon="mdi:caravan"></ha-icon>`}
       <div class="crew-row-body">
-        <strong>${escapeHtml(option.name)}</strong>
+        <strong>${option.status !== "rejected" && this._pitchOptionColorById(day).has(option.id) ? `<span class="pitch-route-dot" style="background:${this._pitchOptionColorById(day).get(option.id)}"></span>` : ""}${escapeHtml(option.name)}</strong>
         ${meta.length ? `<span>${meta.map((item) => escapeHtml(item)).join(" · ")}</span>` : ""}
         ${routeChip || prosChips || consChips ? `<div class="pitch-chip-row">${routeChip}${prosChips}${consChips}</div>` : ""}
         ${option.notes ? `<span>${escapeHtml(option.notes)}</span>` : ""}

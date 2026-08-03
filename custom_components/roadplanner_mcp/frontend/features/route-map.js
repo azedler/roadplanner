@@ -288,6 +288,7 @@ export const routeMapMixin = {
     const validPaths = (paths || []).map((path) => ({
       title: cleanText(path?.title) || title,
       mode: cleanText(path?.mode) || "driving",
+      color: cleanText(path?.color) || "",
       points: (path?.points || []).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon)),
     })).filter((path) => path.points.length > 1);
     const routeNodeValues = Array.isArray(routeNodes) ? routeNodes : [];
@@ -309,10 +310,11 @@ export const routeMapMixin = {
         inherited: point.inherited,
         missing: false,
         status: "resolved",
+        color: cleanText(point.color) || "",
       }));
     const legendSource = buildLegendItems();
     const legend = legendSource.map((item) => `
-      <span class="map-key-item ${item.inherited ? "inherited" : ""} ${item.missing ? "missing" : ""}"><b>${escapeHtml(item.markerLabel)}</b><span>${escapeHtml(item.label || `Punkt ${item.markerLabel}`)}${item.missing ? " · GPS fehlt" : ""}</span></span>
+      <span class="map-key-item ${item.inherited ? "inherited" : ""} ${item.missing ? "missing" : ""}"><b${item.color ? ` style="background:${escapeHtml(item.color)};color:#fff"` : ""}>${escapeHtml(item.markerLabel)}</b><span>${escapeHtml(item.label || `Punkt ${item.markerLabel}`)}${item.missing ? " · GPS fehlt" : ""}</span></span>
     `).join("");
     if (!validPoints.length && !validPaths.length) {
       return `<section class="map-card map-unavailable"><div class="map-placeholder"><ha-icon icon="mdi:map-marker-off-outline"></ha-icon><strong>Noch keine Koordinaten</strong><span>Die schematische Route und die bestätigte Reihenfolge bleiben verfügbar. Ergänze GPS-Daten für die Kartenansicht.</span></div>${legend ? `<div class="map-key">${legend}${legendTotal > 30 ? `<span class="map-key-more">+${legendTotal - 30} weitere</span>` : ""}</div>` : ""}</section>`;
@@ -491,7 +493,7 @@ export const routeMapMixin = {
       const ferry = path.mode === "ferry";
       const plan = path.mode === "plan";
       layers.push(Leaflet.polyline(latLngs, {
-        color: ferry ? colors.ferry : (plan ? colors.muted : colors.primary),
+        color: cleanText(path.color) || (ferry ? colors.ferry : (plan ? colors.muted : colors.primary)),
         weight: ferry ? 4 : 5,
         opacity: plan ? 0.65 : 0.88,
         dashArray: ferry ? "12 10" : (plan ? "5 8" : undefined),
@@ -504,7 +506,8 @@ export const routeMapMixin = {
       const numericSequence = Number.isInteger(Number(point.sequence)) && Number(point.sequence) > 0 ? Number(point.sequence) : index + 1;
       const markerLabel = cleanText(point.markerLabel) || String(numericSequence);
       const ferryStop = point.stopType === "ferry";
-      const markerColor = point.inherited ? colors.muted : (ferryStop ? colors.ferry : colors.primary);
+      const markerColor = cleanText(point.color)
+        || (point.inherited ? colors.muted : (ferryStop ? colors.ferry : colors.primary));
       const icon = Leaflet.divIcon({
         className: `roadplanner-map-marker ${point.inherited ? "inherited" : ""}`,
         html: `<span style="display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:${escapeHtml(markerColor)};color:#fff;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.35);font:700 12px system-ui,sans-serif">${escapeHtml(markerLabel)}</span>`,
