@@ -232,6 +232,13 @@ def apply_set_option_status(day_document: dict[str, Any], option_id: str, status
 
 
 _P4N_URL_ID_RE = re.compile(r"park\s*4\s*night[^0-9]*?(\d{3,12})", re.IGNORECASE)
+# A place_query that IS a precise coordinate pair (>= 3 decimals). Such a
+# pair is user-dictated planning data ("Koordinaten: 59.924128, 15.284795"),
+# not model-invented GPS - it stays fully visible and reviewable in the
+# option form.
+_PLACE_QUERY_COORD_RE = re.compile(
+    r"^\s*(-?\d{1,3}\.\d{3,8})\s*,\s*(-?\d{1,3}\.\d{3,8})\s*$"
+)
 _MAX_ASSISTANT_OPTIONS_PER_BATCH = 12
 
 
@@ -320,6 +327,18 @@ def merge_assistant_overnight_plan(
                 "url": url or None,
             },
         }
+        pair_match = _PLACE_QUERY_COORD_RE.match(candidate["place_query"])
+        if pair_match:
+            latitude, longitude = float(pair_match.group(1)), float(pair_match.group(2))
+            if -90 <= latitude <= 90 and -180 <= longitude <= 180 and latitude != 0:
+                # A coordinate place_query becomes the option's position -
+                # otherwise the option never appears on the pitch map (live
+                # report: user-dictated coordinates were acknowledged in
+                # chat and then lost).
+                candidate["location"] = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
         option = validate_option_input(candidate, now=now)
         identity = _option_identity(option)
         if identity in seen:

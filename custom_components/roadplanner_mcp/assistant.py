@@ -71,6 +71,7 @@ from .assistant_shared import (
 )
 from .geocoding import GeocodingError, NominatimGeocoder
 from .google_maps_link import async_resolve_google_maps_place
+from .page_images import async_resolve_shared_page_place
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
 
@@ -1356,11 +1357,25 @@ class RoadplannerAssistant:
                 for index, raw in enumerate(prepared_raw_operations):
                     place_query = raw.get("place_query") if isinstance(raw, dict) else None
                     resolved_from_user_link = False
+                    resolved_origin = ""
                     resolved_poi_name = ""
                     if isinstance(place_query, str) and place_query:
                         resolved_place = await async_resolve_google_maps_place(
                             self.manager.hass, place_query
                         )
+                        if resolved_place:
+                            resolved_origin = "user_google_maps_link"
+                        elif "https://" in place_query:
+                            # Other shared place links (naturkartan.se,
+                            # Park4Night, campsite websites ...) resolve via
+                            # their page's own geo metadata - deterministic,
+                            # no AI (live report: a naturkartan stop stayed
+                            # "Ort fehlt" although the user shared the page).
+                            resolved_place = await async_resolve_shared_page_place(
+                                self.manager.hass, place_query
+                            )
+                            if resolved_place:
+                                resolved_origin = "user_shared_link"
                         if resolved_place:
                             raw["place_query"] = str(resolved_place["place_query"])
                             resolved_from_user_link = True
@@ -1379,10 +1394,10 @@ class RoadplannerAssistant:
                     )
                     if resolved_from_user_link and sanitized.get("place_query"):
                         # Server-set AFTER sanitizing, so the model can never
-                        # supply it: this pin came from a Google-Maps link the
-                        # user shared - the geocoding plugin treats its
+                        # supply it: this pin came from a link the user
+                        # shared - the geocoding plugin treats its
                         # coordinates like a manually confirmed map point.
-                        sanitized["place_query_origin"] = "user_google_maps_link"
+                        sanitized["place_query_origin"] = resolved_origin
                         if (
                             resolved_poi_name
                             and sanitized.get("action") == "add"

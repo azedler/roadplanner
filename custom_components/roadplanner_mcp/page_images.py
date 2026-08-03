@@ -29,6 +29,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import INTEGRATION_VERSION
+from .destination_intelligence import _URL_RE, _google_maps_host
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,6 +191,145 @@ def extract_page_images(
         if len(images) >= limit:
             break
     return images
+
+
+_META_GEO_POSITION_RE = re.compile(
+    r'<meta[^>]+name="(?:geo\.position|ICBM)"[^>]+content="'
+    r'\s*(-?\d{1,3}\.\d+)\s*[;,]\s*(-?\d{1,3}\.\d+)\s*"'
+    r'|<meta[^>]+content="\s*(-?\d{1,3}\.\d+)\s*[;,]\s*(-?\d{1,3}\.\d+)\s*"'
+    r'[^>]+name="(?:geo\.position|ICBM)"',
+    re.IGNORECASE,
+)
+_META_PAGE_OG_TITLE_RE = re.compile(
+    r'<meta[^>]+property="og:title"[^>]+content="([^"]{1,300})"'
+    r'|<meta[^>]+content="([^"]{1,300})"[^>]+property="og:title"',
+    re.IGNORECASE,
+)
+
+
+def _valid_coordinates(latitude: Any, longitude: Any) -> tuple[float, float] | None:
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if -90 <= lat <= 90 and -180 <= lon <= 180 and not (lat == 0 and lon == 0):
+        return lat, lon
+    return None
+
+
+def extract_page_place(page_html: str) -> dict[str, Any]:
+    """Read a place's coordinates and name from its page - deterministically.
+
+    Sources, in order: JSON-LD ``geo`` blocks (GeoCoordinates), the
+    ``geo.position``/``ICBM`` meta tags, plus the og:title as the place
+    name. Never invents data; anything unreadable yields an empty dict.
+    """
+    place: dict[str, Any] = {}
+    if not page_html:
+        return place
+    for match in _JSON_LD_RE.finditer(page_html):
+        try:
+            payload = json.loads(match.group(1).strip())
+        except (ValueError, TypeError):
+            continue
+        stack: list[Any] = [payload]
+        while stack and "latitude" not in place:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+            elif isinstance(node, dict):
+                geo = node.get("geo")
+                if isinstance(geo, dict):
+                    pair = _valid_coordinates(
+                        geo.get("latitude"), geo.get("longitude")
+                    )
+                    if pair:
+                        place["latitude"], place["longitude"] = pair
+                        name = str(node.get("name") or "").strip()
+                        if name:
+                            place.setdefault("name", name[:500])
+                stack.extend(node.values())
+        if "latitude" in place:
+            break
+    if "latitude" not in place:
+        geo_match = _META_GEO_POSITION_RE.search(page_html)
+        if geo_match:
+            groups = [group for group in geo_match.groups() if group]
+            if len(groups) == 2:
+                pair = _valid_coordinates(*groups)
+                if pair:
+                    place["latitude"], place["longitude"] = pair
+    if "name" not in place:
+        title_match = _META_PAGE_OG_TITLE_RE.search(page_html)
+        if title_match:
+            raw_title = title_match.group(1) or title_match.group(2) or ""
+            name = re.split(r"\s+[|·–]\s+", raw_title.strip(), maxsplit=1)[0].strip()
+            if name:
+                place["name"] = name[:500]
+    return place
+
+
+async def async_fetch_page_place(
+    hass: HomeAssistant, url: str
+) -> dict[str, Any]:
+    """Bounded fetch of one shared page, returning {latitude, longitude, name}."""
+    if hass is None:
+        return {}
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme != "https" or not parsed.hostname:
+        return {}
+    session = async_get_clientsession(hass)
+    try:
+        async with asyncio.timeout(_PAGE_TIMEOUT_SECONDS):
+            async with session.get(
+                url,
+                headers={
+                    "Accept-Language": "de,en;q=0.8",
+                    "User-Agent": (
+                        "HomeAssistant-Roadplanner/"
+                        f"{INTEGRATION_VERSION} (shared link preview)"
+                    ),
+                },
+            ) as response:
+                if response.status != 200:
+                    return {}
+                raw = await response.content.read(_MAX_PAGE_BYTES)
+    except (ClientError, TimeoutError):
+        return {}
+    return extract_page_place(raw.decode("utf-8", errors="replace"))
+
+
+async def async_resolve_shared_page_place(
+    hass: HomeAssistant, text: str
+) -> dict[str, Any] | None:
+    """Resolve a non-Google place link in free text via its page metadata.
+
+    Complements the Google-Maps resolver: naturkartan.se, Park4Night,
+    campsite websites and other place pages usually carry their position
+    in JSON-LD/geo metadata. Returns {place_query, name?, latitude?,
+    longitude?} - place_query is the coordinate pair when readable,
+    otherwise the page's name. None when no usable link or data exists.
+    """
+    for raw_url in _URL_RE.findall(str(text or "")):
+        url = raw_url.rstrip(".,;:")
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").casefold()
+        if not host or _google_maps_host(host):
+            continue
+        place = await async_fetch_page_place(hass, url)
+        info: dict[str, Any] = {}
+        if "latitude" in place:
+            info["latitude"] = place["latitude"]
+            info["longitude"] = place["longitude"]
+            info["place_query"] = f"{place['latitude']},{place['longitude']}"
+        if place.get("name"):
+            info["name"] = place["name"]
+            info.setdefault("place_query", place["name"])
+        if info:
+            return info
+        _LOGGER.debug("Shared page carried no readable place data: %s", url)
+        return None
+    return None
 
 
 # Hint providers whose pages are not worth fetching for photos: maps pages
