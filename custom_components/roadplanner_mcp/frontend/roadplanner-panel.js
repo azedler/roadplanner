@@ -1285,16 +1285,10 @@ class RoadplannerPanel extends HTMLElement {
       this._render({ preserveScroll: true });
     } else if (action === "crew-pick-reference" && this._canEdit()) {
       // Pure DOM update - a re-render would reset the form's typed values.
-      const pickerForm = target.closest("form");
-      const referenceInput = pickerForm?.querySelector('input[name="reference_media_id"]');
-      if (referenceInput) referenceInput.value = target.dataset.mediaId || "";
-      pickerForm?.querySelectorAll(".crew-photo-choice.selected").forEach((button) => button.classList.remove("selected"));
+      this._setCrewReferencePhoto(target.closest("form"), target.dataset.mediaId || "", target.dataset.thumbUrl || "");
       target.classList.add("selected");
     } else if (action === "crew-clear-reference" && this._canEdit()) {
-      const pickerForm = target.closest("form");
-      const referenceInput = pickerForm?.querySelector('input[name="reference_media_id"]');
-      if (referenceInput) referenceInput.value = "";
-      pickerForm?.querySelectorAll(".crew-photo-choice.selected").forEach((button) => button.classList.remove("selected"));
+      this._setCrewReferencePhoto(target.closest("form"), "", "");
     } else if (action === "retire-crew-person" && this._canEdit()) {
       const person = this._crewPersonById(target.dataset.personId);
       this._confirm(

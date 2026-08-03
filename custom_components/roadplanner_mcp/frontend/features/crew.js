@@ -60,6 +60,17 @@ export const crewMixin = {
     return `${this._renderModalHeader(add ? "Person hinzufügen" : "Person bearbeiten")}<form data-form="crew-person" data-mode="${add ? "add" : "edit"}" data-person-id="${escapeHtml(person.id || "")}" class="form-grid">${this._field("name", "Name", person.name || "", "text", true, "full")}${this._selectField("kind", "Art", person.kind || "person", ["person", "dog"])}${this._textarea("note", "Rolle / Besonderheit", person.note || "", "full")}${this._renderCrewReferencePhotoPicker(person)}${this._formActions(add ? "Person hinzufügen" : "Änderungen speichern")}</form>`;
   },
 
+  _setCrewReferencePhoto(form, mediaId, thumbUrl) {
+    if (!form) return;
+    const referenceInput = form.querySelector('input[name="reference_media_id"]');
+    if (referenceInput) referenceInput.value = mediaId;
+    form.querySelectorAll(".crew-photo-choice.selected").forEach((button) => button.classList.remove("selected"));
+    const current = form.querySelector("[data-crew-photo-current]");
+    const currentImage = form.querySelector("[data-crew-photo-current-image]");
+    if (current) current.hidden = !mediaId;
+    if (currentImage && mediaId) currentImage.src = thumbUrl;
+  },
+
   _renderCrewReferencePhotoPicker(person) {
     // "Wer ist wer": one assigned trip photo is the person's portrait in
     // the PDF and the Vision reference for personal summaries - no photo
@@ -73,12 +84,16 @@ export const crewMixin = {
       const keep = media.find((item) => item.id === selected);
       if (keep) recent.unshift(keep);
     }
-    return `<details class="form-field full crew-photo-picker" ${selected ? "" : ""}>
-      <summary><ha-icon icon="mdi:face-recognition"></ha-icon> Reisefoto zuordnen (wer ist wer)${selected ? " · zugeordnet" : ""}</summary>
-      <small class="hint">Ein Foto, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.</small>
+    const selectedItem = media.find((item) => item.id === selected) || null;
+    return `<details class="form-field full crew-photo-picker" open>
+      <summary><ha-icon icon="mdi:face-recognition"></ha-icon> Reisefoto zuordnen (wer ist wer)</summary>
+      <small class="hint">Ein Foto antippen, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.</small>
       <input type="hidden" name="reference_media_id" value="${escapeHtml(selected)}">
-      ${recent.length ? `<div class="crew-photo-grid">${recent.map((item) => `<button type="button" class="crew-photo-choice ${item.id === selected ? "selected" : ""}" data-action="crew-pick-reference" data-media-id="${escapeHtml(item.id)}"><img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.name || "Foto")}"></button>`).join("")}</div>` : `<p class="hint">Für die ausgewählte Reise sind noch keine Fotos synchronisiert.</p>`}
-      ${selected ? `<button class="text-button" type="button" data-action="crew-clear-reference">Zuordnung entfernen</button>` : ""}
+      <div class="crew-photo-current" data-crew-photo-current ${selectedItem ? "" : "hidden"}>
+        <img data-crew-photo-current-image src="${escapeHtml(selectedItem ? this._safeUrl(selectedItem.thumbnail_url) : "")}" alt="Ausgewähltes Foto">
+        <div><strong>Zugeordnet</strong><br><button class="text-button" type="button" data-action="crew-clear-reference">Zuordnung entfernen</button></div>
+      </div>
+      ${recent.length ? `<div class="crew-photo-grid">${recent.map((item) => `<button type="button" class="crew-photo-choice ${item.id === selected ? "selected" : ""}" data-action="crew-pick-reference" data-media-id="${escapeHtml(item.id)}" data-thumb-url="${escapeHtml(this._safeUrl(item.thumbnail_url))}" aria-label="Dieses Foto zuordnen"><img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt=""></button>`).join("")}</div>` : `<p class="hint">Für die ausgewählte Reise sind noch keine Fotos synchronisiert.</p>`}
     </details>`;
   },
 

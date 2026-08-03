@@ -76,6 +76,7 @@ _OVERNIGHT_STOP_TYPES = {
 def _day_highlights(
     stops: list[dict[str, Any]],
     media_by_stop: dict[str, list[dict[str, Any]]],
+    day_media: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Deterministic keyword bullets for a day - no AI, no invented text."""
     highlights = [
@@ -96,8 +97,17 @@ def _day_highlights(
         )
         if overnight:
             highlights = [str(overnight.get("name") or "").strip()[:40]]
-    media_count = sum(
-        len(media_by_stop.get(str(stop.get("id") or ""), [])) for stop in stops
+    stop_media_ids = {
+        str(item.get("id") or "")
+        for stop in stops
+        for item in media_by_stop.get(str(stop.get("id") or ""), [])
+    }
+    media_count = len(stop_media_ids) + len(
+        [
+            item
+            for item in day_media or []
+            if str(item.get("id") or "") not in stop_media_ids
+        ]
     )
     if media_count:
         highlights.append(
@@ -302,10 +312,14 @@ class TripPdfExporter:
             if isinstance(item, dict)
         ]
         media_by_stop: dict[str, list[dict[str, Any]]] = {}
+        media_by_day: dict[str, list[dict[str, Any]]] = {}
         for item in all_media:
             stop_id = str(item.get("linked_stop_id") or "")
             if stop_id:
                 media_by_stop.setdefault(stop_id, []).append(item)
+            day_id = str(item.get("linked_day_id") or "")
+            if day_id:
+                media_by_day.setdefault(day_id, []).append(item)
 
         session = async_get_clientsession(self.hass)
 
@@ -339,7 +353,12 @@ class TripPdfExporter:
                 if code:
                     country_codes.add(code)
             photos = await self._async_fetch_day_photos(
-                session, trip_id, stops, media_by_stop, destination_galleries
+                session,
+                trip_id,
+                stops,
+                media_by_stop,
+                destination_galleries,
+                media_by_day.get(str(day.get("id") or "")),
             )
             days.append(
                 PdfDay(
@@ -351,7 +370,11 @@ class TripPdfExporter:
                     duration_minutes=_optional_minutes(
                         day.get("drive_minutes", day.get("duration_minutes"))
                     ),
-                    highlights=_day_highlights(stops, media_by_stop),
+                    highlights=_day_highlights(
+                        stops,
+                        media_by_stop,
+                        media_by_day.get(str(day.get("id") or "")),
+                    ),
                 )
             )
 
@@ -425,6 +448,7 @@ class TripPdfExporter:
         stops: list[dict[str, Any]],
         media_by_stop: dict[str, list[dict[str, Any]]],
         destination_galleries: dict[str, Any],
+        day_media: list[dict[str, Any]] | None = None,
     ) -> list[bytes]:
         return await async_fetch_day_photos(
             session,
@@ -434,6 +458,7 @@ class TripPdfExporter:
             media_by_stop,
             destination_galleries,
             max_photos=MAX_PHOTOS_PER_DAY,
+            day_media=day_media,
         )
 
     async def async_create_ticket(self, pdf_bytes: bytes, *, user_id: str) -> str:
