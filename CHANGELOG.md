@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.27] - 2026-08-03
+
+### Fixed
+
+- The PDF trip summary is presentable again (live report: "eine Zumutung"):
+  - Polish/Baltic place names and bullet separators no longer render as black boxes - the PDF now embeds the bundled DejaVu Sans font (full Latin coverage, license included) instead of WinAnsi-only Helvetica, with a safe Helvetica fallback.
+  - Day pages are no longer near-empty: under the title a stats line shows date, kilometers and driving time, and ALL stops of the day appear as a real list with type label and arrival/departure times (with a "… und N weitere Stopps" overflow line) instead of two or three chips. Photos appear above when available - the resilient photo fetch from 4.14.26 applies to the PDF too.
+  - The route page samples its nodes EVENLY across the whole trip and numbers them with real day numbers (before: the first 12 of 28 days, numbered 1-12 as if they were the whole route), and labels now actively avoid colliding with each other, the nodes and the vehicle badge.
+  - Crew notes are fitted to their card with an ellipsis instead of running off the page edge.
+
 ## [4.14.26] - 2026-08-03
 
 ### Fixed
