@@ -57,7 +57,29 @@ export const crewMixin = {
   _renderCrewPersonForm(dialog) {
     const person = dialog.person || {};
     const add = !dialog.person;
-    return `${this._renderModalHeader(add ? "Person hinzufügen" : "Person bearbeiten")}<form data-form="crew-person" data-mode="${add ? "add" : "edit"}" data-person-id="${escapeHtml(person.id || "")}" class="form-grid">${this._field("name", "Name", person.name || "", "text", true, "full")}${this._selectField("kind", "Art", person.kind || "person", ["person", "dog"])}${this._textarea("note", "Rolle / Besonderheit", person.note || "", "full")}${this._formActions(add ? "Person hinzufügen" : "Änderungen speichern")}</form>`;
+    return `${this._renderModalHeader(add ? "Person hinzufügen" : "Person bearbeiten")}<form data-form="crew-person" data-mode="${add ? "add" : "edit"}" data-person-id="${escapeHtml(person.id || "")}" class="form-grid">${this._field("name", "Name", person.name || "", "text", true, "full")}${this._selectField("kind", "Art", person.kind || "person", ["person", "dog"])}${this._textarea("note", "Rolle / Besonderheit", person.note || "", "full")}${this._renderCrewReferencePhotoPicker(person)}${this._formActions(add ? "Person hinzufügen" : "Änderungen speichern")}</form>`;
+  },
+
+  _renderCrewReferencePhotoPicker(person) {
+    // "Wer ist wer": one assigned trip photo is the person's portrait in
+    // the PDF and the Vision reference for personal summaries - no photo
+    // captions needed (live request).
+    const media = (this._experienceData()?.media || []).filter(
+      (item) => (item.media_type || "photo") === "photo" && this._safeUrl(item.thumbnail_url),
+    );
+    const selected = String(person.reference_media_id || "");
+    const recent = media.slice(0, 48);
+    if (selected && !recent.some((item) => item.id === selected)) {
+      const keep = media.find((item) => item.id === selected);
+      if (keep) recent.unshift(keep);
+    }
+    return `<details class="form-field full crew-photo-picker" ${selected ? "" : ""}>
+      <summary><ha-icon icon="mdi:face-recognition"></ha-icon> Reisefoto zuordnen (wer ist wer)${selected ? " · zugeordnet" : ""}</summary>
+      <small class="hint">Ein Foto, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.</small>
+      <input type="hidden" name="reference_media_id" value="${escapeHtml(selected)}">
+      ${recent.length ? `<div class="crew-photo-grid">${recent.map((item) => `<button type="button" class="crew-photo-choice ${item.id === selected ? "selected" : ""}" data-action="crew-pick-reference" data-media-id="${escapeHtml(item.id)}"><img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.name || "Foto")}"></button>`).join("")}</div>` : `<p class="hint">Für die ausgewählte Reise sind noch keine Fotos synchronisiert.</p>`}
+      ${selected ? `<button class="text-button" type="button" data-action="crew-clear-reference">Zuordnung entfernen</button>` : ""}
+    </details>`;
   },
 
   _renderCrewVehicleForm(dialog) {

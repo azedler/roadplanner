@@ -1283,6 +1283,18 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "edit-crew-person" && this._canEdit()) {
       this._dialog = { type: "crew-person-form", person: this._crewPersonById(target.dataset.personId) };
       this._render({ preserveScroll: true });
+    } else if (action === "crew-pick-reference" && this._canEdit()) {
+      // Pure DOM update - a re-render would reset the form's typed values.
+      const pickerForm = target.closest("form");
+      const referenceInput = pickerForm?.querySelector('input[name="reference_media_id"]');
+      if (referenceInput) referenceInput.value = target.dataset.mediaId || "";
+      pickerForm?.querySelectorAll(".crew-photo-choice.selected").forEach((button) => button.classList.remove("selected"));
+      target.classList.add("selected");
+    } else if (action === "crew-clear-reference" && this._canEdit()) {
+      const pickerForm = target.closest("form");
+      const referenceInput = pickerForm?.querySelector('input[name="reference_media_id"]');
+      if (referenceInput) referenceInput.value = "";
+      pickerForm?.querySelectorAll(".crew-photo-choice.selected").forEach((button) => button.classList.remove("selected"));
     } else if (action === "retire-crew-person" && this._canEdit()) {
       const person = this._crewPersonById(target.dataset.personId);
       this._confirm(
@@ -1891,6 +1903,7 @@ class RoadplannerPanel extends HTMLElement {
         name: cleanText(values.name),
         kind: cleanText(values.kind) || "person",
         note: String(values.note || ""),
+        reference_media_id: cleanText(values.reference_media_id),
       };
       const result = mode === "add"
         ? await this._runAction("crew_person_add", { value }, "Person hinzugefügt")

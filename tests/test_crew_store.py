@@ -124,7 +124,28 @@ def verify_vehicle_retirement_does_not_delete() -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def verify_reference_photo_assignment_round_trips() -> None:
+    # "Wer ist wer": one assigned trip photo per person - the portrait in
+    # the PDF and the Vision reference face. Survives updates, clearable.
+    with tempfile.TemporaryDirectory() as tmp:
+        store = crew_store.CrewStore(Path(tmp))
+        store.initialize()
+        person = store.create_person({"name": "Peer"})
+        assert person["reference_media_id"] == ""
+        updated = store.update_person(
+            person["id"], {"reference_media_id": "media-123"}
+        )
+        assert updated["reference_media_id"] == "media-123"
+        assert store.load_people()[0]["reference_media_id"] == "media-123"
+        # An unrelated update keeps the assignment; explicit empty clears it.
+        kept = store.update_person(person["id"], {"note": "Sportlich"})
+        assert kept["reference_media_id"] == "media-123"
+        cleared = store.update_person(person["id"], {"reference_media_id": ""})
+        assert cleared["reference_media_id"] == ""
+
+
 verify_person_crud_and_retirement()
 verify_vehicle_retirement_does_not_delete()
+verify_reference_photo_assignment_round_trips()
 
 print("Crew store tests passed.")

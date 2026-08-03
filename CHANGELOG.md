@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.29] - 2026-08-03
+
+### Added
+
+- "Wer ist wer" without captioning photos (live request): each crew person can be assigned ONE reference trip photo in the crew settings ("Reisefoto zuordnen" - a photo grid inside the person form, one tap to select, clearable). The assignment does two things in the trip PDF: the photo IS the person's portrait on the crew card, and Gemini Vision uses it as the reference face to recognize the person on the day photos and write the personal 2-sentence summary - bounded (reference + max 10 already-downloaded photos), strictly fail-open, and only claiming what is confidently visible. Photo captions mentioning the name keep working as an additional source and take precedence for the summary text.
+
 ## [4.14.28] - 2026-08-03
 
 ### Added

@@ -78,6 +78,10 @@ def normalize_person(value: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "kind": kind,
         "note": _clean(value.get("note"), 500),
+        # One trip photo showing this person ("wer ist wer") - the PDF uses
+        # it as the portrait and Vision as the reference face for personal
+        # summaries. Assigned once in the crew settings, no captions needed.
+        "reference_media_id": _clean(value.get("reference_media_id"), 200),
         "active": bool(value.get("active", True)),
         "created_at": _clean(value.get("created_at"), 100) or utc_now_iso(),
         "updated_at": utc_now_iso(),
