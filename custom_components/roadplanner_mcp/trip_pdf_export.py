@@ -34,6 +34,22 @@ from .trip_pdf import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _optional_minutes(value: Any) -> int | None:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
 _TICKET_TTL_SECONDS = 5 * 60
 _MAX_TICKETS = 20
 _MAX_TICKET_USES = 3
@@ -128,6 +144,8 @@ class TripPdfExporter:
                 PdfStop(
                     name=str(stop.get("name") or ""),
                     stop_type=str(stop.get("type") or ""),
+                    arrival_time=str(stop.get("arrival_time") or ""),
+                    departure_time=str(stop.get("departure_time") or ""),
                 )
                 for stop in stops
                 if str(stop.get("name") or "").strip()
@@ -150,6 +168,10 @@ class TripPdfExporter:
                     date=str(day.get("date") or ""),
                     stops=pdf_stops,
                     photos=photos,
+                    distance_km=_optional_float(day.get("distance_km")),
+                    duration_minutes=_optional_minutes(
+                        day.get("drive_minutes", day.get("duration_minutes"))
+                    ),
                 )
             )
 

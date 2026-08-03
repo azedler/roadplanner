@@ -10,14 +10,55 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import io
+import logging
 import math
+from pathlib import Path
 
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+
+_LOGGER = logging.getLogger(__name__)
+
+# Bundled DejaVu Sans (see assets/fonts/LICENSE): the built-in Helvetica
+# only covers WinAnsi - Polish place names (Łeba, Międzywodami) and bullet
+# characters rendered as black boxes (live report). Registration happens
+# lazily on the first build; if it fails, Helvetica remains the fallback.
+_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
+FONT = "Helvetica"
+FONT_B = "Helvetica-Bold"
+FONT_I = "Helvetica-Oblique"
+
+
+def _ensure_fonts() -> None:
+    global FONT, FONT_B, FONT_I
+    if FONT == "RoadplannerSans":
+        return
+    try:
+        pdfmetrics.registerFont(
+            TTFont("RoadplannerSans", str(_FONTS_DIR / "DejaVuSans.ttf"))
+        )
+        pdfmetrics.registerFont(
+            TTFont("RoadplannerSans-Bold", str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
+        )
+    except Exception as err:  # noqa: BLE001 - Helvetica fallback must always work
+        _LOGGER.warning("PDF Unicode fonts unavailable, using Helvetica: %s", err)
+        return
+    FONT = FONT_I = "RoadplannerSans"
+    FONT_B = "RoadplannerSans-Bold"
+
+
+def _fit(text: str, font: str, size: float, max_width: float) -> str:
+    """Truncate ``text`` with an ellipsis so it fits ``max_width``."""
+    if pdfmetrics.stringWidth(text, font, size) <= max_width:
+        return text
+    while text and pdfmetrics.stringWidth(text + "…", font, size) > max_width:
+        text = text[:-1]
+    return f"{text}…" if text else ""
 
 PAGE_W, PAGE_H = A4
 MARGIN = 18 * mm
@@ -54,6 +95,8 @@ class PdfVehicle:
 class PdfStop:
     name: str
     stop_type: str = ""
+    arrival_time: str = ""
+    departure_time: str = ""
 
 
 @dataclass
@@ -62,6 +105,38 @@ class PdfDay:
     date: str
     stops: list[PdfStop] = field(default_factory=list)
     photos: list[bytes] = field(default_factory=list)
+    distance_km: float | None = None
+    duration_minutes: int | None = None
+
+
+_STOP_TYPE_LABELS = {
+    "start": "Start",
+    "destination": "Ziel",
+    "overnight": "Übernachtung",
+    "campsite": "Campingplatz",
+    "camping": "Camping",
+    "stellplatz": "Stellplatz",
+    "wildcamp": "Wildcamp",
+    "accommodation": "Unterkunft",
+    "parking": "Parken",
+    "sightseeing": "Sightseeing",
+    "attraction": "Sehenswürdigkeit",
+    "activity": "Aktivität",
+    "restaurant": "Restaurant",
+    "shopping": "Einkaufen",
+    "fuel": "Tanken",
+    "charging": "Laden",
+    "service": "Service",
+    "water": "Wasser",
+    "waste": "Entsorgung",
+    "laundry": "Wäsche",
+    "ferry": "Fähre",
+    "border": "Grenze",
+    "break": "Pause",
+    "viewpoint": "Aussichtspunkt",
+    "fishing": "Angeln",
+    "waypoint": "Zwischenstopp",
+}
 
 
 @dataclass
@@ -86,7 +161,7 @@ def _rounded_rect(c, x, y, w, h, r, fill, stroke=None) -> None:
 
 def _footer(c, label: str) -> None:
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 8)
+    c.setFont(FONT, 8)
     c.drawString(MARGIN, 10 * mm, "Roadplanner – Reise-Rückblick")
     c.drawRightString(PAGE_W - MARGIN, 10 * mm, label)
 
@@ -97,7 +172,7 @@ def _wrap_text(c, text: str, x: float, y: float, max_width: float, leading: floa
     cur_y = y
     for word in words:
         candidate = f"{line} {word}".strip()
-        if pdfmetrics.stringWidth(candidate, "Helvetica-Oblique", 11.5) > max_width:
+        if pdfmetrics.stringWidth(candidate, FONT_I, 11.5) > max_width:
             c.drawString(x, cur_y, line)
             cur_y -= leading
             line = word
@@ -141,7 +216,7 @@ def _icon_placeholder(c, x, y, w, h, label, tone, *, icon: str = "camera") -> No
         c.rect(icon_x + icon_w * 0.62, icon_y + icon_h - 1.2 * mm, icon_w * 0.22, 2 * mm, fill=1, stroke=0)
 
     if icon == "camera" or w > 40 * mm:
-        c.setFont("Helvetica-Bold", 9)
+        c.setFont(FONT_B, 9)
         c.drawCentredString(x + w / 2, y + h / 2 - 11 * mm, label)
     c.restoreState()
 
@@ -209,10 +284,10 @@ def _cover_page(c, data: TripPdfData) -> None:
     del stops
 
     c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 30 if len(data.title) > 28 else 34)
+    c.setFont(FONT_B, 30 if len(data.title) > 28 else 34)
     c.drawString(MARGIN, PAGE_H * 0.30, data.title)
 
-    c.setFont("Helvetica", 13)
+    c.setFont(FONT, 13)
     c.setFillColor(SAND)
     date_range = (
         f"{data.start_date} – {data.end_date}"
@@ -222,7 +297,7 @@ def _cover_page(c, data: TripPdfData) -> None:
     if date_range:
         c.drawString(MARGIN, PAGE_H * 0.30 - 10 * mm, date_range)
 
-    c.setFont("Helvetica-Oblique", 12)
+    c.setFont(FONT_I, 12)
     c.setFillColor(HexColor("#cfe3e6"))
     c.drawString(MARGIN, PAGE_H * 0.30 - 18 * mm, "Ein Reise-Rückblick")
 
@@ -232,12 +307,12 @@ def _cover_page(c, data: TripPdfData) -> None:
     if data.vehicle:
         names.append(data.vehicle.name)
     for name in names:
-        w = pdfmetrics.stringWidth(name, "Helvetica-Bold", 11) + 14 * mm
+        w = pdfmetrics.stringWidth(name, FONT_B, 11) + 14 * mm
         if x + w > PAGE_W - MARGIN:
             break
         _rounded_rect(c, x, chip_y, w, 9 * mm, 4.5 * mm, HexColor("#12414f"))
         c.setFillColor(WHITE)
-        c.setFont("Helvetica-Bold", 11)
+        c.setFont(FONT_B, 11)
         c.drawString(x + 7 * mm, chip_y + 3 * mm, name)
         x += w + 4 * mm
 
@@ -252,7 +327,7 @@ def _crew_page(c, data: TripPdfData) -> int:
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
 
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 24)
+    c.setFont(FONT_B, 24)
     c.drawString(MARGIN, PAGE_H - 30 * mm, "Die Crew")
     c.setStrokeColor(ORANGE)
     c.setLineWidth(2)
@@ -282,12 +357,19 @@ def _crew_page(c, data: TripPdfData) -> int:
 
         text_x = photo_x + photo_size + 8 * mm
         c.setFillColor(INK)
-        c.setFont("Helvetica-Bold", 15)
+        c.setFont(FONT_B, 15)
         c.drawString(text_x, y - card_h / 2 + 3 * mm, name)
         if note:
             c.setFillColor(MUTED)
-            c.setFont("Helvetica", 10.5)
-            c.drawString(text_x, y - card_h / 2 - 5 * mm, note[:90])
+            c.setFont(FONT, 10.5)
+            # Fitted to the card - long notes ran off the page edge (live
+            # report).
+            max_note_width = PAGE_W - MARGIN - 6 * mm - text_x
+            c.drawString(
+                text_x,
+                y - card_h / 2 - 5 * mm,
+                _fit(note, FONT, 10.5, max_note_width),
+            )
 
     _footer(c, "2")
     c.showPage()
@@ -295,17 +377,28 @@ def _crew_page(c, data: TripPdfData) -> int:
 
 
 def _route_page(c, data: TripPdfData, page_number: int) -> int:
-    names = [day.title for day in data.days if day.title][:12]
-    if len(names) < 2:
+    titled_days = [
+        (index + 1, day.title) for index, day in enumerate(data.days) if day.title
+    ]
+    if len(titled_days) < 2:
         return 0
+    # Sample at most 12 nodes EVENLY across the whole trip (first and last
+    # always included) - previously the first 12 of 28 days were shown,
+    # numbered as if they were the whole route.
+    node_count = min(12, len(titled_days))
+    sampled = [
+        titled_days[round(i * (len(titled_days) - 1) / (node_count - 1))]
+        for i in range(node_count)
+    ]
+    names = sampled
     c.setFillColor(WHITE)
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
 
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 22)
+    c.setFont(FONT_B, 22)
     c.drawString(MARGIN, PAGE_H - 28 * mm, "Die Route")
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 9.5)
+    c.setFont(FONT, 9.5)
     c.drawString(MARGIN, PAGE_H - 34 * mm, "Schematische Übersicht der Reisetage.")
 
     map_x, map_y = MARGIN, 40 * mm
@@ -314,32 +407,81 @@ def _route_page(c, data: TripPdfData, page_number: int) -> int:
 
     n = len(names)
     pts = []
-    for i, name in enumerate(names):
+    for i, (day_number, name) in enumerate(names):
         t = i / (n - 1)
         x = map_x + 18 * mm + t * (map_w - 36 * mm)
         wobble = math.sin(t * math.pi * 2.2) * (map_h * 0.18)
         y = map_y + map_h / 2 + wobble
-        pts.append((x, y, name, wobble))
+        pts.append((x, y, name, wobble, day_number))
 
     c.setStrokeColor(TEAL)
     c.setLineWidth(2.2)
     path = c.beginPath()
     path.moveTo(*pts[0][:2])
-    for x, y, _, _ in pts[1:]:
+    for x, y, _, _, _ in pts[1:]:
         path.lineTo(x, y)
     c.drawPath(path, stroke=1, fill=0)
 
-    for i, (x, y, name, wobble) in enumerate(pts):
+    # Labels pick the first candidate offset whose box collides neither
+    # with an already placed label nor with any node circle - before,
+    # adjacent labels overprinted each other and the nodes into
+    # unreadable mush (live report).
+    placed_boxes: list[tuple[float, float, float, float]] = []
+    node_boxes = [
+        (px - 4 * mm, py - 4 * mm, px + 4 * mm, py + 4 * mm)
+        for px, py, _, _, _ in pts
+    ]
+    if data.vehicle:
+        # Reserve the vehicle badge's area (drawn below) so no label ends
+        # up underneath it.
+        badge_nx, badge_ny = pts[n // 2][0], pts[n // 2][1]
+        node_boxes.append(
+            (
+                badge_nx + 6 * mm,
+                badge_ny + 12 * mm,
+                badge_nx + 28 * mm,
+                badge_ny + 33 * mm,
+            )
+        )
+
+    def _collides(box: tuple[float, float, float, float]) -> bool:
+        for other in placed_boxes + node_boxes:
+            if (
+                box[0] < other[2]
+                and box[2] > other[0]
+                and box[1] < other[3]
+                and box[3] > other[1]
+            ):
+                return True
+        return False
+
+    label_offsets = (
+        9 * mm, -12 * mm, 15 * mm, -18 * mm, 21 * mm, -24 * mm, 27 * mm
+    )
+    for i, (x, y, name, _wobble, day_number) in enumerate(pts):
         color = ORANGE if i in (0, len(pts) - 1) else NAVY
         c.setFillColor(color)
         c.circle(x, y, 3 * mm, fill=1, stroke=0)
         c.setFillColor(WHITE)
-        c.setFont("Helvetica-Bold", 8)
-        c.drawCentredString(x, y - 2.6, str(i + 1))
-        c.setFillColor(INK)
-        c.setFont("Helvetica", 9)
-        label_y = y - 11 * mm if wobble >= 0 else y + 7 * mm
-        c.drawCentredString(x, label_y, name[:24])
+        c.setFont(FONT_B, 8)
+        c.drawCentredString(x, y - 2.6, str(day_number))
+        label = _fit(name, FONT, 8, 34 * mm)
+        label_w = pdfmetrics.stringWidth(label, FONT, 8)
+        label_x = min(max(x, map_x + 4 * mm + label_w / 2), map_x + map_w - 4 * mm - label_w / 2)
+        for offset in label_offsets:
+            label_y = y + offset
+            box = (
+                label_x - label_w / 2 - 1 * mm,
+                label_y - 1.2 * mm,
+                label_x + label_w / 2 + 1 * mm,
+                label_y + 2.6 * mm,
+            )
+            if not _collides(box) and map_y + 3 * mm < label_y < map_y + map_h - 5 * mm:
+                placed_boxes.append(box)
+                c.setFillColor(INK)
+                c.setFont(FONT, 8)
+                c.drawCentredString(label_x, label_y, label)
+                break
 
     if data.vehicle:
         idx = n // 2
@@ -365,7 +507,7 @@ def _route_page(c, data: TripPdfData, page_number: int) -> int:
         c.circle(bx + body_w * 0.82, by - 0.3 * mm, 1.1 * mm, fill=0, stroke=1)
         c.restoreState()
         c.setFillColor(INK)
-        c.setFont("Helvetica-Bold", 8.5)
+        c.setFont(FONT_B, 8.5)
         c.drawCentredString(badge_x + badge_w / 2, badge_y + badge_h + 3 * mm, data.vehicle.name[:16])
 
     _footer(c, str(page_number))
@@ -380,14 +522,20 @@ def _day_page(c, day: PdfDay, index: int, total: int, page_number: int) -> None:
     c.rect(0, PAGE_H - 6 * mm, PAGE_W, 6 * mm, fill=1, stroke=0)
 
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 10)
+    c.setFont(FONT_B, 10)
     c.drawString(MARGIN, PAGE_H - 20 * mm, f"TAG {index} / {total}")
-    c.setFont("Helvetica-Bold", 22)
+    c.setFont(FONT_B, 22)
     c.drawString(MARGIN, PAGE_H - 31 * mm, day.title[:60] or f"Tag {index}")
-    if day.date:
+    meta_parts = [part for part in (day.date,) if part]
+    if day.distance_km:
+        meta_parts.append(f"{day.distance_km:.0f} km")
+    if day.duration_minutes:
+        hours, minutes = divmod(int(day.duration_minutes), 60)
+        meta_parts.append(f"{hours} h {minutes:02d} min Fahrzeit" if hours else f"{minutes} min Fahrzeit")
+    if meta_parts:
         c.setFillColor(MUTED)
-        c.setFont("Helvetica", 10.5)
-        c.drawString(MARGIN, PAGE_H - 38 * mm, day.date)
+        c.setFont(FONT, 10.5)
+        c.drawString(MARGIN, PAGE_H - 38 * mm, "  ·  ".join(meta_parts))
 
     photo_y = PAGE_H - 118 * mm
     photo_h = 76 * mm
@@ -399,26 +547,53 @@ def _day_page(c, day: PdfDay, index: int, total: int, page_number: int) -> None:
         for i, (image, iw, ih) in enumerate(decoded_photos):
             x = MARGIN + i * (photo_w + gap)
             _draw_photo(c, x, photo_y, photo_w, photo_h, image, iw, ih)
-        chip_y = photo_y - 14 * mm
+        list_top = photo_y - 12 * mm
     elif len(decoded_photos) == 1:
         image, iw, ih = decoded_photos[0]
         _draw_photo(c, MARGIN, photo_y, full_w, photo_h, image, iw, ih)
-        chip_y = photo_y - 14 * mm
+        list_top = photo_y - 12 * mm
     else:
-        # No real, usable photo for this day - reclaim the photo area
-        # instead of drawing a generic icon filler.
-        chip_y = PAGE_H - 56 * mm
-    x = MARGIN
-    c.setFont("Helvetica-Bold", 9)
-    for stop in day.stops[:MAX_STOPS_PER_DAY_CHIP]:
-        label = f"● {stop.name}"[:60]
-        w = pdfmetrics.stringWidth(label, "Helvetica-Bold", 9) + 10 * mm
-        if x + w > PAGE_W - MARGIN:
+        # No real, usable photo for this day - reclaim the photo area for
+        # the stop list instead of drawing a generic icon filler.
+        list_top = PAGE_H - 52 * mm
+
+    # The day's stops as a real list with type and times - the old chip row
+    # fit two or three names and left the rest of the page empty (live
+    # report: "eine Zumutung").
+    row_h = 9 * mm
+    y = list_top
+    for stop in day.stops:
+        if y < 22 * mm:
+            remaining = len(day.stops) - day.stops.index(stop)
+            c.setFillColor(MUTED)
+            c.setFont(FONT, 9)
+            c.drawString(MARGIN, y, f"… und {remaining} weitere Stopps")
             break
-        _rounded_rect(c, x, chip_y, w, 8 * mm, 4 * mm, WHITE, stroke=HexColor("#d8cfba"))
         c.setFillColor(ORANGE)
-        c.drawString(x + 5 * mm, chip_y + 2.6 * mm, label)
-        x += w + 4 * mm
+        c.circle(MARGIN + 1.6 * mm, y + 1.4 * mm, 1.4 * mm, fill=1, stroke=0)
+        c.setFillColor(INK)
+        c.setFont(FONT_B, 11)
+        name_width = (PAGE_W - 2 * MARGIN) * 0.62
+        c.drawString(MARGIN + 6 * mm, y, _fit(stop.name, FONT_B, 11, name_width))
+        detail_parts = []
+        type_label = _STOP_TYPE_LABELS.get(
+            stop.stop_type.casefold(), stop.stop_type.capitalize()
+        ) if stop.stop_type else ""
+        if type_label:
+            detail_parts.append(type_label)
+        if stop.arrival_time:
+            detail_parts.append(f"an {stop.arrival_time}")
+        if stop.departure_time:
+            detail_parts.append(f"ab {stop.departure_time}")
+        if detail_parts:
+            c.setFillColor(MUTED)
+            c.setFont(FONT, 9.5)
+            c.drawRightString(
+                PAGE_W - MARGIN,
+                y,
+                _fit(" · ".join(detail_parts), FONT, 9.5, (PAGE_W - 2 * MARGIN) * 0.34),
+            )
+        y -= row_h
 
     c.setFillColor(NAVY)
     c.rect(0, 0, PAGE_W, 5 * mm, fill=1, stroke=0)
@@ -430,7 +605,7 @@ def _closing_page(c, data: TripPdfData, page_number: int) -> None:
     c.setFillColor(NAVY)
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
     c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 26)
+    c.setFont(FONT_B, 26)
     c.drawCentredString(PAGE_W / 2, PAGE_H * 0.62, "Danke fürs Mitreisen")
 
     total_stops = sum(len(day.stops) for day in data.days)
@@ -446,15 +621,15 @@ def _closing_page(c, data: TripPdfData, page_number: int) -> None:
     for value, label in entries:
         _rounded_rect(c, x, y, box_w, 26 * mm, 4 * mm, HexColor("#12414f"))
         c.setFillColor(ORANGE)
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont(FONT_B, 18)
         c.drawCentredString(x + box_w / 2, y + 16 * mm, value)
         c.setFillColor(SAND)
-        c.setFont("Helvetica", 9)
+        c.setFont(FONT, 9)
         c.drawCentredString(x + box_w / 2, y + 8 * mm, label)
         x += box_w + 8 * mm
 
     c.setFillColor(HexColor("#9fb8bd"))
-    c.setFont("Helvetica", 9)
+    c.setFont(FONT, 9)
     c.drawCentredString(PAGE_W / 2, 20 * mm, "Erstellt mit Roadplanner")
     _footer(c, str(page_number))
     c.showPage()
@@ -462,6 +637,7 @@ def _closing_page(c, data: TripPdfData, page_number: int) -> None:
 
 def build_trip_pdf(data: TripPdfData) -> bytes:
     """Render the full trip-summary PDF and return its bytes."""
+    _ensure_fonts()
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
 
