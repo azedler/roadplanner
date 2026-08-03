@@ -59,7 +59,14 @@ assert "library_dir=resolve_config_path(config_dir, trip_video_library_relative)
 
 http_source = (ROOT / "trip_video_library_http.py").read_text(encoding="utf-8")
 assert 'DOWNLOAD_URL = "/api/roadplanner/trip_video_library/{filename}"' in http_source
-assert "requires_auth = True" in http_source
+assert "requires_auth = False" in http_source, (
+    "session auth breaks the companion app's plain-link download (401 body "
+    "saved as a 17-byte 'video', live report) - the unguessable uuid4-hex "
+    "filename is the access token, like the PDF ticket"
+)
+assert "VIDEO_FILENAME_RE.match(filename)" in http_source, (
+    "without session auth the strict filename pattern is mandatory"
+)
 assert "runtime.trip_video.library_dir" in http_source
 
 const_source = (ROOT / "const.py").read_text(encoding="utf-8")
