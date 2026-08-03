@@ -115,9 +115,18 @@ class MediaCurationManager:
             for item in list(state.get("media") or [])
             if isinstance(item, dict)
         ]
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
+        existing_trip_curation = (state.get("media_curations") or {}).get("trip-cover")
         candidates = select_trip_cover_candidates(
             media,
             limit=self._vision_curation.media_vision_max_candidates,
+            trip_start=trip.get("start_date"),
+            trip_end=trip.get("end_date"),
+            sticky_cover_id=str(
+                (existing_trip_curation or {}).get("cover_id") or ""
+            )
+            or None,
         )
         if not candidates:
             result: dict[str, Any] = {
@@ -128,8 +137,6 @@ class MediaCurationManager:
             if include_experience:
                 result["experience"] = await self._get_panel_payload(trip_id)
             return result
-        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-        trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
         synthetic_day = {
             "id": "trip-cover-day",
             "date": trip.get("start_date"),
@@ -148,7 +155,7 @@ class MediaCurationManager:
             day=synthetic_day,
             stop=synthetic_stop,
             candidates=candidates,
-            existing=(state.get("media_curations") or {}).get("trip-cover"),
+            existing=existing_trip_curation,
             force=force,
         )
         stored = await self.hass.async_add_executor_job(
@@ -265,13 +272,19 @@ class MediaCurationManager:
                 else:
                     fallbacks += 1
             trip_cover_processed = 0
+            summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+            trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
             trip_candidates = select_trip_cover_candidates(
                 media,
                 limit=self._vision_curation.media_vision_max_candidates,
+                trip_start=trip.get("start_date"),
+                trip_end=trip.get("end_date"),
+                sticky_cover_id=str(
+                    (curations.get("trip-cover") or {}).get("cover_id") or ""
+                )
+                or None,
             )
             if trip_candidates:
-                summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-                trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
                 synthetic_day = {
                     "id": "trip-cover-day",
                     "date": trip.get("start_date"),
