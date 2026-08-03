@@ -328,6 +328,49 @@ class TripVideoExporter:
                 )
             )
 
+        photos_total = sum(len(chapter.photos) for chapter in chapters)
+        maps_total = sum(1 for chapter in chapters if chapter.map_snapshot)
+        stops_with_personal = sum(
+            1
+            for day in chapter_days
+            for stop in canonical_roadbook_stops(day)
+            if isinstance(stop, dict) and str(stop.get("id") or "") in media_by_stop
+        )
+        stops_with_gallery = sum(
+            1
+            for day in chapter_days
+            for stop in canonical_roadbook_stops(day)
+            if isinstance(stop, dict)
+            and destination_galleries.get(str(stop.get("id") or ""))
+        )
+        if self._status.get("state") == "running":
+            self._status["stats"] = {
+                "chapters": len(chapters),
+                "photos": photos_total,
+                "map_snapshots": maps_total,
+                "stops_with_personal_media": stops_with_personal,
+                "stops_with_gallery": stops_with_gallery,
+            }
+        _LOGGER.info(
+            "Trip video assets: %d chapters, %d photos, %d map snapshots "
+            "(%d stops with personal media, %d with galleries)",
+            len(chapters),
+            photos_total,
+            maps_total,
+            stops_with_personal,
+            stops_with_gallery,
+        )
+        if chapters and not photos_total and not maps_total:
+            raise ValidationError(
+                "Für dieses Video kam kein einziges Bild durch: "
+                f"{stops_with_personal} Stopps haben eigene Fotos und "
+                f"{stops_with_gallery} Planungsbilder, aber alle Downloads "
+                "sind fehlgeschlagen (auch die Kartenbilder). Details stehen "
+                "im Home-Assistant-Log unter roadplanner_mcp - typische "
+                "Ursachen: OneDrive-Anmeldung abgelaufen oder kein "
+                "Internetzugriff vom Home-Assistant-Host."
+            )
+
         data = TripVideoData(
             title=str(trip.get("title") or "Roadplanner-Reise"),
             start_date=str(trip.get("start_date") or ""),

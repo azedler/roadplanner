@@ -67,25 +67,39 @@ async def async_fetch_personal_stop_photo(
     stop_id: str,
     media_by_stop: dict[str, list[dict[str, Any]]],
 ) -> bytes | None:
+    """Try several personal candidates, each as original THEN thumbnail.
+
+    Live report: a trip with 254 memories produced "no photos found" - one
+    failing download URL must never sink a whole stop when the large
+    thumbnail (the exact image the panel shows reliably) is available.
+    """
     candidates = media_by_stop.get(stop_id) or []
     if not candidates:
         return None
-    media_item = next(
-        (item for item in candidates if item.get("is_cover")), candidates[0]
-    )
-    media_id = str(media_item.get("id") or "")
-    if not media_id:
-        return None
-    try:
-        url = await experience.async_media_redirect_url(trip_id, media_id, "original")
-    except RoadplannerError as err:
-        _LOGGER.debug(
-            "Trip export could not resolve a personal photo: %s", type(err).__name__
-        )
-        return None
-    if not str(url or "").casefold().startswith("https://"):
-        return None
-    return await async_download_photo(session, url)
+    ordered = sorted(candidates, key=lambda item: not item.get("is_cover"))
+    for media_item in ordered[:3]:
+        media_id = str(media_item.get("id") or "")
+        if not media_id:
+            continue
+        for kind in ("original", "thumbnail"):
+            try:
+                url = await experience.async_media_redirect_url(
+                    trip_id, media_id, kind
+                )
+            except (RoadplannerError, KeyError) as err:
+                _LOGGER.info(
+                    "Trip export could not resolve a personal photo (%s/%s): %s",
+                    media_id,
+                    kind,
+                    type(err).__name__,
+                )
+                continue
+            if not str(url or "").casefold().startswith("https://"):
+                continue
+            photo = await async_download_photo(session, url)
+            if photo:
+                return photo
+    return None
 
 
 async def async_fetch_stock_stop_photo(
@@ -102,16 +116,22 @@ async def async_fetch_stock_stop_photo(
     if not images:
         return None
     primary_id = str(gallery.get("primary_image_id") or "")
-    image = next(
-        (item for item in images if str(item.get("id") or "") == primary_id),
-        images[0],
+    ordered = sorted(
+        images, key=lambda item: str(item.get("id") or "") != primary_id
     )
-    if str(image.get("provider") or "").casefold() == "google_places":
-        return None
-    url = str(image.get("image_url") or "")
-    if not url.casefold().startswith("https://"):
-        return None
-    return await async_download_photo(session, url)
+    for image in ordered:
+        # Google Places photo URLs are browser-session redirects, unusable
+        # for a server-side download - try the NEXT image instead of
+        # giving up on the whole gallery.
+        if str(image.get("provider") or "").casefold() == "google_places":
+            continue
+        url = str(image.get("image_url") or "")
+        if not url.casefold().startswith("https://"):
+            continue
+        photo = await async_download_photo(session, url)
+        if photo:
+            return photo
+    return None
 
 
 async def async_download_photo(session: Any, url: str) -> bytes | None:
