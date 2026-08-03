@@ -321,4 +321,54 @@ assert "MAX_PHOTO_BYTES" in SOURCE and "content_length" in SOURCE, (
     "a downloaded photo must be bounded in size"
 )
 
+# --- Personal crew cards and day highlight bullets (live request:
+# "Bilder der Leute ... bissel persönliches" / "kleine Beschreibung des
+# Tages ... als Stichpunkte") ---
+
+MEDIA = [
+    {"id": "m1", "caption": "Levi angelt am Saimaa-See", "media_type": "photo",
+     "assignment_status": "manual", "linked_stop_id": "s1", "width": 4000, "height": 3000},
+    {"id": "m2", "caption": "Levi und Peer auf der Düne", "media_type": "photo",
+     "assignment_status": "automatic", "linked_stop_id": "s2", "width": 2000, "height": 1500},
+    {"id": "m3", "caption": "Abendessen ohne Namen", "media_type": "photo",
+     "assignment_status": "manual", "linked_stop_id": "s1"},
+    {"id": "m4", "caption": "Levittata Brot backen", "media_type": "photo",
+     "assignment_status": "manual", "linked_stop_id": "s1"},
+]
+
+
+def verify_media_mentioning_matches_whole_names_ranked() -> None:
+    matches = export_module._media_mentioning(MEDIA, "Levi")
+    ids = [item["id"] for item in matches]
+    assert set(ids) == {"m1", "m2"}, (
+        f"{ids}: 'Levittata' must NOT match the name 'Levi' (word boundary)"
+    )
+    assert export_module._media_mentioning(MEDIA, "L") == [], "1-char names never match"
+    assert export_module._media_mentioning(MEDIA, "Nugget") == []
+
+
+def verify_day_highlights_are_deterministic() -> None:
+    stops = [
+        {"id": "s1", "name": "Wanderdünen Łeba", "type": "activity"},
+        {"id": "s2", "name": "Tanken", "type": "fuel"},
+        {"id": "s3", "name": "Aussicht Söderåsen", "type": "viewpoint"},
+    ]
+    media_by_stop = {"s1": [{}, {}], "s3": [{}]}
+    highlights = export_module._day_highlights(stops, media_by_stop)
+    assert highlights == ["Wanderdünen Łeba", "Aussicht Söderåsen", "3 eigene Fotos"], highlights
+    # Without highlight-typed stops the overnight place is the keyword.
+    overnight_only = [{"id": "s9", "name": "Lumsenkojan", "type": "wildcamp"}]
+    assert export_module._day_highlights(overnight_only, {}) == ["Lumsenkojan"]
+    assert export_module._day_highlights([], {}) == []
+
+
+verify_media_mentioning_matches_whole_names_ranked()
+verify_day_highlights_are_deterministic()
+
+EXPORT_SOURCE = (PACKAGE_ROOT / "trip_pdf_export.py").read_text(encoding="utf-8")
+assert "member.photo = await async_fetch_media_photo" in EXPORT_SOURCE, (
+    "crew members get their portrait from a caption-matched personal photo"
+)
+assert "_async_person_summary" in EXPORT_SOURCE
+
 print("Trip PDF export tests passed.")

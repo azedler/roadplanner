@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.28] - 2026-08-03
+
+### Added
+
+- Personal crew cards in the PDF (live request "Bilder der Leute ... bissel persönliches"): each crew member's card now shows a REAL photo and a short personal summary of what they experienced on the trip. Both come from the photo captions in "Erinnerungen": pictures whose caption mentions the person's name (whole-word match) provide the portrait (best-quality match) and the raw material for a warm 2-sentence summary written by Gemini strictly from those captions (fallback without AI: the caption snippets themselves). No captions mentioning a name → the card stays as before. The crew section paginates cleanly when it outgrows one page.
+- Day pages got an at-a-glance description as keyword chips (live request "kleine Beschreibung ... als Stichpunkte"): up to three highlight stops of the day (activities, attractions, viewpoints, ferries - or the overnight place) plus the day's own photo count, deterministic and never invented.
+
 ## [4.14.27] - 2026-08-03
 
 ### Fixed

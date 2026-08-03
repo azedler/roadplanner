@@ -78,27 +78,40 @@ async def async_fetch_personal_stop_photo(
         return None
     ordered = sorted(candidates, key=lambda item: not item.get("is_cover"))
     for media_item in ordered[:3]:
-        media_id = str(media_item.get("id") or "")
-        if not media_id:
+        photo = await async_fetch_media_photo(
+            session, experience, trip_id, media_item
+        )
+        if photo:
+            return photo
+    return None
+
+
+async def async_fetch_media_photo(
+    session: Any,
+    experience: Any,
+    trip_id: str,
+    media_item: dict[str, Any],
+) -> bytes | None:
+    """Download ONE personal media item, original first, thumbnail fallback."""
+    media_id = str(media_item.get("id") or "")
+    if not media_id:
+        return None
+    for kind in ("original", "thumbnail"):
+        try:
+            url = await experience.async_media_redirect_url(trip_id, media_id, kind)
+        except (RoadplannerError, KeyError) as err:
+            _LOGGER.info(
+                "Trip export could not resolve a personal photo (%s/%s): %s",
+                media_id,
+                kind,
+                type(err).__name__,
+            )
             continue
-        for kind in ("original", "thumbnail"):
-            try:
-                url = await experience.async_media_redirect_url(
-                    trip_id, media_id, kind
-                )
-            except (RoadplannerError, KeyError) as err:
-                _LOGGER.info(
-                    "Trip export could not resolve a personal photo (%s/%s): %s",
-                    media_id,
-                    kind,
-                    type(err).__name__,
-                )
-                continue
-            if not str(url or "").casefold().startswith("https://"):
-                continue
-            photo = await async_download_photo(session, url)
-            if photo:
-                return photo
+        if not str(url or "").casefold().startswith("https://"):
+            continue
+        photo = await async_download_photo(session, url)
+        if photo:
+            return photo
     return None
 
 

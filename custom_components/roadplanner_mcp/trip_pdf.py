@@ -52,6 +52,29 @@ def _ensure_fonts() -> None:
     FONT_B = "RoadplannerSans-Bold"
 
 
+def _wrap_lines(
+    text: str, font: str, size: float, max_width: float, *, max_lines: int
+) -> list[str]:
+    """Greedy word wrap; the last permitted line is ellipsis-fitted."""
+    words = str(text or "").split()
+    lines: list[str] = []
+    current = ""
+    for index, word in enumerate(words):
+        candidate = f"{current} {word}".strip()
+        if pdfmetrics.stringWidth(candidate, font, size) <= max_width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        if len(lines) == max_lines - 1:
+            lines.append(_fit(" ".join(words[index:]), font, size, max_width))
+            return lines
+        current = word
+    if current:
+        lines.append(current)
+    return lines[:max_lines]
+
+
 def _fit(text: str, font: str, size: float, max_width: float) -> str:
     """Truncate ``text`` with an ellipsis so it fits ``max_width``."""
     if pdfmetrics.stringWidth(text, font, size) <= max_width:
@@ -83,6 +106,8 @@ class PdfCrewMember:
     name: str
     kind: str = "person"  # "person" | "dog"
     note: str = ""
+    photo: bytes | None = None
+    summary: str = ""
 
 
 @dataclass
@@ -107,6 +132,7 @@ class PdfDay:
     photos: list[bytes] = field(default_factory=list)
     distance_km: float | None = None
     duration_minutes: int | None = None
+    highlights: list[str] = field(default_factory=list)
 
 
 _STOP_TYPE_LABELS = {
@@ -326,54 +352,79 @@ def _crew_page(c, data: TripPdfData) -> int:
     c.setFillColor(CREAM)
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
 
-    c.setFillColor(NAVY)
-    c.setFont(FONT_B, 24)
-    c.drawString(MARGIN, PAGE_H - 30 * mm, "Die Crew")
-    c.setStrokeColor(ORANGE)
-    c.setLineWidth(2)
-    c.line(MARGIN, PAGE_H - 34 * mm, MARGIN + 26 * mm, PAGE_H - 34 * mm)
-
-    entries: list[tuple[str, str, str]] = [
-        (member.name, member.note, member.kind) for member in data.crew
-    ]
+    entries: list[PdfCrewMember] = list(data.crew)
     if data.vehicle:
-        entries.append((data.vehicle.name, data.vehicle.note, "camper"))
+        entries.append(
+            PdfCrewMember(
+                name=data.vehicle.name, kind="camper", note=data.vehicle.note
+            )
+        )
 
-    card_h = 34 * mm
-    gap = 8 * mm
+    card_h = 44 * mm
+    gap = 7 * mm
     photo_size = card_h - 8 * mm
     top = PAGE_H - 50 * mm
-    max_rows = int((top - 16 * mm) // (card_h + gap))
-    for index, (name, note, kind) in enumerate(entries[:max_rows]):
-        y = top - index * (card_h + gap)
-        _rounded_rect(
-            c, MARGIN, y - card_h, PAGE_W - 2 * MARGIN, card_h, 5 * mm,
-            WHITE, stroke=HexColor("#e4dccb"),
-        )
-        photo_x = MARGIN + 4 * mm
-        photo_y = y - card_h + 4 * mm
-        tone = {"dog": ORANGE, "camper": OLIVE}.get(kind, TEAL)
-        _icon_placeholder(c, photo_x, photo_y, photo_size, photo_size, name, tone, icon=kind)
-
-        text_x = photo_x + photo_size + 8 * mm
-        c.setFillColor(INK)
-        c.setFont(FONT_B, 15)
-        c.drawString(text_x, y - card_h / 2 + 3 * mm, name)
-        if note:
-            c.setFillColor(MUTED)
-            c.setFont(FONT, 10.5)
-            # Fitted to the card - long notes ran off the page edge (live
-            # report).
-            max_note_width = PAGE_W - MARGIN - 6 * mm - text_x
-            c.drawString(
-                text_x,
-                y - card_h / 2 - 5 * mm,
-                _fit(note, FONT, 10.5, max_note_width),
+    max_rows = max(1, int((top - 16 * mm) // (card_h + gap)))
+    pages = 0
+    for page_start in range(0, len(entries), max_rows):
+        if pages:
+            c.setFillColor(CREAM)
+            c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+        c.setFillColor(NAVY)
+        c.setFont(FONT_B, 24)
+        c.drawString(MARGIN, PAGE_H - 30 * mm, "Die Crew")
+        c.setStrokeColor(ORANGE)
+        c.setLineWidth(2)
+        c.line(MARGIN, PAGE_H - 34 * mm, MARGIN + 26 * mm, PAGE_H - 34 * mm)
+        for index, member in enumerate(entries[page_start:page_start + max_rows]):
+            y = top - index * (card_h + gap)
+            _rounded_rect(
+                c, MARGIN, y - card_h, PAGE_W - 2 * MARGIN, card_h, 5 * mm,
+                WHITE, stroke=HexColor("#e4dccb"),
             )
+            photo_x = MARGIN + 4 * mm
+            photo_y = y - card_h + 4 * mm
+            decoded = _decode_photo(member.photo)
+            if decoded is not None:
+                image, iw, ih = decoded
+                _draw_photo(c, photo_x, photo_y, photo_size, photo_size, image, iw, ih)
+            else:
+                tone = {"dog": ORANGE, "camper": OLIVE}.get(member.kind, TEAL)
+                _icon_placeholder(
+                    c, photo_x, photo_y, photo_size, photo_size,
+                    member.name, tone, icon=member.kind,
+                )
 
-    _footer(c, "2")
-    c.showPage()
-    return 1
+            text_x = photo_x + photo_size + 8 * mm
+            max_text_width = PAGE_W - MARGIN - 6 * mm - text_x
+            c.setFillColor(INK)
+            c.setFont(FONT_B, 15)
+            c.drawString(text_x, y - 10 * mm, member.name)
+            if member.note:
+                c.setFillColor(MUTED)
+                c.setFont(FONT, 10)
+                # Fitted to the card - long notes ran off the page edge
+                # (live report).
+                c.drawString(
+                    text_x,
+                    y - 16.5 * mm,
+                    _fit(member.note, FONT, 10, max_text_width),
+                )
+            if member.summary:
+                # The personal part: what this person experienced on the
+                # trip, distilled from their photo captions.
+                c.setFillColor(TEAL)
+                c.setFont(FONT, 9.5)
+                summary_y = y - 23 * mm
+                for line in _wrap_lines(
+                    member.summary, FONT, 9.5, max_text_width, max_lines=4
+                ):
+                    c.drawString(text_x, summary_y, line)
+                    summary_y -= 4.6 * mm
+        pages += 1
+        _footer(c, str(1 + pages))
+        c.showPage()
+    return pages
 
 
 def _route_page(c, data: TripPdfData, page_number: int) -> int:
@@ -537,8 +588,27 @@ def _day_page(c, day: PdfDay, index: int, total: int, page_number: int) -> None:
         c.setFont(FONT, 10.5)
         c.drawString(MARGIN, PAGE_H - 38 * mm, "  ·  ".join(meta_parts))
 
-    photo_y = PAGE_H - 118 * mm
-    photo_h = 76 * mm
+    # Highlight chips: a tiny at-a-glance description of the day (live
+    # request: "eine kleine Beschreibung ... als Stichpunkte").
+    if day.highlights:
+        chip_y = PAGE_H - 47 * mm
+        x = MARGIN
+        c.setFont(FONT_B, 9)
+        for highlight in day.highlights[:4]:
+            label = _fit(highlight, FONT_B, 9, 62 * mm)
+            w = pdfmetrics.stringWidth(label, FONT_B, 9) + 11 * mm
+            if x + w > PAGE_W - MARGIN:
+                break
+            _rounded_rect(c, x, chip_y, w, 8 * mm, 4 * mm, WHITE, stroke=HexColor("#d8cfba"))
+            c.setFillColor(ORANGE)
+            c.circle(x + 4.4 * mm, chip_y + 4 * mm, 1.2 * mm, fill=1, stroke=0)
+            c.setFillColor(INK)
+            c.drawString(x + 7.2 * mm, chip_y + 2.6 * mm, label)
+            x += w + 4 * mm
+
+    content_top = PAGE_H - (56 * mm if day.highlights else 48 * mm)
+    photo_h = 72 * mm
+    photo_y = content_top - photo_h
     full_w = PAGE_W - 2 * MARGIN
     gap = 8 * mm
     decoded_photos = [decoded for photo in day.photos[:2] if (decoded := _decode_photo(photo))]
@@ -555,7 +625,7 @@ def _day_page(c, day: PdfDay, index: int, total: int, page_number: int) -> None:
     else:
         # No real, usable photo for this day - reclaim the photo area for
         # the stop list instead of drawing a generic icon filler.
-        list_top = PAGE_H - 52 * mm
+        list_top = content_top - 4 * mm
 
     # The day's stops as a real list with type and times - the old chip row
     # fit two or three names and left the rest of the page empty (live

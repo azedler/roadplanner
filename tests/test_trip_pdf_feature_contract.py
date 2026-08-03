@@ -20,7 +20,7 @@ init_source = (ROOT / "__init__.py").read_text(encoding="utf-8")
 assert "from .trip_pdf_export import TripPdfExporter" in init_source
 assert "from .trip_pdf_http import async_register_trip_pdf_view" in init_source
 assert "trip_pdf: TripPdfExporter" in init_source
-assert "trip_pdf = TripPdfExporter(hass, manager, experience)" in init_source
+assert "trip_pdf = TripPdfExporter(hass, manager, experience, provider)" in init_source
 assert "trip_pdf=trip_pdf," in init_source
 assert "async_register_trip_pdf_view(hass)" in init_source
 
