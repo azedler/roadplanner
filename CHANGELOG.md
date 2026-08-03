@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.22] - 2026-08-03
+
+### Fixed
+
+- The trip hero image no longer switches to photos taken outside the trip (live report: a Christmas-tree night shot became the cover of the July trip): trip-cover candidates whose timestamp provably lies outside the trip window (± 2 days) are excluded - photos without a parsable timestamp stay eligible, an explicitly user-chosen cover is never excluded.
+- The sticky trip cover now truly sticks: the currently chosen cover photo is kept in the candidate set even when new photo batches push it out of the local top ranking. Before, every larger OneDrive sync re-ranked the candidates, the old cover fell out of the top set, the stickiness guarantee lapsed and Vision picked a different hero image again ("Wir haben schon wieder ein anderes Bild"). An out-of-window cover is deliberately NOT retained - it gets replaced by an in-trip photo.
+
 ## [4.14.21] - 2026-08-03
 
 ### Changed

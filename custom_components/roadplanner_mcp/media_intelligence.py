@@ -496,11 +496,42 @@ def build_featured_media_indexes(
     }
 
 
+def _within_trip_window(
+    item: dict[str, Any],
+    *,
+    trip_start: Any,
+    trip_end: Any,
+) -> bool:
+    """True unless the photo's timestamp clearly lies OUTSIDE the trip.
+
+    A December photo must never become the hero image of a July trip (live
+    report: a Christmas-tree picture appeared as trip cover). Photos without
+    a parsable timestamp stay eligible - only a provable mismatch excludes.
+    An explicit user-selected trip cover is never excluded.
+    """
+    if item.get("is_trip_cover"):
+        return True
+    taken = _parse_datetime(item.get("taken_at") or item.get("created_at"))
+    if taken is None:
+        return True
+    start = _parse_datetime(f"{_text(trip_start)}T00:00:00+00:00")
+    end = _parse_datetime(f"{_text(trip_end)}T23:59:59+00:00")
+    margin = 2 * 24 * 3600
+    if start and taken.timestamp() < start.timestamp() - margin:
+        return False
+    if end and taken.timestamp() > end.timestamp() + margin:
+        return False
+    return True
+
+
 def select_trip_cover_candidates(
     media: Iterable[dict[str, Any]],
     *,
     limit: int = 12,
     transit_stop_ids: frozenset[str] = frozenset(),
+    trip_start: Any = None,
+    trip_end: Any = None,
+    sticky_cover_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return strong personal-photo candidates for trip-level curation.
 
@@ -509,18 +540,29 @@ def select_trip_cover_candidates(
     metadata so manual intent can always be preserved. ``transit_stop_ids``
     excludes photos automatically linked to a pure logistics stop (departure
     from home, a fuel stop, a border crossing) from competing for the
-    trip-wide cover.
+    trip-wide cover. ``trip_start``/``trip_end`` exclude photos provably
+    taken outside the trip. ``sticky_cover_id`` keeps the currently chosen
+    cover in the candidate set even when new photos push it out of the
+    local top ranking - otherwise the sticky-cover guarantee broke on every
+    larger photo sync and the trip hero image changed again and again.
     """
     eligible = [
         deepcopy(item)
         for item in media
         if isinstance(item, dict)
         and _automatic_cover_eligible(item, scope="trip", transit_stop_ids=transit_stop_ids)
+        and _within_trip_window(item, trip_start=trip_start, trip_end=trip_end)
     ]
-    selected, _stats = select_media_highlights(
-        eligible,
-        limit=max(1, min(int(limit), 15)),
-    )
+    bounded = max(1, min(int(limit), 15))
+    selected, _stats = select_media_highlights(eligible, limit=bounded)
+    sticky = _text(sticky_cover_id)
+    if sticky and not any(_text(item.get("id")) == sticky for item in selected):
+        keeper = next(
+            (deepcopy(item) for item in eligible if _text(item.get("id")) == sticky),
+            None,
+        )
+        if keeper is not None:
+            selected = [keeper, *selected][:bounded]
     return selected
 
 
