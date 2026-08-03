@@ -20,6 +20,7 @@ import uuid
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .assistant_provider import AssistantImageInput
 from .canonical_day import canonical_roadbook_stops
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError, ValidationError
@@ -151,11 +152,13 @@ class TripPdfExporter:
         manager: Any,
         experience: Any,
         provider: Any = None,
+        crew: Any = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
         self.experience = experience
         self.provider = provider
+        self.crew = crew
         self._tickets_lock = asyncio.Lock()
         self._tickets: dict[str, _PdfTicket] = {}
 
@@ -184,6 +187,66 @@ class TripPdfExporter:
             return " · ".join(captions[:2])[:200]
         text = str(getattr(result, "text", "") or "").strip()
         return text[:300] or " · ".join(captions[:2])[:200]
+
+    async def _async_person_vision_summary(
+        self, name: str, reference_photo: bytes, day_photos: list[bytes]
+    ) -> str:
+        """Recognize the person on the day photos via the reference face.
+
+        Bounded (reference + at most 10 already-downloaded photos), strictly
+        fail-open, and only claims what Vision confidently sees.
+        """
+        if (
+            self.provider is None
+            or not callable(getattr(self.provider, "async_analyze_images", None))
+            or not day_photos
+        ):
+            return ""
+        images = [
+            AssistantImageInput(
+                image_id="referenz",
+                data=reference_photo,
+                mime_type="image/jpeg",
+                label=f"Referenzfoto: Das ist {name}",
+            )
+        ]
+        for index, photo in enumerate(day_photos[:10]):
+            images.append(
+                AssistantImageInput(
+                    image_id=f"foto-{index + 1}",
+                    data=photo,
+                    mime_type="image/jpeg",
+                    label=f"Reisefoto {index + 1}",
+                )
+            )
+        try:
+            result = await self.provider.async_analyze_images(
+                system_instruction=(
+                    "Das erste Bild ist ein Referenzfoto und zeigt die Person "
+                    f"{name}. Prüfe, auf welchen der übrigen Reisefotos "
+                    "dieselbe Person eindeutig zu erkennen ist, und was sie "
+                    "dort gerade macht. Fasse das in maximal 2 kurzen, "
+                    "warmherzigen Sätzen auf Deutsch zusammen (dritte "
+                    "Person, keine Anführungszeichen, keine Emojis). Ist die "
+                    "Person auf keinem Foto sicher zu erkennen, gib einen "
+                    "leeren Text zurück. Beschreibe nur, was wirklich zu "
+                    "sehen ist."
+                ),
+                prompt=f"Was erlebt {name} auf diesen Reisefotos?",
+                images=images,
+                schema={
+                    "type": "object",
+                    "properties": {"summary": {"type": "string"}},
+                    "required": ["summary"],
+                },
+                max_output_tokens=400,
+            )
+        except RoadplannerError as err:
+            _LOGGER.debug(
+                "PDF person vision summary failed: %s", type(err).__name__
+            )
+            return ""
+        return str((result.value or {}).get("summary") or "").strip()[:300]
 
     async def async_generate(self, trip_id: str) -> bytes:
         trip_id = str(trip_id or "").strip()
@@ -246,24 +309,6 @@ class TripPdfExporter:
 
         session = async_get_clientsession(self.hass)
 
-        # Persönliche Crew-Karten: photo captions that mention a crew
-        # member's name yield their portrait photo and a short personal
-        # trip summary (live request: "bissel persönliches reinbringen").
-        for member in crew:
-            mentions = _media_mentioning(all_media, member.name)
-            if not mentions:
-                continue
-            member.photo = await async_fetch_media_photo(
-                session, self.experience, trip_id, mentions[0]
-            )
-            captions = [
-                str(item.get("caption") or "").strip()[:200]
-                for item in mentions[:6]
-                if str(item.get("caption") or "").strip()
-            ]
-            member.summary = await self._async_person_summary(
-                member.name, member.note, captions
-            )
         country_codes: set[str] = set()
         days: list[PdfDay] = []
         for day in days_raw:
@@ -309,6 +354,52 @@ class TripPdfExporter:
                     highlights=_day_highlights(stops, media_by_stop),
                 )
             )
+
+        day_photo_bytes = [photo for pdf_day in days for photo in pdf_day.photos][:10]
+        # Persönliche Crew-Karten (live request: "bissel persönliches
+        # reinbringen", "wer ist wer" ohne Bildunterschriften): the
+        # reference photo assigned in the crew settings is the portrait and
+        # the Vision reference face; photo captions mentioning the name
+        # stay as an additional source.
+        media_by_id = {
+            str(item.get("id") or ""): item for item in all_media
+        }
+        reference_by_name: dict[str, str] = {}
+        if self.crew is not None:
+            try:
+                crew_payload = await self.crew.async_panel_payload()
+            except (RoadplannerError, OSError):
+                crew_payload = {}
+            for person in crew_payload.get("people") or []:
+                if isinstance(person, dict) and person.get("reference_media_id"):
+                    reference_by_name[str(person.get("name") or "").casefold()] = str(
+                        person["reference_media_id"]
+                    )
+        for member in crew:
+            reference_id = reference_by_name.get(member.name.casefold(), "")
+            reference_item = media_by_id.get(reference_id)
+            mentions = _media_mentioning(all_media, member.name)
+            portrait_item = reference_item or (mentions[0] if mentions else None)
+            if portrait_item is None:
+                continue
+            member.photo = await async_fetch_media_photo(
+                session, self.experience, trip_id, portrait_item
+            )
+            captions = [
+                str(item.get("caption") or "").strip()[:200]
+                for item in mentions[:6]
+                if str(item.get("caption") or "").strip()
+            ]
+            member.summary = await self._async_person_summary(
+                member.name, member.note, captions
+            )
+            if not member.summary and member.photo and reference_item is not None:
+                # No captions at all: recognize the person on the already
+                # downloaded day photos via the reference face (bounded,
+                # fail-open).
+                member.summary = await self._async_person_vision_summary(
+                    member.name, member.photo, day_photo_bytes
+                )
 
         try:
             total_distance_km = float(summary.get("total_distance_km") or 0.0)

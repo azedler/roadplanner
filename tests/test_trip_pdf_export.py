@@ -370,5 +370,17 @@ assert "member.photo = await async_fetch_media_photo" in EXPORT_SOURCE, (
     "crew members get their portrait from a caption-matched personal photo"
 )
 assert "_async_person_summary" in EXPORT_SOURCE
+# "Wer ist wer" without captions: the reference photo assigned in the crew
+# settings wins as portrait, and Vision recognizes the person on the day
+# photos when no captions exist.
+assert "reference_by_name" in EXPORT_SOURCE
+assert "portrait_item = reference_item or (mentions[0] if mentions else None)" in EXPORT_SOURCE
+assert "_async_person_vision_summary" in EXPORT_SOURCE
+assert '"reference_media_id"' in (PACKAGE_ROOT / "crew_store.py").read_text(encoding="utf-8")
+CREW_UI_SOURCE = (PACKAGE_ROOT / "frontend/features/crew.js").read_text(encoding="utf-8")
+assert "crew-pick-reference" in CREW_UI_SOURCE
+assert 'name="reference_media_id"' in CREW_UI_SOURCE
+PANEL_UI_SOURCE = (PACKAGE_ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+assert "reference_media_id: cleanText(values.reference_media_id)" in PANEL_UI_SOURCE
 
 print("Trip PDF export tests passed.")

@@ -627,7 +627,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         provider=provider,
     )
 
-    trip_pdf = TripPdfExporter(hass, manager, experience, provider)
+    trip_pdf = TripPdfExporter(hass, manager, experience, provider, crew)
     trip_video = TripVideoExporter(
         hass,
         manager,
