@@ -370,7 +370,29 @@ def verify_day_highlights_are_deterministic() -> None:
 verify_media_mentioning_matches_whole_names_ranked()
 verify_day_highlights_are_deterministic()
 
+def verify_one_line_kills_the_notdef_boxes() -> None:
+    # Live report: "Besitzer von Notbert[]Mag Natur" - an embedded newline
+    # is drawn as a black .notdef box by reportlab.
+    assert export_module._one_line("Besitzer von Norbert\nMag Natur, Sauna") == (
+        "Besitzer von Norbert · Mag Natur, Sauna"
+    )
+    assert export_module._one_line("Lagotto\r\nSpitznamen: Nobbi\nBellt gern") == (
+        "Lagotto · Spitznamen: Nobbi · Bellt gern"
+    )
+    assert export_module._one_line("  schon\tsauber  ") == "schon · sauber"
+    assert export_module._one_line(None) == ""
+
+
+verify_one_line_kills_the_notdef_boxes()
+
 EXPORT_SOURCE = (PACKAGE_ROOT / "trip_pdf_export.py").read_text(encoding="utf-8")
+assert "route_map=await self._async_route_map(" in EXPORT_SOURCE, (
+    "the PDF route page must show the REAL route, not only a schematic"
+)
+assert "fit_center_zoom(" in EXPORT_SOURCE
+PDF_SOURCE = (PACKAGE_ROOT / "trip_pdf.py").read_text(encoding="utf-8")
+assert "real_map = _decode_photo(data.route_map)" in PDF_SOURCE
+assert "Die tatsächlich gefahrene Route." in PDF_SOURCE
 assert "member.photo = await async_fetch_media_photo" in EXPORT_SOURCE, (
     "crew members get their portrait from a caption-matched personal photo"
 )

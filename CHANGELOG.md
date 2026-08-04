@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.31] - 2026-08-04
+
+### Changed
+
+- The PDF route page now shows the REAL route on a real map (live report "Karte macht keinen Sinn"): a static map framed automatically around all travel days (OpenStreetMap or Google Static Maps, per the map_snapshot_provider option), with markers per day, attribution and a compact day legend below. The schematic zigzag remains only as the fallback when the trip has no coordinates yet.
+- The vehicle icon is now a high-roof camper van (sloped windscreen, raised roof, side window) instead of the boxy caravan trailer - "Das Fahrzeugsymbol passt nicht zu einem Nugget Hochdach Plus".
+
+### Fixed
+
+- Crew notes and stop/day titles no longer show black boxes where a line break was ("Besitzer von Notbert[]Mag Natur"): multi-line texts are collapsed into one readable line with "·" separators before rendering.
+- Photo downloads for PDF/video are far less likely to silently fail: the size cap rose from 6 MB to 30 MB (modern phone photos routinely exceed 6 MB and were dropped silently) and the timeout from 8 s to 25 s. Every failed download is now logged at WARNING with its concrete reason, and a photo-less video export names that reason in its error message instead of just "keine Fotos".
+
 ## [4.14.30] - 2026-08-03
 
 ### Fixed

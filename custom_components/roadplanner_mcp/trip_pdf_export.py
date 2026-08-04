@@ -22,6 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import AssistantImageInput
 from .canonical_day import canonical_roadbook_stops
+from .map_snapshot import async_fetch_snapshot, fit_center_zoom
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_day_photos, async_fetch_media_photo
@@ -125,6 +126,19 @@ _PERSON_SUMMARY_PROMPT = (
 )
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f  ]+")
+
+
+def _one_line(value: Any) -> str:
+    """Collapse newlines/control characters into a readable single line.
+
+    reportlab draws one line at a time - an embedded newline came out as a
+    black .notdef box ("Besitzer von Notbert[]Mag Natur", live report).
+    """
+    text = _CONTROL_CHARS_RE.sub(" · ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", text).replace(" · · ", " · ").strip(" ·").strip()
+
+
 def _optional_float(value: Any) -> float | None:
     try:
         number = float(value)
@@ -163,14 +177,70 @@ class TripPdfExporter:
         experience: Any,
         provider: Any = None,
         crew: Any = None,
+        *,
+        map_snapshot_provider: str = "openstreetmap",
+        google_maps_api_key: str | None = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
         self.experience = experience
         self.provider = provider
         self.crew = crew
+        self._map_snapshot_provider = map_snapshot_provider
+        self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
         self._tickets_lock = asyncio.Lock()
         self._tickets: dict[str, _PdfTicket] = {}
+
+    async def _async_route_map(
+        self, session: Any, days: list[dict[str, Any]]
+    ) -> bytes | None:
+        """Render the trip's REAL route as a static map, framed to fit.
+
+        Live report: "Karte macht keinen Sinn" - the schematic zigzag has
+        no relation to where the trip actually went. Fails open: without
+        coordinates or on any provider error the schematic stays.
+        """
+        points: list[tuple[float, float]] = []
+        for day in days:
+            for stop in canonical_roadbook_stops(day):
+                if not isinstance(stop, dict):
+                    continue
+                location = (
+                    stop.get("location")
+                    if isinstance(stop.get("location"), dict)
+                    else {}
+                )
+                try:
+                    latitude = float(location.get("latitude", location.get("lat")))
+                    longitude = float(
+                        location.get("longitude", location.get("lon", location.get("lng")))
+                    )
+                except (TypeError, ValueError):
+                    continue
+                if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                    points.append((latitude, longitude))
+                    break  # one marker per day keeps the map readable
+        if len(points) < 2:
+            return None
+        width_px, height_px = 1000, 720
+        center_lat, center_lon, zoom = fit_center_zoom(
+            points, width_px=width_px, height_px=height_px
+        )
+        try:
+            return await async_fetch_snapshot(
+                session,
+                self._map_snapshot_provider,
+                self._google_maps_api_key,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                markers=points[:40],
+                zoom=zoom,
+                width_px=width_px,
+                height_px=height_px,
+            )
+        except Exception as err:  # noqa: BLE001 - a missing map must not abort the PDF
+            _LOGGER.debug("PDF route map snapshot failed: %s", type(err).__name__)
+            return None
 
     async def _async_person_summary(
         self, name: str, note: str, captions: list[str]
@@ -275,9 +345,9 @@ class TripPdfExporter:
 
         crew = [
             PdfCrewMember(
-                name=str(item.get("name") or "").strip(),
+                name=_one_line(item.get("name")),
                 kind=(str(item.get("kind") or "person").strip().casefold() or "person"),
-                note=str(item.get("note") or "").strip(),
+                note=_one_line(item.get("note")),
             )
             for item in (trip.get("travelers") or [])
             if isinstance(item, dict) and str(item.get("name") or "").strip()
@@ -289,7 +359,7 @@ class TripPdfExporter:
         vehicle = (
             PdfVehicle(
                 name=vehicle_name,
-                note=str(vehicle_raw.get("description") or "").strip(),
+                note=_one_line(vehicle_raw.get("description")),
             )
             if vehicle_name
             else None
@@ -335,7 +405,7 @@ class TripPdfExporter:
             ]
             pdf_stops = [
                 PdfStop(
-                    name=str(stop.get("name") or ""),
+                    name=_one_line(stop.get("name")),
                     stop_type=str(stop.get("type") or ""),
                     arrival_time=str(stop.get("arrival_time") or ""),
                     departure_time=str(stop.get("departure_time") or ""),
@@ -362,7 +432,7 @@ class TripPdfExporter:
             )
             days.append(
                 PdfDay(
-                    title=str(day.get("title") or ""),
+                    title=_one_line(day.get("title")),
                     date=str(day.get("date") or ""),
                     stops=pdf_stops,
                     photos=photos,
@@ -438,6 +508,7 @@ class TripPdfExporter:
             days=days,
             total_distance_km=total_distance_km,
             country_count=len(country_codes),
+            route_map=await self._async_route_map(session, days_raw),
         )
         return await self.hass.async_add_executor_job(build_trip_pdf, data)
 

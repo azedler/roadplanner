@@ -22,8 +22,19 @@ from .roadplanner import RoadplannerError
 
 _LOGGER = logging.getLogger(__name__)
 
-MAX_PHOTO_BYTES = 6 * 1024 * 1024
-PHOTO_FETCH_TIMEOUT = ClientTimeout(total=8)
+# Modern phone photos routinely exceed 6 MB - the old cap silently dropped
+# them, which is why a trip with 255 memories produced photo-less exports.
+MAX_PHOTO_BYTES = 30 * 1024 * 1024
+PHOTO_FETCH_TIMEOUT = ClientTimeout(total=25)
+
+# Last concrete download failure, surfaced in the export's error message so
+# a photo-less export names its cause instead of just "keine Fotos".
+LAST_PHOTO_ERROR: dict[str, str] = {}
+
+
+def _record_photo_error(reason: str) -> None:
+    LAST_PHOTO_ERROR["reason"] = reason[:300]
+    _LOGGER.warning("Trip export photo download failed: %s", reason[:300])
 
 
 async def async_fetch_day_photos(
@@ -126,11 +137,9 @@ async def async_fetch_media_photo(
         try:
             url = await experience.async_media_redirect_url(trip_id, media_id, kind)
         except (RoadplannerError, KeyError) as err:
-            _LOGGER.info(
-                "Trip export could not resolve a personal photo (%s/%s): %s",
-                media_id,
-                kind,
-                type(err).__name__,
+            _record_photo_error(
+                f"OneDrive-Link für Foto {media_id} ({kind}) nicht auflösbar: "
+                f"{err}"
             )
             continue
         if not str(url or "").casefold().startswith("https://"):
@@ -179,18 +188,21 @@ async def async_download_photo(session: Any, url: str) -> bytes | None:
             url, timeout=PHOTO_FETCH_TIMEOUT, allow_redirects=True
         ) as response:
             if response.status != 200:
+                _record_photo_error(f"HTTP {response.status} beim Bild-Download")
                 return None
             if (
                 response.content_length is not None
                 and response.content_length > MAX_PHOTO_BYTES
             ):
+                _record_photo_error(
+                    f"Bild zu groß ({response.content_length // 1_000_000} MB)"
+                )
                 return None
             body = await response.content.read(MAX_PHOTO_BYTES + 1)
             if len(body) > MAX_PHOTO_BYTES:
+                _record_photo_error("Bild überschreitet das Größenlimit")
                 return None
             return body
     except (ClientError, TimeoutError, asyncio.TimeoutError) as err:
-        _LOGGER.debug(
-            "Trip export could not fetch a destination photo: %s", type(err).__name__
-        )
+        _record_photo_error(f"Netzwerkfehler beim Bild-Download ({type(err).__name__})")
         return None
