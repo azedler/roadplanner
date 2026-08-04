@@ -228,6 +228,33 @@ def verify_stock_gallery_skips_google_primary_to_next_image() -> None:
     assert "https://g/x" not in session.requested
 
 
+def verify_every_source_is_checked_not_just_personal_media() -> None:
+    """Gallery images go through the same format gate as personal photos.
+
+    Live report: "8 Fotos und 0 Kartenbilder wurden geladen, aber keines
+    davon ließ sich als Bild öffnen." Those eight came from planning
+    galleries, which downloaded straight past the format check - they
+    counted as loaded photos while no renderer could open one of them.
+    """
+    heic = b"\x00\x00\x00\x18ftypheic" + b"x" * 512
+    session = FakeSession({"https://cdn/gallery.heic": heic})
+    galleries = {
+        "stop-1": {"images": [{"id": "g1", "image_url": "https://cdn/gallery.heic"}]}
+    }
+    assert (
+        asyncio.run(module.async_fetch_stock_stop_photo(session, "stop-1", galleries))
+        is None
+    ), "an unopenable gallery image must not be reported as a loaded photo"
+    assert "HEIC" in module.LAST_PHOTO_ERROR.get("reason", "")
+
+    # The format is named, so the message points at the actual problem.
+    assert module._format_name(b"<!DOCTYPE html><html>" + b"x" * 200) == (
+        "HTML-Seite statt Bild"
+    )
+    assert module._format_name(b"\x00\x00\x00\x18ftypavif" + b"x" * 20) == "AVIF"
+    assert module._format_name(jpeg(b"X")) == "JPEG"
+
+
 def verify_day_linked_photos_fill_the_remaining_slots() -> None:
     # THE live cause of "Für diese Reise wurden keine Fotos für das Video
     # gefunden" on a trip with 255 memories: photos assigned to a DAY but
@@ -362,6 +389,7 @@ if __name__ == "__main__":
     verify_personal_photo_falls_back_to_thumbnail_and_next_candidate()
     verify_a_cached_heic_can_never_poison_the_thumbnail_request()
     verify_stock_gallery_skips_google_primary_to_next_image()
+    verify_every_source_is_checked_not_just_personal_media()
     verify_day_linked_photos_fill_the_remaining_slots()
     verify_heic_is_named_as_the_undecodable_format()
     verify_crop_photo_cuts_the_face_region()

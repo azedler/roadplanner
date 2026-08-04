@@ -32,6 +32,18 @@ _LOGGER = logging.getLogger(__name__)
 MAX_SNAPSHOT_BYTES = 3 * 1024 * 1024
 SNAPSHOT_FETCH_TIMEOUT = ClientTimeout(total=8)
 
+# Last concrete snapshot failure, surfaced in the export's error message.
+# "0 Kartenbilder" on its own gave no clue whether the tile server was
+# unreachable, the API key missing, or Pillow unable to assemble the image
+# (live report on the video export).
+LAST_SNAPSHOT_ERROR: dict[str, str] = {}
+
+
+def _record_snapshot_error(reason: str) -> None:
+    LAST_SNAPSHOT_ERROR["reason"] = reason[:300]
+    _LOGGER.warning("Map snapshot failed: %s", reason[:300])
+
+
 _OSM_TILE_SIZE = 256
 _OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 _OSM_USER_AGENT = "Roadplanner-HomeAssistant/1.0 (+https://github.com/azedler/roadplanner)"
@@ -122,7 +134,9 @@ async def async_fetch_snapshot(
             height_px=height_px,
         )
     except Exception as err:  # noqa: BLE001 - a map snapshot must never abort the export
-        _LOGGER.debug("Map snapshot fetch failed: %s", type(err).__name__)
+        _record_snapshot_error(
+            f"Kartenbild konnte nicht erzeugt werden ({type(err).__name__})"
+        )
         return None
 
 
@@ -153,6 +167,10 @@ async def _async_fetch_google_static_map(
             _GOOGLE_STATIC_MAPS_URL, params=params, timeout=SNAPSHOT_FETCH_TIMEOUT
         ) as response:
             if response.status != 200:
+                _record_snapshot_error(
+                    f"Google Static Maps antwortete mit HTTP {response.status} - "
+                    "ist die Static Maps API für den Schlüssel freigeschaltet?"
+                )
                 return None
             if (
                 response.content_length is not None
@@ -164,7 +182,9 @@ async def _async_fetch_google_static_map(
                 return None
             return body
     except (ClientError, TimeoutError) as err:
-        _LOGGER.debug("Google Static Maps fetch failed: %s", type(err).__name__)
+        _record_snapshot_error(
+            f"Google Static Maps nicht erreichbar ({type(err).__name__})"
+        )
         return None
 
 
@@ -196,6 +216,7 @@ async def _async_fetch_osm_snapshot(
         # A sane upper bound - this should never happen at the zoom levels
         # this module is expected to be called with, but a corrupt/extreme
         # zoom value must not turn into an unbounded download burst.
+        _record_snapshot_error(f"Zoomstufe {zoom} bräuchte {tile_count} Kacheln")
         return None
 
     n = 2**zoom
@@ -219,6 +240,10 @@ async def _async_fetch_osm_snapshot(
             canvas.paste(tile_image, (paste_x, paste_y))
 
     if not any_tile_fetched:
+        _record_snapshot_error(
+            "Keine einzige Kartenkachel von tile.openstreetmap.org erhalten - "
+            "erreicht Home Assistant den Kachelserver?"
+        )
         return None
 
     draw = ImageDraw.Draw(canvas)

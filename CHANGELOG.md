@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.18.1] - 2026-08-04
+
+### Fixed
+
+- "8 Fotos und 0 Kartenbilder wurden geladen, aber keines davon ließ sich als Bild öffnen" (live report): the format check added in 4.17.1 only covered personal media. Planning-gallery images downloaded straight past it, counted as loaded photos, and then failed in the renderer. Every download now goes through the same gate, whatever its source.
+- The rejection names the format that actually arrived - HEIC, AVIF, GIF, or an HTML/JSON page behind the URL instead of an image - so the message points at the real problem.
+- "0 Kartenbilder" said nothing about why. Map snapshots now record their concrete failure (no tile reachable from tile.openstreetmap.org, a Google Static Maps HTTP status, an assembly error) and the export's error message carries it.
+- "OneDrive ist derzeit nicht erreichbar" covered a timeout, a network error and an unreadable response alike. Each now says which one it was.
+
 ## [4.18.0] - 2026-08-04
 
 ### Changed

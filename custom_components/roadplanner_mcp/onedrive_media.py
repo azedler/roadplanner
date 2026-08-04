@@ -67,6 +67,20 @@ def normalize_onedrive_folder_path(
     return path
 
 
+def _unreachable_reason(err: Exception) -> str:
+    """Name WHY OneDrive was unreachable - the three causes need three fixes.
+
+    "OneDrive ist derzeit nicht erreichbar" covered a timeout, a network
+    error and an unparseable response alike, and turned up verbatim in an
+    export failure (live report) with nothing to act on.
+    """
+    if isinstance(err, asyncio.TimeoutError):
+        return "OneDrive hat nicht rechtzeitig geantwortet (Zeitüberschreitung)"
+    if isinstance(err, ValueError):
+        return "OneDrive hat eine unlesbare Antwort geliefert"
+    return f"OneDrive war nicht erreichbar ({type(err).__name__})"
+
+
 class OneDriveError(RoadplannerError):
     """Raised for a sanitized OneDrive failure."""
 
@@ -358,7 +372,7 @@ class OneDrivePersonalClient:
             async with self._session.get(url, params=params, headers=headers, timeout=60, allow_redirects=False) as response:
                 payload = await response.json(content_type=None)
         except (ClientError, asyncio.TimeoutError, ValueError) as err:
-            raise OneDriveError("OneDrive ist derzeit nicht erreichbar") from err
+            raise OneDriveError(_unreachable_reason(err)) from err
         if response.status == 401:
             self._data["expires_at_epoch"] = 0
             token = await self._ensure_access_token()
@@ -367,7 +381,7 @@ class OneDrivePersonalClient:
                 async with self._session.get(url, params=params, headers=headers, timeout=60, allow_redirects=False) as response:
                     payload = await response.json(content_type=None)
             except (ClientError, asyncio.TimeoutError, ValueError) as err:
-                raise OneDriveError("OneDrive ist derzeit nicht erreichbar") from err
+                raise OneDriveError(_unreachable_reason(err)) from err
         if response.status != 200 or not isinstance(payload, dict):
             message = ""
             if isinstance(payload, dict) and isinstance(payload.get("error"), dict):

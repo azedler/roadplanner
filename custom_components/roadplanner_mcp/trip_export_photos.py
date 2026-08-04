@@ -34,6 +34,35 @@ PHOTO_FETCH_TIMEOUT = ClientTimeout(total=25)
 LAST_PHOTO_ERROR: dict[str, str] = {}
 
 
+def _format_name(data: bytes) -> str:
+    """Name what actually arrived, so an error can be acted on.
+
+    "kein Bild" says nothing; "HEIC" points at the phone, "HTML" at a login
+    or error page behind the URL.
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return "JPEG"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "PNG"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "WEBP"
+    if data[4:8] == b"ftyp":
+        brand = data[8:12].decode("ascii", errors="replace")
+        if brand.startswith(("avif", "avis")):
+            return "AVIF"
+        if brand.startswith(("heic", "heix", "hevc", "mif1", "msf1")):
+            return "HEIC"
+        return f"ISO-Medienformat {brand}"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "GIF"
+    head = data[:200].lstrip().lower()
+    if head.startswith((b"<!doctype", b"<html", b"<?xml")):
+        return "HTML-Seite statt Bild"
+    if head.startswith(b"{"):
+        return "JSON-Antwort statt Bild"
+    return "unbekanntes Format"
+
+
 def _record_photo_error(reason: str) -> None:
     LAST_PHOTO_ERROR["reason"] = reason[:300]
     _LOGGER.warning("Trip export photo download failed: %s", reason[:300])
@@ -295,6 +324,18 @@ async def async_download_photo(session: Any, url: str) -> bytes | None:
             body = await response.content.read(MAX_PHOTO_BYTES + 1)
             if len(body) > MAX_PHOTO_BYTES:
                 _record_photo_error("Bild überschreitet das Größenlimit")
+                return None
+            if not is_decodable_image(body):
+                # EVERY source is checked here, not only personal media:
+                # gallery images from shared pages arrive as HEIC/AVIF or as
+                # an error page just as easily, and they counted as "loaded
+                # photos" while no renderer could open a single one (live
+                # report: "8 Fotos ... keines davon ließ sich als Bild
+                # öffnen").
+                _record_photo_error(
+                    f"Bild kam als {_format_name(body)} an - dieses Format "
+                    "kann Home Assistant nicht öffnen"
+                )
                 return None
             return body
     except (ClientError, TimeoutError, asyncio.TimeoutError) as err:
