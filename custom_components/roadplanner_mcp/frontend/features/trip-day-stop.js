@@ -243,7 +243,7 @@ export const tripDayStopMixin = {
             <button class="secondary-button" type="button" data-tab="archive"><ha-icon icon="mdi:file-document-multiple-outline"></ha-icon> Dokumente & Kosten</button>
           </div>
           <div class="settings-list">
-            ${this._valueRow("Roadplanner", this._data.integration_version)}
+            ${this._valueRow("Roadplanner", this._versionSummary())}
             ${this._valueRow("Zugriff", this._statusLabel(this._data.capabilities?.role || "viewer"))}
             ${this._settingRow("Straßenrouting", settings.routing_configured)}
             ${this._settingRow("Externe Google-Drive-Bridge", settings.handoff_webhook_enabled)}

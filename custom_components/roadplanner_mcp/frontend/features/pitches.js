@@ -430,6 +430,13 @@ export const pitchesMixin = {
       this._showToast("Bitte zuerst einen Link einfügen (https://…).", "error", 5000);
       return;
     }
+    const diagnosisElement = form.querySelector("[data-link-diagnosis]");
+    if (diagnosisElement) {
+      // Visible the moment the button is pressed, so a lookup that never
+      // reaches the backend is distinguishable from one that returns empty.
+      diagnosisElement.textContent = "Link wird gelesen …";
+      diagnosisElement.hidden = false;
+    }
     const result = await this._runAction("place_link_lookup", { url }, "", {
       refresh: false,
       errorTitle: "Link konnte nicht gelesen werden",
@@ -438,11 +445,11 @@ export const pitchesMixin = {
     // What the read actually did stays visible in the form (not only in a
     // toast that fades): a lookup that "runs without an error but does
     // nothing" is otherwise impossible to diagnose from a phone.
-    const diagnosisNote = form.querySelector("[data-link-diagnosis]");
-    if (diagnosisNote) {
+    if (diagnosisElement) {
       const diagnosis = cleanText(facts?.diagnosis);
-      diagnosisNote.textContent = diagnosis ? `Leseergebnis - ${diagnosis}` : "";
-      diagnosisNote.hidden = !diagnosis;
+      diagnosisElement.textContent = diagnosis
+        ? `Leseergebnis - ${diagnosis}`
+        : "Leseergebnis - keine Auskunft erhalten (ältere Version?)";
     }
     if (!facts) return;
     // Prefill only - the option is saved exclusively via the submit button.

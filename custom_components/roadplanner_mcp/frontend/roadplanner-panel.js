@@ -912,8 +912,21 @@ class RoadplannerPanel extends HTMLElement {
       void this._runPlaceLinkLookup(cleanText(target.dataset.stopId));
     } else if (action === "assistant-scroll-basket") {
       this.shadowRoot?.querySelector(".assistant-basket")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else if (action === "pitch-option-link-lookup" && this._canEdit()) {
-      void this._runPitchOptionLinkLookup(target.closest("form[data-form='pitch-option']"));
+    } else if (action === "pitch-option-link-lookup") {
+      // Never a dead button: without edit rights the press explains itself
+      // instead of doing nothing at all (live report: "Es erscheint
+      // weiterhin keine Fehler" - and nothing else either).
+      if (this._canEdit()) {
+        void this._runPitchOptionLinkLookup(target.closest("form[data-form='pitch-option']"));
+      } else {
+        this._showToast(
+          this._data?.selected_is_active
+            ? "Zum Lesen von Links fehlt dir die Bearbeitungsberechtigung."
+            : "Diese Reise ist nicht die aktive Planung - Links können hier nicht übernommen werden.",
+          "error",
+          6000,
+        );
+      }
     } else if (action === "place-enrichment-submit") {
       void this._submitPlaceEnrichment();
     } else if (action === "integrity-open-day") {
@@ -2281,6 +2294,17 @@ class RoadplannerPanel extends HTMLElement {
       <p>${escapeHtml(this._error)}</p>
       <button class="primary-button" type="button" data-action="refresh">Erneut versuchen</button>
     </div>`;
+  }
+
+  _versionSummary() {
+    // Backend AND loaded interface, side by side. Without this pair, "the
+    // new function is missing" and "the panel is still the old one" look
+    // identical from a phone - which cost several rounds of guesswork.
+    const backendVersion = cleanText(this._data?.integration_version);
+    if (!LOADED_MODULE_VERSION || LOADED_MODULE_VERSION === backendVersion) {
+      return backendVersion;
+    }
+    return `${backendVersion} · Oberfläche ${LOADED_MODULE_VERSION}`;
   }
 
   _renderStaleModuleNotice() {

@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.16.1] - 2026-08-04
+
+### Fixed
+
+- "Link lesen und übernehmen" could do absolutely nothing when pressed - no error, no filled field, no note (live report). Without edit rights, or on a trip that is not the active plan, the press was swallowed by a permission check. It now says which of the two applies.
+- The form shows "Link wird gelesen …" the moment the button is pressed and always ends with a verdict, including "keine Auskunft erhalten (ältere Version?)" when an older backend answers. A press that never reaches the backend is no longer indistinguishable from one that returns empty.
+
+### Changed
+
+- "Werkzeuge & System" now shows the loaded interface version next to the running integration version whenever they differ. A missing new function and a panel that is still the old one looked identical from a phone.
+
 ## [4.16.0] - 2026-08-04
 
 ### Added
