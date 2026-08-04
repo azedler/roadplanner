@@ -37,6 +37,7 @@ from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import LAST_PHOTO_ERROR, async_fetch_day_photos
 from .trip_video import (
+    LAST_FRAME_ERROR,
     TripVideoData,
     VideoChapter,
     build_ffmpeg_filter_graph,
@@ -410,13 +411,25 @@ class TripVideoExporter:
                 # looked exactly like the first and sent the search in the
                 # wrong direction (live report on a trip with 261 memories).
                 if photos_total or maps_total:
+                    # The DECODING failure is the one that matters here -
+                    # these bytes already passed every download check, so
+                    # the download error (if any) is a different story
+                    # (live report: "Letzter Fehler: kein konkreter Fehler
+                    # erfasst" while all eight frames failed to open).
                     reason = (
-                        LAST_PHOTO_ERROR.get("reason") or "kein konkreter Fehler erfasst"
+                        LAST_FRAME_ERROR.get("reason")
+                        or LAST_PHOTO_ERROR.get("reason")
+                        or "kein konkreter Fehler erfasst"
                     )
                     raise ValidationError(
                         f"{photos_total} Fotos und {maps_total} Kartenbilder wurden "
                         "geladen, aber keines davon ließ sich als Bild öffnen. "
                         f"Letzter Fehler: {reason}"
+                        + (
+                            f" · Karten: {LAST_SNAPSHOT_ERROR['reason']}"
+                            if not maps_total and LAST_SNAPSHOT_ERROR.get("reason")
+                            else ""
+                        )
                     )
                 map_reason = LAST_SNAPSHOT_ERROR.get("reason")
                 photo_reason = LAST_PHOTO_ERROR.get("reason")

@@ -27,6 +27,8 @@ from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
 
+from .http_read import async_read_bounded
+
 _LOGGER = logging.getLogger(__name__)
 
 MAX_SNAPSHOT_BYTES = 3 * 1024 * 1024
@@ -177,8 +179,9 @@ async def _async_fetch_google_static_map(
                 and response.content_length > MAX_SNAPSHOT_BYTES
             ):
                 return None
-            body = await response.content.read(MAX_SNAPSHOT_BYTES + 1)
-            if len(body) > MAX_SNAPSHOT_BYTES:
+            body = await async_read_bounded(response, MAX_SNAPSHOT_BYTES)
+            if body is None:
+                _record_snapshot_error("Kartenbild überschreitet das Größenlimit")
                 return None
             return body
     except (ClientError, TimeoutError) as err:
@@ -285,7 +288,7 @@ async def _async_fetch_osm_tile(session: Any, zoom: int, x: int, y: int) -> byte
         ) as response:
             if response.status != 200:
                 return None
-            body = await response.content.read(1024 * 1024)
+            body = await async_read_bounded(response, 1024 * 1024)
             return body
     except (ClientError, TimeoutError) as err:
         _LOGGER.debug("OpenStreetMap tile fetch failed: %s", type(err).__name__)

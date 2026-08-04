@@ -18,6 +18,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
 
+from .http_read import async_read_bounded
 from .media_cache import cache_key, is_decodable_image
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError
@@ -321,8 +322,8 @@ async def async_download_photo(session: Any, url: str) -> bytes | None:
                     f"Bild zu groß ({response.content_length // 1_000_000} MB)"
                 )
                 return None
-            body = await response.content.read(MAX_PHOTO_BYTES + 1)
-            if len(body) > MAX_PHOTO_BYTES:
+            body = await async_read_bounded(response, MAX_PHOTO_BYTES)
+            if body is None:
                 _record_photo_error("Bild überschreitet das Größenlimit")
                 return None
             if not is_decodable_image(body):

@@ -59,7 +59,13 @@ class FakeResponse:
         self.content_length = len(body)
         self.content = self
 
-    async def read(self, _limit: int) -> bytes:
+    async def iter_chunked(self, _size: int):
+        # aiohttp streams in chunks; a single read() returns only the first
+        # one, which used to truncate every photo silently.
+        for start in range(0, len(self._body), 512):
+            yield self._body[start:start + 512]
+
+    async def read(self, _limit: int = -1) -> bytes:
         return self._body
 
     async def __aenter__(self):

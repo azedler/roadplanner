@@ -22,6 +22,30 @@ from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
 
+# Last concrete frame-decoding failure. Downloading and decoding are two
+# separate steps: bytes can pass every download check and still not open,
+# and that second failure had no record anywhere.
+LAST_FRAME_ERROR: dict[str, str] = {}
+
+
+def _frame_format_name(data: bytes) -> str:
+    """Name the arriving format without importing the async photo module.
+
+    This module stays free of package-internal imports so it can be loaded
+    and tested on its own; the sniffing itself is a two-line fallback.
+    """
+    try:
+        from .trip_export_photos import _format_name
+    except ImportError:
+        return "unbekanntes Format"
+    return _format_name(data)
+
+
+def _record_frame_error(reason: str) -> None:
+    LAST_FRAME_ERROR["reason"] = reason[:300]
+    _LOGGER.warning("Video frame could not be decoded: %s", reason[:300])
+
+
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
 DEFAULT_FPS = 30
@@ -68,10 +92,13 @@ def _decode_and_fit(image_bytes: bytes | None, target_w: int, target_h: int):
         image.load()
         image = image.convert("RGB")
     except Exception as err:  # noqa: BLE001 - a corrupt/unsupported/truncated frame must not abort the render
-        _LOGGER.warning(
-            "Video frame could not be decoded (%d Bytes): %s",
-            len(image_bytes),
-            type(err).__name__,
+        # The DOWNLOAD errors were already reported; a failure here happens
+        # afterwards and had no record at all, so the export could only say
+        # "kein konkreter Fehler erfasst" while every single frame failed
+        # (live report). Name the format, the size and the exception.
+        _record_frame_error(
+            f"{_frame_format_name(image_bytes)}, {len(image_bytes)} Bytes: "
+            f"{type(err).__name__}: {err}"
         )
         return None
     if image.width <= 0 or image.height <= 0:

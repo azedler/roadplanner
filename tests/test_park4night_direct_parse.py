@@ -79,13 +79,19 @@ def verify_direct_fetch_precedes_ai_and_falls_back() -> None:
         status = 200
 
         def __init__(self, body: bytes) -> None:
-            self.content = types.SimpleNamespace(
-                read=self._read
-            )
             self._body = body
+            self.content = types.SimpleNamespace(
+                iter_chunked=self._iter_chunked, read=self._read
+            )
 
-        async def _read(self, _limit: int) -> bytes:
-            return self._body
+        async def _iter_chunked(self, _size: int):
+            # Chunked exactly like aiohttp: a single read() would only
+            # return the first chunk and silently truncate the page.
+            for start in range(0, len(self._body), 256):
+                yield self._body[start:start + 256]
+
+        async def _read(self, _limit: int = -1) -> bytes:
+            return self._body[:256]
 
         async def __aenter__(self):
             return self

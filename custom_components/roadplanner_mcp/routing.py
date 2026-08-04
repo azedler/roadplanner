@@ -23,6 +23,7 @@ from aiohttp import ClientError, ClientSession
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import INTEGRATION_VERSION
+from .http_read import async_read_bounded
 from .roadplanner import RoadplannerError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
@@ -471,8 +472,8 @@ class OSRMRoutingClient:
                             headers=headers,
                             allow_redirects=False,
                         ) as response:
-                            raw_body = await response.content.read(_MAX_RESPONSE_BYTES + 1)
-                            if len(raw_body) > _MAX_RESPONSE_BYTES:
+                            raw_body = await async_read_bounded(response, _MAX_RESPONSE_BYTES)
+                            if raw_body is None:
                                 self._health.failed_requests += 1
                                 self._health.last_error_at = _utc_now_iso()
                                 self._health.last_error = "Antwort zu groß"

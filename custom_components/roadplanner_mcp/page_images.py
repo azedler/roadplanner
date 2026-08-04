@@ -30,6 +30,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import INTEGRATION_VERSION
 from .destination_intelligence import _URL_RE, _google_maps_host
+from .http_read import async_read_capped
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -412,7 +413,7 @@ async def async_fetch_page_place(
                 # JSON payload that can sit well past the first few hundred
                 # kilobytes, so the place read gets a bigger budget than the
                 # photo read.
-                raw = await response.content.read(_MAX_PLACE_PAGE_BYTES)
+                raw = await async_read_capped(response, _MAX_PLACE_PAGE_BYTES)
     except TimeoutError:
         return {"read_status": "timeout"}
     except ClientError as err:
@@ -515,7 +516,7 @@ async def async_fetch_page_images(
             async with session.get(url, headers=_page_request_headers()) as response:
                 if response.status != 200:
                     return []
-                raw = await response.content.read(_MAX_PAGE_BYTES)
+                raw = await async_read_capped(response, _MAX_PAGE_BYTES)
     except (ClientError, TimeoutError):
         return []
     return extract_page_images(

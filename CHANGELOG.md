@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.20.0] - 2026-08-05
+
+### Fixed
+
+- **Every download was silently truncated.** `await response.content.read(limit)` looks like "read up to limit bytes", and that is the trap: aiohttp returns whatever is *currently buffered*, without waiting for the rest. On a streaming response that is the first chunk. Roadplanner used that call for every download, so bodies arriving in more than one chunk lost everything after the first one - with no error anywhere. This one defect explains a whole chain of live reports that looked unrelated:
+  - "8 Fotos und 0 Kartenbilder wurden geladen, aber keines davon ließ sich als Bild öffnen": the JPEG header was intact, the rest of the file was missing.
+  - "0 Kartenbilder": a truncated PNG tile cannot be decoded, so the map assembly found no usable tile at all.
+  - A shared place page that "contained no GPS": the coordinates sat past the first chunk.
+  - Every export that produced a PDF or video without a single photo.
+- All downloads now read to the end and reject an oversized body while streaming, instead of buffering it first: photos, map tiles and snapshots, shared pages, Park4Night pages, Google-Maps previews, vision images, routing and exchange-rate responses, plus the webhook and Drive-import upload bodies.
+- A frame that fails to decode is now recorded with its format, size and error. Downloading and decoding are separate steps, and the second one had no record at all - which is why the export could only say "Letzter Fehler: kein konkreter Fehler erfasst" while every single frame failed.
+
 ## [4.19.1] - 2026-08-05
 
 ### Changed

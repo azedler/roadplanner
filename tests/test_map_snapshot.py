@@ -18,12 +18,24 @@ aiohttp_stub.ClientError = type("ClientError", (Exception,), {})
 aiohttp_stub.ClientTimeout = lambda *args, **kwargs: None
 sys.modules.setdefault("aiohttp", aiohttp_stub)
 
-MODULE_PATH = Path("custom_components/roadplanner_mcp/map_snapshot.py")
-spec = spec_from_file_location("roadplanner_map_snapshot_test", MODULE_PATH)
-assert spec and spec.loader
-module = module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
+PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
+PACKAGE_NAME = "roadplanner_map_snapshot_test"
+package = types.ModuleType(PACKAGE_NAME)
+package.__path__ = [str(PACKAGE_ROOT)]
+sys.modules[PACKAGE_NAME] = package
+
+
+def load(name: str):
+    spec = spec_from_file_location(f"{PACKAGE_NAME}.{name}", PACKAGE_ROOT / f"{name}.py")
+    assert spec and spec.loader
+    loaded = module_from_spec(spec)
+    sys.modules[spec.name] = loaded
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+load("http_read")
+module = load("map_snapshot")
 
 
 def _png_bytes(color=(30, 120, 90), size=(256, 256)) -> bytes:
@@ -36,11 +48,25 @@ def _png_bytes(color=(30, 120, 90), size=(256, 256)) -> bytes:
 
 
 class _FakeContentReader:
-    def __init__(self, body: bytes) -> None:
-        self._body = body
+    """Streams the body in chunks, exactly like aiohttp does.
 
-    async def read(self, _max_bytes: int) -> bytes:
-        return self._body
+    The old fake returned the whole body from a single read() call, which
+    hid the bug this fake now reproduces: aiohttp's read(n) returns only
+    what is buffered, so a body arriving in several chunks was silently
+    truncated.
+    """
+
+    def __init__(self, body: bytes, *, chunk_size: int = 512) -> None:
+        self._body = body
+        self._chunk_size = chunk_size
+
+    async def iter_chunked(self, _size: int):
+        for start in range(0, len(self._body), self._chunk_size):
+            yield self._body[start:start + self._chunk_size]
+
+    async def read(self, max_bytes: int = -1) -> bytes:
+        # aiohttp semantics: at most ONE buffered chunk, never the rest.
+        return self._body[: self._chunk_size if max_bytes < 0 else min(max_bytes, self._chunk_size)]
 
 
 class _FakeResponse:
