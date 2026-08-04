@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.18.2] - 2026-08-04
+
+### Changed
+
+- The crew list shows the person's assigned trip photo instead of a generic silhouette (live request: "Wenn ein Bild zugeordnet ist sollten wir dieses anstatt des Symbols zeigen"). If a crop was set on a group photo, the avatar zooms into exactly that region, so the right face is shown. Without an assigned photo - or if the assigned one is no longer in the trip - the icon stays.
+
 ## [4.18.1] - 2026-08-04
 
 ### Fixed

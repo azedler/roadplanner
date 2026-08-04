@@ -27,10 +27,35 @@ export const crewMixin = {
       ${retiredVehicles.length ? `<details class="crew-retired"><summary>Stillgelegte Fahrzeuge (${retiredVehicles.length})</summary><ul class="crew-list">${retiredVehicles.map((vehicle) => this._renderCrewVehicleRow(vehicle, canEdit)).join("")}</ul></details>` : ""}</section>`;
   },
 
-  _renderCrewPersonRow(person, canEdit) {
+  _crewPersonAvatar(person) {
+    // The assigned trip photo IS the person's face here - showing a generic
+    // silhouette next to it was pointless (live request: "Wenn ein Bild
+    // zugeordnet ist sollten wir dieses anstatt des Symbols zeigen"). The
+    // chosen crop decides which part of a group photo is shown, using the
+    // same numbers the picker stores.
     const icon = person.kind === "dog" ? "mdi:dog-side" : "mdi:account-outline";
+    const reference = String(person.reference_media_id || "");
+    const item = reference
+      ? this._crewPickerPhotos().find((photo) => photo.id === reference)
+      : null;
+    const url = item ? this._safeUrl(item.thumbnail_url || item.original_url) : "";
+    if (!url) return `<ha-icon icon="${icon}"></ha-icon>`;
+    const crop = person.reference_crop;
+    let style = "";
+    if (crop && crop.w > 0 && crop.h > 0) {
+      // Scale the photo so the crop box fills the avatar, then shift the
+      // crop's centre into the middle of it.
+      const zoom = 1 / Math.min(crop.w, crop.h);
+      const x = (crop.x + crop.w / 2) * 100;
+      const y = (crop.y + crop.h / 2) * 100;
+      style = `transform:scale(${zoom.toFixed(2)});transform-origin:${x.toFixed(1)}% ${y.toFixed(1)}%`;
+    }
+    return `<span class="crew-row-avatar"><img src="${escapeHtml(url)}" alt="${escapeHtml(person.name)}" loading="lazy" style="${style}"></span>`;
+  },
+
+  _renderCrewPersonRow(person, canEdit) {
     return `<li class="crew-row ${person.active ? "" : "inactive"}">
-      <ha-icon icon="${icon}"></ha-icon>
+      ${this._crewPersonAvatar(person)}
       <div class="crew-row-body"><strong>${escapeHtml(person.name)}</strong>${person.note ? `<span>${escapeHtml(person.note)}</span>` : ""}</div>
       ${canEdit ? `<div class="button-row">
         <button class="icon-button" type="button" data-action="edit-crew-person" data-person-id="${escapeHtml(person.id)}" title="Bearbeiten" aria-label="${escapeHtml(person.name)} bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>
