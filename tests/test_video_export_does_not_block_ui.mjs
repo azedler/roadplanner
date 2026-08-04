@@ -89,4 +89,30 @@ const videoResult = await videoCallPromise;
 assert.equal(videoResult.download_url, "/api/roadplanner/trip_video_library/abc.mp4");
 assert.equal(panel._busy, false);
 
+// A failure notice sticks around until the next run. When it was produced
+// by an older version, the notice has to say so - the same text can come
+// from a bug that is already fixed (live report: a screenshot of an error
+// message that the running release can no longer even produce).
+panel._data = { ...(panel._data || {}), integration_version: "4.19.1" };
+panel._tripVideoStatus = {
+  state: "error",
+  error: "OneDrive hat eine unlesbare Antwort geliefert",
+  integration_version: "4.18.2",
+};
+const staleNotice = panel._renderTripVideoStatusLine();
+assert.match(staleNotice, /aus Version 4\.18\.2/);
+assert.match(staleNotice, /jetzt läuft 4\.19\.1/);
+
+panel._tripVideoStatus = {
+  state: "error",
+  error: "Frisch fehlgeschlagen",
+  integration_version: "4.19.1",
+};
+assert.doesNotMatch(
+  panel._renderTripVideoStatusLine(),
+  /aus Version/,
+  "a failure from the running version must not be labelled stale",
+);
+
+
 console.log("Video export does not block other panel actions.");

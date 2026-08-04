@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.19.1] - 2026-08-05
+
+### Changed
+
+- A failed video export keeps its notice until the next run. The notice now records which version produced it and says so when a newer one is running ("aus Version 4.18.2, jetzt läuft 4.19.1 - bitte erneut versuchen"). The same error text can come from a bug that is already fixed, and an old message is otherwise indistinguishable from a fresh failure.
+- "OneDrive hat eine unlesbare Antwort geliefert" can no longer be raised at all. It described a transport failure while the truth was "Graph answered with a redirect" (fixed in 4.18.3), and it sent the diagnosis in the wrong direction twice. Seeing that text now means the message predates 4.18.3.
+
 ## [4.19.0] - 2026-08-04
 
 ### Added

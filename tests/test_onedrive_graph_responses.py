@@ -149,9 +149,27 @@ def verify_a_non_json_body_names_what_arrived() -> None:
         raise AssertionError("a non-JSON 200 must still be an error")
 
 
+def verify_the_misleading_unreadable_response_message_is_gone() -> None:
+    """That text sent the diagnosis in the wrong direction twice.
+
+    It described a transport failure while the truth was "Graph answered
+    with a redirect". The body is read before it is parsed now, so nothing
+    can produce it any more - and its absence is what makes an old copy of
+    it in a stale status notice recognisable as old.
+    """
+    source = (PACKAGE_ROOT / "onedrive_media.py").read_text(encoding="utf-8")
+    occurrences = source.count("OneDrive hat eine unlesbare Antwort geliefert")
+    assert occurrences <= 1, (
+        "at most the historical note in a docstring may mention it, never a "
+        "message that can still be raised"
+    )
+    assert 'return "OneDrive hat eine unlesbare Antwort geliefert"' not in source
+
+
 if __name__ == "__main__":
     verify_a_redirect_is_the_thumbnail_url_not_an_error()
     verify_json_shaped_answers_still_work()
     verify_a_failing_custom_size_falls_back_to_large()
     verify_a_non_json_body_names_what_arrived()
+    verify_the_misleading_unreadable_response_message_is_gone()
     print("OneDrive Graph response tests passed.")
