@@ -311,10 +311,11 @@ Object.assign(placeEnrichmentMixin, {
     }
     const summary = [facts.price_text, facts.rating_text ? `Bewertung ${facts.rating_text}` : "", facts.summary]
       .filter(Boolean).join(" · ");
+    const diagnosis = cleanText(facts.diagnosis);
     this._showToast(
       hasCoordinates
         ? `Vom Link übernommen${summary ? ` (${summary})` : ""} - bitte prüfen und bestätigen.`
-        : "Der Link nannte keine GPS-Position - Name/Ort wurden vorbefüllt, bitte Kartenpunkt ergänzen.",
+        : `Der Link nannte keine GPS-Position${diagnosis ? ` (${diagnosis})` : ""} - bitte Kartenpunkt ergänzen.`,
       hasCoordinates ? "success" : "error",
       6500,
     );

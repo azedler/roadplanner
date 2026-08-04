@@ -337,6 +337,38 @@ def _optional_number(value: Any) -> int | float | None:
     return value
 
 
+def _place_link_diagnosis(
+    page_place: dict[str, Any], *, ai_asked: bool, ai_found: bool
+) -> str:
+    """Compact, human-readable account of what reading the link actually did.
+
+    A link lookup happens on a phone, far from the Home Assistant log. When
+    it comes back with less than expected, this one line is the whole story:
+    what the page answered, how much of it was read, what was found in it,
+    and what the AI reader made of it.
+    """
+    parts: list[str] = []
+    status = str(page_place.get("read_status") or "")
+    if not status:
+        parts.append("Seite: nicht gelesen (Park4Night-Direktweg)")
+    elif status == "ok":
+        size = int(page_place.get("page_bytes") or 0)
+        parts.append(f"Seite: gelesen, {size // 1024} kB")
+        parts.append(
+            "GPS auf der Seite: ja"
+            if "latitude" in page_place
+            else "GPS auf der Seite: nein"
+        )
+        parts.append("Name: " + ("ja" if page_place.get("name") else "nein"))
+    else:
+        parts.append(f"Seite: {status}")
+    if ai_asked:
+        parts.append("KI-Leser: " + ("Treffer" if ai_found else "kein Treffer"))
+    else:
+        parts.append("KI-Leser: nicht konfiguriert")
+    return " · ".join(parts)
+
+
 def _place_link_failure_message(
     page_place: dict[str, Any], *, lookup_available: bool
 ) -> str:
@@ -575,6 +607,9 @@ async def _execute_action(
                         "latitude": float(page_place["latitude"]),
                         "longitude": float(page_place["longitude"]),
                         "name": str(page_place.get("name") or hint or "")[:200],
+                        "diagnosis": _place_link_diagnosis(
+                            page_place, ai_asked=False, ai_found=False
+                        ),
                     }
                 }
         result = None
@@ -588,8 +623,11 @@ async def _execute_action(
                 result = await lookup.async_lookup_page(url, hint_name=hint)
         elif p4n_match is not None:
             raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
+        diagnosis = _place_link_diagnosis(
+            page_place, ai_asked=lookup.available, ai_found=result is not None
+        )
         if result is not None:
-            return {"result": result}
+            return {"result": {**result, "diagnosis": diagnosis}}
         # Nothing produced a position. Whatever the page DID say still goes
         # back: the form prefills the name and only the coordinates stay
         # empty, instead of the user facing a red banner and a blank form
@@ -601,12 +639,14 @@ async def _execute_action(
                     "provider": "shared_link",
                     "url": url,
                     "name": page_name,
+                    "diagnosis": diagnosis,
                 }
             }
         raise ValidationError(
             _place_link_failure_message(
                 page_place, lookup_available=lookup.available
             )
+            + f" [{diagnosis}]"
         )
 
     if action == "prepare_place_enrichment":

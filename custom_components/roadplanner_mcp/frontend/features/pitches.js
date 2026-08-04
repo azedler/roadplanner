@@ -380,7 +380,7 @@ export const pitchesMixin = {
     return `${this._renderModalHeader(add ? "Stellplatz-Option hinzufügen" : "Stellplatz-Option bearbeiten")}
       <form data-form="pitch-option" data-day-id="${escapeHtml(dialog.dayId)}" data-option-id="${escapeHtml(option.id || "")}" data-source-url="${escapeHtml(option.source?.url || "")}" class="form-grid">
         ${this._field("url", "Link zum Platz (Park4Night, Google Maps, Website …)", option.source?.url || "", "url", false, "full")}
-        <div class="form-field full"><button class="secondary-button" type="button" data-action="pitch-option-link-lookup"><ha-icon icon="mdi:link-variant"></ha-icon>Link lesen und übernehmen</button><small class="hint">Park4Night-Seiten werden direkt gelesen, Google-Maps-Links aufgelöst, andere Seiten liest der Reisebegleiter (KI). Die Werte füllen nur dieses Formular vor - gespeichert wird erst mit dem Speichern-Knopf.</small></div>
+        <div class="form-field full"><button class="secondary-button" type="button" data-action="pitch-option-link-lookup"><ha-icon icon="mdi:link-variant"></ha-icon>Link lesen und übernehmen</button><small class="hint">Park4Night-Seiten werden direkt gelesen, Google-Maps-Links aufgelöst, andere Seiten liest der Reisebegleiter (KI). Die Werte füllen nur dieses Formular vor - gespeichert wird erst mit dem Speichern-Knopf.</small><small class="hint" data-link-diagnosis hidden></small></div>
         ${this._field("name", "Name des Platzes", option.name || "", "text", true, "full")}
         ${this._field("place_query", "Suchbegriff für Karte/Geocoding (optional)", option.place_query || "", "text", false, "full")}
         ${this._field("latitude", "Breitengrad (optional)", location.latitude ?? "", "number")}
@@ -435,6 +435,15 @@ export const pitchesMixin = {
       errorTitle: "Link konnte nicht gelesen werden",
     });
     const facts = result?.result;
+    // What the read actually did stays visible in the form (not only in a
+    // toast that fades): a lookup that "runs without an error but does
+    // nothing" is otherwise impossible to diagnose from a phone.
+    const diagnosisNote = form.querySelector("[data-link-diagnosis]");
+    if (diagnosisNote) {
+      const diagnosis = cleanText(facts?.diagnosis);
+      diagnosisNote.textContent = diagnosis ? `Leseergebnis - ${diagnosis}` : "";
+      diagnosisNote.hidden = !diagnosis;
+    }
     if (!facts) return;
     // Prefill only - the option is saved exclusively via the submit button.
     const setValue = (name, value, overwrite = false) => {
@@ -450,10 +459,13 @@ export const pitchesMixin = {
     const summary = [facts.price_text, facts.rating_text ? `Bewertung ${facts.rating_text}` : "", facts.summary]
       .filter(Boolean).join(" · ");
     if (summary) setValue("notes", summary);
+    const gotSomething = facts.latitude != null || Boolean(cleanText(facts.name)) || Boolean(summary);
     this._showToast(
       facts.latitude != null
         ? "Vom Link übernommen - bitte prüfen und speichern."
-        : "Der Link nannte keine GPS-Position - Name/Notizen wurden vorbefüllt.",
+        : gotSomething
+          ? "Der Link nannte keine GPS-Position - Name/Notizen wurden vorbefüllt."
+          : "Der Link gab nichts Übernehmbares her - siehe Leseergebnis unter dem Knopf.",
       facts.latitude != null ? "success" : "error",
       6000,
     );
