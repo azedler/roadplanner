@@ -35,6 +35,14 @@ roadplanner = types.ModuleType(f"{PACKAGE_NAME}.roadplanner")
 roadplanner.RoadplannerError = RoadplannerError
 sys.modules[roadplanner.__name__] = roadplanner
 
+cache_spec = spec_from_file_location(
+    f"{PACKAGE_NAME}.media_cache", PACKAGE_ROOT / "media_cache.py"
+)
+assert cache_spec and cache_spec.loader
+cache_module = module_from_spec(cache_spec)
+sys.modules[cache_spec.name] = cache_module
+cache_spec.loader.exec_module(cache_module)
+
 spec = spec_from_file_location(
     f"{PACKAGE_NAME}.trip_export_photos", PACKAGE_ROOT / "trip_export_photos.py"
 )
@@ -87,11 +95,20 @@ class FakeExperience:
         return self.urls[key]
 
 
+def jpeg(marker: bytes) -> bytes:
+    """Bytes that actually look like a JPEG.
+
+    The exporters now refuse a download whose format no renderer can open
+    (an iPhone HEIC original), so a fixture must carry a real JPEG header.
+    """
+    return b"\xff\xd8\xff\xe0" + marker.ljust(16, b"\x00")
+
+
 def verify_personal_photo_falls_back_to_thumbnail_and_next_candidate() -> None:
     # THE live cause of photo-less exports: iPhone originals are HEIC and
     # Pillow cannot decode them, so the rendered JPEG preview must be tried
     # FIRST; the original is only the last resort.
-    session = FakeSession({"https://cdn/thumb-2.jpg": b"JPEG-2"})
+    session = FakeSession({"https://cdn/thumb-2.jpg": jpeg(b"JPEG-2")})
     experience = FakeExperience(
         {
             ("m1", "original"): "https://cdn/dead-original.jpg",
@@ -105,7 +122,7 @@ def verify_personal_photo_falls_back_to_thumbnail_and_next_candidate() -> None:
             session, experience, "trip-1", "stop-1", media_by_stop
         )
     )
-    assert photo == b"JPEG-2", photo
+    assert photo == jpeg(b"JPEG-2"), photo
     assert experience.calls[0] == ("m1", "thumbnail", "c1920x1440"), (
         f"{experience.calls[0]}: the cover candidate's rendered JPEG preview "
         "comes first - the HEIC original last"
@@ -124,8 +141,75 @@ def verify_personal_photo_falls_back_to_thumbnail_and_next_candidate() -> None:
     ) is None
 
 
+class RecordingCache:
+    """Minimal stand-in for MediaCache with real key semantics."""
+
+    enabled = True
+
+    def __init__(self, seed: dict[str, bytes] | None = None) -> None:
+        self.store: dict[str, bytes] = dict(seed or {})
+
+    def read(self, key: str) -> bytes | None:
+        return self.store.get(key)
+
+    def write(self, key: str, data: bytes) -> None:
+        self.store[key] = data
+
+
+class ImmediateHass:
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+def verify_a_cached_heic_can_never_poison_the_thumbnail_request() -> None:
+    """The live cause of exports that stayed empty AFTER the HEIC fix.
+
+    An iPhone original cached earlier under size "large" was served to the
+    rendered-thumbnail request, which uses the same size name - so the
+    export got HEIC bytes again and every frame failed to decode ("Für
+    diese Reise wurden keine Fotos für das Video gefunden", 261 memories).
+    """
+    heic = b"\x00\x00\x00\x18ftypheic" + b"x" * 512
+    poisoned = RecordingCache(
+        {cache_module.cache_key("m1", "item-1", "large"): heic}
+    )
+    session = FakeSession({"https://cdn/thumb.jpg": jpeg(b"GOOD")})
+    experience = FakeExperience({("m1", "thumbnail"): "https://cdn/thumb.jpg"})
+    photo = asyncio.run(
+        module.async_fetch_media_photo(
+            session,
+            experience,
+            "trip-1",
+            {"id": "m1", "provider_item_id": "item-1"},
+            cache=poisoned,
+            hass=ImmediateHass(),
+        )
+    )
+    assert photo == jpeg(b"GOOD"), photo
+
+    # A HEIC that arrives fresh is skipped rather than handed on.
+    only_heic = FakeSession({"https://cdn/thumb.jpg": heic, "https://cdn/orig": heic})
+    heic_everywhere = FakeExperience(
+        {("m1", "thumbnail"): "https://cdn/thumb.jpg", ("m1", "original"): "https://cdn/orig"}
+    )
+    assert (
+        asyncio.run(
+            module.async_fetch_media_photo(
+                only_heic,
+                heic_everywhere,
+                "trip-1",
+                {"id": "m1", "provider_item_id": "item-1"},
+                cache=RecordingCache(),
+                hass=ImmediateHass(),
+            )
+        )
+        is None
+    )
+    assert "HEIC" in module.LAST_PHOTO_ERROR.get("reason", "")
+
+
 def verify_stock_gallery_skips_google_primary_to_next_image() -> None:
-    session = FakeSession({"https://commons/photo.jpg": b"COMMONS"})
+    session = FakeSession({"https://commons/photo.jpg": jpeg(b"COMMONS")})
     galleries = {
         "stop-1": {
             "primary_image_id": "g1",
@@ -138,7 +222,7 @@ def verify_stock_gallery_skips_google_primary_to_next_image() -> None:
     photo = asyncio.run(
         module.async_fetch_stock_stop_photo(session, "stop-1", galleries)
     )
-    assert photo == b"COMMONS", (
+    assert photo == jpeg(b"COMMONS"), (
         "a Google-primary gallery must fall through to the next non-Google image"
     )
     assert "https://g/x" not in session.requested
@@ -149,7 +233,7 @@ def verify_day_linked_photos_fill_the_remaining_slots() -> None:
     # gefunden" on a trip with 255 memories: photos assigned to a DAY but
     # to no stop were invisible to both exporters.
     session = FakeSession(
-        {"https://cdn/day-1.jpg": b"DAY1", "https://cdn/day-2.jpg": b"DAY2"}
+        {"https://cdn/day-1.jpg": jpeg(b"DAY1"), "https://cdn/day-2.jpg": jpeg(b"DAY2")}
     )
     experience = FakeExperience(
         {
@@ -170,10 +254,10 @@ def verify_day_linked_photos_fill_the_remaining_slots() -> None:
             day_media=[{"id": "d1", "is_cover": True}, {"id": "d2"}],
         )
     )
-    assert photos == [b"DAY1", b"DAY2"], photos
+    assert photos == [jpeg(b"DAY1"), jpeg(b"DAY2")], photos
 
     # A photo already used through its stop is not repeated as day media.
-    session = FakeSession({"https://cdn/stop.jpg": b"STOP", "https://cdn/day-2.jpg": b"DAY2"})
+    session = FakeSession({"https://cdn/stop.jpg": jpeg(b"STOP"), "https://cdn/day-2.jpg": jpeg(b"DAY2")})
     experience = FakeExperience(
         {
             ("s1", "original"): "https://cdn/stop.jpg",
@@ -192,7 +276,7 @@ def verify_day_linked_photos_fill_the_remaining_slots() -> None:
             day_media=[{"id": "s1"}, {"id": "d2"}],
         )
     )
-    assert photos == [b"STOP", b"DAY2"], photos
+    assert photos == [jpeg(b"STOP"), jpeg(b"DAY2")], photos
 
 
 def verify_heic_is_named_as_the_undecodable_format() -> None:
@@ -276,6 +360,7 @@ def verify_crew_reference_picker_ui_contract() -> None:
 
 if __name__ == "__main__":
     verify_personal_photo_falls_back_to_thumbnail_and_next_candidate()
+    verify_a_cached_heic_can_never_poison_the_thumbnail_request()
     verify_stock_gallery_skips_google_primary_to_next_image()
     verify_day_linked_photos_fill_the_remaining_slots()
     verify_heic_is_named_as_the_undecodable_format()

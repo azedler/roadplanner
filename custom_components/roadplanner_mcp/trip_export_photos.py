@@ -18,7 +18,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
 
-from .media_cache import cache_key
+from .media_cache import cache_key, is_decodable_image
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError
 
@@ -168,7 +168,9 @@ async def async_fetch_media_photo(
         ("thumbnail", "large"),
         ("original", "large"),
     ):
-        key = cache_key(media_id, provider_item_id, size) if cache_usable else ""
+        key = (
+            cache_key(media_id, provider_item_id, size, kind) if cache_usable else ""
+        )
         if key:
             cached = await hass.async_add_executor_job(cache.read, key)
             if cached:
@@ -186,12 +188,23 @@ async def async_fetch_media_photo(
         if not str(url or "").casefold().startswith("https://"):
             continue
         photo = await async_download_photo(session, url)
-        if photo:
-            if key:
-                # Only the user's OWN photo is stored locally - provider
-                # stock imagery stays a reference (see module docstring).
-                await hass.async_add_executor_job(cache.write, key, photo)
-            return photo
+        if not photo:
+            continue
+        if not is_decodable_image(photo):
+            # A downloaded iPhone original is HEIC: no renderer in Home
+            # Assistant can open it, so returning it would only move the
+            # failure one step further. Keep trying the other variants and
+            # say precisely why this one was useless.
+            _record_photo_error(
+                f"Foto {media_id} ({kind}/{size}) kam in einem Format an, das "
+                "Home Assistant nicht dekodieren kann (vermutlich HEIC)"
+            )
+            continue
+        if key:
+            # Only the user's OWN photo is stored locally - provider
+            # stock imagery stays a reference (see module docstring).
+            await hass.async_add_executor_job(cache.write, key, photo)
+        return photo
     return None
 
 
