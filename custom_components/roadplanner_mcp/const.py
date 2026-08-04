@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "roadplanner_mcp"
 NAME = "Roadplanner"
-INTEGRATION_VERSION = "4.15.0"
+INTEGRATION_VERSION = "4.15.1"
 
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
@@ -129,7 +129,7 @@ DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.5-flash"
 # curation) run on the cheap lite tier first, with the primary model as
 # in-call backup - no search, no long context, so lite quality suffices.
 DEFAULT_GEMINI_LITE_MODEL = "gemini-3.5-flash-lite"
-DEFAULT_ASSISTANT_REQUEST_TIMEOUT = 75
+DEFAULT_ASSISTANT_REQUEST_TIMEOUT = 120
 DEFAULT_ASSISTANT_RETRY_ATTEMPTS = 2
 DEFAULT_ASSISTANT_MIN_REQUEST_INTERVAL = 2.0
 DEFAULT_ASSISTANT_MAX_QUEUE = 8

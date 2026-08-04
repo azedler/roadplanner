@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.15.1] - 2026-08-04
+
+### Fixed
+
+- "Gemini hat nicht rechtzeitig geantwortet" when drafting changes for a large trip (live report on assistant_prepare): a single Gemini call was hard-capped at 40 seconds no matter how large the configured time budget was. A ChangeSet draft over dozens of days with structured output regularly needs longer, so the first attempt timed out, the automatic retry got an even smaller slice, and the whole request failed. Each call may now use the remaining budget, reserving room for one more attempt only while plenty of budget is left (e.g. 105 s for the first call of a 120 s budget instead of 40 s).
+- The default time budget for assistant requests is now 120 seconds (was 75); the timeout message additionally points to that option for large trips.
+
 ## [4.15.0] - 2026-08-04
 
 ### Added
