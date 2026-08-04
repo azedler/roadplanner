@@ -1,4 +1,17 @@
 import { PANEL_STYLES } from "./lib/styles.js";
+
+// The version this very module was loaded with. Home Assistant registers
+// the panel as ".../roadplanner-panel.js?v=<integration version>", so a
+// mismatch against the version the backend reports means the browser is
+// still running pre-update code - the recurring "keine Veränderung nach
+// dem Update" confusion (live report).
+const LOADED_MODULE_VERSION = (() => {
+  try {
+    return new URL(import.meta.url).searchParams.get("v") || "";
+  } catch (err) {
+    return "";
+  }
+})();
 import {
   WS_GET_DATA,
   WS_ACTION,
@@ -151,6 +164,24 @@ class RoadplannerPanel extends HTMLElement {
       this._destinationGallerySwipe = null;
     });
     this.shadowRoot.addEventListener("click", (event) => this._handleClick(event));
+    // Dragging the crew crop box: pointer events so the face region can be
+    // MOVED, not only resized (live request).
+    this.shadowRoot.addEventListener("pointerdown", (event) => {
+      const frame = event.target?.closest?.("[data-crew-crop-frame]");
+      if (!frame || !this._canEdit()) return;
+      this._crewCropFrame = frame;
+      frame.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      this._applyCrewCropTap(frame.closest("form"), frame, event);
+    });
+    this.shadowRoot.addEventListener("pointermove", (event) => {
+      if (!this._crewCropFrame) return;
+      event.preventDefault();
+      this._applyCrewCropTap(this._crewCropFrame.closest("form"), this._crewCropFrame, event);
+    });
+    for (const endEvent of ["pointerup", "pointercancel"]) {
+      this.shadowRoot.addEventListener(endEvent, () => { this._crewCropFrame = null; });
+    }
     this.shadowRoot.addEventListener("change", (event) => this._handleChange(event));
     this.shadowRoot.addEventListener("submit", (event) => this._handleSubmit(event));
     this.shadowRoot.addEventListener("error", (event) => {
@@ -1230,7 +1261,19 @@ class RoadplannerPanel extends HTMLElement {
       // A full reload re-fetches roadplanner-panel.js with a fresh "?v="
       // version query and, thanks to the always-revalidating static view,
       // every submodule it imports too.
-      const doReload = () => window.location.reload();
+      const doReload = () => {
+        // A plain reload can still be answered from the frontend's service
+        // worker cache; a one-shot query parameter forces a fresh document
+        // and with it a fresh panel module URL. Falls back to a plain
+        // reload wherever that is not possible.
+        try {
+          const target = new URL(window.location.href);
+          target.searchParams.set("rp", String(Date.now()));
+          window.location.replace(target.toString());
+        } catch (err) {
+          window.location.reload();
+        }
+      };
       if (this._dialog) {
         this._confirm(
           "App aktualisieren?",
@@ -1304,11 +1347,6 @@ class RoadplannerPanel extends HTMLElement {
       const grid = pickerForm?.querySelector("[data-crew-photo-grid]");
       const current = Number(grid?.dataset.page || 0);
       this._showCrewPhotoPage(pickerForm, current + (action === "crew-photo-next" ? 1 : -1));
-    } else if (action === "crew-crop-tap" && this._canEdit()) {
-      const pickerForm = target.closest("form");
-      if (pickerForm && event.clientX != null) {
-        this._applyCrewCropTap(pickerForm, target, event);
-      }
     } else if (action === "crew-crop-reset" && this._canEdit()) {
       this._setCrewReferenceCrop(target.closest("form"), null);
     } else if (action === "retire-crew-person" && this._canEdit()) {
@@ -2150,6 +2188,7 @@ class RoadplannerPanel extends HTMLElement {
         </header>
         ${this._renderTabs()}
         <main class="content">
+          ${this._renderStaleModuleNotice()}
           ${this._initialLoading ? this._renderLoading() : ""}
           ${this._error ? this._renderError() : ""}
           ${!this._initialLoading && !this._error && this._data ? this._renderActiveTab() : ""}
@@ -2241,6 +2280,16 @@ class RoadplannerPanel extends HTMLElement {
       <h2>Roadplanner konnte nicht geladen werden</h2>
       <p>${escapeHtml(this._error)}</p>
       <button class="primary-button" type="button" data-action="refresh">Erneut versuchen</button>
+    </div>`;
+  }
+
+  _renderStaleModuleNotice() {
+    const backendVersion = cleanText(this._data?.integration_version);
+    if (!backendVersion || !LOADED_MODULE_VERSION || backendVersion === LOADED_MODULE_VERSION) return "";
+    return `<div class="notice warning view-notice">
+      <ha-icon icon="mdi:cellphone-arrow-down"></ha-icon>
+      <div><strong>Ältere Oberfläche geladen</strong><span>Roadplanner läuft auf ${escapeHtml(backendVersion)}, geladen ist noch ${escapeHtml(LOADED_MODULE_VERSION)}. Neue Funktionen erscheinen erst nach dem Aktualisieren.</span></div>
+      <button class="primary-button compact-button" type="button" data-action="reload-app">App aktualisieren</button>
     </div>`;
   }
 

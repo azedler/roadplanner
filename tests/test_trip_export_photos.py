@@ -237,9 +237,22 @@ def verify_crew_picker_pagination_and_crop_ui() -> None:
     assert "_applyCrewCropTap" in crew_ui and "data-crew-crop-frame" in crew_ui
     assert 'name="reference_crop"' in crew_ui
     panel_ui = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8")
-    for action in ("crew-photo-prev", "crew-photo-next", "crew-crop-tap", "crew-crop-reset"):
+    for action in ("crew-photo-prev", "crew-photo-next", "crew-crop-reset"):
         assert f'"{action}"' in panel_ui, action
     assert "crew-crop-size" in panel_ui
+    # The crop must be MOVABLE, not only resizable (live request): pointer
+    # events drag it across the photo.
+    assert 'addEventListener("pointerdown"' in panel_ui
+    assert 'addEventListener("pointermove"' in panel_ui
+    assert "this._crewCropFrame" in panel_ui
+    styles = Path("custom_components/roadplanner_mcp/frontend/lib/styles.js").read_text(encoding="utf-8")
+    crop_frame_css = styles.split(".crew-crop-frame {")[1].split("}")[0]
+    assert "touch-action: none" in crop_frame_css, "dragging must not scroll the dialog"
+    crop_img_css = styles.split(".crew-crop-frame img {")[1].split("}")[0]
+    assert "object-fit" not in crop_img_css, (
+        "a letterboxed image would put the crop box next to the pixels it "
+        "claims to select - the frame must map 1:1 onto the photo"
+    )
     export_source = Path("custom_components/roadplanner_mcp/trip_pdf_export.py").read_text(encoding="utf-8")
     assert 'crop_photo(member.photo, reference.get("crop"))' in export_source, (
         "the chosen face region must be applied to the portrait"

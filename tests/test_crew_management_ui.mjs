@@ -72,3 +72,29 @@ print_ok();
 function print_ok() {
   console.log("Crew management UI tests passed.");
 }
+
+// Live report: "Ich hatte das neue Release eingespielt. Keine Veränderung
+// bei der Crew" - the browser kept running the pre-update panel module and
+// nothing said so. The panel now compares the version it was loaded with
+// against the version the backend reports.
+const panelSource = await import("node:fs").then((fs) =>
+  fs.readFileSync(
+    new URL("../custom_components/roadplanner_mcp/frontend/roadplanner-panel.js", import.meta.url),
+    "utf8",
+  ),
+);
+assert.match(panelSource, /LOADED_MODULE_VERSION/, "the module knows its own ?v= version");
+assert.match(panelSource, /_renderStaleModuleNotice\(\)/);
+assert.match(panelSource, /Ältere Oberfläche geladen/);
+assert.match(
+  panelSource,
+  /backendVersion === LOADED_MODULE_VERSION\) return ""/,
+  "matching versions must not nag",
+);
+assert.match(
+  panelSource,
+  /target\.searchParams\.set\("rp"/,
+  "the reload must bypass a service-worker cached document",
+);
+
+console.log("Panel stale-module notice tests passed.");
