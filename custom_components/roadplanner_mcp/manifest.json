@@ -1,7 +1,7 @@
 {
   "domain": "roadplanner_mcp",
   "name": "Roadplanner",
-  "version": "4.18.2",
+  "version": "4.18.3",
   "codeowners": [
     "@azedler"
   ],

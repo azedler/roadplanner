@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import json
 import logging
 import time
 from typing import Any
@@ -361,35 +362,68 @@ class OneDrivePersonalClient:
             await self._accept_token_payload(payload)
             return str(self._data["access_token"])
 
-    async def _graph_json(self, path_or_url: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
+    async def _graph_get(
+        self, path_or_url: str, *, params: dict[str, str] | None = None
+    ) -> tuple[int, dict[str, Any] | None, str, str]:
+        """One Graph GET: (status, parsed JSON or None, redirect target, body).
+
+        Reading the body BEFORE parsing it matters: Graph answers some
+        endpoints with a redirect whose body is empty, and calling
+        ``response.json()`` on that raised a ValueError that surfaced as
+        "OneDrive hat eine unlesbare Antwort geliefert" (live report on
+        ``/thumbnails/0/c1920x1440``). A redirect is a perfectly good
+        answer - for a thumbnail it IS the image URL.
+        """
         url = path_or_url if path_or_url.startswith("https://") else f"{_GRAPH_ROOT}{path_or_url}"
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.hostname != "graph.microsoft.com":
             raise ValidationError("Unsichere Microsoft-Graph-URL")
         token = await self._ensure_access_token()
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": f"HomeAssistant-Roadplanner/{INTEGRATION_VERSION}"}
+
+        async def _once() -> tuple[int, dict[str, Any] | None, str, str]:
+            async with self._session.get(
+                url, params=params, headers=headers, timeout=60, allow_redirects=False
+            ) as response:
+                body = await response.text()
+                location = str(response.headers.get("Location") or "")
+            payload: dict[str, Any] | None = None
+            if body.strip():
+                try:
+                    payload = json.loads(body)
+                except ValueError:
+                    payload = None
+            return response.status, payload if isinstance(payload, dict) else None, location, body
+
         try:
-            async with self._session.get(url, params=params, headers=headers, timeout=60, allow_redirects=False) as response:
-                payload = await response.json(content_type=None)
-        except (ClientError, asyncio.TimeoutError, ValueError) as err:
+            status, payload, location, body = await _once()
+            if status == 401:
+                self._data["expires_at_epoch"] = 0
+                token = await self._ensure_access_token()
+                headers["Authorization"] = f"Bearer {token}"
+                status, payload, location, body = await _once()
+        except (ClientError, asyncio.TimeoutError) as err:
             raise OneDriveError(_unreachable_reason(err)) from err
-        if response.status == 401:
-            self._data["expires_at_epoch"] = 0
-            token = await self._ensure_access_token()
-            headers["Authorization"] = f"Bearer {token}"
-            try:
-                async with self._session.get(url, params=params, headers=headers, timeout=60, allow_redirects=False) as response:
-                    payload = await response.json(content_type=None)
-            except (ClientError, asyncio.TimeoutError, ValueError) as err:
-                raise OneDriveError(_unreachable_reason(err)) from err
-        if response.status != 200 or not isinstance(payload, dict):
+        return status, payload, location, body
+
+    async def _graph_json(self, path_or_url: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
+        status, payload, _location, body = await self._graph_get(path_or_url, params=params)
+        if status != 200 or payload is None:
             message = ""
-            if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+            if payload is not None and isinstance(payload.get("error"), dict):
                 message = str(payload["error"].get("message") or "")
-            self._last_error = f"http_{response.status}"
+            if not message and status == 200:
+                # A 200 whose body is not JSON: say what came instead, so the
+                # cause is visible rather than "unlesbare Antwort".
+                excerpt = " ".join(body.split())[:120]
+                message = (
+                    "OneDrive hat statt JSON etwas anderes geliefert"
+                    + (f": {excerpt}" if excerpt else " (leere Antwort)")
+                )
+            self._last_error = f"http_{status}"
             raise OneDriveError(
-                (message or f"OneDrive hat die Anfrage abgelehnt (HTTP {response.status})")[:500],
-                status=response.status,
+                (message or f"OneDrive hat die Anfrage abgelehnt (HTTP {status})")[:500],
+                status=status,
             )
         self._last_error = None
         return payload
@@ -526,14 +560,28 @@ class OneDrivePersonalClient:
             # Graph renders custom sizes as JPEG too and they are the only
             # way to get a print-worthy pixel count out of a HEIC original
             # (Pillow cannot decode HEIC - see trip_export_photos.py).
-            custom = await self._graph_json(
-                f"/me/drive/items/{safe_id}/thumbnails/0/{size}"
-            )
-            url = str(custom.get("url") or "")
-            parsed = urlsplit(url)
-            if parsed.scheme == "https" and parsed.hostname:
-                return url
-            raise ValidationError("OneDrive hat keine sichere Vorschaubild-URL geliefert")
+            #
+            # Two shapes of answer are both fine: the thumbnail resource as
+            # JSON, or a redirect straight to the rendered image. And if the
+            # custom size fails for ANY reason, the standard "large"
+            # thumbnail below is still a usable JPEG - failing the photo
+            # outright over the nicer size would be the worse trade (live
+            # report: every export empty, last error on c1920x1440).
+            try:
+                status, payload, location, _body = await self._graph_get(
+                    f"/me/drive/items/{safe_id}/thumbnails/0/{size}"
+                )
+            except (OneDriveError, ValidationError) as err:
+                _LOGGER.debug("Custom thumbnail size %s failed: %s", size, err)
+            else:
+                candidates = [str((payload or {}).get("url") or ""), location]
+                for candidate in candidates:
+                    parsed = urlsplit(candidate)
+                    if parsed.scheme == "https" and parsed.hostname:
+                        return candidate
+                _LOGGER.debug(
+                    "Custom thumbnail size %s gave no usable URL (HTTP %s)", size, status
+                )
         size = size if size in {"small", "medium", "large"} else "large"
         payload = await self._graph_json(f"/me/drive/items/{safe_id}/thumbnails")
         value = payload.get("value")

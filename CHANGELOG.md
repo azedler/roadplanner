@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.18.3] - 2026-08-04
+
+### Fixed
+
+- The actual reason every export stayed photo-less (live report, narrowed down by the new diagnostics): the OneDrive client read every Microsoft Graph answer with `response.json()` while redirects were switched off. A redirect has an empty body, so Graph's perfectly good answer "the rendered image is over there" became "OneDrive hat eine unlesbare Antwort geliefert" - and the photo was lost. Graph responses are now read body-first, and a redirect is treated as what it is: the thumbnail's URL.
+- If the high-resolution custom thumbnail size fails for any reason, the standard "large" thumbnail is used instead of failing the photo. That size is a perfectly usable JPEG; losing the picture over the nicer variant was the worse trade.
+- A Graph response that is not JSON now quotes what actually arrived instead of calling it "unlesbar".
+
 ## [4.18.2] - 2026-08-04
 
 ### Changed
