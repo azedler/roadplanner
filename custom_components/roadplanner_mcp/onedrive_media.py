@@ -69,16 +69,17 @@ def normalize_onedrive_folder_path(
 
 
 def _unreachable_reason(err: Exception) -> str:
-    """Name WHY OneDrive was unreachable - the three causes need three fixes.
+    """Name WHY OneDrive was unreachable - the causes need different fixes.
 
-    "OneDrive ist derzeit nicht erreichbar" covered a timeout, a network
-    error and an unparseable response alike, and turned up verbatim in an
-    export failure (live report) with nothing to act on.
+    "OneDrive ist derzeit nicht erreichbar" covered a timeout and a network
+    error alike, and turned up verbatim in an export failure (live report)
+    with nothing to act on. An unparseable body is deliberately NOT handled
+    here any more: the body is read before it is parsed, so a redirect or a
+    non-JSON page is reported as what it is rather than as a transport
+    failure.
     """
     if isinstance(err, asyncio.TimeoutError):
         return "OneDrive hat nicht rechtzeitig geantwortet (Zeitüberschreitung)"
-    if isinstance(err, ValueError):
-        return "OneDrive hat eine unlesbare Antwort geliefert"
     return f"OneDrive war nicht erreichbar ({type(err).__name__})"
 
 

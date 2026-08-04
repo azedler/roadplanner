@@ -200,7 +200,16 @@ export const routeMapMixin = {
       return `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Video wird erstellt (${escapeHtml(status.style === "full" ? "ausführlicher Rückblick" : "Highlight-Reel")}): ${escapeHtml(status.stage || "läuft")} …${status.stats ? ` Bisher ${status.stats.photos} Fotos und ${status.stats.map_snapshots} Kartenbilder.` : ""}</span></div>`;
     }
     if (status.state === "error") {
-      return `<div class="notice warning trip-video-status"><ha-icon icon="mdi:movie-open-off-outline"></ha-icon><span>Video-Erstellung fehlgeschlagen: ${escapeHtml(status.error || "unbekannter Fehler")}</span></div>`;
+      // A failure notice stays until the next run. If it was produced by an
+      // older version, say so - the same text can be from a bug that is
+      // already fixed (live report: an error a newer release cannot even
+      // produce any more).
+      const from = cleanText(status.integration_version);
+      const running = cleanText(this._data?.integration_version);
+      const stale = from && running && from !== running
+        ? ` <em>(aus Version ${escapeHtml(from)}, jetzt läuft ${escapeHtml(running)} - bitte erneut versuchen)</em>`
+        : "";
+      return `<div class="notice warning trip-video-status"><ha-icon icon="mdi:movie-open-off-outline"></ha-icon><span>Video-Erstellung fehlgeschlagen: ${escapeHtml(status.error || "unbekannter Fehler")}${stale}</span></div>`;
     }
     if (status.state === "ready" && status.download_url) {
       return `<div class="notice success trip-video-status"><ha-icon icon="mdi:movie-check-outline"></ha-icon><span>Video fertig.</span> <a class="text-button" href="${escapeHtml(status.download_url)}" target="_blank" rel="noopener noreferrer">Herunterladen</a></div>`;

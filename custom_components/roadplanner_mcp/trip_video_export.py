@@ -31,7 +31,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .canonical_day import canonical_roadbook_stops
 from .experience_store import utc_now_iso
-from .const import MAX_STORED_TRIP_VIDEOS
+from .const import INTEGRATION_VERSION, MAX_STORED_TRIP_VIDEOS
 from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
 from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
@@ -155,6 +155,11 @@ class TripVideoExporter:
             "style": style,
             "stage": "Vorbereitung",
             "started_at": utc_now_iso(),
+            # A failure notice sticks around until the next run. Stamping the
+            # version that produced it makes an outdated message obvious
+            # instead of it being mistaken for a fresh failure (live report:
+            # an error text that a newer release can no longer even produce).
+            "integration_version": INTEGRATION_VERSION,
         }
         self._task = self.hass.async_create_task(self._async_run(trip_id, style))
         return dict(self._status)
