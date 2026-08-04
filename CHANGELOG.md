@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.37] - 2026-08-04
+
+### Fixed
+
+- A stop carrying several Park4Night links (Plan A/B/C) showed three identical, indistinguishable "park4night.com" buttons (live report). Each shared link is now labelled by its place id ("Park4Night #603309") with a caravan icon, and the place id is its identity - so the same place listed under both URL shapes (/place/<id> and /lieu/<id>/) appears exactly once. Other pages keep their domain as the label.
+
 ## [4.14.36] - 2026-08-04
 
 ### Changed
