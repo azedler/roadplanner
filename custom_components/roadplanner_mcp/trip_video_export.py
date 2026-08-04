@@ -400,8 +400,23 @@ class TripVideoExporter:
                 prepare_chapter_assets, data, workdir
             )
             if not frame_paths:
+                # Distinguish "nothing was there" from "everything was
+                # there and none of it could be decoded" - the second case
+                # looked exactly like the first and sent the search in the
+                # wrong direction (live report on a trip with 261 memories).
+                if photos_total or maps_total:
+                    reason = (
+                        LAST_PHOTO_ERROR.get("reason") or "kein konkreter Fehler erfasst"
+                    )
+                    raise ValidationError(
+                        f"{photos_total} Fotos und {maps_total} Kartenbilder wurden "
+                        "geladen, aber keines davon ließ sich als Bild öffnen. "
+                        f"Letzter Fehler: {reason}"
+                    )
                 raise ValidationError(
-                    "Für diese Reise wurden keine Fotos für das Video gefunden"
+                    "Für diese Reise wurden keine Fotos für das Video gefunden: "
+                    f"{len(chapters)} Kapitel, {stops_with_personal} zugeordnete "
+                    f"eigene Fotos, {stops_with_gallery} Planungsbilder"
                 )
             input_args, filter_complex, video_label = build_ffmpeg_filter_graph(
                 data, frame_paths

@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.17.1] - 2026-08-04
+
+### Fixed
+
+- "Für diese Reise wurden keine Fotos für das Video gefunden" on a trip with 261 memories, still failing after the HEIC fix (live report). The photo cache keyed entries by media id, provider item id and SIZE - but the rendered thumbnail and the untouched original are both requested under the size name "large". An iPhone HEIC original cached before the fix was therefore served to the thumbnail request that exists precisely to avoid HEIC, so every export got undecodable bytes again. The request kind is now part of the key, and the cache namespace was bumped so entries written by the old scheme are ignored.
+- A downloaded photo whose format no renderer can open is no longer passed on: the fetch skips it, tries the remaining variants, and names the format as the reason. Such an image is also never written to the cache, which used to turn one bad download into a permanently failing export.
+- The video error now distinguishes "nothing was there" from "everything was there and none of it could be decoded", and names the counts and the last concrete error either way. The two looked identical and sent the search in the wrong direction.
+
 ## [4.17.0] - 2026-08-04
 
 ### Added

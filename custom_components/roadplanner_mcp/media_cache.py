@@ -29,16 +29,46 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_MAX_CACHE_BYTES = 400 * 1024 * 1024
 _MIN_USABLE_BYTES = 256
+# Bumped whenever previously written entries can no longer be trusted. v1
+# keys did not include the request KIND, so an undecodable HEIC original
+# stored under size "large" was served to the thumbnail request that was
+# introduced precisely to avoid HEIC - the exports stayed empty even after
+# the fix (live report: "Für diese Reise wurden keine Fotos für das Video
+# gefunden" on a trip with 261 memories).
+_CACHE_NAMESPACE = "v2"
+
+# Formats Pillow can actually decode in every Home Assistant install. HEIC
+# is deliberately absent: that is the whole point of asking Graph for a
+# rendered preview.
+_DECODABLE_MAGIC = (
+    b"\xff\xd8\xff",  # JPEG
+    b"\x89PNG\r\n\x1a\n",  # PNG
+)
 
 
-def cache_key(media_id: str, provider_item_id: str, size: str) -> str:
+def is_decodable_image(data: bytes) -> bool:
+    """True for byte streams Pillow can open without extra codecs.
+
+    Caching an image nobody can decode is worse than not caching at all: it
+    turns one failed download into a permanently failing export.
+    """
+    if len(data) < 12:
+        return False
+    if data.startswith(_DECODABLE_MAGIC):
+        return True
+    return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+
+def cache_key(media_id: str, provider_item_id: str, size: str, kind: str = "") -> str:
     """Stable file name for one photo in one rendered size.
 
     The provider item id is part of the key so a re-imported photo that
-    reuses a Roadplanner media id can never serve stale bytes.
+    reuses a Roadplanner media id can never serve stale bytes; the kind
+    keeps a rendered thumbnail and the untouched original apart even when
+    they are requested under the same size name.
     """
     digest = hashlib.sha256(
-        f"{media_id}|{provider_item_id}|{size}".encode("utf-8")
+        f"{_CACHE_NAMESPACE}|{media_id}|{provider_item_id}|{size}|{kind}".encode("utf-8")
     ).hexdigest()
     return f"{digest}.jpg"
 
@@ -74,6 +104,11 @@ class MediaCache:
     def write(self, key: str, data: bytes) -> None:
         """Store bytes and prune the cache back under its limit - blocking."""
         if not self.enabled or not data or len(data) < _MIN_USABLE_BYTES:
+            return
+        if not is_decodable_image(data):
+            # An iPhone original (HEIC) downloads fine and then fails in
+            # every renderer. Keeping it would make that failure permanent.
+            _LOGGER.debug("Media cache skipped an undecodable image (%d bytes)", len(data))
             return
         if len(data) > self.max_bytes:
             return

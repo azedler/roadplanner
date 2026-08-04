@@ -142,6 +142,11 @@ class _FakeResponse:
         return None
 
 
+# The exporters now refuse an image no renderer can open, so a fixture
+# must carry a real JPEG header.
+_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 12
+
+
 class _FakeSession:
     def __init__(self, body_by_url: dict[str, bytes]) -> None:
         self._body_by_url = body_by_url
@@ -242,7 +247,7 @@ def verify_personal_photo_is_preferred_over_stock() -> None:
         exporter = export_module.TripPdfExporter(
             hass=None, manager=None, experience=_FakeExperience("https://graph.example/personal.jpg")
         )
-        session = _FakeSession({"https://graph.example/personal.jpg": b"personal-bytes"})
+        session = _FakeSession({"https://graph.example/personal.jpg": _JPEG + b"personal-bytes"})
         media_by_stop = {"stop-1": [{"id": "media-1", "is_cover": True}]}
         destination_galleries = {
             "stop-1": {
@@ -255,7 +260,7 @@ def verify_personal_photo_is_preferred_over_stock() -> None:
         photos = await exporter._async_fetch_day_photos(
             session, "trip-1", [{"id": "stop-1"}], media_by_stop, destination_galleries
         )
-        assert photos == [b"personal-bytes"]
+        assert photos == [_JPEG + b"personal-bytes"]
         assert "https://commons.example/stock.jpg" not in session.requested_urls
 
     asyncio.run(scenario())
@@ -266,7 +271,7 @@ def verify_stock_photo_is_the_fallback_when_no_personal_photo_exists() -> None:
         exporter = export_module.TripPdfExporter(
             hass=None, manager=None, experience=_FakeExperience(None)
         )
-        session = _FakeSession({"https://commons.example/stock.jpg": b"stock-bytes"})
+        session = _FakeSession({"https://commons.example/stock.jpg": _JPEG + b"stock-bytes"})
         destination_galleries = {
             "stop-1": {
                 "primary_image_id": "img-1",
@@ -278,7 +283,7 @@ def verify_stock_photo_is_the_fallback_when_no_personal_photo_exists() -> None:
         photos = await exporter._async_fetch_day_photos(
             session, "trip-1", [{"id": "stop-1"}], {}, destination_galleries
         )
-        assert photos == [b"stock-bytes"]
+        assert photos == [_JPEG + b"stock-bytes"]
 
     asyncio.run(scenario())
 

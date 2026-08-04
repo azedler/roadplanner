@@ -31,7 +31,8 @@ module = module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
-PHOTO = b"x" * 4096
+# A real JPEG header: the cache stores only images a renderer can open.
+PHOTO = b"\xff\xd8\xff\xe0" + b"x" * 4092
 
 
 def verify_round_trip_and_key_identity() -> None:
@@ -46,6 +47,30 @@ def verify_round_trip_and_key_identity() -> None:
         # A re-imported photo reusing the media id can never serve stale
         # bytes - the provider item id is part of the key.
         assert module.cache_key("media-1", "drive-item-2", "c1920x1440") != key
+        # ... and so is the REQUEST KIND. Live report: the rendered
+        # thumbnail and the untouched original were both requested under
+        # size "large", so an undecodable HEIC original cached earlier was
+        # served to the thumbnail request that exists precisely to avoid
+        # HEIC - and every export stayed empty even after that fix.
+        assert module.cache_key(
+            "media-1", "drive-item-1", "large", "thumbnail"
+        ) != module.cache_key("media-1", "drive-item-1", "large", "original")
+
+
+def verify_undecodable_images_are_never_stored() -> None:
+    # HEIC ("....ftypheic"): downloads fine, opens nowhere. Caching it would
+    # turn one bad download into a permanently failing export.
+    heic = b"\x00\x00\x00\x18ftypheic" + b"x" * 4096
+    assert module.is_decodable_image(heic) is False
+    assert module.is_decodable_image(PHOTO) is True
+    assert module.is_decodable_image(b"\x89PNG\r\n\x1a\n" + b"x" * 100) is True
+    assert module.is_decodable_image(b"RIFF" + b"1234" + b"WEBP" + b"x" * 100) is True
+    assert module.is_decodable_image(b"kurz") is False
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = module.MediaCache(Path(tmp))
+        key = module.cache_key("m", "i", "large", "original")
+        cache.write(key, heic)
+        assert cache.read(key) is None, "an unopenable image is not cached"
 
 
 def verify_lru_pruning_keeps_the_cache_bounded() -> None:
@@ -85,6 +110,13 @@ def verify_cache_fails_open() -> None:
 
 def verify_exports_use_the_cache() -> None:
     photos_source = (PACKAGE_ROOT / "trip_export_photos.py").read_text(encoding="utf-8")
+    assert "cache_key(media_id, provider_item_id, size, kind)" in photos_source, (
+        "the request kind belongs in the key - see the collision above"
+    )
+    assert "if not is_decodable_image(photo):" in photos_source, (
+        "a HEIC download must be skipped, not handed on to a renderer that "
+        "cannot open it"
+    )
     assert "cached = await hass.async_add_executor_job(cache.read, key)" in photos_source
     assert "await hass.async_add_executor_job(cache.write, key, photo)" in photos_source
     assert photos_source.index("cached = await hass.async_add_executor_job") < photos_source.index(
@@ -102,6 +134,7 @@ def verify_exports_use_the_cache() -> None:
 
 if __name__ == "__main__":
     verify_round_trip_and_key_identity()
+    verify_undecodable_images_are_never_stored()
     verify_lru_pruning_keeps_the_cache_bounded()
     verify_cache_fails_open()
     verify_exports_use_the_cache()
