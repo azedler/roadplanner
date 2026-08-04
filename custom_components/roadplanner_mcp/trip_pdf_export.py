@@ -28,6 +28,7 @@ from .map_snapshot import async_fetch_snapshot, fit_center_zoom
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import (
+    LAST_PHOTO_ERROR,
     async_fetch_day_photos,
     async_fetch_media_photo,
     crop_photo,
@@ -514,12 +515,27 @@ class TripPdfExporter:
                 destination_galleries,
                 media_by_day.get(str(day.get("id") or "")),
             )
+            linked_photo_count = len(
+                media_by_day.get(str(day.get("id") or "")) or []
+            ) + sum(
+                len(media_by_stop.get(str(stop.get("id") or ""), [])) for stop in stops
+            )
+            photo_note = ""
+            if linked_photo_count and not photos:
+                # A page that says "20 eigene Fotos" and then shows none has
+                # to name the cause (live report: "Das pdf ist untauglich").
+                reason = LAST_PHOTO_ERROR.get("reason") or "Grund unbekannt"
+                photo_note = (
+                    f"{linked_photo_count} eigene Fotos zugeordnet, aber keines "
+                    f"konnte geladen werden - {reason}"
+                )
             days.append(
                 PdfDay(
                     title=_one_line(day.get("title")),
                     date=str(day.get("date") or ""),
                     stops=pdf_stops,
                     photos=photos,
+                    photo_note=photo_note,
                     distance_km=_optional_float(day.get("distance_km")),
                     duration_minutes=_optional_minutes(
                         day.get("drive_minutes", day.get("duration_minutes"))
@@ -602,6 +618,9 @@ class TripPdfExporter:
             total_distance_km=total_distance_km,
             country_count=len(country_codes),
             route_map=await self._async_route_map(session, days_raw),
+            # The trip's own best photo owns the cover instead of an empty
+            # decorative half-page.
+            cover_photo=day_photo_bytes[0] if day_photo_bytes else None,
         )
         return await self.hass.async_add_executor_job(build_trip_pdf, data)
 

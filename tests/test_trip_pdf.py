@@ -64,6 +64,74 @@ def verify_full_trip_renders_a_valid_pdf() -> None:
     assert len(pdf_bytes) > 2_000
 
 
+def _page_count(pdf_bytes: bytes) -> int:
+    return pdf_bytes.count(b"/Type /Page\n") or pdf_bytes.count(b"/Type /Page")
+
+
+def verify_days_flow_instead_of_owning_a_page_each() -> None:
+    """A day takes the room it needs, not a whole A4 sheet.
+
+    Live report: "Das pdf ist untauglich" - 28 days with two or three lines
+    each produced 33 pages of whitespace.
+    """
+    days = [
+        module.PdfDay(
+            title=f"Tag {index}",
+            date=f"2026-07-{index:02d}",
+            stops=[module.PdfStop(name="Ein Stopp", stop_type="wildcamp")],
+        )
+        for index in range(1, 29)
+    ]
+    sparse = module.build_trip_pdf(
+        module.TripPdfData(title="Reise", start_date="", end_date="", days=days)
+    )
+    assert sparse.startswith(b"%PDF")
+    pages = _page_count(sparse)
+    assert pages <= 8, f"28 text-only days must not need {pages} pages"
+
+    # Photos get real space, so a photo-rich trip legitimately grows - but
+    # still nowhere near one page per day.
+    with_photos = [
+        module.PdfDay(
+            title=day.title, date=day.date, stops=day.stops, photos=[_jpeg_bytes()]
+        )
+        for day in days
+    ]
+    rich = module.build_trip_pdf(
+        module.TripPdfData(title="Reise", start_date="", end_date="", days=with_photos)
+    )
+    assert _page_count(rich) <= 20, "photos must not bring back one page per day"
+
+
+def verify_a_day_that_lost_its_photos_says_so() -> None:
+    data = module.TripPdfData(
+        title="Reise",
+        start_date="",
+        end_date="",
+        days=[
+            module.PdfDay(
+                title="Tag mit Fotos",
+                date="2026-07-01",
+                stops=[module.PdfStop(name="Stopp")],
+                photo_note="20 eigene Fotos zugeordnet, aber keines konnte geladen werden - HEIC",
+            )
+        ],
+    )
+    pdf_bytes = module.build_trip_pdf(data)
+    assert pdf_bytes.startswith(b"%PDF")
+
+
+def verify_the_cover_uses_a_real_photo_when_there_is_one() -> None:
+    base = module.TripPdfData(title="Reise", start_date="", end_date="")
+    without = module.build_trip_pdf(base)
+    with_photo = module.build_trip_pdf(
+        module.TripPdfData(
+            title="Reise", start_date="", end_date="", cover_photo=_jpeg_bytes()
+        )
+    )
+    assert len(with_photo) > len(without), "the cover photo must be embedded"
+
+
 def verify_empty_trip_still_renders() -> None:
     data = module.TripPdfData(title="Leere Reise", start_date="", end_date="")
     pdf_bytes = module.build_trip_pdf(data)
@@ -133,6 +201,9 @@ def verify_many_days_are_bounded() -> None:
 
 verify_full_trip_renders_a_valid_pdf()
 verify_empty_trip_still_renders()
+verify_days_flow_instead_of_owning_a_page_each()
+verify_a_day_that_lost_its_photos_says_so()
+verify_the_cover_uses_a_real_photo_when_there_is_one()
 verify_corrupt_photo_is_skipped_not_placeholdered()
 verify_truncated_photo_is_skipped_not_placeholdered()
 verify_valid_photo_still_decodes()
