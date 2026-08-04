@@ -115,6 +115,7 @@ class TripVideoExporter:
         map_snapshot_provider: str,
         google_maps_api_key: str | None,
         library_dir: Path,
+        media_cache: Any = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
@@ -123,6 +124,7 @@ class TripVideoExporter:
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
         self.library_dir = library_dir
+        self.media_cache = media_cache
         self._status: dict[str, Any] = {"state": "idle"}
         self._task: Any = None
 
@@ -324,6 +326,8 @@ class TripVideoExporter:
                 destination_galleries,
                 max_photos=max_photos,
                 day_media=media_by_day.get(str(day.get("id") or "")),
+                cache=self.media_cache,
+                hass=self.hass,
             )
             map_snapshot = await self._async_fetch_chapter_map_snapshot(session, stops)
             narrative = await self._async_generate_narrative(day, stops)

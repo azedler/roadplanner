@@ -161,6 +161,7 @@ from .drive_import import async_register_drive_import_view
 from .handoff import HandoffStore
 from .llm_api import RoadplannerAPI
 from .manager import RoadplannerManager
+from .media_cache import MediaCache
 from .onedrive_media import OneDrivePersonalClient
 from .panel import (
     async_register_frontend_panel,
@@ -430,6 +431,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await travel_archive.async_initialize()
 
+    media_cache = MediaCache(archive_root / "media_cache")
     crew_store = CrewStore(archive_root / "crew")
     crew = CrewManager(hass, crew_store)
     await crew.async_initialize()
@@ -637,6 +639,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_MAP_SNAPSHOT_PROVIDER, DEFAULT_MAP_SNAPSHOT_PROVIDER
         ),
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
+        media_cache=media_cache,
     )
     trip_video = TripVideoExporter(
         hass,
@@ -649,6 +652,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
         library_dir=resolve_config_path(config_dir, trip_video_library_relative),
+        media_cache=media_cache,
     )
 
     runtime = RoadplannerRuntimeData(
