@@ -6,6 +6,19 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.18.0] - 2026-08-04
+
+### Changed
+
+- The trip PDF no longer gives every day its own A4 page (live report: "Das pdf ist untauglich"). Days flow one after another and take exactly the room their content needs, so a 28-day trip with two or three stops per day fits in a handful of dense pages instead of 33 pages of whitespace.
+- The cover shows the trip's own best photo instead of an abstract circle over an empty half-page.
+- Crew notes and personal summaries are wrapped over several lines instead of being cut off after one line with an ellipsis while the rest of the card stayed empty.
+- Without a map image, the route page now lists the travel days with their distances instead of drawing a decorative sine wave that looked like a route, had no relation to one, and whose labels overprinted each other.
+
+### Added
+
+- A day that has personal photos assigned but could not load any of them now says so on the page, naming the concrete cause, instead of announcing "20 eigene Fotos" next to nothing.
+
 ## [4.17.1] - 2026-08-04
 
 ### Fixed
