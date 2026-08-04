@@ -22,6 +22,7 @@ from .const import (
     EVENT_HANDOFF_RECEIVED,
     MAX_WEBHOOK_BYTES,
 )
+from .http_read import async_read_bounded
 from .google_maps_link import async_resolve_google_maps_place_query
 from .handoff import HandoffConflictError, extract_changeset
 from .manager import RoadplannerManager
@@ -257,8 +258,8 @@ async def _async_handle_handoff_post(
             "payload_too_large",
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
         )
-    body = await request.content.read(MAX_WEBHOOK_BYTES + 1)
-    if len(body) > MAX_WEBHOOK_BYTES:
+    body = await async_read_bounded(request, MAX_WEBHOOK_BYTES)
+    if body is None:
         return _json_error(
             "payload_too_large",
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,

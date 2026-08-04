@@ -122,11 +122,17 @@ verify_expired_ticket_is_purged()
 
 
 class _FakeContentReader:
+    """Chunked like aiohttp - a single read() would truncate the body."""
+
     def __init__(self, body: bytes) -> None:
         self._body = body
 
-    async def read(self, _max_bytes: int) -> bytes:
-        return self._body
+    async def iter_chunked(self, _size: int):
+        for start in range(0, len(self._body), 512):
+            yield self._body[start:start + 512]
+
+    async def read(self, _max_bytes: int = -1) -> bytes:
+        return self._body[:512]
 
 
 class _FakeResponse:

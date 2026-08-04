@@ -27,6 +27,7 @@ from .const import (
     EVENT_HANDOFF_RECEIVED,
     MAX_DRIVE_IMPORT_BYTES,
 )
+from .http_read import async_read_bounded
 from .external_import import (
     drive_import_external_id,
     drive_import_metadata,
@@ -192,8 +193,8 @@ class RoadplannerDriveImportView(HomeAssistantView):
                 "Der Request ist größer als 256 KiB.",
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             )
-        body = await request.content.read(MAX_DRIVE_IMPORT_BYTES + 1)
-        if len(body) > MAX_DRIVE_IMPORT_BYTES:
+        body = await async_read_bounded(request, MAX_DRIVE_IMPORT_BYTES)
+        if body is None:
             return _error(
                 "payload_too_large",
                 "Der Request ist größer als 256 KiB.",

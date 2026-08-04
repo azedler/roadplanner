@@ -19,6 +19,8 @@ import xml.etree.ElementTree as ET
 
 from aiohttp import ClientError, ClientTimeout
 
+from .http_read import async_read_capped
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -114,7 +116,7 @@ class EcbRateService:
                 ) as response:
                     if response.status != 200:
                         raise ClientError(f"HTTP {response.status}")
-                    payload = await response.content.read(_MAX_RESPONSE_BYTES)
+                    payload = await async_read_capped(response, _MAX_RESPONSE_BYTES)
             except (ClientError, asyncio.TimeoutError, OSError) as err:
                 _LOGGER.debug("ECB rate fetch failed: %s", err)
                 return self._cache

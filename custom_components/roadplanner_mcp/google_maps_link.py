@@ -28,6 +28,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .destination_intelligence import _URL_RE, _google_maps_host, _host_matches
+from .http_read import async_read_capped
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ async def _async_link_preview(hass: HomeAssistant, url: str) -> dict[str, Any]:
             ) as response:
                 if response.status != 200:
                     return {}
-                raw = await response.content.read(_MAX_PREVIEW_BYTES)
+                raw = await async_read_capped(response, _MAX_PREVIEW_BYTES)
     except (ClientError, TimeoutError):
         return {}
     return _extract_place_preview(raw.decode("utf-8", errors="replace"))

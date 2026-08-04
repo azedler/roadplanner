@@ -26,6 +26,7 @@ import re
 from typing import Any
 
 from .assistant_provider import AssistantProvider
+from .http_read import async_read_capped
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class Park4NightLookupService:
                 ) as response:
                     if response.status != 200:
                         return None
-                    raw = await response.content.read(_MAX_HTML_BYTES)
+                    raw = await async_read_capped(response, _MAX_HTML_BYTES)
         except Exception as err:  # noqa: BLE001 - fall back to the AI reader
             _LOGGER.debug("Direct Park4Night fetch failed: %s", type(err).__name__)
             return None

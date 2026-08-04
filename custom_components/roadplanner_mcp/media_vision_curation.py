@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import AssistantImageInput, AssistantProvider
+from .http_read import async_read_bounded
 from .experience_helpers import _clean
 from .experience_store import ExperienceStore, utc_now_iso
 from .media_vision import (
@@ -132,7 +133,7 @@ class VisionCurationEngine:
                 content_length = response.headers.get("Content-Length")
                 if content_length and int(content_length) > _VISION_MAX_IMAGE_BYTES:
                     return None
-                data = await response.content.read(_VISION_MAX_IMAGE_BYTES + 1)
+                data = await async_read_bounded(response, _VISION_MAX_IMAGE_BYTES)
         except (ClientError, asyncio.TimeoutError, ValueError):
             return None
         if not data or len(data) > _VISION_MAX_IMAGE_BYTES:
