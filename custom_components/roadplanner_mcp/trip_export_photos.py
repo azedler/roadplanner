@@ -12,6 +12,7 @@ exporters can never silently drift apart on this behavior.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from typing import Any
 
@@ -190,6 +191,42 @@ async def async_fetch_stock_stop_photo(
         if photo:
             return photo
     return None
+
+
+def crop_photo(photo: bytes | None, crop: Any) -> bytes | None:
+    """Cut a normalized (0..1) region out of a JPEG - fail-open.
+
+    Used for the crew reference photo: on a group picture only the chosen
+    face region identifies the person (live request).
+    """
+    if not photo or not isinstance(crop, dict):
+        return photo
+    try:
+        from PIL import Image
+
+        box = {key: float(crop[key]) for key in ("x", "y", "w", "h")}
+    except (KeyError, TypeError, ValueError, ImportError):
+        return photo
+    if box["w"] <= 0.02 or box["h"] <= 0.02:
+        return photo
+    try:
+        image = Image.open(io.BytesIO(photo))
+        image.load()
+        width, height = image.size
+        left = int(max(0, min(box["x"], 1)) * width)
+        top = int(max(0, min(box["y"], 1)) * height)
+        right = min(width, left + max(1, int(box["w"] * width)))
+        bottom = min(height, top + max(1, int(box["h"] * height)))
+        if right - left < 16 or bottom - top < 16:
+            return photo
+        buffer = io.BytesIO()
+        image.convert("RGB").crop((left, top, right, bottom)).save(
+            buffer, format="JPEG", quality=90
+        )
+        return buffer.getvalue()
+    except Exception as err:  # noqa: BLE001 - a failed crop must keep the photo
+        _LOGGER.debug("Crew reference crop failed: %s", type(err).__name__)
+        return photo
 
 
 async def async_download_photo(session: Any, url: str) -> bytes | None:

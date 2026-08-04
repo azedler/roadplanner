@@ -60,7 +60,15 @@ export const crewMixin = {
     return `${this._renderModalHeader(add ? "Person hinzufügen" : "Person bearbeiten")}<form data-form="crew-person" data-mode="${add ? "add" : "edit"}" data-person-id="${escapeHtml(person.id || "")}" class="form-grid">${this._field("name", "Name", person.name || "", "text", true, "full")}${this._selectField("kind", "Art", person.kind || "person", ["person", "dog"])}${this._textarea("note", "Rolle / Besonderheit", person.note || "", "full")}${this._renderCrewReferencePhotoPicker(person)}${this._formActions(add ? "Person hinzufügen" : "Änderungen speichern")}</form>`;
   },
 
-  _setCrewReferencePhoto(form, mediaId, thumbUrl) {
+  CREW_PHOTO_PAGE_SIZE: 36,
+
+  _crewPickerPhotos() {
+    return (this._experienceData()?.media || []).filter(
+      (item) => (item.media_type || "photo") === "photo" && this._safeUrl(item.thumbnail_url),
+    );
+  },
+
+  _setCrewReferencePhoto(form, mediaId, thumbUrl, largeUrl) {
     if (!form) return;
     const referenceInput = form.querySelector('input[name="reference_media_id"]');
     if (referenceInput) referenceInput.value = mediaId;
@@ -68,32 +76,144 @@ export const crewMixin = {
     const current = form.querySelector("[data-crew-photo-current]");
     const currentImage = form.querySelector("[data-crew-photo-current-image]");
     if (current) current.hidden = !mediaId;
-    if (currentImage && mediaId) currentImage.src = thumbUrl;
+    if (currentImage && mediaId) currentImage.src = largeUrl || thumbUrl;
+    // A new photo starts without a crop - the whole picture counts.
+    this._setCrewReferenceCrop(form, null);
+  },
+
+  _setCrewReferenceCrop(form, crop) {
+    if (!form) return;
+    const field = form.querySelector('input[name="reference_crop"]');
+    if (field) field.value = crop ? JSON.stringify(crop) : "";
+    const box = form.querySelector("[data-crew-crop-box]");
+    const hint = form.querySelector("[data-crew-crop-hint]");
+    if (box) {
+      box.hidden = !crop;
+      if (crop) {
+        box.style.left = `${crop.x * 100}%`;
+        box.style.top = `${crop.y * 100}%`;
+        box.style.width = `${crop.w * 100}%`;
+        box.style.height = `${crop.h * 100}%`;
+      }
+    }
+    if (hint) {
+      hint.textContent = crop
+        ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht."
+        : "Ganzes Bild. Auf das Bild tippen, um einen Ausschnitt zu setzen (bei Gruppenfotos).";
+    }
+  },
+
+  _applyCrewCropTap(form, frame, event) {
+    // Tap centers a square crop; the slider sets its size. That works on
+    // touch without drag handles (live request: pick one face out of a
+    // group photo).
+    const rect = frame.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const sizeInput = form.querySelector("[data-crew-crop-size]");
+    const size = Math.min(Math.max(Number(sizeInput?.value || 40) / 100, 0.05), 1);
+    const cx = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+    const cy = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
+    // Keep the box square on screen by compensating the frame's aspect.
+    const aspect = rect.width / rect.height;
+    const w = size;
+    const h = Math.min(size * aspect, 1);
+    this._setCrewReferenceCrop(form, {
+      x: Number(Math.min(Math.max(cx - w / 2, 0), 1 - w).toFixed(4)),
+      y: Number(Math.min(Math.max(cy - h / 2, 0), 1 - h).toFixed(4)),
+      w: Number(w.toFixed(4)),
+      h: Number(h.toFixed(4)),
+    });
+  },
+
+  _resizeCrewCrop(form) {
+    const field = form?.querySelector('input[name="reference_crop"]');
+    if (!field?.value) return;
+    const frame = form.querySelector("[data-crew-crop-frame]");
+    const box = form.querySelector("[data-crew-crop-box]");
+    if (!frame || !box) return;
+    const rect = frame.getBoundingClientRect();
+    const current = JSON.parse(field.value);
+    const sizeInput = form.querySelector("[data-crew-crop-size]");
+    const size = Math.min(Math.max(Number(sizeInput?.value || 40) / 100, 0.05), 1);
+    const aspect = rect.width / rect.height || 1;
+    const w = size;
+    const h = Math.min(size * aspect, 1);
+    const cx = current.x + current.w / 2;
+    const cy = current.y + current.h / 2;
+    this._setCrewReferenceCrop(form, {
+      x: Number(Math.min(Math.max(cx - w / 2, 0), 1 - w).toFixed(4)),
+      y: Number(Math.min(Math.max(cy - h / 2, 0), 1 - h).toFixed(4)),
+      w: Number(w.toFixed(4)),
+      h: Number(h.toFixed(4)),
+    });
+  },
+
+  _showCrewPhotoPage(form, page) {
+    const photos = this._crewPickerPhotos();
+    const pages = Math.max(1, Math.ceil(photos.length / this.CREW_PHOTO_PAGE_SIZE));
+    const safePage = Math.min(Math.max(page, 0), pages - 1);
+    const grid = form?.querySelector("[data-crew-photo-grid]");
+    if (!grid) return;
+    grid.dataset.page = String(safePage);
+    const selected = form.querySelector('input[name="reference_media_id"]')?.value || "";
+    grid.innerHTML = this._renderCrewPhotoTiles(photos, safePage, selected);
+    const label = form.querySelector("[data-crew-photo-pager-label]");
+    const from = safePage * this.CREW_PHOTO_PAGE_SIZE + 1;
+    const to = Math.min((safePage + 1) * this.CREW_PHOTO_PAGE_SIZE, photos.length);
+    if (label) label.textContent = `${from}–${to} von ${photos.length}`;
+    form.querySelectorAll("[data-crew-photo-prev]").forEach((b) => { b.disabled = safePage === 0; });
+    form.querySelectorAll("[data-crew-photo-next]").forEach((b) => { b.disabled = safePage >= pages - 1; });
+  },
+
+  _renderCrewPhotoTiles(photos, page, selectedId) {
+    const start = page * this.CREW_PHOTO_PAGE_SIZE;
+    return photos
+      .slice(start, start + this.CREW_PHOTO_PAGE_SIZE)
+      .map((item) => `<button type="button" class="crew-photo-choice ${item.id === selectedId ? "selected" : ""}" data-action="crew-pick-reference" data-media-id="${escapeHtml(item.id)}" data-thumb-url="${escapeHtml(this._safeUrl(item.thumbnail_url))}" data-large-url="${escapeHtml(this._safeUrl(item.original_url || item.thumbnail_url))}" aria-label="Dieses Foto zuordnen"><img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt=""></button>`)
+      .join("");
   },
 
   _renderCrewReferencePhotoPicker(person) {
     // "Wer ist wer": one assigned trip photo is the person's portrait in
     // the PDF and the Vision reference for personal summaries - no photo
     // captions needed (live request).
-    const media = (this._experienceData()?.media || []).filter(
-      (item) => (item.media_type || "photo") === "photo" && this._safeUrl(item.thumbnail_url),
-    );
+    const media = this._crewPickerPhotos();
     const selected = String(person.reference_media_id || "");
-    const recent = media.slice(0, 48);
-    if (selected && !recent.some((item) => item.id === selected)) {
-      const keep = media.find((item) => item.id === selected);
-      if (keep) recent.unshift(keep);
-    }
     const selectedItem = media.find((item) => item.id === selected) || null;
+    const crop = person.reference_crop || null;
+    const selectedIndex = selectedItem ? media.indexOf(selectedItem) : 0;
+    const page = Math.max(0, Math.floor(selectedIndex / this.CREW_PHOTO_PAGE_SIZE));
+    const pages = Math.max(1, Math.ceil(media.length / this.CREW_PHOTO_PAGE_SIZE));
+    const from = page * this.CREW_PHOTO_PAGE_SIZE + 1;
+    const to = Math.min((page + 1) * this.CREW_PHOTO_PAGE_SIZE, media.length);
+    const cropSize = crop ? Math.round(crop.w * 100) : 40;
     return `<details class="form-field full crew-photo-picker" open>
       <summary><ha-icon icon="mdi:face-recognition"></ha-icon> Reisefoto zuordnen (wer ist wer)</summary>
       <small class="hint">Ein Foto antippen, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.</small>
       <input type="hidden" name="reference_media_id" value="${escapeHtml(selected)}">
+      <input type="hidden" name="reference_crop" value="${crop ? escapeHtml(JSON.stringify(crop)) : ""}">
       <div class="crew-photo-current" data-crew-photo-current ${selectedItem ? "" : "hidden"}>
-        <img data-crew-photo-current-image src="${escapeHtml(selectedItem ? this._safeUrl(selectedItem.thumbnail_url) : "")}" alt="Ausgewähltes Foto">
-        <div><strong>Zugeordnet</strong><br><button class="text-button" type="button" data-action="crew-clear-reference">Zuordnung entfernen</button></div>
+        <div class="crew-crop-frame" data-crew-crop-frame data-action="crew-crop-tap">
+          <img data-crew-photo-current-image src="${escapeHtml(selectedItem ? this._safeUrl(selectedItem.original_url || selectedItem.thumbnail_url) : "")}" alt="Ausgewähltes Foto">
+          <span class="crew-crop-box" data-crew-crop-box ${crop ? "" : "hidden"} style="${crop ? `left:${crop.x * 100}%;top:${crop.y * 100}%;width:${crop.w * 100}%;height:${crop.h * 100}%` : ""}"></span>
+        </div>
+        <div class="crew-crop-controls">
+          <small class="hint" data-crew-crop-hint>${crop ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht." : "Ganzes Bild. Auf das Bild tippen, um einen Ausschnitt zu setzen (bei Gruppenfotos)."}</small>
+          <label class="crew-crop-size"><span>Ausschnittgröße</span><input type="range" min="10" max="90" step="5" value="${cropSize}" data-crew-crop-size data-action="crew-crop-size"></label>
+          <div class="button-row compact-row">
+            <button class="text-button" type="button" data-action="crew-crop-reset">Ganzes Bild</button>
+            <button class="text-button danger-text" type="button" data-action="crew-clear-reference">Zuordnung entfernen</button>
+          </div>
+        </div>
       </div>
-      ${recent.length ? `<div class="crew-photo-grid">${recent.map((item) => `<button type="button" class="crew-photo-choice ${item.id === selected ? "selected" : ""}" data-action="crew-pick-reference" data-media-id="${escapeHtml(item.id)}" data-thumb-url="${escapeHtml(this._safeUrl(item.thumbnail_url))}" aria-label="Dieses Foto zuordnen"><img loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt=""></button>`).join("")}</div>` : `<p class="hint">Für die ausgewählte Reise sind noch keine Fotos synchronisiert.</p>`}
+      ${media.length ? `
+        <div class="crew-photo-pager">
+          <button class="text-button" type="button" data-action="crew-photo-prev" data-crew-photo-prev ${page === 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon> Zurück</button>
+          <span data-crew-photo-pager-label>${from}–${to} von ${media.length}</span>
+          <button class="text-button" type="button" data-action="crew-photo-next" data-crew-photo-next ${page >= pages - 1 ? "disabled" : ""}>Weiter <ha-icon icon="mdi:chevron-right"></ha-icon></button>
+        </div>
+        <div class="crew-photo-grid" data-crew-photo-grid data-page="${page}">${this._renderCrewPhotoTiles(media, page, selected)}</div>
+      ` : `<p class="hint">Für die ausgewählte Reise sind noch keine Fotos synchronisiert.</p>`}
     </details>`;
   },
 

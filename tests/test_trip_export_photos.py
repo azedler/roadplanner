@@ -9,6 +9,7 @@ up.
 from __future__ import annotations
 
 import asyncio
+import io
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import sys
@@ -212,6 +213,39 @@ def verify_heic_is_named_as_the_undecodable_format() -> None:
     assert pdf._decode_photo(heic) is None, "an undecodable photo never raises"
 
 
+def verify_crop_photo_cuts_the_face_region() -> None:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (400, 300), (10, 20, 30)).save(buffer, "JPEG")
+    original = buffer.getvalue()
+    cropped = module.crop_photo(original, {"x": 0.25, "y": 0.5, "w": 0.5, "h": 0.5})
+    assert cropped != original
+    assert Image.open(io.BytesIO(cropped)).size == (200, 150)
+    # Fail-open: no crop, junk crop, or a degenerate box keeps the photo.
+    assert module.crop_photo(original, None) is original
+    assert module.crop_photo(original, {"x": 0, "y": 0, "w": 0.001, "h": 0.5}) is original
+    assert module.crop_photo(original, {"x": "a", "y": 0, "w": 1, "h": 1}) is original
+    assert module.crop_photo(b"kein bild", {"x": 0, "y": 0, "w": 1, "h": 1}) == b"kein bild"
+
+
+def verify_crew_picker_pagination_and_crop_ui() -> None:
+    crew_ui = Path("custom_components/roadplanner_mcp/frontend/features/crew.js").read_text(encoding="utf-8")
+    # Live request: not all photos visible, zoom, and a crop for group shots.
+    assert "CREW_PHOTO_PAGE_SIZE" in crew_ui
+    assert "_showCrewPhotoPage" in crew_ui and "data-crew-photo-pager-label" in crew_ui
+    assert "_applyCrewCropTap" in crew_ui and "data-crew-crop-frame" in crew_ui
+    assert 'name="reference_crop"' in crew_ui
+    panel_ui = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").read_text(encoding="utf-8")
+    for action in ("crew-photo-prev", "crew-photo-next", "crew-crop-tap", "crew-crop-reset"):
+        assert f'"{action}"' in panel_ui, action
+    assert "crew-crop-size" in panel_ui
+    export_source = Path("custom_components/roadplanner_mcp/trip_pdf_export.py").read_text(encoding="utf-8")
+    assert 'crop_photo(member.photo, reference.get("crop"))' in export_source, (
+        "the chosen face region must be applied to the portrait"
+    )
+
+
 def verify_crew_reference_picker_ui_contract() -> None:
     # Live report: the picker grid rendered as ragged full-height columns
     # and the selection was not recognizable.
@@ -232,5 +266,7 @@ if __name__ == "__main__":
     verify_stock_gallery_skips_google_primary_to_next_image()
     verify_day_linked_photos_fill_the_remaining_slots()
     verify_heic_is_named_as_the_undecodable_format()
+    verify_crop_photo_cuts_the_face_region()
+    verify_crew_picker_pagination_and_crop_ui()
     verify_crew_reference_picker_ui_contract()
     print("Trip export photo fallback tests passed.")

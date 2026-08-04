@@ -109,8 +109,15 @@ export const PANEL_STYLES = `<style>
       .notice.danger { background: color-mix(in srgb, var(--error-color, #d32f2f) 12%, transparent); }
       .notice.success { background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent); }
       .crew-photo-picker summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
-      .crew-photo-current { display: flex; align-items: center; gap: 12px; margin: 10px 0; padding: 8px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
-      .crew-photo-current img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; display: block; }
+      .crew-photo-current { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; margin: 10px 0; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .crew-crop-frame { position: relative; flex: 1 1 240px; max-width: 360px; line-height: 0; cursor: crosshair; touch-action: manipulation; }
+      .crew-crop-frame img { width: 100%; max-height: 320px; object-fit: contain; border-radius: 10px; display: block; background: #000; }
+      .crew-crop-box { position: absolute; border: 2px solid var(--primary-color); border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.42); pointer-events: none; }
+      .crew-crop-controls { flex: 1 1 200px; display: flex; flex-direction: column; gap: 8px; }
+      .crew-crop-size { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--secondary-text-color); }
+      .crew-crop-size input { width: 100%; }
+      .crew-photo-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
+      .crew-photo-pager button[disabled] { opacity: .4; }
       /* Fixed tile height instead of aspect-ratio: Safari/WebView ignores
          aspect-ratio on <button>, which made the grid collapse into ragged
          columns of full-height photos (live report). */

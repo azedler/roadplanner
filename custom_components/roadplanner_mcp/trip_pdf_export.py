@@ -25,7 +25,11 @@ from .canonical_day import canonical_roadbook_stops
 from .map_snapshot import async_fetch_snapshot, fit_center_zoom
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError, ValidationError
-from .trip_export_photos import async_fetch_day_photos, async_fetch_media_photo
+from .trip_export_photos import (
+    async_fetch_day_photos,
+    async_fetch_media_photo,
+    crop_photo,
+)
 from .trip_pdf import (
     MAX_PHOTOS_PER_DAY,
     PdfCrewMember,
@@ -457,7 +461,7 @@ class TripPdfExporter:
         media_by_id = {
             str(item.get("id") or ""): item for item in all_media
         }
-        reference_by_name: dict[str, str] = {}
+        reference_by_name: dict[str, dict[str, Any]] = {}
         if self.crew is not None:
             try:
                 crew_payload = await self.crew.async_panel_payload()
@@ -465,12 +469,13 @@ class TripPdfExporter:
                 crew_payload = {}
             for person in crew_payload.get("people") or []:
                 if isinstance(person, dict) and person.get("reference_media_id"):
-                    reference_by_name[str(person.get("name") or "").casefold()] = str(
-                        person["reference_media_id"]
-                    )
+                    reference_by_name[str(person.get("name") or "").casefold()] = {
+                        "media_id": str(person["reference_media_id"]),
+                        "crop": person.get("reference_crop"),
+                    }
         for member in crew:
-            reference_id = reference_by_name.get(member.name.casefold(), "")
-            reference_item = media_by_id.get(reference_id)
+            reference = reference_by_name.get(member.name.casefold()) or {}
+            reference_item = media_by_id.get(str(reference.get("media_id") or ""))
             mentions = _media_mentioning(all_media, member.name)
             portrait_item = reference_item or (mentions[0] if mentions else None)
             if portrait_item is None:
@@ -478,6 +483,9 @@ class TripPdfExporter:
             member.photo = await async_fetch_media_photo(
                 session, self.experience, trip_id, portrait_item
             )
+            if reference_item is not None and portrait_item is reference_item:
+                # On a group photo only the chosen region is this person.
+                member.photo = crop_photo(member.photo, reference.get("crop"))
             captions = [
                 str(item.get("caption") or "").strip()[:200]
                 for item in mentions[:6]
