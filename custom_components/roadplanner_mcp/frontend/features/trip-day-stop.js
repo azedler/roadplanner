@@ -427,7 +427,11 @@ export const tripDayStopMixin = {
     const externalActions = [
       this._externalLink(mapUrl, "Google Maps", "mdi:google-maps"),
       p4n ? this._externalLink(p4n.url, `Park4Night #${p4n.id}`, "mdi:caravan") : "",
-      ...sharedLinks.map((link) => this._externalLink(link.url, link.label, "mdi:link-variant")),
+      ...sharedLinks.map((link) => this._externalLink(
+        link.url,
+        link.label,
+        link.label.startsWith("Park4Night") ? "mdi:caravan" : "mdi:link-variant",
+      )),
       this._externalLink(navigationUrl, "Navigieren", "mdi:navigation-variant-outline", "primary-button"),
     ].filter(Boolean).join("");
     return `<article class="stop-card ${inherited ? "inherited-stop" : ""}">
@@ -467,18 +471,32 @@ export const tripDayStopMixin = {
     for (const raw of matches) {
       const url = raw.replace(/[.,;:]+$/, "");
       let host = "";
+      let path = "";
       try {
-        host = new URL(url).hostname.toLowerCase();
+        const parsed = new URL(url);
+        host = parsed.hostname.toLowerCase();
+        path = parsed.pathname;
       } catch (err) {
         continue;
       }
-      if (!host || seen.has(url)) continue;
+      if (!host) continue;
       if (/(^|\.)google\.[a-z.]+$|(^|\.)goo\.gl$|(^|\.)maps\.app\.goo\.gl$/.test(host)) continue;
       if (excludeP4n && /(^|\.)park4night\.com$/.test(host)) continue;
       // Image/CDN links from stored galleries are not lookup pages.
       if (/\.(jpg|jpeg|png|webp|avif|gif|svg)(\?|$)/i.test(url)) continue;
-      seen.add(url);
-      links.push({ url, label: host.replace(/^www\./, "") });
+      // Several Park4Night links on one stop (Plan A/B/C) used to render as
+      // three identical "park4night.com" buttons - label them by place id
+      // so they are distinguishable, and let the id be their identity.
+      const placeId = /(^|\.)park4night\.com$/.test(host)
+        ? (path.match(/\/(?:lieu|place)\/(\d{3,12})/) || [])[1] || ""
+        : "";
+      const identity = placeId ? `p4n:${placeId}` : `${host}${path}`;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      links.push({
+        url,
+        label: placeId ? `Park4Night #${placeId}` : host.replace(/^www\./, ""),
+      });
       if (links.length >= 3) break;
     }
     return links;
