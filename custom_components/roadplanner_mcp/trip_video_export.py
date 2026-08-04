@@ -33,7 +33,7 @@ from .canonical_day import canonical_roadbook_stops
 from .experience_store import utc_now_iso
 from .const import MAX_STORED_TRIP_VIDEOS
 from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
-from .map_snapshot import async_fetch_snapshot
+from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import LAST_PHOTO_ERROR, async_fetch_day_photos
 from .trip_video import (
@@ -413,10 +413,16 @@ class TripVideoExporter:
                         "geladen, aber keines davon ließ sich als Bild öffnen. "
                         f"Letzter Fehler: {reason}"
                     )
+                map_reason = LAST_SNAPSHOT_ERROR.get("reason")
+                photo_reason = LAST_PHOTO_ERROR.get("reason")
+                details = " · ".join(
+                    part for part in (photo_reason, map_reason) if part
+                )
                 raise ValidationError(
                     "Für diese Reise wurden keine Fotos für das Video gefunden: "
                     f"{len(chapters)} Kapitel, {stops_with_personal} zugeordnete "
-                    f"eigene Fotos, {stops_with_gallery} Planungsbilder"
+                    f"eigene Fotos, {stops_with_gallery} Planungsbilder."
+                    + (f" {details}" if details else "")
                 )
             input_args, filter_complex, video_label = build_ffmpeg_filter_graph(
                 data, frame_paths
