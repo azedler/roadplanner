@@ -31,6 +31,7 @@ from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
 from .google_maps_link import async_resolve_google_maps_place
 from .page_images import async_fetch_page_place
+from .system_check import async_run_system_check
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
@@ -65,6 +66,7 @@ _ACTIONS = {
     "calculate_day_route",
     "calculate_trip_routes",
     "pitch_route_overview",
+    "run_system_check",
     "export_trip_pdf",
     "trip_pdf_status",
     "export_trip_video",
@@ -228,6 +230,9 @@ _PROVIDER_CALL_ACTIONS = {
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
     "place_link_lookup",
+    # Walks every live interface end to end, including one Gemini call -
+    # the whole point is that it finishes even on a shaky connection.
+    "run_system_check",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -1269,6 +1274,13 @@ async def _execute_action(
 
     if action == "trip_pdf_status":
         return {"status": await runtime.trip_pdf.async_status()}
+
+    if action == "run_system_check":
+        # Probes the live interfaces from inside this Home Assistant, where
+        # the credentials, the network and the real data actually are.
+        return await async_run_system_check(
+            hass, runtime, trip_id=str(data.get("trip_id") or "").strip()
+        )
 
     if action == "export_trip_video":
         trip_id = str(data.get("trip_id") or "").strip()

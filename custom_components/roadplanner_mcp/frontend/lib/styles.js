@@ -259,6 +259,17 @@ export const PANEL_STYLES = `<style>
       .crew-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 14px; }
       .crew-row.inactive { opacity: 0.6; }
       .crew-row ha-icon { --mdc-icon-size: 28px; color: var(--primary-color); }
+      .system-check { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+      .system-check-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+      .system-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .system-check-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--divider-color); border-radius: 12px; }
+      .system-check-row > div { display: flex; flex-direction: column; min-width: 0; }
+      .system-check-row span { color: var(--secondary-text-color); font-size: 13px; overflow-wrap: anywhere; }
+      .system-check-row .system-check-hint { color: var(--primary-color); }
+      .system-check-row.ok ha-icon { color: var(--success-color, #2e7d32); }
+      .system-check-row.warn ha-icon { color: var(--warning-color, #ed6c02); }
+      .system-check-row.fail ha-icon { color: var(--error-color, #c62828); }
+      .system-check-row.skipped ha-icon { color: var(--disabled-text-color); }
       .crew-row-avatar { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: var(--secondary-background-color); }
       .crew-row-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .crew-row-body { flex: 1; display: flex; flex-direction: column; }

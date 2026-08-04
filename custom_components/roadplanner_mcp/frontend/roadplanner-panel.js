@@ -519,9 +519,16 @@ class RoadplannerPanel extends HTMLElement {
       dialog.requestId ? `Anfrage: ${dialog.requestId}` : "",
       dialog.action ? `Aktion: ${dialog.action}` : "",
     ].filter(Boolean).join("\n");
+    await this._copyToClipboard(text, "Fehlerdetails kopiert");
+  }
+
+  async _copyToClipboard(text, successMessage) {
+    // navigator.clipboard is unavailable on non-secure origins and in some
+    // WebViews - the textarea fallback is what makes copying work on the
+    // phone at all.
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      this._showToast("Fehlerdetails kopiert", "success", 3000);
     } catch (_error) {
       const textarea = document.createElement("textarea");
       textarea.value = text;
@@ -532,8 +539,8 @@ class RoadplannerPanel extends HTMLElement {
       textarea.select();
       document.execCommand?.("copy");
       textarea.remove();
-      this._showToast("Fehlerdetails kopiert", "success", 3000);
     }
+    this._showToast(successMessage, "success", 3000);
   }
 
   _isConnectionLostError(error) {
@@ -1537,6 +1544,10 @@ class RoadplannerPanel extends HTMLElement {
       void this._openLastTripVideo();
     } else if (action === "open-last-trip-pdf") {
       void this._openLastTripPdf();
+    } else if (action === "run-system-check") {
+      void this._runSystemCheck();
+    } else if (action === "copy-system-check") {
+      void this._copySystemCheck();
     } else if (action === "search-stop-images" && this._canEdit()) {
       const stop = this._findStop(dayId, stopId);
       const day = this._findDay(dayId);

@@ -249,10 +249,52 @@ export const tripDayStopMixin = {
             ${this._settingRow("Externe Google-Drive-Bridge", settings.handoff_webhook_enabled)}
             ${this._settingRow("Automatische Planungsbilder", settings.destination_image_auto_fill)}
           </div>
-          <div class="button-row">${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
+          <div class="button-row"><button class="secondary-button" type="button" data-action="run-system-check"${this._systemCheckRunning ? " disabled" : ""}><ha-icon icon="mdi:stethoscope"></ha-icon> ${this._systemCheckRunning ? "Systemcheck läuft…" : "Systemcheck"}</button>${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
+          ${this._renderSystemCheck()}
         </div>
       </details>
     `;
+  },
+
+  _renderSystemCheck() {
+    // Live request: "Können wir zu einem Testsystem kommen mit
+    // Schnittstellen gegen livesysteme?" - the probes run inside Home
+    // Assistant, where the credentials and the network are, and the result
+    // is one copyable block.
+    const result = this._systemCheck;
+    if (!result) {
+      return `<small class="hint">Prüft OneDrive, Park4Night, Kartenkacheln, Google und den Reisebegleiter live - inklusive echtem Foto-Abruf. Nichts wird dabei verändert.</small>`;
+    }
+    const labels = { ok: "OK", warn: "Hinweis", fail: "Fehler", skipped: "übersprungen" };
+    return `<div class="system-check">
+      <div class="system-check-summary">${["fail", "warn", "ok", "skipped"].filter((state) => result.summary?.[state]).map((state) => `<span class="state-pill ${state === "ok" ? "on" : state === "skipped" ? "" : "off"}">${result.summary[state]} ${escapeHtml(labels[state])}</span>`).join("")}</div>
+      <ul class="system-check-list">${(result.checks || []).map((check) => `<li class="system-check-row ${escapeHtml(check.state)}">
+        <ha-icon icon="${check.state === "ok" ? "mdi:check-circle-outline" : check.state === "warn" ? "mdi:alert-outline" : check.state === "fail" ? "mdi:close-circle-outline" : "mdi:minus-circle-outline"}"></ha-icon>
+        <div><strong>${escapeHtml(check.label)}</strong><span>${escapeHtml(check.detail || "")}${check.duration_ms ? ` · ${check.duration_ms} ms` : ""}</span>${check.hint ? `<span class="system-check-hint">${escapeHtml(check.hint)}</span>` : ""}</div>
+      </li>`).join("")}</ul>
+      <div class="button-row"><button class="text-button" type="button" data-action="copy-system-check"><ha-icon icon="mdi:content-copy"></ha-icon> Ergebnis kopieren</button></div>
+    </div>`;
+  },
+
+  async _runSystemCheck() {
+    if (this._systemCheckRunning) return;
+    this._systemCheckRunning = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction("run_system_check", {
+        trip_id: this._selectedTripId || "",
+      }, "", { refresh: false, blockUi: false, errorTitle: "Systemcheck fehlgeschlagen" });
+      if (result?.checks) this._systemCheck = result;
+    } finally {
+      this._systemCheckRunning = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  _copySystemCheck() {
+    const report = cleanText(this._systemCheck?.report);
+    if (!report) return;
+    this._copyToClipboard(report, "Systemcheck-Ergebnis kopiert");
   },
 
   _settingRow(label, enabled) {

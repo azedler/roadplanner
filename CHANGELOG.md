@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.19.0] - 2026-08-04
+
+### Added
+
+- **Systemcheck** under "Werkzeuge & System" (live request: "Können wir zu einem Testsystem kommen mit Schnittstellen gegen livesysteme wie OneDrive und P4n und google? Das ist mir aktuell echt zu hakelig."). One button probes every live interface from inside Home Assistant - where the credentials, the network and the real photos actually are - and reports per interface what happened, with the concrete reason and duration:
+  - OneDrive: connection, and a real photo resolved and downloaded through the exact path the exports use, in both the high-resolution and the standard thumbnail size.
+  - Park4Night: a real place page read deterministically, reporting whether coordinates were found.
+  - Map tiles from OpenStreetMap, and Google Static Maps when a key is configured.
+  - The travel companion (Gemini), plus the local prerequisites Pillow (which formats can be decoded at all) and ffmpeg.
+- Every probe is read-only and bounded, a failure is a result rather than an exception, and an unconfigured interface is reported as skipped rather than broken. Failures carry a concrete next step.
+- "Ergebnis kopieren" puts the whole report on the clipboard as plain text, so it can be pasted into a message instead of being screenshotted line by line.
+
 ## [4.18.3] - 2026-08-04
 
 ### Fixed
