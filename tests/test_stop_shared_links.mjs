@@ -63,4 +63,41 @@ assert.deepEqual(withoutP4n.map((link) => link.label), ["naturkartan.se"]);
 // A stop without any links stays quiet.
 assert.deepEqual(panel._stopSharedLinks({ notes: "keine Links", details: {} }), []);
 
+// Historical provenance is NOT a reference to the current place.
+//
+// Live report: "Wir stehen an einem unbedeutenden Platz nicht mit p4n
+// verlinkt sondern mit Google. Er scheint noch historische p4n links zu
+// haben. In den Daten des Stopps finde ich nichts von p4n." The stop's
+// place_profile still carried the source hints of an earlier enrichment
+// run, and scanning the whole details blob turned them into three
+// Park4Night buttons the user could neither explain nor remove.
+const movedStop = {
+  name: "Übernachtungsplatz",
+  notes: "Übernachtungsplatz laut Google Maps Link: https://maps.app.goo.gl/kbHKXdHxaekk39aQA",
+  details: {
+    place_profile: {
+      name: "Übernachtungsplatz",
+      source_hints: [
+        { provider: "park4night", id: "129424", url: "https://park4night.com/lieu/129424/" },
+        { provider: "park4night", id: "595143", url: "https://park4night.com/lieu/595143/" },
+        { provider: "park4night", id: "630381", url: "https://park4night.com/lieu/630381/" },
+      ],
+    },
+    geocoding: { provider: "nominatim", raw_response: "https://park4night.com/lieu/129424/" },
+  },
+};
+assert.deepEqual(
+  panel._stopSharedLinks(movedStop),
+  [],
+  "a stop whose only current reference is a Google-Maps link offers no Park4Night buttons",
+);
+// A reference the user can actually see and change still counts.
+assert.deepEqual(
+  panel._stopSharedLinks({
+    ...movedStop,
+    details: { ...movedStop.details, source: "https://park4night.com/lieu/129424/" },
+  }).map((link) => link.label),
+  ["Park4Night #129424"],
+);
+
 console.log("Stop shared link tests passed.");
