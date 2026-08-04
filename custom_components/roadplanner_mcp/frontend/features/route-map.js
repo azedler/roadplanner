@@ -63,7 +63,14 @@ export const routeMapMixin = {
       link.rel = "noopener noreferrer";
       link.download = "";
       link.click();
-      this._showToast("Reisezusammenfassung als PDF erstellt", "success", 4500);
+      this._showToast(
+        result.library_url
+          ? "Reisezusammenfassung als PDF erstellt - später über „Letztes PDF“ wieder abrufbar"
+          : "Reisezusammenfassung als PDF erstellt",
+        "success",
+        4500,
+      );
+      void this._fetchTripPdfStatus({ silent: true });
     } finally {
       this._exportingTripPdf = false;
       this._render({ preserveScroll: true });
@@ -134,6 +141,41 @@ export const routeMapMixin = {
       if (!silent) throw err;
     }
     return null;
+  },
+
+  async _fetchTripPdfStatus({ silent = false } = {}) {
+    try {
+      const result = await this._runAction("trip_pdf_status", {}, "", {
+        refresh: false,
+        blockUi: false,
+        errorTitle: silent ? "" : "PDF-Status konnte nicht geladen werden",
+      });
+      if (result?.status) {
+        this._tripPdfStatus = result.status;
+        this._render({ preserveScroll: true });
+        return result.status;
+      }
+    } catch (err) {
+      if (!silent) throw err;
+    }
+    return null;
+  },
+
+  async _openLastTripPdf() {
+    // The download ticket of a PDF built earlier is long gone; the library
+    // copy is what makes it retrievable at all.
+    const status = await this._fetchTripPdfStatus();
+    const last = status?.last_pdf;
+    if (!last?.url) {
+      this._showToast("Es wurde noch kein PDF erstellt", "info", 5000);
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = last.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.download = "";
+    link.click();
   },
 
   async _openLastTripVideo() {
@@ -449,6 +491,7 @@ export const routeMapMixin = {
           ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-trip-routes" data-force="${paths.length ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${paths.length ? "Alle neu berechnen" : "Alle Routen berechnen"}</button>` : ""}
           ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Tag</button>` : ""}
           <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Reisezusammenfassung als PDF"}</button>
+          <button class="text-button" type="button" data-action="open-last-trip-pdf" title="Zuletzt erstelltes PDF herunterladen"><ha-icon icon="mdi:file-find-outline"></ha-icon> Letztes PDF${this._tripPdfStatus?.last_pdf ? ` (${escapeHtml(String(this._tripPdfStatus.last_pdf.size_mb))} MB)` : ""}</button>
           ${this._data?.settings?.video_export_available ? `
             <select data-action="select-video-style" aria-label="Videolänge" ${this._exportingTripVideo ? "disabled" : ""}>
               <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>

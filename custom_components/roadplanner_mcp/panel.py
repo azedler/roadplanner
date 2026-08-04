@@ -66,6 +66,7 @@ _ACTIONS = {
     "calculate_trip_routes",
     "pitch_route_overview",
     "export_trip_pdf",
+    "trip_pdf_status",
     "export_trip_video",
     "trip_video_status",
     "park4night_autofill_run",
@@ -1258,7 +1259,16 @@ async def _execute_action(
             raise ValidationError("Für den PDF-Export wurde keine Reise ausgewählt")
         pdf_bytes = await runtime.trip_pdf.async_generate(trip_id)
         token = await runtime.trip_pdf.async_create_ticket(pdf_bytes, user_id=user_id)
-        return {"download_url": f"/api/roadplanner/trip_pdf/{token}"}
+        # The ticket expires in five minutes; the library copy keeps the
+        # same PDF retrievable afterwards without rebuilding it.
+        library_url = await runtime.trip_pdf.async_store_in_library(pdf_bytes)
+        return {
+            "download_url": f"/api/roadplanner/trip_pdf/{token}",
+            "library_url": library_url,
+        }
+
+    if action == "trip_pdf_status":
+        return {"status": await runtime.trip_pdf.async_status()}
 
     if action == "export_trip_video":
         trip_id = str(data.get("trip_id") or "").strip()
