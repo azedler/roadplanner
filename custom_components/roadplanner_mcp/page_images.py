@@ -37,6 +37,25 @@ _MAX_PAGE_BYTES = 900_000
 _PAGE_TIMEOUT_SECONDS = 10.0
 _MAX_IMAGES_PER_PAGE = 8
 
+
+def _page_request_headers() -> dict[str, str]:
+    """Headers for reading a page the user shared.
+
+    The bare product token used before was rejected outright by protective
+    front-ends (a shared naturkartan.se link came back unreadable). The
+    ``Mozilla/5.0 (compatible; ...)`` form is the long-established way to
+    stay recognisable to a site operator while passing those filters - the
+    integration and its version stay in the string.
+    """
+    return {
+        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de,en;q=0.8",
+        "User-Agent": (
+            "Mozilla/5.0 (compatible; HomeAssistant-Roadplanner/"
+            f"{INTEGRATION_VERSION}; +shared link preview)"
+        ),
+    }
+
 _META_IMAGE_RE = re.compile(
     r'<meta[^>]+(?:property|name)="(?:og:image(?::secure_url)?|twitter:image(?::src)?)"'
     r'[^>]+content="([^"]{1,2000})"'
@@ -207,6 +226,86 @@ _META_PAGE_OG_TITLE_RE = re.compile(
 )
 
 
+def _meta_content(page_html: str, *names: str) -> str:
+    """Read one meta tag's content, both attribute orders."""
+    alternatives = "|".join(re.escape(name) for name in names)
+    pattern = re.compile(
+        rf'<meta[^>]+(?:property|name)="(?:{alternatives})"[^>]+content="([^"]{{1,200}})"'
+        rf'|<meta[^>]+content="([^"]{{1,200}})"[^>]+(?:property|name)="(?:{alternatives})"',
+        re.IGNORECASE,
+    )
+    match = pattern.search(page_html)
+    if not match:
+        return ""
+    return next((group for group in match.groups() if group), "")
+
+
+# Coordinates embedded in a page's own scripts: a map application ships its
+# marker position as plain JSON long before any of it reaches the DOM
+# (__NEXT_DATA__, window.__INITIAL_STATE__, inline widget config ...).
+_JSON_LAT_LON_RE = re.compile(
+    r'"(?:latitude|lat)"\s*:\s*"?(-?\d{1,3}\.\d{3,10})"?\s*,\s*'
+    r'"(?:longitude|lng|lon|long)"\s*:\s*"?(-?\d{1,3}\.\d{3,10})"?',
+    re.IGNORECASE,
+)
+_JSON_LON_LAT_RE = re.compile(
+    r'"(?:longitude|lng|lon|long)"\s*:\s*"?(-?\d{1,3}\.\d{3,10})"?\s*,\s*'
+    r'"(?:latitude|lat)"\s*:\s*"?(-?\d{1,3}\.\d{3,10})"?',
+    re.IGNORECASE,
+)
+# Coordinates inside an embedded map link or iframe on the page.
+_MAP_LINK_COORD_RE = re.compile(
+    r"(?:[@!]|[?&#](?:q|ll|center|mlat)=|/@)"
+    r"(-?\d{1,3}\.\d{3,10})[,/](-?\d{1,3}\.\d{3,10})",
+    re.IGNORECASE,
+)
+# Two readings count as the same place below this distance (~1.1 km at the
+# equator). Anything further apart is a page listing SEVERAL places - then
+# nothing is picked, because guessing one of them would put the stop in the
+# wrong spot.
+_COORD_AGREEMENT_DEGREES = 0.01
+_MAX_SCANNED_COORDINATES = 200
+
+
+def _agreeing_coordinates(
+    candidates: list[tuple[float, float]]
+) -> tuple[float, float] | None:
+    """Return the shared position of candidates, or None if they disagree."""
+    if not candidates:
+        return None
+    first_lat, first_lon = candidates[0]
+    for lat, lon in candidates[1:]:
+        if (
+            abs(lat - first_lat) > _COORD_AGREEMENT_DEGREES
+            or abs(lon - first_lon) > _COORD_AGREEMENT_DEGREES
+        ):
+            return None
+    return first_lat, first_lon
+
+
+def _scanned_coordinates(page_html: str) -> tuple[float, float] | None:
+    """Coordinates from embedded JSON / map links, only when unambiguous."""
+    for pattern, swapped in (
+        (_JSON_LAT_LON_RE, False),
+        (_JSON_LON_LAT_RE, True),
+        (_MAP_LINK_COORD_RE, False),
+    ):
+        candidates: list[tuple[float, float]] = []
+        for match in pattern.finditer(page_html):
+            first, second = match.group(1), match.group(2)
+            pair = _valid_coordinates(
+                *(second, first) if swapped else (first, second)
+            )
+            if pair:
+                candidates.append(pair)
+            if len(candidates) > _MAX_SCANNED_COORDINATES:
+                break
+        agreed = _agreeing_coordinates(candidates)
+        if agreed:
+            return agreed
+    return None
+
+
 def _valid_coordinates(latitude: Any, longitude: Any) -> tuple[float, float] | None:
     try:
         lat, lon = float(latitude), float(longitude)
@@ -220,9 +319,13 @@ def _valid_coordinates(latitude: Any, longitude: Any) -> tuple[float, float] | N
 def extract_page_place(page_html: str) -> dict[str, Any]:
     """Read a place's coordinates and name from its page - deterministically.
 
-    Sources, in order: JSON-LD ``geo`` blocks (GeoCoordinates), the
-    ``geo.position``/``ICBM`` meta tags, plus the og:title as the place
-    name. Never invents data; anything unreadable yields an empty dict.
+    Sources, in order of trust: JSON-LD ``geo`` blocks (GeoCoordinates), the
+    Open-Graph place tags, the ``geo.position``/``ICBM`` meta tags, and
+    finally coordinates embedded in the page's own scripts or map links -
+    the last group only when every reading on the page agrees, so a list of
+    nearby places never turns into a guessed position. The og:title serves
+    as the place name. Never invents data; anything unreadable yields an
+    empty dict.
     """
     place: dict[str, Any] = {}
     if not page_html:
@@ -252,6 +355,13 @@ def extract_page_place(page_html: str) -> dict[str, Any]:
         if "latitude" in place:
             break
     if "latitude" not in place:
+        pair = _valid_coordinates(
+            _meta_content(page_html, "place:location:latitude", "og:latitude"),
+            _meta_content(page_html, "place:location:longitude", "og:longitude"),
+        )
+        if pair:
+            place["latitude"], place["longitude"] = pair
+    if "latitude" not in place:
         geo_match = _META_GEO_POSITION_RE.search(page_html)
         if geo_match:
             groups = [group for group in geo_match.groups() if group]
@@ -259,6 +369,10 @@ def extract_page_place(page_html: str) -> dict[str, Any]:
                 pair = _valid_coordinates(*groups)
                 if pair:
                     place["latitude"], place["longitude"] = pair
+    if "latitude" not in place:
+        scanned = _scanned_coordinates(page_html)
+        if scanned:
+            place["latitude"], place["longitude"] = scanned
     if "name" not in place:
         title_match = _META_PAGE_OG_TITLE_RE.search(page_html)
         if title_match:
@@ -272,31 +386,34 @@ def extract_page_place(page_html: str) -> dict[str, Any]:
 async def async_fetch_page_place(
     hass: HomeAssistant, url: str
 ) -> dict[str, Any]:
-    """Bounded fetch of one shared page, returning {latitude, longitude, name}."""
+    """Bounded fetch of one shared page, returning {latitude, longitude, name}.
+
+    Also reports ``read_status``: ``"ok"`` when the page was actually
+    retrieved (whether or not it named a position), otherwise a short reason
+    (``"http_404"``, ``"timeout"`` ...). Callers need that distinction - "the
+    site refused us" and "the page simply has no GPS" call for completely
+    different advice, and the old blanket message named neither.
+    """
     if hass is None:
-        return {}
+        return {"read_status": "unavailable"}
     parsed = urlparse(str(url or ""))
     if parsed.scheme != "https" or not parsed.hostname:
-        return {}
+        return {"read_status": "invalid_url"}
     session = async_get_clientsession(hass)
     try:
         async with asyncio.timeout(_PAGE_TIMEOUT_SECONDS):
-            async with session.get(
-                url,
-                headers={
-                    "Accept-Language": "de,en;q=0.8",
-                    "User-Agent": (
-                        "HomeAssistant-Roadplanner/"
-                        f"{INTEGRATION_VERSION} (shared link preview)"
-                    ),
-                },
-            ) as response:
+            async with session.get(url, headers=_page_request_headers()) as response:
                 if response.status != 200:
-                    return {}
+                    return {"read_status": f"http_{response.status}"}
                 raw = await response.content.read(_MAX_PAGE_BYTES)
-    except (ClientError, TimeoutError):
-        return {}
-    return extract_page_place(raw.decode("utf-8", errors="replace"))
+    except TimeoutError:
+        return {"read_status": "timeout"}
+    except ClientError as err:
+        _LOGGER.debug("Shared page could not be fetched (%s): %s", url, err)
+        return {"read_status": "network_error"}
+    place = extract_page_place(raw.decode("utf-8", errors="replace"))
+    place["read_status"] = "ok"
+    return place
 
 
 async def async_resolve_shared_page_place(
@@ -387,16 +504,7 @@ async def async_fetch_page_images(
     session = async_get_clientsession(hass)
     try:
         async with asyncio.timeout(_PAGE_TIMEOUT_SECONDS):
-            async with session.get(
-                url,
-                headers={
-                    "Accept-Language": "de,en;q=0.8",
-                    "User-Agent": (
-                        "HomeAssistant-Roadplanner/"
-                        f"{INTEGRATION_VERSION} (shared link preview)"
-                    ),
-                },
-            ) as response:
+            async with session.get(url, headers=_page_request_headers()) as response:
                 if response.status != 200:
                     return []
                 raw = await response.content.read(_MAX_PAGE_BYTES)

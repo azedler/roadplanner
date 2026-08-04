@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.15.3] - 2026-08-04
+
+### Fixed
+
+- "Die Seite konnte nicht gelesen werden oder enthält keine eindeutige GPS-Angabe" when adding a Stellplatz-Option from a shared naturkartan.se link (live report). Three separate causes, all addressed:
+  - Map-driven place pages ship their marker as script data (`__NEXT_DATA__`, inline widget config) or as Open-Graph place tags, not as JSON-LD. Those are now read as well, plus coordinates inside an embedded map link. The scan stays deterministic and refuses to guess: if a page names several places whose positions disagree, nothing is taken over.
+  - The bare product token in the User-Agent got the request rejected outright by protective front-ends. Shared pages are now requested the way a link preview does, with the integration and its version still identifiable in the string.
+  - A page whose name was readable but whose position was not left the user with a red banner and a completely empty form. The name now prefills the form as usual and only the coordinates stay open.
+- The error message names the actual cause instead of lumping two together: page read but without position, request rejected (with HTTP status), timeout, or unreachable - each with the matching next step.
+
 ## [4.15.2] - 2026-08-04
 
 ### Fixed
