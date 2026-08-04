@@ -331,8 +331,12 @@ class RoadplannerExperienceManager:
             trip_id, limit=limit, force=force, include_experience=include_experience
         )
 
-    async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
-        return await self._media_tokens.async_media_redirect_url(trip_id, media_id, kind)
+    async def async_media_redirect_url(
+        self, trip_id: str, media_id: str, kind: str, *, size: str = "large"
+    ) -> str:
+        return await self._media_tokens.async_media_redirect_url(
+            trip_id, media_id, kind, size=size
+        )
 
     async def async_panel_payload(self, trip_id: str, *, days: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return await self._panel_payload.async_panel_payload(trip_id, days=days)

@@ -133,13 +133,23 @@ async def async_fetch_media_photo(
     media_id = str(media_item.get("id") or "")
     if not media_id:
         return None
-    for kind in ("original", "thumbnail"):
+    # Rendered JPEG previews FIRST: iPhone photos are HEIC, which Pillow
+    # cannot decode - the original downloaded fine and was then silently
+    # discarded, which is why PDF and video stayed empty (live report).
+    # Graph renders every thumbnail size as JPEG, whatever the source is.
+    for kind, size in (
+        ("thumbnail", "c1920x1440"),
+        ("thumbnail", "large"),
+        ("original", "large"),
+    ):
         try:
-            url = await experience.async_media_redirect_url(trip_id, media_id, kind)
-        except (RoadplannerError, KeyError) as err:
+            url = await experience.async_media_redirect_url(
+                trip_id, media_id, kind, size=size
+            )
+        except (RoadplannerError, KeyError, TypeError) as err:
             _record_photo_error(
-                f"OneDrive-Link für Foto {media_id} ({kind}) nicht auflösbar: "
-                f"{err}"
+                f"OneDrive-Link für Foto {media_id} ({kind}/{size}) nicht "
+                f"auflösbar: {err}"
             )
             continue
         if not str(url or "").casefold().startswith("https://"):

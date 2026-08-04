@@ -17,7 +17,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import io
+import logging
 from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
 
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
@@ -64,7 +67,12 @@ def _decode_and_fit(image_bytes: bytes | None, target_w: int, target_h: int):
         image = Image.open(io.BytesIO(image_bytes))
         image.load()
         image = image.convert("RGB")
-    except Exception:  # noqa: BLE001 - a corrupt/unsupported/truncated frame must not abort the render
+    except Exception as err:  # noqa: BLE001 - a corrupt/unsupported/truncated frame must not abort the render
+        _LOGGER.warning(
+            "Video frame could not be decoded (%d Bytes): %s",
+            len(image_bytes),
+            type(err).__name__,
+        )
         return None
     if image.width <= 0 or image.height <= 0:
         return None

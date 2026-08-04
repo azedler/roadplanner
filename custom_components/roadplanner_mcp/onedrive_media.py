@@ -8,6 +8,7 @@ import logging
 import time
 from typing import Any
 from uuid import UUID
+import re
 from urllib.parse import quote, urlsplit
 
 from aiohttp import ClientError, ClientSession
@@ -19,6 +20,9 @@ from .const import DOMAIN, INTEGRATION_VERSION
 from .roadplanner import RoadplannerError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
+
+# Graph custom thumbnail size, e.g. c1920x1440 - always rendered as JPEG.
+_CUSTOM_THUMBNAIL_SIZE_RE = re.compile(r"c\d{2,4}x\d{2,4}")
 
 _GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 _AUTH_ROOT = "https://login.microsoftonline.com/consumers/oauth2/v2.0"
@@ -504,6 +508,18 @@ class OneDrivePersonalClient:
 
     async def async_thumbnail_url(self, item_id: str, size: str = "large") -> str:
         safe_id = quote(str(item_id or ""), safe="")
+        if _CUSTOM_THUMBNAIL_SIZE_RE.fullmatch(str(size or "")):
+            # Graph renders custom sizes as JPEG too and they are the only
+            # way to get a print-worthy pixel count out of a HEIC original
+            # (Pillow cannot decode HEIC - see trip_export_photos.py).
+            custom = await self._graph_json(
+                f"/me/drive/items/{safe_id}/thumbnails/0/{size}"
+            )
+            url = str(custom.get("url") or "")
+            parsed = urlsplit(url)
+            if parsed.scheme == "https" and parsed.hostname:
+                return url
+            raise ValidationError("OneDrive hat keine sichere Vorschaubild-URL geliefert")
         size = size if size in {"small", "medium", "large"} else "large"
         payload = await self._graph_json(f"/me/drive/items/{safe_id}/thumbnails")
         value = payload.get("value")

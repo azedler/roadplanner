@@ -55,11 +55,15 @@ class MediaTokenService:
         expected = hmac.new(self._token_secret, payload.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(signature, expected)
 
-    async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
+    async def async_media_redirect_url(
+        self, trip_id: str, media_id: str, kind: str, *, size: str = "large"
+    ) -> str:
         state = await self.hass.async_add_executor_job(self.store.load, trip_id)
         media = next((item for item in state["media"] if item.get("id") == media_id), None)
         if media is None:
             raise ValidationError("Foto nicht gefunden")
         if kind == "thumbnail":
-            return await self.onedrive.async_thumbnail_url(str(media["provider_item_id"]), "large")
+            return await self.onedrive.async_thumbnail_url(
+                str(media["provider_item_id"]), size
+            )
         return await self.onedrive.async_download_url(str(media["provider_item_id"]))
