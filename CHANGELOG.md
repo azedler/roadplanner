@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.35] - 2026-08-04
+
+### Changed
+
+- Photos shown in the panel no longer cost a Microsoft Graph call each time: resolving a photo's short-lived provider URL is memoized for five minutes (far below its own validity), so scrolling a trip with hundreds of memories resolves each photo once instead of on every view. Deliberately NOT changed: the view still answers with a redirect, so the image bytes keep flowing straight from the provider CDN to the browser - relaying them through Home Assistant would add load (and remote-access traffic) instead of removing it. Sizes and kinds stay separate entries, expired entries are always resolved again, and the memo is bounded.
+
 ## [4.14.34] - 2026-08-04
 
 ### Added
