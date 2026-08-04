@@ -179,6 +179,7 @@ from .travel_archive_manager import TravelArchiveManager
 from .trip_pdf_export import TripPdfExporter
 from .trip_pdf_http import async_register_trip_pdf_view
 from .trip_video_export import TripVideoExporter
+from .trip_pdf_library_http import async_register_trip_pdf_library_view
 from .trip_video_library_http import async_register_trip_video_library_view
 from .universal_import_manager import UniversalImportManager
 from .services import async_register_services
@@ -253,6 +254,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_experience_views(hass)
     async_register_google_photo_view(hass)
     async_register_trip_pdf_view(hass)
+    async_register_trip_pdf_library_view(hass)
     async_register_trip_video_library_view(hass)
     await async_setup_panel_support(hass)
     return True
@@ -647,6 +649,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
         media_cache=media_cache,
+        # Same folder as the videos: one library for generated trip exports,
+        # so a PDF stays retrievable after its five-minute ticket expires.
+        library_dir=resolve_config_path(config_dir, trip_video_library_relative),
     )
     trip_video = TripVideoExporter(
         hass,

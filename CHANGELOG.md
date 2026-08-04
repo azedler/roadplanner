@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.17.0] - 2026-08-04
+
+### Added
+
+- "Letztes PDF" next to the PDF button, matching "Letztes Video" (live question: "Sollten wir für das pdf auch einen alten Abruf ermöglichen?"). A generated summary is now also written to the export library, so it stays retrievable after its five-minute download ticket has expired - no rebuild, no waiting. The five newest PDFs are kept, older ones are pruned.
+- The immediate download after generating is unchanged and still runs through its short-lived ticket.
+
+### Changed
+
+- The configured video library folder now holds both videos and PDFs, and is labelled "Reise-Export-Bibliothek" accordingly. An existing configured path keeps working unchanged.
+
 ## [4.16.2] - 2026-08-04
 
 ### Fixed

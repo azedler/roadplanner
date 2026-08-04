@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
+from pathlib import Path
 import re
 import time
 from typing import Any
@@ -162,6 +164,13 @@ _TICKET_TTL_SECONDS = 5 * 60
 _MAX_TICKETS = 20
 _MAX_TICKET_USES = 3
 
+# A ticket expires after five minutes, so a PDF built an hour ago is gone.
+# The video export already keeps its result retrievable ("Letztes Video");
+# the PDF does the same, in the same library folder, so a summary built on
+# the road can still be fetched later without rebuilding it.
+MAX_STORED_TRIP_PDFS = 5
+PDF_FILENAME_RE = re.compile(r"^[0-9a-f]{32}\.pdf$")
+
 
 @dataclass(slots=True)
 class _PdfTicket:
@@ -185,6 +194,7 @@ class TripPdfExporter:
         map_snapshot_provider: str = "openstreetmap",
         google_maps_api_key: str | None = None,
         media_cache: Any = None,
+        library_dir: Path | None = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
@@ -194,8 +204,76 @@ class TripPdfExporter:
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
         self.media_cache = media_cache
+        # Shared with the video export: one folder for generated trip
+        # exports. Without it the PDF is still generated, only the "last
+        # PDF" retrieval is unavailable.
+        self.library_dir = library_dir
         self._tickets_lock = asyncio.Lock()
         self._tickets: dict[str, _PdfTicket] = {}
+
+    def _save_to_library(self, pdf_bytes: bytes) -> str:
+        """Write the PDF to the durable library and prune old entries.
+
+        Blocking file I/O - executor only, never called from async code.
+        """
+        assert self.library_dir is not None
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}.pdf"
+        (self.library_dir / filename).write_bytes(pdf_bytes)
+        stored = sorted(
+            self.library_dir.glob("*.pdf"), key=lambda path: path.stat().st_mtime
+        )
+        for stale in (
+            stored[:-MAX_STORED_TRIP_PDFS]
+            if len(stored) > MAX_STORED_TRIP_PDFS
+            else []
+        ):
+            stale.unlink(missing_ok=True)
+        return filename
+
+    def _library_latest(self) -> dict[str, Any] | None:
+        """Newest stored PDF - blocking, executor only."""
+        if self.library_dir is None:
+            return None
+        try:
+            stored = sorted(
+                self.library_dir.glob("*.pdf"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+        if not stored:
+            return None
+        stat = stored[0].stat()
+        return {
+            "url": f"/api/roadplanner/trip_pdf_library/{stored[0].name}",
+            "created_at": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
+            "size_mb": round(stat.st_size / 1_000_000, 1),
+        }
+
+    async def async_store_in_library(self, pdf_bytes: bytes) -> str:
+        """Keep the freshly built PDF retrievable, return its download URL."""
+        if self.library_dir is None:
+            return ""
+        try:
+            filename = await self.hass.async_add_executor_job(
+                self._save_to_library, pdf_bytes
+            )
+        except OSError as err:
+            # The download itself already works via the ticket - a library
+            # that cannot be written must never fail the export.
+            _LOGGER.warning("Trip PDF could not be stored for later: %s", err)
+            return ""
+        return f"/api/roadplanner/trip_pdf_library/{filename}"
+
+    async def async_status(self) -> dict[str, Any]:
+        """The newest retrievable library PDF, if any."""
+        return {
+            "last_pdf": await self.hass.async_add_executor_job(self._library_latest)
+        }
 
     async def _async_route_map(
         self, session: Any, days: list[dict[str, Any]]
