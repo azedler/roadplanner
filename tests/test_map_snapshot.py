@@ -200,3 +200,27 @@ verify_malformed_tile_bytes_return_none_gracefully()
 verify_tile_math_is_within_valid_bounds_at_a_known_coordinate()
 
 print("Map snapshot tests passed.")
+
+
+def verify_fit_center_zoom_frames_all_points() -> None:
+    # The PDF route page must frame the WHOLE trip - a schematic zigzag says
+    # nothing about where it went (live report "Karte macht keinen Sinn").
+    nordic_trip = [(51.05, 14.08), (63.10, 18.50), (60.17, 24.94), (54.69, 25.28)]
+    lat, lon, zoom = module.fit_center_zoom(
+        nordic_trip, width_px=1000, height_px=720
+    )
+    assert 51.0 < lat < 64.0 and 14.0 < lon < 26.0, (lat, lon)
+    assert 1 <= zoom <= 6, zoom
+    # Every point must fall inside the rendered frame at that zoom.
+    pixels = [module._lonlat_to_global_pixel(a, b, zoom) for a, b in nordic_trip]
+    assert max(x for x, _ in pixels) - min(x for x, _ in pixels) <= 1000
+    assert max(y for _, y in pixels) - min(y for _, y in pixels) <= 720
+    # A tight cluster gets a much closer zoom than a continent-wide trip.
+    _, _, close = module.fit_center_zoom(
+        [(60.10, 24.90), (60.12, 24.95)], width_px=1000, height_px=720
+    )
+    assert close > zoom
+
+
+verify_fit_center_zoom_frames_all_points()
+print("Map snapshot fit tests passed.")

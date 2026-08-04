@@ -175,6 +175,7 @@ class TripPdfData:
     days: list[PdfDay] = field(default_factory=list)
     total_distance_km: float = 0.0
     country_count: int = 0
+    route_map: bytes | None = None
 
 
 def _rounded_rect(c, x, y, w, h, r, fill, stroke=None) -> None:
@@ -226,13 +227,42 @@ def _icon_placeholder(c, x, y, w, h, label, tone, *, icon: str = "camera") -> No
         c.ellipse(cx - 7 * mm, cy + 3 * mm, cx - 3 * mm, cy + 8 * mm, fill=0, stroke=1)
         c.ellipse(cx + 3 * mm, cy + 3 * mm, cx + 7 * mm, cy + 8 * mm, fill=0, stroke=1)
     elif icon == "camper":
-        body_w, body_h = 20 * mm, 9 * mm
+        # A high-roof camper van (Ford Nugget Plus style): van body with a
+        # sloped windscreen and a raised roof box - not the boxy caravan
+        # trailer drawn before (live report).
+        body_w, body_h = 21 * mm, 7.5 * mm
         body_x, body_y = cx - body_w / 2, cy - body_h / 2
-        c.roundRect(body_x, body_y, body_w, body_h, 1.5 * mm, fill=0, stroke=1)
-        c.line(body_x + body_w * 0.62, body_y, body_x + body_w * 0.62, body_y + body_h)
-        c.rect(body_x + body_w * 0.72, body_y + body_h * 0.3, body_w * 0.18, body_h * 0.4, fill=0, stroke=1)
-        c.circle(body_x + body_w * 0.22, body_y - 0.5 * mm, 2.2 * mm, fill=0, stroke=1)
-        c.circle(body_x + body_w * 0.82, body_y - 0.5 * mm, 2.2 * mm, fill=0, stroke=1)
+        nose = body_w * 0.24
+        path = c.beginPath()
+        path.moveTo(body_x, body_y + body_h)          # rear top
+        path.lineTo(body_x + body_w - nose, body_y + body_h)  # cabin top
+        path.lineTo(body_x + body_w, body_y + body_h * 0.45)  # windscreen
+        path.lineTo(body_x + body_w, body_y)          # bumper
+        path.lineTo(body_x, body_y)                   # underside
+        path.close()
+        c.drawPath(path, fill=0, stroke=1)
+        # Raised roof, slightly shorter than the body and set back.
+        roof_w = body_w * 0.62
+        c.roundRect(
+            body_x + body_w * 0.06,
+            body_y + body_h,
+            roof_w,
+            3.2 * mm,
+            0.8 * mm,
+            fill=0,
+            stroke=1,
+        )
+        # Side window and wheels.
+        c.rect(
+            body_x + body_w * 0.36,
+            body_y + body_h * 0.42,
+            body_w * 0.22,
+            body_h * 0.36,
+            fill=0,
+            stroke=1,
+        )
+        c.circle(body_x + body_w * 0.24, body_y, 2.1 * mm, fill=0, stroke=1)
+        c.circle(body_x + body_w * 0.79, body_y, 2.1 * mm, fill=0, stroke=1)
     else:
         icon_w, icon_h = 13 * mm, 9 * mm
         icon_x = x + w / 2 - icon_w / 2
@@ -448,6 +478,47 @@ def _route_page(c, data: TripPdfData, page_number: int) -> int:
     c.setFillColor(NAVY)
     c.setFont(FONT_B, 22)
     c.drawString(MARGIN, PAGE_H - 28 * mm, "Die Route")
+
+    real_map = _decode_photo(data.route_map)
+    if real_map is not None:
+        # A real map of where the trip actually went - the schematic zigzag
+        # below is only the fallback when no coordinates exist (live report:
+        # "Karte macht keinen Sinn").
+        c.setFillColor(MUTED)
+        c.setFont(FONT, 9.5)
+        c.drawString(
+            MARGIN, PAGE_H - 34 * mm, "Die tatsächlich gefahrene Route."
+        )
+        image, iw, ih = real_map
+        map_w = PAGE_W - 2 * MARGIN
+        map_h = min(PAGE_H - 92 * mm, map_w * ih / iw if iw else map_w * 0.7)
+        map_y = PAGE_H - 40 * mm - map_h
+        _draw_photo(c, MARGIN, map_y, map_w, map_h, image, iw, ih)
+        c.setFillColor(MUTED)
+        c.setFont(FONT, 8)
+        c.drawString(MARGIN, map_y - 6 * mm, "© OpenStreetMap contributors")
+        legend_y = map_y - 14 * mm
+        c.setFillColor(INK)
+        c.setFont(FONT, 9)
+        line = ""
+        for day_number, name in names:
+            entry = f"{day_number}. {name}"
+            candidate = f"{line}   ·   {entry}" if line else entry
+            if pdfmetrics.stringWidth(candidate, FONT, 9) > PAGE_W - 2 * MARGIN:
+                c.drawString(MARGIN, legend_y, line)
+                legend_y -= 5.5 * mm
+                line = entry
+                if legend_y < 20 * mm:
+                    line = ""
+                    break
+            else:
+                line = candidate
+        if line:
+            c.drawString(MARGIN, legend_y, line)
+        _footer(c, str(page_number))
+        c.showPage()
+        return 1
+
     c.setFillColor(MUTED)
     c.setFont(FONT, 9.5)
     c.drawString(MARGIN, PAGE_H - 34 * mm, "Schematische Übersicht der Reisetage.")

@@ -35,7 +35,7 @@ from .const import MAX_STORED_TRIP_VIDEOS
 from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
 from .map_snapshot import async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
-from .trip_export_photos import async_fetch_day_photos
+from .trip_export_photos import LAST_PHOTO_ERROR, async_fetch_day_photos
 from .trip_video import (
     TripVideoData,
     VideoChapter,
@@ -373,14 +373,12 @@ class TripVideoExporter:
             stops_with_gallery,
         )
         if chapters and not photos_total and not maps_total:
+            reason = LAST_PHOTO_ERROR.get("reason") or "kein konkreter Fehler erfasst"
             raise ValidationError(
                 "Für dieses Video kam kein einziges Bild durch: "
-                f"{stops_with_personal} Stopps haben eigene Fotos und "
-                f"{stops_with_gallery} Planungsbilder, aber alle Downloads "
-                "sind fehlgeschlagen (auch die Kartenbilder). Details stehen "
-                "im Home-Assistant-Log unter roadplanner_mcp - typische "
-                "Ursachen: OneDrive-Anmeldung abgelaufen oder kein "
-                "Internetzugriff vom Home-Assistant-Host."
+                f"{stops_with_personal} eigene Fotos und "
+                f"{stops_with_gallery} Planungsbilder waren zugeordnet, aber "
+                f"alle Downloads sind fehlgeschlagen. Letzter Fehler: {reason}"
             )
 
         data = TripVideoData(

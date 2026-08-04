@@ -58,6 +58,35 @@ def _lonlat_to_global_pixel(lat: float, lon: float, zoom: int) -> tuple[float, f
     return x, y
 
 
+def fit_center_zoom(
+    points: list[tuple[float, float]],
+    *,
+    width_px: int,
+    height_px: int,
+    max_zoom: int = 12,
+    padding_px: int = 48,
+) -> tuple[float, float, int]:
+    """Return (center_lat, center_lon, zoom) covering all ``points``.
+
+    Used by the PDF route page: a schematic zigzag says nothing about where
+    a trip actually went (live report "Karte macht keinen Sinn"), so the
+    real map has to frame the whole route by itself.
+    """
+    latitudes = [point[0] for point in points]
+    longitudes = [point[1] for point in points]
+    center_lat = (max(latitudes) + min(latitudes)) / 2
+    center_lon = (max(longitudes) + min(longitudes)) / 2
+    usable_w = max(64, width_px - padding_px)
+    usable_h = max(64, height_px - padding_px)
+    for zoom in range(max_zoom, 0, -1):
+        corners = [_lonlat_to_global_pixel(lat, lon, zoom) for lat, lon in points]
+        span_x = max(x for x, _ in corners) - min(x for x, _ in corners)
+        span_y = max(y for _, y in corners) - min(y for _, y in corners)
+        if span_x <= usable_w and span_y <= usable_h:
+            return center_lat, center_lon, zoom
+    return center_lat, center_lon, 1
+
+
 async def async_fetch_snapshot(
     session: Any,
     provider: str,

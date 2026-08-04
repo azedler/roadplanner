@@ -627,7 +627,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         provider=provider,
     )
 
-    trip_pdf = TripPdfExporter(hass, manager, experience, provider, crew)
+    trip_pdf = TripPdfExporter(
+        hass,
+        manager,
+        experience,
+        provider,
+        crew,
+        map_snapshot_provider=options.get(
+            CONF_MAP_SNAPSHOT_PROVIDER, DEFAULT_MAP_SNAPSHOT_PROVIDER
+        ),
+        google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
+    )
     trip_video = TripVideoExporter(
         hass,
         manager,
