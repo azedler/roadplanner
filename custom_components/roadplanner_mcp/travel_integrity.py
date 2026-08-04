@@ -9,6 +9,7 @@ coordinates, times, images, or route metrics.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date
 from typing import Any, Iterable
 
 from .canonical_day import is_overnight_stop, location_status
@@ -130,6 +131,69 @@ def _route_score(day_reports: list[dict[str, Any]]) -> int:
     return _percentage(points, len(candidates))
 
 
+def _parsed_date(day: dict[str, Any]) -> date | None:
+    try:
+        return date.fromisoformat(_text(day.get("date")))
+    except ValueError:
+        return None
+
+
+def _calendar_issues(days: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Report a drifted travel calendar: duplicate or out-of-order dates.
+
+    The panel derives the weekday shown on a day ("Mo. 03.08.2026") from
+    that day's stored date. When two days share a date - or a later day is
+    dated earlier than the one before it - the displayed weekday looks
+    plainly wrong and "Heute" can land on the wrong day, with nothing
+    saying why (live report: "Das Montag an der Stelle ist falsch. Weiß
+    nicht wo er das hernimmt").
+    """
+    dated = [(day, parsed) for day in days if (parsed := _parsed_date(day))]
+    found: list[dict[str, Any]] = []
+    seen: dict[date, dict[str, Any]] = {}
+    for day, parsed in dated:
+        first = seen.get(parsed)
+        if first is None:
+            seen[parsed] = day
+            continue
+        found.append(
+            _issue(
+                code="duplicate_day_date",
+                severity="warning",
+                category="planning",
+                title=f"Zwei Reisetage tragen den {parsed.strftime('%d.%m.%Y')}",
+                message=(
+                    f"„{_text(day.get('title')) or 'Reisetag'}" + "“ und "
+                    f"„{_text(first.get('title')) or 'Reisetag'}" + "“ haben "
+                    "dasselbe Datum. Dadurch zeigt die Tagesansicht einen "
+                    "unerwarteten Wochentag und „Heute“ kann auf dem "
+                    "falschen Tag landen."
+                ),
+                day=day,
+                action="review_day",
+            )
+        )
+    for (previous, previous_date), (day, parsed) in zip(dated, dated[1:]):
+        if parsed < previous_date:
+            found.append(
+                _issue(
+                    code="day_date_out_of_order",
+                    severity="warning",
+                    category="planning",
+                    title="Reisetage sind nicht chronologisch datiert",
+                    message=(
+                        f"„{_text(day.get('title')) or 'Reisetag'}" + "“ ist auf "
+                        f"{parsed.strftime('%d.%m.%Y')} datiert, liegt aber hinter "
+                        f"„{_text(previous.get('title')) or 'Reisetag'}" + "“ vom "
+                        f"{previous_date.strftime('%d.%m.%Y')}."
+                    ),
+                    day=day,
+                    action="review_day",
+                )
+            )
+    return found[:12]
+
+
 def build_travel_integrity(
     days: Iterable[dict[str, Any]],
     *,
@@ -189,6 +253,7 @@ def build_travel_integrity(
         }
 
     issues: list[dict[str, Any]] = []
+    issues.extend(_calendar_issues(valid_days))
     day_reports: list[dict[str, Any]] = []
     total_stops = 0
     positioned_stops = 0

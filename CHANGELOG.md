@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.38] - 2026-08-04
+
+### Added
+
+- The travel-integrity report now checks the day CALENDAR (live report: "Das Montag an der Stelle ist falsch. Weiß nicht wo er das hernimmt"). The weekday shown on a day is derived from that day's stored date, so a drifted calendar is what actually looks wrong - and nothing used to say so. Two days carrying the same date, or a day dated earlier than the day before it, are now reported as warnings naming both days and dates, with a hint that "Heute" can land on the wrong day because of it. Undated or unparsable dates never trip the check.
+
 ## [4.14.37] - 2026-08-04
 
 ### Fixed
