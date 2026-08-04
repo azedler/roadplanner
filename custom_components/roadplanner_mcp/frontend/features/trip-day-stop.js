@@ -457,14 +457,55 @@ export const tripDayStopMixin = {
     </article>`;
   },
 
+  _stopReferenceFields(stop) {
+    // The detail fields that hold a REFERENCE to this place, as opposed to
+    // the provenance, research output and diagnostics that also live under
+    // details and outlive every change of the stop's identity.
+    const details = stop?.details;
+    if (!details || typeof details !== "object") return [];
+    const profile = details.place_profile && typeof details.place_profile === "object"
+      ? details.place_profile
+      : {};
+    const geocoding = details.geocoding && typeof details.geocoding === "object"
+      ? details.geocoding
+      : {};
+    return [
+      details.sources,
+      details.links,
+      details.source,
+      details.source_url,
+      details.url,
+      profile.sources,
+      profile.source,
+      profile.source_url,
+      profile.url,
+      geocoding.source_url,
+    ]
+      .filter((value) => value !== undefined && value !== null)
+      .map((value) => (typeof value === "string" ? value : JSON.stringify(value)));
+  },
+
   _stopSharedLinks(stop, { excludeP4n = false } = {}) {
     // Links the user shared for this stop (naturkartan.se, campsite
     // website ...) stay reachable directly on the stop card - live
     // request: "Er sollte wenigstens den Link anbieten um es nachschlagen
-    // zu können". Deterministic: read every https URL out of the stop's
-    // notes and details, skip Google-Maps (own button) and optionally
-    // Park4Night (own button), dedupe, cap at three.
-    const material = `${stop?.notes || ""} ${JSON.stringify(stop?.details || {})}`;
+    // zu können". Deterministic: read https URLs out of the stop's name and
+    // notes plus the few detail fields that hold place REFERENCES, skip
+    // Google-Maps (own button) and optionally Park4Night (own button),
+    // dedupe, cap at three.
+    //
+    // Scanning the whole details blob was wrong: it also picked up the
+    // provenance of earlier enrichment runs and profiles, so a stop whose
+    // notes now carry a plain Google-Maps link still showed three
+    // Park4Night buttons from a place it had once been (live report: "Er
+    // scheint noch historische p4n links zu haben. In den Daten des Stopps
+    // finde ich nichts von p4n"). What the user sees and can edit - name
+    // and notes - plus explicit reference fields is what counts.
+    const material = [
+      stop?.name || "",
+      stop?.notes || "",
+      ...this._stopReferenceFields(stop),
+    ].join(" ");
     const matches = material.match(/https:\/\/[^\s"'<>\\)\]]+/g) || [];
     const links = [];
     const seen = new Set();

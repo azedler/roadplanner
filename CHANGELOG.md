@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.16.2] - 2026-08-04
+
+### Fixed
+
+- A stop showed Park4Night buttons for places it has nothing to do with (live report: "Wir stehen an einem unbedeutenden Platz nicht mit p4n verlinkt sondern mit Google. Er scheint noch historische p4n links zu haben. In den Daten des Stopps finde ich nichts von p4n."). The stop card scanned the entire `details` blob for links, which includes `place_profile.source_hints` - a snapshot of an earlier enrichment run that outlives every change of the stop's identity. Links are now read from name, notes and the few fields that actually reference the current place, so what the user sees and can edit is what the card offers.
+- The Park4Night coordinate automation read the same blob and could therefore have filled a stop with the position of a place it used to be. It now reads the same current references only.
+
 ## [4.16.1] - 2026-08-04
 
 ### Fixed

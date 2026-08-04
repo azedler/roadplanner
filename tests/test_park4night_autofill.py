@@ -81,6 +81,27 @@ DAYS = [
                 "type": "waypoint",
                 "location": {},
             },
+            {
+                # Live report: a stop that has long since become a different
+                # place still carried the Park4Night ids of an earlier
+                # enrichment run in its place_profile. Filling coordinates
+                # from that page would move it somewhere the user never named.
+                "id": "stop-d",
+                "name": "Übernachtungsplatz",
+                "type": "overnight",
+                "notes": "laut Google Maps: https://maps.app.goo.gl/kbHKXdHxaekk",
+                "location": {},
+                "details": {
+                    "place_profile": {
+                        "source_hints": [
+                            {
+                                "provider": "park4night",
+                                "url": "https://park4night.com/lieu/129424/",
+                            }
+                        ]
+                    }
+                },
+            },
         ],
     }
 ]
@@ -88,7 +109,10 @@ DAYS = [
 
 def verify_only_gps_less_stops_with_a_link_are_candidates() -> None:
     candidates = module.find_autofill_candidates(DAYS)
-    assert [item["stop_id"] for item in candidates] == ["stop-a"], candidates
+    assert [item["stop_id"] for item in candidates] == ["stop-a"], (
+        "historical Park4Night hints in place_profile are provenance, not a "
+        f"reference to the stop's current place: {candidates}"
+    )
     assert candidates[0]["place_id"] == "603309"
     assert candidates[0]["url"] == "https://park4night.com/lieu/603309/"
     assert module.find_autofill_candidates([]) == []

@@ -36,13 +36,27 @@ _INTERVAL_MINUTES = 60
 
 
 def _stop_material(stop: dict[str, Any]) -> str:
+    """Text that references THIS stop's place - not its history.
+
+    The whole details blob was wrong to scan: ``place_profile`` keeps the
+    source hints of an earlier enrichment run, so a stop that has long since
+    become a different place still carries the Park4Night ids it once had
+    (live report: three Park4Night buttons on a stop whose notes hold only a
+    Google-Maps link). Filling coordinates from such a page would move the
+    stop to a place the user never named.
+    """
+    details = stop.get("details") if isinstance(stop.get("details"), dict) else {}
+    references = [
+        details.get("source"),
+        details.get("source_url"),
+        details.get("url"),
+        details.get("links"),
+    ]
     return " ".join(
-        str(part)
-        for part in (
-            stop.get("name"),
-            stop.get("notes"),
-            json.dumps(stop.get("details") or {}, ensure_ascii=False, default=str),
+        str(part) if isinstance(part, str) else json.dumps(
+            part, ensure_ascii=False, default=str
         )
+        for part in (stop.get("name"), stop.get("notes"), *references)
         if part
     )
 
