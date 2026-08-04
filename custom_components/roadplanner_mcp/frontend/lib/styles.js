@@ -259,6 +259,8 @@ export const PANEL_STYLES = `<style>
       .crew-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--divider-color); border-radius: 14px; }
       .crew-row.inactive { opacity: 0.6; }
       .crew-row ha-icon { --mdc-icon-size: 28px; color: var(--primary-color); }
+      .crew-row-avatar { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: var(--secondary-background-color); }
+      .crew-row-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .crew-row-body { flex: 1; display: flex; flex-direction: column; }
       .crew-row-body span { color: var(--secondary-text-color); font-size: 13px; }
       .crew-retired { margin-top: 14px; }
