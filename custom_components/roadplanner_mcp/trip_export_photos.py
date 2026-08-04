@@ -18,6 +18,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
 
+from .media_cache import cache_key
 from .media_intelligence import media_quality_score
 from .roadplanner import RoadplannerError
 
@@ -48,6 +49,8 @@ async def async_fetch_day_photos(
     *,
     max_photos: int,
     day_media: list[dict[str, Any]] | None = None,
+    cache: Any = None,
+    hass: Any = None,
 ) -> list[bytes]:
     """Best-effort download of up to ``max_photos`` photos for one day.
 
@@ -69,7 +72,13 @@ async def async_fetch_day_photos(
         if len(photos) >= max_photos:
             break
         photo = await async_fetch_personal_stop_photo(
-            session, experience, trip_id, str(stop.get("id") or ""), media_by_stop
+            session,
+            experience,
+            trip_id,
+            str(stop.get("id") or ""),
+            media_by_stop,
+            cache=cache,
+            hass=hass,
         )
         if photo is None:
             photo = await async_fetch_stock_stop_photo(
@@ -92,7 +101,9 @@ async def async_fetch_day_photos(
         for item in remaining:
             if len(photos) >= max_photos:
                 break
-            photo = await async_fetch_media_photo(session, experience, trip_id, item)
+            photo = await async_fetch_media_photo(
+                session, experience, trip_id, item, cache=cache, hass=hass
+            )
             if photo:
                 photos.append(photo)
     return photos
@@ -104,6 +115,9 @@ async def async_fetch_personal_stop_photo(
     trip_id: str,
     stop_id: str,
     media_by_stop: dict[str, list[dict[str, Any]]],
+    *,
+    cache: Any = None,
+    hass: Any = None,
 ) -> bytes | None:
     """Try several personal candidates, each as original THEN thumbnail.
 
@@ -117,7 +131,7 @@ async def async_fetch_personal_stop_photo(
     ordered = sorted(candidates, key=lambda item: not item.get("is_cover"))
     for media_item in ordered[:3]:
         photo = await async_fetch_media_photo(
-            session, experience, trip_id, media_item
+            session, experience, trip_id, media_item, cache=cache, hass=hass
         )
         if photo:
             return photo
@@ -129,11 +143,22 @@ async def async_fetch_media_photo(
     experience: Any,
     trip_id: str,
     media_item: dict[str, Any],
+    *,
+    cache: Any = None,
+    hass: Any = None,
 ) -> bytes | None:
-    """Download ONE personal media item, original first, thumbnail fallback."""
+    """Download ONE personal media item, rendered preview first.
+
+    A locally cached copy short-circuits the whole Graph round trip - the
+    same photos are needed by every PDF, every video and every crew
+    portrait (live question: "da ist ein permanentes Runterladen
+    eigentlich übertrieben").
+    """
     media_id = str(media_item.get("id") or "")
     if not media_id:
         return None
+    provider_item_id = str(media_item.get("provider_item_id") or "")
+    cache_usable = cache is not None and hass is not None and cache.enabled
     # Rendered JPEG previews FIRST: iPhone photos are HEIC, which Pillow
     # cannot decode - the original downloaded fine and was then silently
     # discarded, which is why PDF and video stayed empty (live report).
@@ -143,6 +168,11 @@ async def async_fetch_media_photo(
         ("thumbnail", "large"),
         ("original", "large"),
     ):
+        key = cache_key(media_id, provider_item_id, size) if cache_usable else ""
+        if key:
+            cached = await hass.async_add_executor_job(cache.read, key)
+            if cached:
+                return cached
         try:
             url = await experience.async_media_redirect_url(
                 trip_id, media_id, kind, size=size
@@ -157,6 +187,10 @@ async def async_fetch_media_photo(
             continue
         photo = await async_download_photo(session, url)
         if photo:
+            if key:
+                # Only the user's OWN photo is stored locally - provider
+                # stock imagery stays a reference (see module docstring).
+                await hass.async_add_executor_job(cache.write, key, photo)
             return photo
     return None
 

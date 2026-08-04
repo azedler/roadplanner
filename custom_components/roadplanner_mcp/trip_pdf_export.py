@@ -184,6 +184,7 @@ class TripPdfExporter:
         *,
         map_snapshot_provider: str = "openstreetmap",
         google_maps_api_key: str | None = None,
+        media_cache: Any = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
@@ -192,6 +193,7 @@ class TripPdfExporter:
         self.crew = crew
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
+        self.media_cache = media_cache
         self._tickets_lock = asyncio.Lock()
         self._tickets: dict[str, _PdfTicket] = {}
 
@@ -481,7 +483,12 @@ class TripPdfExporter:
             if portrait_item is None:
                 continue
             member.photo = await async_fetch_media_photo(
-                session, self.experience, trip_id, portrait_item
+                session,
+                self.experience,
+                trip_id,
+                portrait_item,
+                cache=self.media_cache,
+                hass=self.hass,
             )
             if reference_item is not None and portrait_item is reference_item:
                 # On a group photo only the chosen region is this person.
@@ -538,6 +545,8 @@ class TripPdfExporter:
             destination_galleries,
             max_photos=MAX_PHOTOS_PER_DAY,
             day_media=day_media,
+            cache=self.media_cache,
+            hass=self.hass,
         )
 
     async def async_create_ticket(self, pdf_bytes: bytes, *, user_id: str) -> str:

@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.34] - 2026-08-04
+
+### Added
+
+- Downloaded personal photo previews are cached locally (live question: "da ist ein permanentes Runterladen eigentlich übertrieben"). Every PDF export, video render and crew portrait previously re-fetched the same photos, each costing TWO Microsoft Graph round trips (resolve the short-lived URL, then download). A cache hit now skips both. The cache lives next to the other Roadplanner data (archive/media_cache), is bounded at 400 MB and pruned least-recently-used, keyed by media id + OneDrive item id + rendered size so a re-imported photo can never serve stale bytes. Only the user's OWN photos are stored - provider stock imagery stays a reference, as before. Every cache operation fails open: an unreadable or unwritable cache simply means the photo is downloaded as usual.
+
 ## [4.14.33] - 2026-08-04
 
 ### Added
