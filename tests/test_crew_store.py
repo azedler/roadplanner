@@ -144,8 +144,33 @@ def verify_reference_photo_assignment_round_trips() -> None:
         assert cleared["reference_media_id"] == ""
 
 
+def verify_reference_crop_is_validated_and_clamped() -> None:
+    # A group photo needs a face region so ONE person is identifiable.
+    with tempfile.TemporaryDirectory() as tmp:
+        store = crew_store.CrewStore(Path(tmp))
+        store.initialize()
+        person = store.create_person({"name": "Levi"})
+        assert person["reference_crop"] is None
+        saved = store.update_person(
+            person["id"],
+            {"reference_crop": {"x": 0.25, "y": 0.1, "w": 0.3, "h": 0.4}},
+        )
+        assert saved["reference_crop"] == {"x": 0.25, "y": 0.1, "w": 0.3, "h": 0.4}
+        # Out-of-bounds boxes are clamped into the image.
+        clamped = store.update_person(
+            person["id"], {"reference_crop": {"x": 0.8, "y": 0.9, "w": 0.5, "h": 0.5}}
+        )
+        assert clamped["reference_crop"] == {"x": 0.8, "y": 0.9, "w": 0.2, "h": 0.1}
+        # Degenerate or malformed input simply means "whole photo".
+        for junk in ({"x": 0, "y": 0, "w": 0.01, "h": 0.5}, {"x": "a"}, "nope", None):
+            assert store.update_person(
+                person["id"], {"reference_crop": junk}
+            )["reference_crop"] is None
+
+
 verify_person_crud_and_retirement()
 verify_vehicle_retirement_does_not_delete()
 verify_reference_photo_assignment_round_trips()
+verify_reference_crop_is_validated_and_clamped()
 
 print("Crew store tests passed.")

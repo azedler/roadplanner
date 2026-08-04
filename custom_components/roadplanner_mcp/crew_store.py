@@ -65,6 +65,25 @@ def _atomic_write(path: Path, value: dict[str, Any]) -> None:
         raise StorageError(f"Crew-Daten konnten nicht geschrieben werden: {path}") from err
 
 
+def _normalize_crop(value: Any) -> dict[str, float] | None:
+    """Validate a normalized crop box, or None when unset/unusable."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        box = {key: float(value[key]) for key in ("x", "y", "w", "h")}
+    except (KeyError, TypeError, ValueError):
+        return None
+    if box["w"] <= 0.02 or box["h"] <= 0.02:
+        return None
+    box["x"] = min(max(box["x"], 0.0), 1.0)
+    box["y"] = min(max(box["y"], 0.0), 1.0)
+    box["w"] = min(box["w"], 1.0 - box["x"])
+    box["h"] = min(box["h"], 1.0 - box["y"])
+    if box["w"] <= 0.02 or box["h"] <= 0.02:
+        return None
+    return {key: round(box[key], 4) for key in ("x", "y", "w", "h")}
+
+
 def normalize_person(value: dict[str, Any]) -> dict[str, Any]:
     person_id = _clean(value.get("id"), 100) or new_id("person")
     name = _clean(value.get("name"), 200)
@@ -82,6 +101,9 @@ def normalize_person(value: dict[str, Any]) -> dict[str, Any]:
         # it as the portrait and Vision as the reference face for personal
         # summaries. Assigned once in the crew settings, no captions needed.
         "reference_media_id": _clean(value.get("reference_media_id"), 200),
+        # Optional normalized crop (0..1) of that photo - the face region,
+        # so a group picture can still identify ONE person.
+        "reference_crop": _normalize_crop(value.get("reference_crop")),
         "active": bool(value.get("active", True)),
         "created_at": _clean(value.get("created_at"), 100) or utc_now_iso(),
         "updated_at": utc_now_iso(),

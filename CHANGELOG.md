@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.33] - 2026-08-04
+
+### Added
+
+- The crew reference-photo picker paginates through ALL trip photos instead of showing only the first 48 ("Ich sehe die Bilder jetzt, aber nicht alle"): 36 tiles per page with Zurück/Weiter and a "37–72 von 255" counter; the page containing the currently assigned photo opens by default.
+- The selected photo is shown LARGE above the grid, and a face region can be cut out of it for the assignment ("wenn mehrere Leute drauf sind"): tap the photo to place a crop box, size it with a slider, "Ganzes Bild" resets it. The crop is stored normalized on the person, applied to the crew-card portrait and used as the Vision reference face - so a group photo can still identify exactly one person.
+
 ## [4.14.32] - 2026-08-04
 
 ### Fixed

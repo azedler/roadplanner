@@ -711,6 +711,11 @@ class RoadplannerPanel extends HTMLElement {
       void this._handleArchiveFileInput(fileInput);
       return;
     }
+    const cropSize = event.target.closest('input[type="range"][data-action="crew-crop-size"]');
+    if (cropSize) {
+      this._resizeCrewCrop(cropSize.closest("form"));
+      return;
+    }
     const select = event.target.closest("select[data-action]");
     if (!select) return;
     if (select.dataset.action === "select-trip") {
@@ -1285,10 +1290,27 @@ class RoadplannerPanel extends HTMLElement {
       this._render({ preserveScroll: true });
     } else if (action === "crew-pick-reference" && this._canEdit()) {
       // Pure DOM update - a re-render would reset the form's typed values.
-      this._setCrewReferencePhoto(target.closest("form"), target.dataset.mediaId || "", target.dataset.thumbUrl || "");
+      this._setCrewReferencePhoto(
+        target.closest("form"),
+        target.dataset.mediaId || "",
+        target.dataset.thumbUrl || "",
+        target.dataset.largeUrl || "",
+      );
       target.classList.add("selected");
     } else if (action === "crew-clear-reference" && this._canEdit()) {
-      this._setCrewReferencePhoto(target.closest("form"), "", "");
+      this._setCrewReferencePhoto(target.closest("form"), "", "", "");
+    } else if (action === "crew-photo-prev" || action === "crew-photo-next") {
+      const pickerForm = target.closest("form");
+      const grid = pickerForm?.querySelector("[data-crew-photo-grid]");
+      const current = Number(grid?.dataset.page || 0);
+      this._showCrewPhotoPage(pickerForm, current + (action === "crew-photo-next" ? 1 : -1));
+    } else if (action === "crew-crop-tap" && this._canEdit()) {
+      const pickerForm = target.closest("form");
+      if (pickerForm && event.clientX != null) {
+        this._applyCrewCropTap(pickerForm, target, event);
+      }
+    } else if (action === "crew-crop-reset" && this._canEdit()) {
+      this._setCrewReferenceCrop(target.closest("form"), null);
     } else if (action === "retire-crew-person" && this._canEdit()) {
       const person = this._crewPersonById(target.dataset.personId);
       this._confirm(
@@ -1898,6 +1920,13 @@ class RoadplannerPanel extends HTMLElement {
         kind: cleanText(values.kind) || "person",
         note: String(values.note || ""),
         reference_media_id: cleanText(values.reference_media_id),
+        reference_crop: (() => {
+          try {
+            return values.reference_crop ? JSON.parse(String(values.reference_crop)) : null;
+          } catch (err) {
+            return null;
+          }
+        })(),
       };
       const result = mode === "add"
         ? await this._runAction("crew_person_add", { value }, "Person hinzugefügt")
