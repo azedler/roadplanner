@@ -68,6 +68,7 @@ _ACTIONS = {
     "export_trip_pdf",
     "export_trip_video",
     "trip_video_status",
+    "park4night_autofill_run",
     "scan_handoffs",
     "preview_handoff",
     "apply_handoff",
@@ -1178,6 +1179,15 @@ async def _execute_action(
 
     if action == "trip_video_status":
         return {"status": await runtime.trip_video.async_status()}
+
+    if action == "park4night_autofill_run":
+        # Reads the linked Park4Night pages and parks the coordinates as a
+        # REVIEW handoff - never applied without confirmation.
+        return {
+            "status": await runtime.park4night_autofill.async_run(
+                force=data.get("force") is True
+            )
+        }
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()

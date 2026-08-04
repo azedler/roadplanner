@@ -163,6 +163,7 @@ from .llm_api import RoadplannerAPI
 from .manager import RoadplannerManager
 from .media_cache import MediaCache
 from .onedrive_media import OneDrivePersonalClient
+from .park4night_autofill import Park4NightAutofillManager
 from .panel import (
     async_register_frontend_panel,
     async_remove_frontend_panel,
@@ -207,6 +208,7 @@ class RoadplannerRuntimeData:
     experience: RoadplannerExperienceManager
     universal_import: UniversalImportManager
     crew: CrewManager
+    park4night_autofill: Park4NightAutofillManager
     trip_pdf: TripPdfExporter
     trip_video: TripVideoExporter
 
@@ -629,6 +631,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         provider=provider,
     )
 
+    park4night_autofill = Park4NightAutofillManager(
+        hass, manager, experience.p4n_lookup
+    )
+    await park4night_autofill.async_initialize()
+
     trip_pdf = TripPdfExporter(
         hass,
         manager,
@@ -672,6 +679,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         experience=experience,
         universal_import=universal_import,
         crew=crew,
+        park4night_autofill=park4night_autofill,
         trip_pdf=trip_pdf,
         trip_video=trip_video,
     )
@@ -714,6 +722,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         entry.runtime_data.manager.set_update_callback(None)
         await entry.runtime_data.experience.async_shutdown()
+        await entry.runtime_data.park4night_autofill.async_shutdown()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unload_ok
 
