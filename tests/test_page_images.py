@@ -146,6 +146,63 @@ def verify_page_place_extraction() -> None:
     assert module.extract_page_place("<p>nichts</p>") == {}
 
 
+def verify_map_app_coordinates_are_found_and_never_guessed() -> None:
+    """A map page that ships its marker only as script data still resolves.
+
+    Live report: a shared naturkartan.se link came back "Die Seite konnte
+    nicht gelesen werden oder enthält keine eindeutige GPS-Angabe" although
+    the page shows the place on a map. Such pages carry the position in
+    their own JSON payload, not in JSON-LD.
+    """
+    og_place = (
+        '<meta property="place:location:latitude" content="59.30721">'
+        '<meta property="place:location:longitude" content="15.11544">'
+    )
+    place = module.extract_page_place(og_place)
+    assert (place["latitude"], place["longitude"]) == (59.30721, 15.11544)
+
+    next_data = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"site":{"id":41234,"name":"Dammtorp",'
+        '"lat":59.183422,"lng":15.229781}}}</script>'
+        '<meta property="og:title" content="Dammtorp | Naturkartan">'
+    )
+    place = module.extract_page_place(next_data)
+    assert (place["latitude"], place["longitude"]) == (59.183422, 15.229781)
+    assert place["name"] == "Dammtorp"
+
+    # Reversed key order (GeoJSON-style payloads) is read just as well.
+    place = module.extract_page_place(
+        '<script>var m = {"longitude": 15.229781, "latitude": 59.183422};</script>'
+    )
+    assert (place["latitude"], place["longitude"]) == (59.183422, 15.229781)
+
+    # An embedded map link counts too.
+    place = module.extract_page_place(
+        '<iframe src="https://www.google.com/maps?q=59.183422,15.229781&z=15">'
+    )
+    assert (place["latitude"], place["longitude"]) == (59.183422, 15.229781)
+
+    # A page listing SEVERAL places must produce nothing: picking one of
+    # them would put the stop kilometres away from what the user shared.
+    ambiguous = (
+        '<script>{"places":['
+        '{"lat":59.183422,"lng":15.229781},'
+        '{"lat":58.771003,"lng":14.998112}]}</script>'
+    )
+    assert "latitude" not in module.extract_page_place(ambiguous)
+    # Nearly identical readings of the SAME place still resolve.
+    agreeing = (
+        '<script>{"lat":59.183422,"lng":15.229781}</script>'
+        '<script>{"lat":59.183430,"lng":15.229790}</script>'
+    )
+    assert module.extract_page_place(agreeing)["latitude"] == 59.183422
+    # Version numbers and prices never look like coordinates.
+    assert "latitude" not in module.extract_page_place(
+        '<script>{"version":"4.15.2","price":12.5}</script>'
+    )
+
+
 def verify_shared_page_resolver_contract() -> None:
     async def fake_fetch_place(hass, url):
         assert "naturkartan" in url
@@ -181,6 +238,41 @@ def verify_shared_page_resolver_contract() -> None:
     assert "_stopSharedLinks" in stop_card_source
 
 
+def verify_failure_reason_is_named_and_a_readable_name_survives() -> None:
+    panel_source = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    # A page whose name was readable must prefill the form instead of
+    # leaving the user with a red banner and empty fields.
+    assert '"name": page_name,' in panel_source
+    assert "_place_link_failure_message(" in panel_source
+    assert (
+        "Die Seite konnte nicht gelesen werden oder enthält keine "
+        "eindeutige GPS-Angabe" not in panel_source
+    ), "the blanket message that named neither cause is gone"
+
+    # panel.py cannot be imported without Home Assistant - assert on the
+    # branches instead, one per read_status the fetch can report.
+    for expected in (
+        "nennt aber keine eindeutige GPS-Position",
+        "abgewiesen",
+        "nicht rechtzeitig",
+        "nicht erreichbar",
+    ):
+        assert expected in panel_source, expected
+
+
+def verify_shared_pages_are_requested_like_a_link_preview() -> None:
+    headers = module._page_request_headers()
+    # A bare product token was rejected outright by protective front-ends.
+    assert headers["User-Agent"].startswith("Mozilla/5.0 (compatible;")
+    assert "Roadplanner" in headers["User-Agent"], (
+        "the integration must stay identifiable to the site operator"
+    )
+    source = (PACKAGE_ROOT / "page_images.py").read_text(encoding="utf-8")
+    assert source.count("headers=_page_request_headers()") == 2, (
+        "photo and place reads must send the same headers"
+    )
+
+
 def verify_gallery_and_enrichment_wiring() -> None:
     gallery_source = (PACKAGE_ROOT / "destination_gallery_manager.py").read_text(encoding="utf-8")
     assert "async_images_from_source_hints" in gallery_source
@@ -196,7 +288,10 @@ def verify_gallery_and_enrichment_wiring() -> None:
 if __name__ == "__main__":
     verify_extraction_shapes_and_filters()
     verify_page_place_extraction()
+    verify_map_app_coordinates_are_found_and_never_guessed()
     verify_shared_page_resolver_contract()
+    verify_failure_reason_is_named_and_a_readable_name_survives()
+    verify_shared_pages_are_requested_like_a_link_preview()
     verify_source_hint_fetch_skips_covered_providers()
     verify_gallery_and_enrichment_wiring()
     print("Shared-page image extraction tests passed.")

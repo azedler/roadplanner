@@ -337,6 +337,42 @@ def _optional_number(value: Any) -> int | float | None:
     return value
 
 
+def _place_link_failure_message(
+    page_place: dict[str, Any], *, lookup_available: bool
+) -> str:
+    """Say what actually went wrong with a shared place link.
+
+    The old blanket text ("konnte nicht gelesen werden ODER enthält keine
+    eindeutige GPS-Angabe") left the user with no idea which of the two it
+    was - and therefore no idea what to do next.
+    """
+    status = str(page_place.get("read_status") or "")
+    if status == "ok":
+        detail = (
+            "Die Seite wurde gelesen, nennt aber keine eindeutige GPS-Position. "
+            "Bitte Koordinaten von Hand eintragen - oder einen Google-Maps-Link "
+            "der Stelle teilen."
+        )
+    elif status.startswith("http_"):
+        detail = (
+            f"Die Seite hat die Anfrage abgewiesen ({status.replace('http_', 'HTTP ')}). "
+            "Solche Seiten lassen sich oft nur im Browser öffnen - bitte die "
+            "Koordinaten von dort übernehmen."
+        )
+    elif status == "timeout":
+        detail = "Die Seite hat nicht rechtzeitig geantwortet. Bitte später erneut versuchen."
+    elif status == "network_error":
+        detail = "Die Seite war nicht erreichbar. Bitte später erneut versuchen."
+    else:
+        detail = "Die Seite konnte nicht gelesen werden."
+    if not lookup_available:
+        detail += (
+            " Der Reisebegleiter (Gemini) ist nicht konfiguriert und konnte "
+            "es nicht ersatzweise versuchen."
+        )
+    return detail
+
+
 def _optional_int(value: Any) -> int | None:
     value = _none_if_blank(value)
     if value is None:
@@ -525,6 +561,7 @@ async def _execute_action(
             return {"result": result}
         lookup = runtime.experience.p4n_lookup
         p4n_match = _PARK4NIGHT_ID_RE.search(url)
+        page_place: dict[str, Any] = {}
         if p4n_match is None:
             # Deterministic first: many place pages (naturkartan.se,
             # campsite websites) carry their position in JSON-LD/geo
@@ -540,21 +577,37 @@ async def _execute_action(
                         "name": str(page_place.get("name") or hint or "")[:200],
                     }
                 }
-        if not lookup.available:
+        result = None
+        if lookup.available:
+            if p4n_match is not None:
+                result = await lookup.async_lookup(
+                    f"https://park4night.com/lieu/{p4n_match.group('id')}/",
+                    hint_name=hint,
+                )
+            else:
+                result = await lookup.async_lookup_page(url, hint_name=hint)
+        elif p4n_match is not None:
             raise ValidationError("Der Reisebegleiter (Gemini) ist nicht konfiguriert")
-        if p4n_match is not None:
-            result = await lookup.async_lookup(
-                f"https://park4night.com/lieu/{p4n_match.group('id')}/",
-                hint_name=hint,
+        if result is not None:
+            return {"result": result}
+        # Nothing produced a position. Whatever the page DID say still goes
+        # back: the form prefills the name and only the coordinates stay
+        # empty, instead of the user facing a red banner and a blank form
+        # (live report with a shared naturkartan.se link).
+        page_name = str(page_place.get("name") or "")[:200]
+        if page_name:
+            return {
+                "result": {
+                    "provider": "shared_link",
+                    "url": url,
+                    "name": page_name,
+                }
+            }
+        raise ValidationError(
+            _place_link_failure_message(
+                page_place, lookup_available=lookup.available
             )
-        else:
-            result = await lookup.async_lookup_page(url, hint_name=hint)
-        if result is None:
-            raise ValidationError(
-                "Die Seite konnte nicht gelesen werden oder enthält keine "
-                "eindeutige GPS-Angabe"
-            )
-        return {"result": result}
+        )
 
     if action == "prepare_place_enrichment":
         trip_id = str(data.get("trip_id") or "").strip()
