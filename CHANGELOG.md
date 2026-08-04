@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.15.2] - 2026-08-04
+
+### Fixed
+
+- "Änderungsentwurf konnte nicht erstellt werden / Eine Aktualisierung benötigt Änderungen, eine Position oder place_query" (live report on assistant_prepare): the assistant regularly echoes an entity it decided NOT to touch - an update whose fields are all null and therefore collapses to an empty change. That single empty operation rejected the ENTIRE draft, throwing away every good operation next to it. The empty operation is now dropped, the rest of the draft is created as usual, and the omission is listed as an assumption in the Änderungsübersicht so nothing disappears silently.
+- A draft that consisted only of such empty updates now says what to do ("Bitte formuliere im Änderungskorb, was genau geändert werden soll") instead of naming an internal field.
+
 ## [4.15.1] - 2026-08-04
 
 ### Fixed

@@ -57,6 +57,7 @@ from .assistant_compile import (
     _prepare_compiled_operation_batch,
 )
 from .assistant_operation_sanitizer import (
+    NoOperationChange,
     _needs_research,
     _sanitize_operation,
     seed_position_state,
@@ -1323,6 +1324,7 @@ class RoadplannerAssistant:
                 if not isinstance(raw_operations, list):
                     raise ValidationError("Der Assistent hat keine Operationsliste geliefert")
                 operations: list[dict[str, Any]] = []
+                skipped_no_ops: list[str] = []
 
                 prepared_raw_operations, new_day_refs = (
                     _prepare_compiled_operation_batch(raw_operations)
@@ -1382,16 +1384,27 @@ class RoadplannerAssistant:
                             resolved_poi_name = str(
                                 resolved_place.get("name") or ""
                             ).strip()
-                    sanitized = _sanitize_operation(
-                        raw,
-                        index=index,
-                        context=context,
-                        new_day_refs=new_day_refs,
-                        basket=session.basket,
-                        position_state=position_state,
-                        batch_refs=batch_refs,
-                        full_days=full_day_list,
-                    )
+                    try:
+                        sanitized = _sanitize_operation(
+                            raw,
+                            index=index,
+                            context=context,
+                            new_day_refs=new_day_refs,
+                            basket=session.basket,
+                            position_state=position_state,
+                            batch_refs=batch_refs,
+                            full_days=full_day_list,
+                        )
+                    except NoOperationChange as empty:
+                        # One empty echo must not kill the whole draft.
+                        _LOGGER.debug(
+                            "Skipped empty assistant operation %s in %s: %s",
+                            index + 1,
+                            request_id,
+                            empty,
+                        )
+                        skipped_no_ops.append(empty.note)
+                        continue
                     if resolved_from_user_link and sanitized.get("place_query"):
                         # Server-set AFTER sanitizing, so the model can never
                         # supply it: this pin came from a link the user
@@ -1437,7 +1450,7 @@ class RoadplannerAssistant:
                     maximum_text=2_000,
                 )
                 assumptions, assumptions_omitted = _normalize_text_items(
-                    compiled.get("assumptions"),
+                    [compiled.get("assumptions"), skipped_no_ops],
                     maximum_items=100,
                     maximum_text=2_000,
                 )
@@ -1481,6 +1494,12 @@ class RoadplannerAssistant:
                         normalization_omissions,
                     )
                 if not operations:
+                    if skipped_no_ops:
+                        raise ValidationError(
+                            "Der Assistent hat nur Aktualisierungen ohne konkrete "
+                            "Änderung geliefert. Bitte formuliere im Änderungskorb, "
+                            "was genau geändert werden soll (z. B. Name, Zeit, Ort)."
+                        )
                     reason = open_questions[0] if open_questions else "Keine sichere Änderung ableitbar"
                     raise ValidationError(
                         "Aus dem Änderungskorb konnte keine sicher ausführbare Operation erstellt werden: "

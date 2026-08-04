@@ -138,6 +138,41 @@ from .structured_output import StructuredOutputError, normalize_changes_mapping
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class NoOperationChange(Exception):
+    """An update operation that would change nothing at all.
+
+    Not a validation failure: the operation is simply empty and gets dropped,
+    while every other operation of the same draft survives. Carries enough
+    context for a human-readable note in the draft's assumptions.
+    """
+
+    def __init__(self, *, entity_type: str, entity_id: str, reason: str) -> None:
+        self.entity_type = entity_type
+        self.entity_id = entity_id
+        self.reason = reason
+        super().__init__(
+            f"Operation ohne Änderung ({entity_type} {entity_id or 'ohne ID'})"
+        )
+
+    @property
+    def note(self) -> str:
+        """One German line for the Änderungsübersicht."""
+        label = {
+            "trip": "Reise",
+            "day": "Reisetag",
+            "stop": "Stopp",
+            "preference": "Präferenz",
+        }.get(self.entity_type, self.entity_type)
+        target = f"{label} {self.entity_id}" if self.entity_id else label
+        detail = _clean_text(self.reason, maximum=300)
+        suffix = f" ({detail})" if detail else ""
+        return (
+            f"Übersprungen: Der Assistent hat für {target} eine Aktualisierung "
+            f"ohne konkrete Änderung geliefert.{suffix}"
+        )
+
+
 _PAST_OVERNIGHT_MARKERS = (
     "letzte nacht",
     "letzten nacht",
@@ -1134,8 +1169,17 @@ def _sanitize_operation(
         and "position" not in operation
         and not operation.get("place_query")
     ):
-        raise ValidationError(
-            "Eine Aktualisierung benötigt Änderungen, eine Position oder place_query"
+        # An update that carries nothing is a no-op, not a broken draft.
+        # Gemini regularly echoes an entity it decided NOT to touch (all
+        # fields null, an empty changes object) next to perfectly good
+        # operations. Rejecting the whole batch threw those away too - live
+        # report "Eine Aktualisierung benötigt Änderungen, eine Position oder
+        # place_query". The caller drops this single operation instead and
+        # records it as an assumption, so the omission stays visible.
+        raise NoOperationChange(
+            entity_type=entity_type,
+            entity_id=str(entity_id or ""),
+            reason=operation["reason"],
         )
     if action in {"remove", "move"} and operation["changes"]:
         # Gemini routinely echoes identifying fields (name, type, ...) into
