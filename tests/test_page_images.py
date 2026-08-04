@@ -260,6 +260,33 @@ def verify_failure_reason_is_named_and_a_readable_name_survives() -> None:
         assert expected in panel_source, expected
 
 
+def verify_every_lookup_reports_what_it_did() -> None:
+    """A lookup that "runs without an error but does nothing" must explain itself.
+
+    Live report: after the failure message was fixed the lookup came back
+    silent - no error, no filled field, and no way to tell from the phone
+    whether the page was unreachable, empty, or simply position-less.
+    """
+    panel_source = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    assert "def _place_link_diagnosis(" in panel_source
+    # Every exit of the lookup carries it: hit, AI hit, name-only, failure.
+    assert panel_source.count('"diagnosis": ') == 3
+    assert '"diagnosis": diagnosis}}' in panel_source
+    assert 'f" [{diagnosis}]"' in panel_source, (
+        "even the hard failure names what was actually read"
+    )
+    for expected in ("GPS auf der Seite: ", "KI-Leser: ", "kB"):
+        assert expected in panel_source, expected
+    pitches_source = (PACKAGE_ROOT / "frontend/features/pitches.js").read_text(encoding="utf-8")
+    assert "data-link-diagnosis" in pitches_source
+    assert "Leseergebnis - " in pitches_source, (
+        "the account stays in the form, not only in a toast that fades"
+    )
+    assert "nichts Übernehmbares" in pitches_source, (
+        "a lookup that filled nothing must not claim it prefilled fields"
+    )
+
+
 def verify_shared_pages_are_requested_like_a_link_preview() -> None:
     headers = module._page_request_headers()
     # A bare product token was rejected outright by protective front-ends.
@@ -291,6 +318,7 @@ if __name__ == "__main__":
     verify_map_app_coordinates_are_found_and_never_guessed()
     verify_shared_page_resolver_contract()
     verify_failure_reason_is_named_and_a_readable_name_survives()
+    verify_every_lookup_reports_what_it_did()
     verify_shared_pages_are_requested_like_a_link_preview()
     verify_source_hint_fetch_skips_covered_providers()
     verify_gallery_and_enrichment_wiring()

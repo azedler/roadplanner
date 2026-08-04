@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.15.4] - 2026-08-04
+
+### Added
+
+- "Link lesen und übernehmen" now shows what the read actually did, directly in the form and permanently (not just in a toast that fades): whether the page answered and how much of it was read, whether it named a position or a name, and what the AI reader made of it. A lookup that "runs without an error but does nothing" (live report) can now be diagnosed from the phone instead of from the Home Assistant log.
+
+### Fixed
+
+- The place read now accepts up to 3 MB of a page (was 900 kB). A map application ships its marker inside a large embedded state payload that regularly sits past the old limit - the position was cut off before it could be read.
+- The success message no longer claims that name and notes were prefilled when the link in fact yielded nothing at all.
+
 ## [4.15.3] - 2026-08-04
 
 ### Fixed

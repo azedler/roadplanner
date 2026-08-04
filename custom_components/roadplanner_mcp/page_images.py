@@ -34,6 +34,9 @@ from .destination_intelligence import _URL_RE, _google_maps_host
 _LOGGER = logging.getLogger(__name__)
 
 _MAX_PAGE_BYTES = 900_000
+# Photos live in the document head; a marker position can sit deep inside a
+# single-page application's embedded state, so reading a PLACE gets more room.
+_MAX_PLACE_PAGE_BYTES = 3_000_000
 _PAGE_TIMEOUT_SECONDS = 10.0
 _MAX_IMAGES_PER_PAGE = 8
 
@@ -405,7 +408,11 @@ async def async_fetch_page_place(
             async with session.get(url, headers=_page_request_headers()) as response:
                 if response.status != 200:
                     return {"read_status": f"http_{response.status}"}
-                raw = await response.content.read(_MAX_PAGE_BYTES)
+                # A map application ships its marker inside a large embedded
+                # JSON payload that can sit well past the first few hundred
+                # kilobytes, so the place read gets a bigger budget than the
+                # photo read.
+                raw = await response.content.read(_MAX_PLACE_PAGE_BYTES)
     except TimeoutError:
         return {"read_status": "timeout"}
     except ClientError as err:
@@ -413,6 +420,7 @@ async def async_fetch_page_place(
         return {"read_status": "network_error"}
     place = extract_page_place(raw.decode("utf-8", errors="replace"))
     place["read_status"] = "ok"
+    place["page_bytes"] = len(raw)
     return place
 
 
