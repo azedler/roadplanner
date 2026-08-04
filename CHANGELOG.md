@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.15.0] - 2026-08-04
+
+### Added
+
+- Stops that show "Ort fehlt" while carrying a Park4Night link now fill their map point automatically (live request). A background job (90 s after start, then hourly, max 5 stops per run) reads the linked place pages deterministically - the page publishes its own GPS, no AI and no estimation involved - and parks the coordinates as ONE review ChangeSet under "Übergaben". Nothing is ever applied unattended: a wrong place can be rejected before it touches the roadbook, coordinates are stored as page-read (never provider-verified), and every attempted stop is remembered so an unreadable page can never become a retry loop. The new panel action `park4night_autofill_run` triggers a run on demand (with `force` to retry remembered stops).
+
 ## [4.14.38] - 2026-08-04
 
 ### Added
