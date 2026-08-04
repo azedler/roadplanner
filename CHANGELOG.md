@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.32] - 2026-08-04
+
+### Fixed
+
+- ROOT CAUSE of the photo-less PDF and video found: iPhone photos are stored as HEIC, and the Pillow build shipping with Home Assistant cannot decode HEIC. The original downloaded fine and was then discarded SILENTLY - which is why the app showed all 255 memories while both exports stayed empty. Both exporters now request OneDrive's rendered JPEG preview FIRST (a new custom Graph size c1920x1440 for print/video quality, then the standard large preview), and only fall back to the original as a last resort. Graph renders every preview as JPEG regardless of the source format - the same images the panel has always displayed correctly.
+- An undecodable image is no longer silently dropped: PDF and video log a warning naming the detected format ("HEIC (von Pillow nicht unterstützt)", "JPEG", "PNG", ...) and the byte size, so a photo-less export is diagnosable from the log.
+
 ## [4.14.31] - 2026-08-04
 
 ### Changed

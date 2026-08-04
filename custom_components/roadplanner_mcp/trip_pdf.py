@@ -277,6 +277,20 @@ def _icon_placeholder(c, x, y, w, h, label, tone, *, icon: str = "camera") -> No
     c.restoreState()
 
 
+def _image_format_hint(photo: bytes) -> str:
+    """Name the image container so an undecodable photo is diagnosable."""
+    head = photo[:16]
+    if head[:3] == b"\xff\xd8\xff":
+        return "JPEG"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "PNG"
+    if head[4:12] in (b"ftypheic", b"ftypheix", b"ftyphevc", b"ftypmif1"):
+        return "HEIC (von Pillow nicht unterstützt)"
+    if head[:4] == b"RIFF" and photo[8:12] == b"WEBP":
+        return "WEBP"
+    return "unbekanntes Format"
+
+
 def _decode_photo(photo: bytes | None) -> tuple[ImageReader, int, int] | None:
     """Return a fully-decoded (reader, width, height), or None if unusable.
 
@@ -295,7 +309,13 @@ def _decode_photo(photo: bytes | None) -> tuple[ImageReader, int, int] | None:
             return None
         image.getRGBData()
         return image, iw, ih
-    except Exception:  # noqa: BLE001 - a corrupt/unsupported/truncated photo must not abort the PDF
+    except Exception as err:  # noqa: BLE001 - a corrupt/unsupported/truncated photo must not abort the PDF
+        _LOGGER.warning(
+            "PDF photo could not be decoded (%s, %s): %s",
+            _image_format_hint(photo),
+            f"{len(photo)} Bytes",
+            type(err).__name__,
+        )
         return None
 
 

@@ -74,8 +74,12 @@ class FakeSession:
 class FakeExperience:
     def __init__(self, urls: dict[tuple[str, str], str]) -> None:
         self.urls = urls
+        self.calls: list[tuple[str, str, str]] = []
 
-    async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
+    async def async_media_redirect_url(
+        self, trip_id: str, media_id: str, kind: str, *, size: str = "large"
+    ) -> str:
+        self.calls.append((media_id, kind, size))
         key = (media_id, kind)
         if key not in self.urls:
             raise RoadplannerError("nicht auflösbar")
@@ -83,8 +87,9 @@ class FakeExperience:
 
 
 def verify_personal_photo_falls_back_to_thumbnail_and_next_candidate() -> None:
-    # Candidate 1 (cover): original URL dead, thumbnail dead too.
-    # Candidate 2: original unresolvable, thumbnail delivers.
+    # THE live cause of photo-less exports: iPhone originals are HEIC and
+    # Pillow cannot decode them, so the rendered JPEG preview must be tried
+    # FIRST; the original is only the last resort.
     session = FakeSession({"https://cdn/thumb-2.jpg": b"JPEG-2"})
     experience = FakeExperience(
         {
@@ -100,8 +105,15 @@ def verify_personal_photo_falls_back_to_thumbnail_and_next_candidate() -> None:
         )
     )
     assert photo == b"JPEG-2", photo
-    assert session.requested[0] == "https://cdn/dead-original.jpg", (
-        "the cover candidate and the original size are still tried first"
+    assert experience.calls[0] == ("m1", "thumbnail", "c1920x1440"), (
+        f"{experience.calls[0]}: the cover candidate's rendered JPEG preview "
+        "comes first - the HEIC original last"
+    )
+    assert ("m1", "original", "large") in experience.calls, (
+        "the original stays as the last resort"
+    )
+    assert experience.calls.index(("m1", "thumbnail", "large")) < experience.calls.index(
+        ("m1", "original", "large")
     )
     # Nothing resolvable at all -> None, never an exception.
     assert asyncio.run(
@@ -182,6 +194,24 @@ def verify_day_linked_photos_fill_the_remaining_slots() -> None:
     assert photos == [b"STOP", b"DAY2"], photos
 
 
+def verify_heic_is_named_as_the_undecodable_format() -> None:
+    # iPhone originals are HEIC; Pillow has no HEIC support, so the photo
+    # downloaded fine and was then silently dropped. The hint must name it.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "trip_pdf_hint", Path("custom_components/roadplanner_mcp/trip_pdf.py")
+    )
+    pdf = importlib.util.module_from_spec(spec)
+    sys.modules["trip_pdf_hint"] = pdf
+    spec.loader.exec_module(pdf)
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00"
+    assert "HEIC" in pdf._image_format_hint(heic)
+    assert pdf._image_format_hint(b"\xff\xd8\xff\xe0abcdefghij") == "JPEG"
+    assert pdf._image_format_hint(b"\x89PNG\r\n\x1a\nabcdefgh") == "PNG"
+    assert pdf._decode_photo(heic) is None, "an undecodable photo never raises"
+
+
 def verify_crew_reference_picker_ui_contract() -> None:
     # Live report: the picker grid rendered as ragged full-height columns
     # and the selection was not recognizable.
@@ -201,5 +231,6 @@ if __name__ == "__main__":
     verify_personal_photo_falls_back_to_thumbnail_and_next_candidate()
     verify_stock_gallery_skips_google_primary_to_next_image()
     verify_day_linked_photos_fill_the_remaining_slots()
+    verify_heic_is_named_as_the_undecodable_format()
     verify_crew_reference_picker_ui_contract()
     print("Trip export photo fallback tests passed.")

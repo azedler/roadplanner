@@ -159,7 +159,11 @@ class _FakeExperience:
     def __init__(self, redirect_url: str | None) -> None:
         self._redirect_url = redirect_url
 
-    async def async_media_redirect_url(self, trip_id: str, media_id: str, kind: str) -> str:
+    async def async_media_redirect_url(
+        self, trip_id: str, media_id: str, kind: str, *, size: str = "large"
+    ) -> str:
+        # Rendered JPEG previews are requested before the (possibly HEIC)
+        # original - see trip_export_photos.async_fetch_media_photo.
         if self._redirect_url is None:
             raise export_module.RoadplannerError("kein Foto gefunden")
         return self._redirect_url
