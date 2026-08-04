@@ -400,7 +400,9 @@ class GeminiClient:
         except TimeoutError as err:
             raise GeminiApiError(
                 "Gemini hat nicht rechtzeitig geantwortet. Roadplanner hat "
-                "automatische Wiederholungen versucht.",
+                "automatische Wiederholungen versucht. Bei großen Reisen "
+                "hilft ein höheres Zeitlimit für Assistentenanfragen in den "
+                "Roadplanner-Optionen.",
                 code="timeout",
                 retriable=True,
                 model=model,
@@ -681,11 +683,21 @@ class GeminiClient:
                             stop_model = True
                             break
                         attempt_count += 1
+                        # A single call used to be capped at 40 s regardless
+                        # of the configured budget - a large ChangeSet draft
+                        # (dozens of days, structured output) regularly needs
+                        # longer, so attempt 1 timed out, the retry got an
+                        # even shorter slice, and the whole request failed
+                        # (live report on assistant_prepare). Give each call
+                        # the remaining budget, reserving room for one more
+                        # attempt only while there is plenty of it left.
+                        retries_left = attempts_for_variant - local_attempt
+                        reserve = 15.0 if retries_left > 0 and remaining > 70 else 0.0
                         try:
                             payload = await self._post_once(
                                 body,
                                 model=model,
-                                timeout_seconds=min(40.0, remaining),
+                                timeout_seconds=max(10.0, remaining - reserve),
                             )
                             usage = self._usage(payload)
                             self._preferred_request_modes[preferred_key] = request_mode
