@@ -98,8 +98,8 @@ export const crewMixin = {
     }
     if (hint) {
       hint.textContent = crop
-        ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht."
-        : "Ganzes Bild. Auf das Bild tippen, um einen Ausschnitt zu setzen (bei Gruppenfotos).";
+        ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht. Zum Verschieben im Bild ziehen."
+        : "Ganzes Bild. Auf das Gesicht tippen oder ziehen, um einen Ausschnitt zu setzen (bei Gruppenfotos).";
     }
   },
 
@@ -198,7 +198,7 @@ export const crewMixin = {
           <span class="crew-crop-box" data-crew-crop-box ${crop ? "" : "hidden"} style="${crop ? `left:${crop.x * 100}%;top:${crop.y * 100}%;width:${crop.w * 100}%;height:${crop.h * 100}%` : ""}"></span>
         </div>
         <div class="crew-crop-controls">
-          <small class="hint" data-crew-crop-hint>${crop ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht." : "Ganzes Bild. Auf das Bild tippen, um einen Ausschnitt zu setzen (bei Gruppenfotos)."}</small>
+          <small class="hint" data-crew-crop-hint>${crop ? "Ausschnitt gesetzt - nur dieser Bereich zählt als Gesicht. Zum Verschieben im Bild ziehen." : "Ganzes Bild. Auf das Gesicht tippen oder ziehen, um einen Ausschnitt zu setzen (bei Gruppenfotos)."}</small>
           <label class="crew-crop-size"><span>Ausschnittgröße</span><input type="range" min="10" max="90" step="5" value="${cropSize}" data-crew-crop-size data-action="crew-crop-size"></label>
           <div class="button-row compact-row">
             <button class="text-button" type="button" data-action="crew-crop-reset">Ganzes Bild</button>

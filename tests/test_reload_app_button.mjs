@@ -15,8 +15,14 @@ class FakeHTMLElement {
 const registry = new Map();
 globalThis.HTMLElement = FakeHTMLElement;
 let reloadCalls = 0;
+let replacedWith = "";
 globalThis.window = {
-  location: { origin: "https://ha.example", reload: () => { reloadCalls += 1; } },
+  location: {
+    origin: "https://ha.example",
+    href: "https://ha.example/roadplanner",
+    reload: () => { reloadCalls += 1; },
+    replace: (target) => { reloadCalls += 1; replacedWith = target; },
+  },
   setTimeout,
   clearTimeout,
 };
@@ -83,3 +89,9 @@ assert.doesNotMatch(
 );
 
 console.log("Reload-app button tests passed.");
+
+// A service-worker cached document would otherwise keep serving the old
+// panel module, so the reload carries a one-shot cache-busting parameter
+// (live report: update installed, interface unchanged).
+assert.match(replacedWith, /[?&]rp=\d+/, `expected a cache-busting reload, got ${replacedWith}`);
+console.log("Reload-app cache busting test passed.");

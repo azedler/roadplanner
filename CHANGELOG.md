@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.14.36] - 2026-08-04
+
+### Changed
+
+- The crop box for the crew reference photo can now be MOVED, not only resized (live request): tap or drag anywhere on the enlarged photo to place it over the right face. The photo is no longer letterboxed inside its frame, so the box sits exactly over the pixels it selects, and dragging no longer scrolls the dialog.
+
+### Added
+
+- The panel notices when the browser still runs a pre-update interface ("Ich hatte das neue Release eingespielt. Keine Veränderung"): it compares the version it was loaded with against the version the backend reports and shows "Ältere Oberfläche geladen - Roadplanner läuft auf X, geladen ist noch Y" with a direct update button. "App aktualisieren" now also forces a fresh document (one-shot query parameter), so a service-worker cached page can no longer keep serving the old module.
+
 ## [4.14.35] - 2026-08-04
 
 ### Changed

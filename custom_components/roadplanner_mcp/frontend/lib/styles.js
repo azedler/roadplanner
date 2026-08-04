@@ -110,8 +110,12 @@ export const PANEL_STYLES = `<style>
       .notice.success { background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent); }
       .crew-photo-picker summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
       .crew-photo-current { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; margin: 10px 0; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
-      .crew-crop-frame { position: relative; flex: 1 1 240px; max-width: 360px; line-height: 0; cursor: crosshair; touch-action: manipulation; }
-      .crew-crop-frame img { width: 100%; max-height: 320px; object-fit: contain; border-radius: 10px; display: block; background: #000; }
+      /* The image sizes itself (no object-fit letterboxing), so the frame
+         rectangle maps 1:1 onto the photo - otherwise the crop box would
+         sit next to the pixels it claims to select. touch-action: none
+         lets the box be dragged without scrolling the dialog. */
+      .crew-crop-frame { position: relative; flex: 0 1 300px; max-width: 300px; line-height: 0; cursor: crosshair; touch-action: none; user-select: none; }
+      .crew-crop-frame img { width: 100%; height: auto; border-radius: 10px; display: block; pointer-events: none; }
       .crew-crop-box { position: absolute; border: 2px solid var(--primary-color); border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.42); pointer-events: none; }
       .crew-crop-controls { flex: 1 1 200px; display: flex; flex-direction: column; gap: 8px; }
       .crew-crop-size { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--secondary-text-color); }
