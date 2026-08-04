@@ -160,3 +160,45 @@ assert no_stop_report["dimensions"] == {"sequence": 0, "locations": 0, "routes":
 assert any(item["code"] == "trip_without_stops" for item in no_stop_report["issues"])
 
 print("Travel integrity report tests passed.")
+
+
+def verify_drifted_day_calendar_is_reported() -> None:
+    # Live report: "Das Montag an der Stelle ist falsch. Weiß nicht wo er
+    # das hernimmt." The weekday comes from the day's stored date - so a
+    # duplicate or out-of-order date is what actually looks wrong, and
+    # nothing used to say so.
+    days = [
+        {"id": "d1", "title": "Rastplats Storbergsudden", "date": "2026-08-02", "stops": []},
+        {"id": "d2", "title": "Weiterfahrt nach Tiveden", "date": "2026-08-03", "stops": []},
+        {"id": "d3", "title": "Tiveden Nationalpark", "date": "2026-08-03", "stops": []},
+        {"id": "d4", "title": "Rückweg", "date": "2026-08-01", "stops": []},
+    ]
+    report = module.build_travel_integrity(days)
+    codes = [issue["code"] for issue in report["issues"]]
+    assert "duplicate_day_date" in codes, codes
+    assert "day_date_out_of_order" in codes, codes
+    duplicate = next(i for i in report["issues"] if i["code"] == "duplicate_day_date")
+    assert "03.08.2026" in duplicate["title"]
+    assert duplicate["day_id"] == "d3", "the LATER day is flagged, not the first one"
+    assert duplicate["severity"] == "warning"
+    out_of_order = next(i for i in report["issues"] if i["code"] == "day_date_out_of_order")
+    assert out_of_order["day_id"] == "d4"
+    assert "01.08.2026" in out_of_order["message"]
+
+    # A clean calendar stays silent, and undated days never trip the check.
+    clean = module.build_travel_integrity([
+        {"id": "a", "title": "Tag 1", "date": "2026-07-17", "stops": []},
+        {"id": "b", "title": "Tag 2", "date": "2026-07-18", "stops": []},
+        {"id": "c", "title": "Ohne Datum", "date": "", "stops": []},
+        {"id": "d", "title": "Kaputtes Datum", "date": "übermorgen", "stops": []},
+    ])
+    calendar_codes = {
+        issue["code"]
+        for issue in clean["issues"]
+        if issue["code"] in {"duplicate_day_date", "day_date_out_of_order"}
+    }
+    assert not calendar_codes, calendar_codes
+
+
+verify_drifted_day_calendar_is_reported()
+print("Travel integrity calendar tests passed.")
