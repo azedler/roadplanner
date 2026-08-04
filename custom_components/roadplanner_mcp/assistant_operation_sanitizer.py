@@ -51,6 +51,15 @@ _MAPS_CANDIDATE_RE = re.compile(
 _ALTERNATIVE_INTENT_RE = re.compile(
     r"alternativ|zweite\s+option|plan\s*b|backup|ausweich", re.IGNORECASE
 )
+# "... Übernachtungsoption ...", "... schlafen ...", "... Stellplatz ..." -
+# what makes an alternative an OVERNIGHT alternative rather than any other
+# second choice. Deliberately tolerant of the typos a phone keyboard
+# produces ("übernachrungsoption").
+_OVERNIGHT_INTENT_RE = re.compile(
+    r"übernach|ubernach|übernacht|overnight|schlaf|nacht|stellplatz|"
+    r"campingplatz|camping|wildcamp|platz\s+für\s+die\s+nacht",
+    re.IGNORECASE,
+)
 _GENERIC_URL_CANDIDATE_RE = re.compile(r"https://[^\s\"'<>\)\]]+")
 # A typed coordinate pair with real precision (>= 3 decimals) - version
 # numbers and prices never look like this.
@@ -171,6 +180,79 @@ class NoOperationChange(Exception):
             f"Übersprungen: Der Assistent hat für {target} eine Aktualisierung "
             f"ohne konkrete Änderung geliefert.{suffix}"
         )
+
+
+def _basket_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(key) or "") for key in ("title", "text", "detail", "note")
+    ).strip()
+
+
+def overnight_alternative_gap(
+    operations: list[dict[str, Any]],
+    *,
+    basket: list[dict[str, Any]] | None,
+    day_ids: set[str],
+    current_day_id: str = "",
+) -> tuple[str, list[dict[str, Any]]] | None:
+    """Find an overnight alternative the user asked for that no operation parks.
+
+    Live report: "Das ist die Alternative Übernachtungsoption heute Nacht" +
+    a Google-Maps link produced a draft that applied cleanly - and then the
+    option was nowhere under "Stellplätze". Every earlier salvage sat INSIDE
+    the day's overnight_plan branch, so it could only repair a plan the
+    model had already emitted; a model that answered with something else
+    entirely (or with nothing for that day) slipped past all of them.
+
+    Returns ``(day_id, candidates)`` when the request is unmistakable - the
+    decision text names an ALTERNATIVE and an OVERNIGHT, and carries a link
+    or coordinates - and the batch contains no overnight option for that
+    day. Never guesses the day: without a single unambiguous target the
+    request is left alone.
+    """
+    material = " ".join(
+        text
+        for text in (_basket_text(item) for item in basket or [])
+        if _ALTERNATIVE_INTENT_RE.search(text) and _OVERNIGHT_INTENT_RE.search(text)
+    ).strip()
+    if not material:
+        return None
+    candidates = _overnight_candidates_from_text(material)
+    if not candidates:
+        return None
+
+    referenced: set[str] = set()
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get("entity_type") == "day":
+            entity_id = str(operation.get("entity_id") or "")
+            if entity_id in day_ids:
+                referenced.add(entity_id)
+        else:
+            day_id = str(operation.get("day_id") or "")
+            if day_id in day_ids:
+                referenced.add(day_id)
+    if len(referenced) == 1:
+        target = next(iter(referenced))
+    elif current_day_id in day_ids and not referenced:
+        target = current_day_id
+    else:
+        return None
+
+    for operation in operations:
+        if (
+            isinstance(operation, dict)
+            and operation.get("entity_type") == "day"
+            and str(operation.get("entity_id") or "") == target
+        ):
+            details = operation.get("changes", {}).get("details")
+            plan = details.get("overnight_plan") if isinstance(details, dict) else None
+            if isinstance(plan, dict) and plan.get("options"):
+                return None
+    return target, candidates
 
 
 _PAST_OVERNIGHT_MARKERS = (

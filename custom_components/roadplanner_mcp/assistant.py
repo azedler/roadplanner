@@ -58,8 +58,11 @@ from .assistant_compile import (
 )
 from .assistant_operation_sanitizer import (
     NoOperationChange,
+    _day_detail,
+    _known_ids,
     _needs_research,
     _sanitize_operation,
+    overnight_alternative_gap,
     seed_position_state,
 )
 from .destination_intelligence import _URL_RE, _google_maps_host
@@ -73,6 +76,7 @@ from .assistant_shared import (
 from .geocoding import GeocodingError, NominatimGeocoder
 from .google_maps_link import async_resolve_google_maps_place
 from .page_images import async_resolve_shared_page_place
+from .pitch_options import get_overnight_plan, merge_assistant_overnight_plan
 from .manager import RoadplannerManager
 from .roadplanner import RoadplannerError, ValidationError
 
@@ -1285,6 +1289,94 @@ class RoadplannerAssistant:
         )
 
 
+    async def _async_overnight_alternative_operation(
+        self,
+        operations: list[dict[str, Any]],
+        *,
+        session: AssistantSession,
+        context: dict[str, Any],
+        full_days: list[dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        """Park an overnight alternative the model failed to park itself.
+
+        The user's request is unmistakable ("die Alternative
+        Übernachtungsoption heute Nacht" plus a link), but the compiled
+        draft carried no overnight option for the day - live report: the
+        change applied and then nothing showed up under "Stellplätze". The
+        option is built server-side from the decision text, with the link
+        resolved exactly like any other link the user shares, and stays a
+        reviewable backup: it is added to the day's options, never
+        activated, and never replaces an existing plan.
+        """
+        day_ids, _stop_ids, _preference_ids = _known_ids(context)
+        gap = overnight_alternative_gap(
+            operations,
+            basket=session.basket,
+            day_ids=day_ids,
+            current_day_id=str(
+                context.get("scope", {}).get("current_day_id") or ""
+            ),
+        )
+        if gap is None:
+            return None
+        day_id, candidates = gap
+        for candidate in candidates:
+            url = str(candidate.get("url") or "")
+            if not url or candidate.get("location"):
+                continue
+            resolved = await async_resolve_google_maps_place(self.manager.hass, url)
+            if not resolved:
+                resolved = await async_resolve_shared_page_place(
+                    self.manager.hass, url
+                )
+            if not resolved:
+                continue
+            if resolved.get("name"):
+                candidate.setdefault("name", str(resolved["name"])[:200])
+            if "latitude" in resolved:
+                candidate["location"] = {
+                    "latitude": float(resolved["latitude"]),
+                    "longitude": float(resolved["longitude"]),
+                }
+                candidate.setdefault(
+                    "place_query", str(resolved.get("place_query") or "")
+                )
+        existing_day = _day_detail(context, day_id, full_days=full_days)
+        merged = merge_assistant_overnight_plan(
+            existing_day, {"options": candidates}, now=_utc_now_iso()
+        )
+        before = len(get_overnight_plan(existing_day or {}).get("options") or [])
+        if len(merged.get("options") or []) <= before:
+            return None
+        # The merge deliberately drops MODEL coordinates; these came from
+        # the user's own link, so they are re-attached to their option.
+        for candidate in candidates:
+            location = candidate.get("location")
+            if not isinstance(location, dict):
+                continue
+            for option in merged.get("options") or []:
+                same_url = candidate.get("url") and (
+                    (option.get("source") or {}).get("url") == candidate.get("url")
+                )
+                if same_url and not (option.get("location") or {}).get("latitude"):
+                    option["location"] = dict(location)
+                    break
+        _LOGGER.debug(
+            "Salvaged an overnight alternative for day %s from the decision text",
+            day_id,
+        )
+        return {
+            "operation_id": f"op-overnight-alt-{uuid4().hex[:10]}",
+            "action": "update",
+            "entity_type": "day",
+            "entity_id": day_id,
+            "changes": {"details": {"overnight_plan": merged}},
+            "reason": (
+                "Im Änderungskorb als Übernachtungs-Alternative genannt - "
+                "als Stellplatz-Option hinterlegt, nicht aktiviert."
+            ),
+        }
+
     async def async_prepare_review(
         self,
         *,
@@ -1444,6 +1536,14 @@ class RoadplannerAssistant:
                                             else model_name
                                         )
                     operations.append(sanitized)
+                salvaged_option = await self._async_overnight_alternative_operation(
+                    operations,
+                    session=session,
+                    context=context,
+                    full_days=full_day_list,
+                )
+                if salvaged_option is not None:
+                    operations.append(salvaged_option)
                 open_questions, open_questions_omitted = _normalize_text_items(
                     compiled.get("open_questions"),
                     maximum_items=100,

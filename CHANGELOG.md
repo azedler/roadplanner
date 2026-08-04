@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-08-04
+
+### Added
+
+- An overnight alternative the user names in the change basket can no longer disappear from a draft (live report: "Das ist die Alternative Übernachtungsoption heute Nacht" plus a link went through, applied cleanly - and never showed up under "Stellplätze"). After the whole draft is compiled, Roadplanner checks whether the request actually produced an overnight option for the affected day and parks one itself if it did not. The link is resolved exactly like every other link the user shares, so no coordinate is ever invented, and the option is added as a reviewable backup - never activated, never replacing an existing plan.
+  - Every earlier salvage sat inside the day's `overnight_plan` branch and could therefore only repair a plan the model had already emitted; a model that answered with something else entirely slipped past all of them.
+  - The check refuses to guess: it needs an unmistakable request (an alternative AND an overnight AND a link or coordinates) and an unambiguous day - the single day the draft touches, or the current travel day when the draft touches none.
+
 ## [4.15.4] - 2026-08-04
 
 ### Added
