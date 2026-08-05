@@ -42,15 +42,28 @@ export const crewMixin = {
     if (!url) return `<ha-icon icon="${icon}"></ha-icon>`;
     const crop = person.reference_crop;
     let style = "";
+    let cropped = "";
     if (crop && crop.w > 0 && crop.h > 0) {
-      // Scale the photo so the crop box fills the avatar, then shift the
-      // crop's centre into the middle of it.
-      const zoom = 1 / Math.min(crop.w, crop.h);
-      const x = (crop.x + crop.w / 2) * 100;
-      const y = (crop.y + crop.h / 2) * 100;
-      style = `transform:scale(${zoom.toFixed(2)});transform-origin:${x.toFixed(1)}% ${y.toFixed(1)}%`;
+      // Map the crop RECTANGLE exactly onto the avatar box (live report:
+      // "Bildausschnitt und tatsächlicher Ausschnitt weichen etwas ab").
+      // The old version was wrong twice over: `object-fit: cover` already
+      // cropped the photo to a centred square before the transform ran, so
+      // the stored coordinates no longer referred to what was on screen -
+      // and `transform-origin` with `scale` magnifies AROUND a point, it
+      // does not move that point to the middle.
+      //
+      // Percentages in `translate` are relative to the image's own size,
+      // which is what makes this exact: the image is blown up so the crop
+      // fills the box, then shifted by the crop's own offset. The picker
+      // keeps the crop square in screen pixels, so nothing is distorted.
+      const width = (100 / crop.w).toFixed(2);
+      const height = (100 / crop.h).toFixed(2);
+      const left = (-crop.x * 100).toFixed(2);
+      const top = (-crop.y * 100).toFixed(2);
+      style = `width:${width}%;height:${height}%;transform:translate(${left}%,${top}%)`;
+      cropped = " cropped";
     }
-    return `<span class="crew-row-avatar"><img src="${escapeHtml(url)}" alt="${escapeHtml(person.name)}" loading="lazy" style="${style}"></span>`;
+    return `<span class="crew-row-avatar${cropped}"><img src="${escapeHtml(url)}" alt="${escapeHtml(person.name)}" loading="lazy" style="${style}"></span>`;
   },
 
   _renderCrewPersonRow(person, canEdit) {

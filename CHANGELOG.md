@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.30.0] - 2026-08-05
+
+### Fixed
+
+- **Die Fährzeit wird jetzt berechnet** (live: „Die Fahrzeit scheint nicht die Fährzeit zu berücksichtigen?“). Sie wurde nicht etwa in einer Summe verschluckt – die Fährstrecke lieferte als Dauer ein wörtliches „nichts“, eine sechsstündige Überfahrt war nirgends im System eine Zahl. Grundlage ist jetzt der Fahrplan, den du ohnehin an den Terminals einträgst: Abfahrtszeit am Abfahrtsterminal, Ankunftszeit am Ankunftsterminal. Nachtüberfahrten über Mitternacht werden korrekt gerechnet.
+  - **Aus der Entfernung wird nichts geschätzt.** Eine aus der Luftlinie erfundene Überfahrtszeit läse sich wie eine gemessene Tatsache.
+  - **„Fahrzeit“ bleibt reine Straßenzeit** – so wie „Autofahrt“ schon immer nur Straßenkilometer waren. Die Tageskarte zeigt zusätzlich „Fährzeit“ und „Unterwegs gesamt“, die Gesamtroute die Fährzeit der ganzen Reise.
+  - Fehlt der Fahrplan, steht dort „unbekannt“ mit dem Hinweis, welche zwei Felder gefüllt werden müssen – statt stillschweigend null.
+  - Änderst du eine Fährzeit, gilt die gespeicherte Route als veraltet und wird neu berechnet.
+- **Das Crew-Bild zeigt jetzt genau den gewählten Ausschnitt** (live: „Bildausschnitt und tatsächlicher Ausschnitt weichen etwas ab“). Die Darstellung rechnete zweimal falsch: Das quadratische Avatar-Feld beschnitt das Foto per `object-fit: cover` bereits auf einen mittigen Ausschnitt, bevor die gespeicherten Koordinaten angewendet wurden – die bezogen sich damit auf ein anderes Bild als das gezeigte. Und `transform-origin` mit `scale` vergrößert **um** einen Punkt herum, es rückt ihn nicht in die Mitte. Der Ausschnitt wird jetzt exakt auf das Feld abgebildet.
+
 ## [4.29.0] - 2026-08-05
 
 ### Added

@@ -83,14 +83,15 @@ assert.match(withPhoto, /<img/);
 assert.doesNotMatch(withPhoto, /<ha-icon/, "the photo replaces the symbol, it does not join it");
 
 // A crop means only that part of a group photo is the person: the avatar
-// zooms into the crop's centre rather than showing everyone.
+// shows exactly that rectangle rather than everyone.
 const cropped = panel._crewPersonAvatar({
   ...aron,
   reference_media_id: "media-1",
   reference_crop: { x: 0.5, y: 0.2, w: 0.25, h: 0.25 },
 });
-assert.match(cropped, /transform:scale\(4\.00\)/);
-assert.match(cropped, /transform-origin:62\.5% 32\.5%/);
+assert.match(cropped, /width:400\.00%/);
+assert.match(cropped, /translate\(-50\.00%,-20\.00%\)/);
+assert.match(cropped, /height:400\.00%/);
 
 // A reference pointing at a photo that is no longer there falls back.
 assert.match(panel._crewPersonAvatar({ ...aron, reference_media_id: "media-weg" }), /<ha-icon/);
@@ -130,5 +131,48 @@ assert.match(
   /target\.searchParams\.set\("rp"/,
   "the reload must bypass a service-worker cached document",
 );
+
+// The avatar must show exactly the region the picker box outlined (live
+// report: "Bildausschnitt und tatsächlicher Ausschnitt weichen etwas ab").
+// The old version was wrong twice: `object-fit: cover` pre-cropped the
+// photo to a centred square, so the stored coordinates no longer referred
+// to what was on screen - and `transform-origin` with `scale` magnifies
+// AROUND a point instead of moving it to the middle.
+{
+  const person = {
+    id: "p1",
+    name: "Levi",
+    kind: "person",
+    reference_media_id: "m1",
+    reference_crop: { x: 0.28, y: 0.1, w: 0.3, h: 0.4 },
+  };
+  panel._crewPickerPhotos = () => [{ id: "m1", thumbnail_url: "https://example.org/a.jpg" }];
+  const html = panel._crewPersonAvatar(person);
+  assert.match(html, /crew-row-avatar cropped/, "a cropped avatar needs its own styling");
+  const style = /style="([^"]*)"/.exec(html)[1];
+
+  const read = (name) => Number(new RegExp(`${name}:(-?[\\d.]+)%`).exec(style)[1]);
+  const boxSide = 44;
+  const imageW = boxSide * read("width") / 100;
+  const imageH = boxSide * read("height") / 100;
+  const translate = /translate\((-?[\d.]+)%,(-?[\d.]+)%\)/.exec(style);
+  const offsetX = imageW * Number(translate[1]) / 100;
+  const offsetY = imageH * Number(translate[2]) / 100;
+
+  // Where does the picked rectangle actually land inside the avatar?
+  const left = offsetX + person.reference_crop.x * imageW;
+  const top = offsetY + person.reference_crop.y * imageH;
+  const width = person.reference_crop.w * imageW;
+  const height = person.reference_crop.h * imageH;
+  assert.ok(Math.abs(left) < 0.05, `crop left ${left}, expected 0`);
+  assert.ok(Math.abs(top) < 0.05, `crop top ${top}, expected 0`);
+  assert.ok(Math.abs(width - boxSide) < 0.05, `crop width ${width}, expected ${boxSide}`);
+  assert.ok(Math.abs(height - boxSide) < 0.05, `crop height ${height}, expected ${boxSide}`);
+
+  // Without a crop the whole picture is shown, unstyled.
+  const whole = panel._crewPersonAvatar({ ...person, reference_crop: null });
+  assert.doesNotMatch(whole, /cropped/);
+  assert.match(whole, /style=""/);
+}
 
 console.log("Panel stale-module notice tests passed.");

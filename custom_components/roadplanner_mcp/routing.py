@@ -168,6 +168,9 @@ def route_input_hash(points: list[dict[str, Any]], profile: str) -> str:
                 "longitude": round(float(point["longitude"]), 7),
                 "inherited": bool(point.get("inherited")),
                 "mode_to_next": str(point.get("mode_to_next") or "driving"),
+                # Part of the route's identity: change the ferry schedule
+                # and the stored route is genuinely out of date.
+                "ferry_minutes": point.get("ferry_minutes"),
             }
             for point in points
         ],
@@ -595,14 +598,28 @@ def split_route_segments(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def ferry_route_segment(points: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return a non-routed straight-line ferry segment between two terminals."""
+    """Return a non-routed straight-line ferry segment between two terminals.
+
+    The crossing DURATION comes from the terminals' own departure/arrival
+    times, stamped onto the point when the leg was classified. It used to
+    be a literal ``None`` here, which is why a day with a six-hour ferry
+    reported only its road time (live report: "Die Fahrzeit scheint nicht
+    die Fährzeit zu berücksichtigen?"). Nothing is estimated from the
+    distance - an invented crossing time would read as a fact.
+    """
     source, target = points[0], points[-1]
     distance_m = haversine_distance_m(source, target)
+    minutes = source.get("ferry_minutes")
+    duration_s = (
+        round(float(minutes) * 60)
+        if isinstance(minutes, (int, float)) and minutes > 0
+        else None
+    )
     return {
         "mode": "ferry",
         "status": "calculated",
         "distance_m": distance_m,
-        "duration_s": None,
+        "duration_s": duration_s,
         "geometry": {
             "type": "LineString",
             "coordinates": [

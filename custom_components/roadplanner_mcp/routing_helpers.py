@@ -106,6 +106,52 @@ def _ferry_role(stop: Any) -> str:
     return ""
 
 
+_MAX_FERRY_CROSSING_MINUTES = 48 * 60
+
+
+def _time_minutes(value: Any) -> int | None:
+    """Parse a validated ``HH:MM`` stop time into minutes since midnight."""
+    text = str(value or "").strip()
+    if len(text) != 5 or text[2] != ":":
+        return None
+    try:
+        hours, minutes = int(text[:2]), int(text[3:])
+    except ValueError:
+        return None
+    if not (0 <= hours < 24 and 0 <= minutes < 60):
+        return None
+    return hours * 60 + minutes
+
+
+def ferry_crossing_minutes(source: Any, target: Any) -> int | None:
+    """Crossing time from the terminals' own departure/arrival times.
+
+    Live report: "Die Fahrzeit scheint nicht die Fährzeit zu
+    berücksichtigen?" - it did not, because no ferry duration was ever
+    computed anywhere; the segment returned a literal ``None``. The one
+    honest source is the schedule the user already entered on the two
+    terminal stops. Nothing is estimated from distance: a crossing time
+    invented from a straight line would look like a fact.
+    """
+    departure = _time_minutes(
+        (source or {}).get("departure_time") if isinstance(source, dict) else None
+    )
+    arrival = _time_minutes(
+        (target or {}).get("arrival_time") if isinstance(target, dict) else None
+    )
+    if departure is None or arrival is None:
+        return None
+    minutes = arrival - departure
+    if minutes < 0:
+        # An overnight crossing arrives "before" it left on a wall clock.
+        minutes += 24 * 60
+    # Identical times are two copies of the same entry, not a 24-hour
+    # crossing - reading them as one would invent a full day at sea.
+    if minutes <= 0 or minutes > _MAX_FERRY_CROSSING_MINUTES:
+        return None
+    return minutes
+
+
 def _routing_leg_mode(source: Any, target: Any) -> tuple[str, str | None]:
     source_transport = _stop_transport(source)
     target_transport = _stop_transport(target)
@@ -323,6 +369,10 @@ def _route_stop_signature(document: dict[str, Any]) -> list[tuple[Any, ...]]:
             str(_stop_transport(stop).get("mode_to_next") or ""),
             str(_stop_transport(stop).get("mode_from_previous") or ""),
             str(_stop_transport(stop).get("ferry_role") or ""),
+            # Editing a ferry's departure or arrival time changes the
+            # crossing duration, so the stored route is stale.
+            str(stop.get("departure_time") or ""),
+            str(stop.get("arrival_time") or ""),
         )
         for stop in canonical_order_stops(document["stops"])
     ]
