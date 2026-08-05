@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import logging
 import math
+import re
 from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
@@ -55,6 +56,35 @@ _OSM_MAX_ZOOM = 19
 _GOOGLE_STATIC_MAPS_URL = "https://maps.googleapis.com/maps/api/staticmap"
 # Google's classic (non-premium) Static Maps size ceiling per side.
 _GOOGLE_MAX_SIZE_PX = 640
+
+
+def _looks_like_image(data: bytes) -> bool:
+    return (
+        data[:3] == b"\xff\xd8\xff"
+        or data[:8] == b"\x89PNG\r\n\x1a\n"
+        or data[:6] in (b"GIF87a", b"GIF89a")
+        or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    )
+
+
+async def _error_snippet(response: Any) -> str:
+    """Read a small piece of an error body - never the whole thing."""
+    try:
+        body = await async_read_bounded(response, 4096)
+    except Exception:  # noqa: BLE001 - diagnosing a failure must not fail
+        return ""
+    return (body or b"").decode("utf-8", errors="replace")
+
+
+def _google_message(text: str) -> str:
+    """Pull Google's human-readable sentence out of an error response.
+
+    Static Maps answers with a short HTML page whose visible text is the
+    actionable part; anything else is markup noise.
+    """
+    stripped = re.sub(r"<[^>]+>", " ", str(text or ""))
+    message = " ".join(stripped.split())[:200]
+    return f": {message}" if message else ""
 
 
 def _lonlat_to_global_pixel(lat: float, lon: float, zoom: int) -> tuple[float, float]:
@@ -169,9 +199,14 @@ async def _async_fetch_google_static_map(
             _GOOGLE_STATIC_MAPS_URL, params=params, timeout=SNAPSHOT_FETCH_TIMEOUT
         ) as response:
             if response.status != 200:
+                # Google states the actual cause in the response BODY, in
+                # plain language ("This API project is not authorized to
+                # use this API"). Reporting only the status code threw
+                # that away and left "kein Kartenbild erhalten" as the
+                # whole diagnosis (live Systemcheck).
                 _record_snapshot_error(
-                    f"Google Static Maps antwortete mit HTTP {response.status} - "
-                    "ist die Static Maps API für den Schlüssel freigeschaltet?"
+                    f"Google Static Maps antwortete mit HTTP {response.status}"
+                    f"{_google_message(await _error_snippet(response))}"
                 )
                 return None
             if (
@@ -182,6 +217,14 @@ async def _async_fetch_google_static_map(
             body = await async_read_bounded(response, MAX_SNAPSHOT_BYTES)
             if body is None:
                 _record_snapshot_error("Kartenbild überschreitet das Größenlimit")
+                return None
+            if not _looks_like_image(body):
+                # A 200 is not proof of a map: a rejected request can come
+                # back as an HTML error page with a perfectly fine status.
+                _record_snapshot_error(
+                    "Google Static Maps lieferte kein Bild"
+                    f"{_google_message(body[:400].decode('utf-8', errors='replace'))}"
+                )
                 return None
             return body
     except (ClientError, TimeoutError) as err:

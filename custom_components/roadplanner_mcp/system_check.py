@@ -29,7 +29,7 @@ from typing import Any
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .map_snapshot import async_fetch_snapshot
+from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
 from .page_images import async_fetch_page_place
 from .trip_export_photos import _format_name, async_download_photo
 
@@ -131,6 +131,12 @@ async def _probe_onedrive_photo(
     if not photo:
         return FAIL, "URL aufgelöst, aber der Download lieferte kein brauchbares Bild"
     return OK, f"{_format_name(photo)}, {len(photo) // 1024} kB geladen"
+
+
+def _snapshot_reason(fallback: str) -> str:
+    """The map module records WHY it failed - report that, not the symptom."""
+    reason = str(LAST_SNAPSHOT_ERROR.get("reason") or "").strip()
+    return reason or fallback
 
 
 async def async_run_system_check(
@@ -235,7 +241,14 @@ async def async_run_system_check(
         if "latitude" in place:
             return OK, f"Seite gelesen, GPS gefunden ({place['latitude']}, {place['longitude']})"
         if read_status == "ok":
-            return WARN, "Seite gelesen, aber ohne GPS-Angabe im Seitenquelltext"
+            # WHAT came back matters: the real page is hundreds of
+            # kilobytes and names the place, a consent wall or a
+            # JavaScript shell is small and names nothing. "ohne
+            # GPS-Angabe" alone did not distinguish the two.
+            detail = f"{int(place.get('page_bytes') or 0) // 1024} kB gelesen"
+            name = str(place.get("name") or "").strip()
+            detail += f", Seitentitel „{name[:60]}“" if name else ", ohne Seitentitel"
+            return WARN, f"Seite gelesen, aber ohne GPS-Angabe im Seitenquelltext ({detail})"
         return FAIL, f"Seite nicht lesbar ({read_status or 'unbekannt'})"
 
     await recorder.run(
@@ -247,6 +260,9 @@ async def async_run_system_check(
 
     # --- Kartenbilder ---------------------------------------------------
     async def _osm_tile() -> tuple[str, str]:
+        # Cleared first: a reason left over from an earlier probe would be
+        # reported as the cause of THIS one.
+        LAST_SNAPSHOT_ERROR.clear()
         snapshot = await async_fetch_snapshot(
             session,
             "openstreetmap",
@@ -259,7 +275,7 @@ async def async_run_system_check(
             height_px=256,
         )
         if not snapshot:
-            return FAIL, "keine Kartenkachel erhalten"
+            return FAIL, _snapshot_reason("keine Kartenkachel erhalten")
         return OK, f"{_format_name(snapshot)}, {len(snapshot) // 1024} kB"
 
     await recorder.run(
@@ -270,6 +286,13 @@ async def async_run_system_check(
     )
 
     google_key = getattr(runtime.trip_pdf, "_google_maps_api_key", None)
+    # Google Static Maps only matters when it is the SELECTED provider.
+    # With OpenStreetMap configured and working, a red "FEHL" here reads
+    # like the exports are broken when nothing of the sort is true.
+    selected_provider = str(
+        getattr(runtime.trip_pdf, "_map_snapshot_provider", "") or ""
+    )
+    severity = FAIL if selected_provider == "google_static_maps" else WARN
     if not google_key:
         await recorder.run(
             "map_google",
@@ -278,6 +301,7 @@ async def async_run_system_check(
         )
     else:
         async def _google_map() -> tuple[str, str]:
+            LAST_SNAPSHOT_ERROR.clear()
             snapshot = await async_fetch_snapshot(
                 session,
                 "google_static_maps",
@@ -290,14 +314,23 @@ async def async_run_system_check(
                 height_px=240,
             )
             if not snapshot:
-                return FAIL, "kein Kartenbild erhalten"
+                # The reason was recorded a moment ago and then dropped on
+                # the floor - "kein Kartenbild erhalten" was the entire
+                # diagnosis in the live Systemcheck.
+                return severity, _snapshot_reason("kein Kartenbild erhalten")
             return OK, f"{_format_name(snapshot)}, {len(snapshot) // 1024} kB"
 
         await recorder.run(
             "map_google",
             "Kartenbild (Google Static Maps)",
             _google_map,
-            hint="Prüfe, ob die Static Maps API für den Schlüssel freigeschaltet ist.",
+            hint=(
+                "Prüfe, ob die Static Maps API für den Schlüssel freigeschaltet ist."
+                if severity == FAIL
+                else "Nur wichtig, wenn du als Kartenquelle Google statt "
+                "OpenStreetMap wählst - die Exporte nutzen aktuell "
+                "OpenStreetMap."
+            ),
         )
 
     # --- Reisebegleiter (Gemini) ---------------------------------------

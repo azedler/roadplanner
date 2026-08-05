@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.24.1] - 2026-08-05
+
+### Fixed
+
+- **Der Systemcheck sagt jetzt, warum ein Kartenbild fehlt.** „Kartenbild (Google Static Maps): kein Kartenbild erhalten“ war die vollständige Diagnose (live Systemcheck) – dabei schreibt Google den Grund im Klartext in die Antwort („This API project is not authorized to use this API“). Der Grund war eine Zeile vorher schon festgehalten und wurde dann weggeworfen. Er steht jetzt in der Meldung, samt HTTP-Status und ohne HTML-Gerüst. Gilt genauso für die OpenStreetMap-Kacheln.
+- **Eine Antwort mit Status 200 gilt nicht mehr automatisch als Karte.** Eine abgelehnte Static-Maps-Anfrage kann als HTML-Fehlerseite mit tadellosem Statuscode zurückkommen; die wurde bisher als Bild durchgereicht und wäre erst beim Rendern aufgefallen.
+- **Google Static Maps meldet nur noch „FEHL“, wenn es auch die gewählte Kartenquelle ist.** Mit OpenStreetMap als Quelle – der Voreinstellung, die im selben Check als „OK“ dasteht – las sich das rote FEHL, als wären die Exporte kaputt, obwohl nichts davon stimmt. Es ist jetzt eine Warnung mit dem Hinweis, dass sie nur zählt, wenn du auf Google umstellst.
+- **Der Park4Night-Hinweis unterscheidet die echte Seite von einer Zustimmungs-/JavaScript-Hülle.** „Seite gelesen, aber ohne GPS-Angabe“ passte auf beides. Die Meldung nennt jetzt die gelesene Seitengröße und den Seitentitel – ein paar Kilobyte ohne Titel sind etwas anderes als eine vollständig gelesene Seite, die schlicht keine Koordinaten veröffentlicht.
+
 ## [4.24.0] - 2026-08-05
 
 ### Added

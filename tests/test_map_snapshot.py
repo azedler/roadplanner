@@ -85,17 +85,25 @@ class _FakeResponse:
 class _FakeSession:
     """Fake aiohttp session recording every request's url/params/headers."""
 
-    def __init__(self, *, tile_body: bytes | None = None, google_body: bytes | None = None, status: int = 200) -> None:
+    def __init__(
+        self,
+        *,
+        tile_body: bytes | None = None,
+        google_body: bytes | None = None,
+        status: int = 200,
+        error_body: bytes = b"",
+    ) -> None:
         self._tile_body = tile_body
         self._google_body = google_body
         self._status = status
+        self._error_body = error_body
         self.requests: list[dict] = []
 
     def get(self, url: str, **kwargs) -> _FakeResponse:
         self.requests.append({"url": url, **kwargs})
         if "maps.googleapis.com" in url:
             if self._google_body is None:
-                return _FakeResponse(status=404)
+                return _FakeResponse(status=404, body=self._error_body)
             return _FakeResponse(status=self._status, body=self._google_body)
         if self._tile_body is None:
             return _FakeResponse(status=404)
@@ -218,9 +226,58 @@ def verify_tile_math_is_within_valid_bounds_at_a_known_coordinate() -> None:
     assert 0 <= y <= max_pixel
 
 
+def verify_a_rejected_google_request_reports_googles_own_reason() -> None:
+    """Live Systemcheck: "kein Kartenbild erhalten" was the whole diagnosis.
+
+    Google states the actual cause in the response body, in plain language.
+    Reporting only "no image" threw away the one sentence that says what to
+    do about it.
+    """
+    async def scenario() -> None:
+        module.LAST_SNAPSHOT_ERROR.clear()
+        session = _FakeSession(
+            google_body=None,
+            error_body=(
+                b"<html><body><h1>Error</h1><p>The Google Maps Platform server "
+                b"rejected your request. This API project is not authorized to "
+                b"use this API.</p></body></html>"
+            ),
+        )
+        result = await module.async_fetch_snapshot(
+            session, "google_static_maps", "key-123",
+            center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
+        )
+        assert result is None
+        reason = module.LAST_SNAPSHOT_ERROR.get("reason", "")
+        assert "404" in reason, reason
+        assert "not authorized to use this API" in reason, reason
+        assert "<" not in reason, "the markup must be stripped, the sentence kept"
+
+    asyncio.run(scenario())
+
+
+def verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map() -> None:
+    """A status code is not proof of a map."""
+    async def scenario() -> None:
+        module.LAST_SNAPSHOT_ERROR.clear()
+        session = _FakeSession(
+            google_body=b"<html><body>Sorry, the API key is invalid.</body></html>"
+        )
+        result = await module.async_fetch_snapshot(
+            session, "google_static_maps", "key-123",
+            center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
+        )
+        assert result is None, "an HTML error page must never pass as a map image"
+        assert "API key is invalid" in module.LAST_SNAPSHOT_ERROR.get("reason", "")
+
+    asyncio.run(scenario())
+
+
 verify_openstreetmap_snapshot_is_stitched_and_attributed()
 verify_google_static_maps_uses_key_as_query_param_not_header()
 verify_google_branch_is_skipped_without_an_api_key()
+verify_a_rejected_google_request_reports_googles_own_reason()
+verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map()
 verify_http_error_returns_none_gracefully()
 verify_malformed_tile_bytes_return_none_gracefully()
 verify_tile_math_is_within_valid_bounds_at_a_known_coordinate()
