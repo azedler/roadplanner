@@ -427,7 +427,7 @@ export const tripDayStopMixin = {
             ${this._canEdit() && locationAttentionNodes.length ? `<button class="secondary-button" type="button" data-action="complete-day-locations" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-question-outline"></ha-icon>Stopps anreichern (${locationAttentionNodes.length})</button>` : ""}
             ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-day-route" data-day-id="${escapeHtml(day.id)}" data-force="${day.routing ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${day.routing ? "Neu berechnen" : "Route berechnen"}</button>` : ""}
             ${this._externalLink(navigationUrl, "Tagesroute in Google Maps", "mdi:google-maps")}
-            ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Tag bearbeiten</button><button class="secondary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopp</button>` : ""}
+            ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="edit-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:pencil-outline"></ha-icon> Tag bearbeiten</button><button class="secondary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopp</button>${this._renderDayOrderButtons(day)}<button class="text-button danger-text" type="button" data-action="delete-day" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:trash-can-outline"></ha-icon> Tag löschen</button>` : ""}
           </div>
         </aside>
       </section>
@@ -449,6 +449,27 @@ export const tripDayStopMixin = {
         ${routeStops.length ? `<div class="stop-grid">${routeStops.map((stop, index) => this._renderStopCard(day, stop, index)).join("")}</div>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon><h2>Noch keine Stopps</h2><p>Füge Ziele, Fähren, Stellplätze oder Sehenswürdigkeiten hinzu.</p>${this._canEdit() ? `<button class="primary-button" type="button" data-action="add-stop" data-day-id="${escapeHtml(day.id)}">Ersten Stopp hinzufügen</button>` : ""}</div>`}
       </section>
     `;
+  },
+
+  // Moving and deleting a day were handled in the dispatcher but no template
+  // ever rendered a button for them, so the only way to get rid of a day was
+  // the assistant or a Home Assistant service call (live question: "Kann ich
+  // denn Tage händisch löschen?").
+  _renderDayOrderButtons(day) {
+    // The TOTAL, not the loaded page: the last day of a paginated list is
+    // not the last day of the trip.
+    const total = Number(this._data?.days?.total) || 0;
+    const sequence = Number(day?.sequence) || 0;
+    if (total < 2 || !sequence) {
+      return "";
+    }
+    const up = sequence > 1
+      ? `<button class="secondary-button" type="button" data-action="move-day-up" data-day-id="${escapeHtml(day.id)}" title="Diesen Tag nach vorn schieben"><ha-icon icon="mdi:arrow-up"></ha-icon> Früher</button>`
+      : "";
+    const down = sequence < total
+      ? `<button class="secondary-button" type="button" data-action="move-day-down" data-day-id="${escapeHtml(day.id)}" title="Diesen Tag nach hinten schieben"><ha-icon icon="mdi:arrow-down"></ha-icon> Später</button>`
+      : "";
+    return `${up}${down}`;
   },
 
   _renderStopCard(day, stop, index) {

@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.26.0] - 2026-08-05
+
+### Added
+
+- **Reisetage lassen sich jetzt im Panel löschen und verschieben** (live gefragt: „Kann ich denn Tage händisch löschen?“ – die Antwort war nein, und das war ein Versehen). Die Aktion `remove_day` gab es im Backend längst, der Klick-Handler im Panel war geschrieben, die Sicherheitsabfrage formuliert – nur hat keine Ansicht je einen Knopf dafür gezeichnet. Löschen ging deshalb ausschließlich über einen Home-Assistant-Dienstaufruf oder den Reisebegleiter. In der Tagesansicht stehen jetzt „Tag löschen“ sowie „Früher“/„Später“ zum Verschieben in der Reihenfolge.
+  - Die Verschiebeknöpfe erscheinen nur, wenn es etwas zu verschieben gibt, und am ersten bzw. letzten Tag jeweils nur die mögliche Richtung. Maßgeblich ist die Gesamtzahl der Tage, nicht die gerade geladene Seite.
+  - Die Sicherheitsabfrage sagt vorher, was passiert: Die Stopps eines Tages gehören zu diesem Tag und werden mitgelöscht, sie wandern nirgendwohin. Bei einem Tag ohne Stopps steht das auch so da, statt mit „0 Stopps“ zu drohen.
+  - In einer schreibgeschützten Ansicht erscheint nichts davon.
+
 ## [4.25.0] - 2026-08-05
 
 ### Fixed
