@@ -191,7 +191,94 @@ export const decisionsIntegrityMixin = {
         ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>Stopps anreichern</button>` : ""}
         ${Number(stats.route_issue_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-recalculate-routes"><ha-icon icon="mdi:map-marker-path"></ha-icon>Routen neu berechnen</button>` : ""}
         ${Number(stats.visual_missing_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-auto-images"><ha-icon icon="mdi:image-sync-outline"></ha-icon>Planungsbilder ergänzen</button>` : ""}
+        ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-repair-days"><ha-icon icon="mdi:calendar-check-outline"></ha-icon>Reisetage aufräumen</button>` : ""}
         <button class="primary-button" type="button" data-action="close-dialog">Schließen</button>
+      </div>`;
+  },
+
+  async _planDayCalendarRepair() {
+    // Read-only first: the traveller sees the resulting day count and end
+    // date BEFORE a single day is proposed for removal (live report:
+    // "Die Tage sind verwurschtelt").
+    const retry = () => this._planDayCalendarRepair();
+    const plan = await this._runAction("plan_day_calendar_repair", {
+      trip_id: this._selectedTripId,
+    }, "", {
+      refresh: false,
+      errorMode: "dialog",
+      errorTitle: "Die Reisetage konnten nicht geprüft werden",
+      retry,
+    });
+    if (!plan) return null;
+    this._dialog = { type: "day-calendar-repair", plan, busy: false };
+    this._render({ preserveScroll: true });
+    return plan;
+  },
+
+  async _proposeDayCalendarRepair() {
+    if (this._dialog?.type !== "day-calendar-repair" || this._dialog.busy) return null;
+    this._dialog.busy = true;
+    this._render({ preserveScroll: true });
+    const result = await this._runAction("propose_day_calendar_repair", {
+      trip_id: this._selectedTripId,
+    }, "", {
+      refresh: true,
+      errorMode: "dialog",
+      errorTitle: "Der Reparaturvorschlag konnte nicht erstellt werden",
+    });
+    if (this._dialog?.type === "day-calendar-repair") this._dialog.busy = false;
+    if (!result) {
+      this._render({ preserveScroll: true });
+      return null;
+    }
+    this._closeDialog();
+    this._showToast(
+      result.duplicate
+        ? "Dieser Vorschlag liegt bereits unter „Übergaben“ bereit"
+        : "Vorschlag liegt unter „Übergaben“ zur Prüfung bereit",
+      "success",
+      6000,
+    );
+    return result;
+  },
+
+  _renderDayCalendarRepair(dialog) {
+    const plan = dialog?.plan || {};
+    const empties = Array.isArray(plan.empty_days) ? plan.empty_days : [];
+    const redated = Array.isArray(plan.redated_days) ? plan.redated_days : [];
+    if (!plan.needs_repair) {
+      return `${this._renderModalHeader("Reisetage prüfen", `${Number(plan.day_count_before || 0)} Reisetage`)}
+        <div class="integrity-dialog-body">
+          <div class="empty-inline"><ha-icon icon="mdi:check-decagram-outline"></ha-icon><div><strong>Der Reisekalender ist in Ordnung</strong><span>Keine leeren Platzhalter-Tage, und die Daten laufen der Reihenfolge nach.</span></div></div>
+        </div>
+        <div class="modal-actions"><button class="primary-button" type="button" data-action="close-dialog">Schließen</button></div>`;
+    }
+    const emptyRows = empties.map((entry) => `<article class="integrity-issue severity-warning">
+        <ha-icon icon="mdi:calendar-remove-outline"></ha-icon>
+        <div><strong>${escapeHtml(entry.title || "Reisetag")}</strong><span>Kein Stopp, keine Notiz, kein eigener Titel – wird entfernt.</span>${entry.date ? `<small>${escapeHtml(entry.date)}</small>` : ""}</div>
+      </article>`).join("");
+    const dateRows = redated.slice(0, 60).map((entry) => `<article class="integrity-issue severity-info">
+        <ha-icon icon="mdi:calendar-edit-outline"></ha-icon>
+        <div><strong>${escapeHtml(entry.title || "Reisetag")}</strong><span>${escapeHtml(entry.old_date || "ohne Datum")} → ${escapeHtml(entry.new_date || "")}</span><small>Tag ${Number(entry.sequence || 0)} der Reihenfolge</small></div>
+      </article>`).join("");
+    const more = redated.length > 60
+      ? `<p class="muted-note">… und ${redated.length - 60} weitere Tage.</p>`
+      : "";
+    return `${this._renderModalHeader("Reisetage aufräumen", `${Number(plan.day_count_before || 0)} → ${Number(plan.day_count_after || 0)} Reisetage`)}
+      <div class="integrity-dialog-body">
+        <div class="integrity-dialog-stats">
+          <span><strong>${empties.length}</strong> Platzhalter entfernen</span>
+          <span><strong>${redated.length}</strong> Tage neu datieren</span>
+          <span><strong>${Number(plan.day_count_after || 0)}</strong> Tage danach</span>
+        </div>
+        <p class="muted-note">Danach läuft die Reise vom ${escapeHtml(plan.start_date || "?")} bis zum ${escapeHtml(plan.end_date || "?")}${plan.last_day_title ? ` und endet mit „${escapeHtml(plan.last_day_title)}“` : ""}. Die Reihenfolge der Tage bleibt unverändert – nur die Daten folgen ihr wieder.</p>
+        <div class="integrity-issue-list">${emptyRows}${dateRows}</div>
+        ${more}
+        <p class="muted-note">Nichts davon wird sofort geändert: Der Vorschlag landet unter „Übergaben“ und wird erst dort übernommen.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button>
+        <button class="primary-button" type="button" data-action="day-calendar-repair-submit" ${dialog.busy ? "disabled" : ""}><ha-icon icon="mdi:calendar-check-outline"></ha-icon>${dialog.busy ? "Wird vorbereitet…" : "Vorschlag erstellen"}</button>
       </div>`;
   },
 };

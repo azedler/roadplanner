@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Callable
 import logging
 from functools import partial
@@ -12,6 +13,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .canonical_day import decorate_canonical_days
+from .day_calendar_repair import analyze_day_calendar, build_repair_operations
+from .experience_store import new_id, utc_now_iso
 from .handoff import HandoffStore
 from .navigation import decorate_panel_navigation
 from .roadplanner import (
@@ -391,6 +394,123 @@ class RoadplannerManager:
             return await self.hass.async_add_executor_job(
                 partial(self._assistant_payload_sync, trip_id)
             )
+
+    async def async_plan_day_calendar_repair(
+        self,
+        trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Analyse the travel calendar WITHOUT changing anything.
+
+        Live report: "Die Tage sind verwurschtelt". Reads every day of the
+        trip (not just the panel's first page - the drift was at the end)
+        and returns what a repair would do, so it can be checked before it
+        is proposed.
+        """
+        payload = await self.async_get_assistant_payload(trip_id)
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        trip = summary.get("trip") if isinstance(summary.get("trip"), dict) else {}
+        days = payload.get("days") if isinstance(payload.get("days"), dict) else {}
+        day_list = [day for day in days.get("days") or [] if isinstance(day, dict)]
+        plan = analyze_day_calendar(day_list)
+        plan["trip_id"] = str(trip.get("id") or payload.get("selected_trip_id") or "")
+        plan["revision"] = summary.get("revision")
+        plan["trip_start_date"] = str(trip.get("start_date") or "")
+        plan["trip_end_date"] = str(trip.get("end_date") or "")
+        plan["truncated"] = bool(days.get("has_more"))
+        return plan
+
+    async def async_propose_day_calendar_repair(
+        self,
+        trip_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Park the calendar repair under "Übergaben" for review.
+
+        Removing a day is destructive, so this never applies anything: it
+        creates a review-only ChangeSet, exactly like the Park4Night
+        coordinate autofill, and the decision stays with the traveller.
+        """
+        plan = await self.async_plan_day_calendar_repair(trip_id)
+        if plan.get("truncated"):
+            raise ValidationError(
+                "Die Reise hat mehr Tage als auf einmal gelesen werden können - "
+                "die Reparatur würde einen unvollständigen Kalender vorschlagen."
+            )
+        if not plan.get("needs_repair"):
+            return {"plan": plan, "handoff_id": "", "duplicate": False}
+        resolved_trip_id = str(plan.get("trip_id") or "")
+        revision = plan.get("revision")
+        if not resolved_trip_id or isinstance(revision, bool) or not isinstance(revision, int):
+            raise ValidationError(
+                "Aktuelle Reise-ID oder Revision konnte nicht gelesen werden"
+            )
+        try:
+            operations = build_repair_operations(
+                plan,
+                trip_start_date=plan.get("trip_start_date", ""),
+                trip_end_date=plan.get("trip_end_date", ""),
+            )
+        except ValueError as err:
+            raise ValidationError(str(err)) from err
+        if not operations:
+            return {"plan": plan, "handoff_id": "", "duplicate": False}
+
+        removed = len(plan.get("empty_days") or [])
+        redated = len(plan.get("redated_days") or [])
+        parts = []
+        if removed:
+            parts.append(f"{removed} leere Platzhalter-Tage entfernen")
+        if redated:
+            parts.append(f"{redated} Tage neu datieren")
+        changeset = {
+            "kind": "roadplanner_changeset",
+            "version": 1,
+            "changeset_id": new_id("changeset"),
+            "trip_id": resolved_trip_id,
+            "base_revision": revision,
+            "created_at": utc_now_iso(),
+            "title": "Reisetage aufräumen",
+            "summary": (
+                f"{' und '.join(parts)}. Danach hat die Reise "
+                f"{plan.get('day_count_after')} Tage "
+                f"({plan.get('start_date')} bis {plan.get('end_date')})."
+            ),
+            "apply_mode": "review",
+            "operations": operations,
+            "open_questions": [],
+            "assumptions": [
+                "Die Reihenfolge der Tage bleibt unverändert - nur die Daten "
+                "folgen ihr wieder.",
+                "Entfernt werden ausschließlich Tage ohne Stopp, ohne Notiz "
+                "und ohne eigenen Titel.",
+            ],
+            "research_notes": [],
+            "metadata": {
+                "created_by": "roadplanner_day_calendar_repair",
+                "review_only": True,
+            },
+        }
+        # Same identity rule as the Park4Night autofill: the CONTENT is the
+        # identity, so asking twice about an unchanged calendar finds the
+        # proposal that is already waiting instead of stacking a second one.
+        identity = hashlib.sha256(
+            "|".join(sorted(str(item["operation_id"]) for item in operations)).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        ingest = await self.async_ingest_external_changeset(
+            changeset=changeset,
+            title="Reisetage aufräumen",
+            source="roadplanner_day_calendar_repair",
+            external_id=f"day-calendar-repair-{identity[:40]}",
+            metadata={"day_calendar_repair": {"review_only": True}},
+            source_payload_sha256=identity,
+        )
+        handoff = ingest.get("handoff") if isinstance(ingest.get("handoff"), dict) else {}
+        return {
+            "plan": plan,
+            "handoff_id": str(handoff.get("id") or ""),
+            "duplicate": bool(ingest.get("duplicate")),
+        }
 
     async def async_load_trip(self) -> dict[str, Any]:
         async with self._lock:
