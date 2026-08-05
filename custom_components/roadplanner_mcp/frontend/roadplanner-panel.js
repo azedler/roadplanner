@@ -1461,9 +1461,15 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "delete-day" && this._canEdit()) {
       const day = this._findDay(dayId);
       const expectedRevision = this._currentRevision();
+      const stopCount = Number(day?.stop_count) || 0;
       this._confirm(
         "Reisetag löschen?",
-        `${day?.title || "Dieser Reisetag"} und ${day?.stop_count || 0} Stopps werden entfernt.`,
+        stopCount
+          // The stops go WITH the day - they belong to it, they are not
+          // re-homed anywhere. That has to be said before the click, not
+          // discovered afterwards.
+          ? `${day?.title || "Dieser Reisetag"} wird entfernt, zusammen mit ${stopCount} ${stopCount === 1 ? "Stopp" : "Stopps"}. Das lässt sich nicht rückgängig machen.`
+          : `${day?.title || "Dieser Reisetag"} wird entfernt. Der Tag enthält keine Stopps.`,
         "Tag löschen",
         async () => {
           await this._runAction("remove_day", {
