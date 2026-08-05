@@ -318,7 +318,12 @@ class TripPdfExporter:
                 self._google_maps_api_key,
                 center_lat=center_lat,
                 center_lon=center_lon,
-                markers=points[:40],
+                markers=points,
+                # The same points as a connected line, in travel order:
+                # loose dots show where the trip touched down but nothing
+                # about the order (live report: "Die Route ergibt so noch
+                # keinen Sinn").
+                path=points,
                 zoom=zoom,
                 width_px=width_px,
                 height_px=height_px,

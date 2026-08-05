@@ -58,6 +58,11 @@ _OSM_USER_AGENT = "Roadplanner-HomeAssistant/1.0 (+https://github.com/azedler/ro
 _OSM_ATTRIBUTION = "© OpenStreetMap contributors"
 _OSM_MAX_ZOOM = 19
 
+# A whole trip's worth of points, not a handful. The old cap of ten turned
+# a 23-day route into ten dots; this bound only exists so a corrupt input
+# cannot produce an unbounded Google URL.
+_MAX_MAP_POINTS = 100
+
 _GOOGLE_STATIC_MAPS_URL = "https://maps.googleapis.com/maps/api/staticmap"
 # Google's classic (non-premium) Static Maps size ceiling per side.
 _GOOGLE_MAX_SIZE_PX = 640
@@ -144,11 +149,17 @@ async def async_fetch_snapshot(
     center_lat: float,
     center_lon: float,
     markers: list[tuple[float, float]] | None = None,
+    path: list[tuple[float, float]] | None = None,
     zoom: int = 9,
     width_px: int = 1280,
     height_px: int = 720,
 ) -> bytes | None:
     """Return a static map snapshot as PNG/JPEG bytes, or ``None`` on failure.
+
+    ``path`` draws the points as a connected line in the given order. A
+    route drawn as loose dots is not a route: it shows where the trip
+    touched down but nothing about how it got there, and in which order
+    (live report on the PDF: "Die Route ergibt so noch keinen Sinn").
 
     A configured Google key that Google then rejects falls back to
     OpenStreetMap rather than producing no map at all: an unactivated
@@ -166,6 +177,7 @@ async def async_fetch_snapshot(
                 center_lat=center_lat,
                 center_lon=center_lon,
                 markers=markers or [],
+                path=path or [],
                 zoom=zoom,
                 width_px=width_px,
                 height_px=height_px,
@@ -183,6 +195,7 @@ async def async_fetch_snapshot(
             center_lat=center_lat,
             center_lon=center_lon,
             markers=markers or [],
+            path=path or [],
             zoom=zoom,
             width_px=width_px,
             height_px=height_px,
@@ -207,6 +220,7 @@ async def async_fetch_google_static_map(
     center_lat: float,
     center_lon: float,
     markers: list[tuple[float, float]],
+    path: list[tuple[float, float]] | None = None,
     zoom: int,
     width_px: int,
     height_px: int,
@@ -221,7 +235,13 @@ async def async_fetch_google_static_map(
         "maptype": "roadmap",
     }
     if markers:
-        params["markers"] = "|".join(f"{lat},{lon}" for lat, lon in markers[:10])
+        params["markers"] = "|".join(
+            f"{lat},{lon}" for lat, lon in markers[:_MAX_MAP_POINTS]
+        )
+    if path and len(path) > 1:
+        params["path"] = "color:0xe07a3fcc|weight:3|" + "|".join(
+            f"{lat},{lon}" for lat, lon in path[:_MAX_MAP_POINTS]
+        )
     try:
         async with session.get(
             _GOOGLE_STATIC_MAPS_URL, params=params, timeout=SNAPSHOT_FETCH_TIMEOUT
@@ -268,6 +288,7 @@ async def _async_fetch_osm_snapshot(
     center_lat: float,
     center_lon: float,
     markers: list[tuple[float, float]],
+    path: list[tuple[float, float]] | None = None,
     zoom: int,
     width_px: int,
     height_px: int,
@@ -321,14 +342,28 @@ async def _async_fetch_osm_snapshot(
         return None
 
     draw = ImageDraw.Draw(canvas)
-    for lat, lon in markers[:10]:
-        marker_px_x, marker_px_y = _lonlat_to_global_pixel(lat, lon, zoom)
-        x = marker_px_x - origin_x
-        y = marker_px_y - origin_y
-        radius = 7
+
+    def to_canvas(lat: float, lon: float) -> tuple[float, float]:
+        pixel_x, pixel_y = _lonlat_to_global_pixel(lat, lon, zoom)
+        return pixel_x - origin_x, pixel_y - origin_y
+
+    # The LINE first, so the markers sit on top of it. Without it the page
+    # showed loose dots and said nothing about the order they were visited
+    # in (live report: "Die Route ergibt so noch keinen Sinn").
+    if path and len(path) > 1:
+        line = [to_canvas(lat, lon) for lat, lon in path[:_MAX_MAP_POINTS]]
+        draw.line(line, fill=(255, 255, 255), width=7, joint="curve")
+        draw.line(line, fill=(224, 122, 63), width=4, joint="curve")
+
+    # The old hard cap of ten silently dropped most of a long trip: a
+    # 23-day route arrived as ten dots.
+    for index, (lat, lon) in enumerate(markers[:_MAX_MAP_POINTS]):
+        x, y = to_canvas(lat, lon)
+        first_or_last = index in (0, len(markers[:_MAX_MAP_POINTS]) - 1)
+        radius = 8 if first_or_last else 5
         draw.ellipse(
             (x - radius, y - radius, x + radius, y + radius),
-            fill=(224, 122, 63),
+            fill=(20, 61, 82) if first_or_last else (224, 122, 63),
             outline=(255, 255, 255),
             width=2,
         )

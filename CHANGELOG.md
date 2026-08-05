@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.28.0] - 2026-08-05
+
+### Fixed
+
+- **Die Routenkarte im PDF zeigt jetzt eine Route** (live: „Die Route ergibt so noch keinen Sinn“). Sie zeichnete lose Punkte ohne Verbindung – man sah, wo die Reise aufgesetzt hat, aber nichts über die Reihenfolge. Die Stationen werden jetzt in Reisereihenfolge zu einer Linie verbunden, Start und Ziel sind farblich abgesetzt.
+- **Und sie zeigt die ganze Reise.** Die Kartenerzeugung hatte eine feste Obergrenze von zehn Markierungen: Aus 23 Reisetagen wurden zehn Punkte, kommentarlos. Die Grenze liegt jetzt so hoch, dass eine vollständige Reise hineinpasst; sie existiert nur noch, damit eine fehlerhafte Eingabe keine unbegrenzte Anfrage erzeugen kann.
+- **Der Menüpunkt „Reisen“ hat wieder ein Symbol** (live: „Für Reisen habe ich noch immer kein Symbol“). Der hinterlegte Name `mdi:map-multiple-outline` existiert in Material Design Icons nicht, also blieb die Stelle leer, während alle anderen Einträge ihr Symbol hatten. Es ist jetzt ein Koffer – der liest sich neben „Reise“ und „Gesamtroute“ ohnehin besser als ein drittes Kartensymbol.
+
 ## [4.27.1] - 2026-08-05
 
 ### Fixed
