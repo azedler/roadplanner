@@ -309,7 +309,56 @@ def verify_day_linked_photos_fill_the_remaining_slots() -> None:
             day_media=[{"id": "s1"}, {"id": "d2"}],
         )
     )
-    assert photos == [jpeg(b"STOP"), jpeg(b"DAY2")], photos
+    # The curator ranks by quality and variety, so the ORDER follows the
+    # selection rather than the stop list - but every photo appears once.
+    assert sorted(photos) == sorted([jpeg(b"STOP"), jpeg(b"DAY2")]), photos
+
+
+def verify_the_export_uses_the_same_curation_as_the_panel() -> None:
+    """Live report: "Die Bildauswahl im roadplanner finde ich aber
+    gelungener als im pdf."
+
+    The panel shows "5 Highlights aus 20 Fotos - Lokal nach Qualität,
+    Dubletten und Serien ausgewählt"; the exports merely sorted by score,
+    so a burst of near-identical shots could fill a whole day.
+    """
+    source = (Path("custom_components/roadplanner_mcp") / "trip_export_photos.py").read_text(
+        encoding="utf-8"
+    )
+    assert "select_media_highlights(own_media, limit=max_photos)" in source
+
+    # A burst of three near-identical photos plus one different moment:
+    # the curator must not spend both slots on the burst.
+    burst = [
+        {
+            "id": f"b{index}",
+            "taken_at": f"2026-07-01T10:00:0{index}+00:00",
+            "latitude": 59.0,
+            "longitude": 15.0,
+        }
+        for index in range(3)
+    ]
+    other = {
+        "id": "other",
+        "taken_at": "2026-07-01T17:30:00+00:00",
+        "latitude": 59.4,
+        "longitude": 15.9,
+    }
+    urls = {f"https://cdn/{item['id']}.jpg": jpeg(item["id"].encode()) for item in burst + [other]}
+    session = FakeSession(urls)
+    experience = FakeExperience(
+        {(item["id"], "original"): f"https://cdn/{item['id']}.jpg" for item in burst + [other]}
+    )
+    photos = asyncio.run(
+        module.async_fetch_day_photos(
+            session, experience, "trip-1", [{"id": "stop-1"}], {}, {},
+            max_photos=2, day_media=burst + [other],
+        )
+    )
+    assert jpeg(b"other") in photos, (
+        "the different moment must survive a burst of look-alikes"
+    )
+    assert len(photos) == 2
 
 
 def verify_heic_is_named_as_the_undecodable_format() -> None:
@@ -397,6 +446,7 @@ if __name__ == "__main__":
     verify_stock_gallery_skips_google_primary_to_next_image()
     verify_every_source_is_checked_not_just_personal_media()
     verify_day_linked_photos_fill_the_remaining_slots()
+    verify_the_export_uses_the_same_curation_as_the_panel()
     verify_heic_is_named_as_the_undecodable_format()
     verify_crop_photo_cuts_the_face_region()
     verify_crew_picker_pagination_and_crop_ui()

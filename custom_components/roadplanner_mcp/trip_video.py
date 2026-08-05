@@ -7,10 +7,15 @@ ffmpeg_runner.py / trip_video_export.py. Keeping the filter-graph string
 building here, separate from subprocess execution, makes it fully testable
 without ever running ffmpeg.
 
-First pass deliberately uses simple crossfades only - no Ken-Burns pan/zoom
-yet. Motion is a planned follow-up once the end-to-end pipeline (this
-module, ffmpeg_runner.py, and the orchestration in trip_video_export.py) is
-proven to actually produce a playable video.
+Stills crossfade into each other and the first frame of every chapter
+carries its title, date and story line. A slideshow of photos with nothing
+written on it is what made the first version feel like a screensaver (live
+report: "Das Video war jetzt ziemlich langweilig") - the narrative Gemini
+writes per chapter was computed and then thrown away.
+
+Ken-Burns motion was built and then removed again: zoompan re-renders every
+output frame, and a three-chapter test took over six minutes, which would
+run into the export's ffmpeg timeout on a Home Assistant box.
 """
 
 from __future__ import annotations
@@ -49,7 +54,7 @@ def _record_frame_error(reason: str) -> None:
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
 DEFAULT_FPS = 30
-DEFAULT_PHOTO_HOLD_SECONDS = 3.5
+DEFAULT_PHOTO_HOLD_SECONDS = 2.8
 DEFAULT_CROSSFADE_SECONDS = 0.8
 MAX_CHAPTERS_RENDERED = 40
 
@@ -111,6 +116,24 @@ def _decode_and_fit(image_bytes: bytes | None, target_w: int, target_h: int):
     return image.crop((left, top, left + target_w, top + target_h))
 
 
+_FONT_PATH = Path(__file__).parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf"
+
+
+def _caption_for(chapter: VideoChapter) -> str:
+    """The line burned onto a chapter's first frame.
+
+    The narrative Gemini writes per chapter was computed and then thrown
+    away - the video showed photos and nothing else, which is exactly why
+    it felt like a screensaver (live report: "Das Video war jetzt ziemlich
+    langweilig").
+    """
+    title = " ".join(str(chapter.title or "").split())[:70]
+    date = str(chapter.date or "")
+    narrative = " ".join(str(chapter.narrative or "").split())[:110]
+    head = " · ".join(part for part in (title, date) if part)
+    return "\n".join(part for part in (head, narrative) if part)
+
+
 def prepare_chapter_assets(data: TripVideoData, workdir: Path) -> list[Path]:
     """Decode/fit every usable frame into numbered JPEGs in ``workdir``.
 
@@ -128,15 +151,56 @@ def prepare_chapter_assets(data: TripVideoData, workdir: Path) -> list[Path]:
         if chapter.map_snapshot:
             candidates.append(chapter.map_snapshot)
         candidates.extend(chapter.photos)
+        first_of_chapter = True
         for raw in candidates:
             fitted = _decode_and_fit(raw, target_w, target_h)
             if fitted is None:
                 continue
+            if first_of_chapter:
+                _draw_caption(fitted, _caption_for(chapter))
+                first_of_chapter = False
             path = workdir / f"frame_{index:04d}.jpg"
             fitted.save(path, format="JPEG", quality=90)
             frame_paths.append(path)
             index += 1
     return frame_paths
+
+
+def _draw_caption(image, caption: str) -> None:
+    """Burn the chapter caption onto a frame - readable over any photo.
+
+    Done with Pillow while the frames are prepared, not with ffmpeg's
+    drawtext: the text then needs no escaping at all, and a caption from
+    Gemini can contain anything.
+    """
+    if not caption:
+        return
+    try:
+        from PIL import ImageDraw, ImageFont
+    except ImportError:  # pragma: no cover - Pillow is a hard requirement
+        return
+    lines = [line for line in caption.split("\n") if line.strip()]
+    if not lines:
+        return
+    width, height = image.size
+    draw = ImageDraw.Draw(image, "RGBA")
+    try:
+        title_font = ImageFont.truetype(str(_FONT_PATH), size=max(28, width // 30))
+        body_font = ImageFont.truetype(str(_FONT_PATH), size=max(20, width // 46))
+    except OSError:
+        title_font = body_font = ImageFont.load_default()
+    fonts = [title_font] + [body_font] * (len(lines) - 1)
+    heights = [
+        draw.textbbox((0, 0), line, font=font)[3] for line, font in zip(lines, fonts)
+    ]
+    padding = max(16, width // 60)
+    block = sum(heights) + padding * (len(lines) + 1)
+    # A soft dark band, not a hard box: the photo stays visible through it.
+    draw.rectangle((0, height - block, width, height), fill=(15, 46, 61, 170))
+    y = height - block + padding
+    for line, font, line_height in zip(lines, fonts, heights):
+        draw.text((padding * 2, y), line, font=font, fill=(255, 255, 255, 235))
+        y += line_height + padding
 
 
 def build_ffmpeg_filter_graph(
@@ -168,9 +232,15 @@ def build_ffmpeg_filter_graph(
     for path in frame_paths:
         input_args += ["-loop", "1", "-t", f"{clip_duration:.3f}", "-i", str(path)]
 
+    # NO Ken-Burns. It was built and measured: zoompan re-renders every
+    # output frame, and a three-chapter test took over six minutes here -
+    # straight into the export's ffmpeg timeout on a Home Assistant box.
+    # The liveliness comes from content instead (chapter captions, a title
+    # card, shorter holds), which costs nothing at render time.
     normalize_parts = [
-        f"[{i}:v]format=yuv420p,fps={fps}[n{i}]" for i in range(count)
+        f"[{i}:v]format=yuv420p,fps={fps},setsar=1[n{i}]" for i in range(count)
     ]
+
     if count == 1:
         return input_args, ";".join(normalize_parts), "[n0]"
 

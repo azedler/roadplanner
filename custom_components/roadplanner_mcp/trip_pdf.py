@@ -98,7 +98,7 @@ OLIVE = HexColor("#8a9a5b")
 
 MAX_DAYS_RENDERED = 60
 MAX_STOPS_PER_DAY_CHIP = 6
-MAX_PHOTOS_PER_DAY = 6
+MAX_PHOTOS_PER_DAY = 9
 
 
 @dataclass
@@ -613,12 +613,15 @@ def _route_page(c, data: TripPdfData, page_number: int) -> int:
 _DAY_TOP = PAGE_H - 20 * mm
 _DAY_BOTTOM = 20 * mm
 _STOP_ROW_H = 7.2 * mm
-# Photo tiles keep a 4:3 frame instead of one letterbox strip across the
-# whole page. A 174 x 46 mm strip is nearly 4:1, so every portrait photo
-# lost its top and bottom (live report: "die sind zu hart geschnitten").
-_DAY_PHOTO_COLUMNS = 3
+# Photos are laid out in justified rows: every photo in a row shares the
+# row's height, and its width follows its OWN aspect ratio. A portrait
+# photo therefore stays portrait and is never cropped to landscape (live
+# request: "Wenn verfügbar sollten wir auch mehr Bilder zulassen und auch
+# im Hochformat").
 _DAY_PHOTO_GAP = 4 * mm
-_DAY_PHOTO_ASPECT = 4 / 3
+_DAY_PHOTO_MAX_PER_ROW = 4
+_DAY_PHOTO_MIN_ROW_H = 26 * mm
+_DAY_PHOTO_MAX_ROW_H = 52 * mm
 
 
 def _day_meta_line(day: PdfDay) -> str:
@@ -633,21 +636,85 @@ def _day_meta_line(day: PdfDay) -> str:
     return "  ·  ".join(parts)
 
 
-def _photo_grid(count: int) -> tuple[float, float, int, int]:
-    """(tile_w, tile_h, columns, rows) for ``count`` photos of one day."""
-    if count <= 0:
-        return 0.0, 0.0, 0, 0
-    # The tile size is FIXED, whatever a day happens to have: a single
-    # photo blown up to page width next to a day with three small ones
-    # reads as an accident, not as a layout.
+def _photo_rows(decoded: list) -> list[list[tuple]]:
+    """Group decoded photos into justified rows of (image, iw, ih, w, h).
+
+    Every photo in a row shares the row height and keeps its own aspect
+    ratio, so a portrait shot stays portrait. Rows are filled greedily
+    until adding another photo would squeeze the row below a readable
+    height.
+    """
     full_w = PAGE_W - 2 * MARGIN
-    columns = _DAY_PHOTO_COLUMNS
-    tile_w = (full_w - _DAY_PHOTO_GAP * (columns - 1)) / columns
-    rows = -(-count // columns)  # ceil
-    return tile_w, tile_w / _DAY_PHOTO_ASPECT, columns, rows
+    rows: list[list[tuple]] = []
+    current: list[tuple] = []
+
+    def row_height(items: list[tuple]) -> float:
+        aspects = sum(max(0.4, iw / ih) for _image, iw, ih in items)
+        usable = full_w - _DAY_PHOTO_GAP * (len(items) - 1)
+        return usable / aspects if aspects else 0.0
+
+    def flush(items: list[tuple], *, justified: bool) -> None:
+        if not items:
+            return
+        height = row_height(items)
+        if not justified:
+            # A trailing row is NOT stretched across the page - two leftover
+            # photos blown up to full width look like a mistake.
+            height = min(height, _DAY_PHOTO_MAX_ROW_H)
+        height = max(_DAY_PHOTO_MIN_ROW_H, min(height, _DAY_PHOTO_MAX_ROW_H))
+        rows.append(
+            [
+                (image, iw, ih, height * max(0.4, iw / ih), height)
+                for image, iw, ih in items
+            ]
+        )
+
+    for item in decoded:
+        candidate = current + [item]
+        if current and (
+            len(candidate) > _DAY_PHOTO_MAX_PER_ROW
+            or row_height(candidate) < _DAY_PHOTO_MIN_ROW_H
+        ):
+            flush(current, justified=True)
+            current = [item]
+            continue
+        current = candidate
+    flush(current, justified=False)
+    return rows
 
 
-def _day_block_height(day: PdfDay, photo_count: int) -> float:
+def _photo_block_height(rows: list[list[tuple]]) -> float:
+    if not rows:
+        return 0.0
+    return sum(row[0][4] for row in rows) + _DAY_PHOTO_GAP * (len(rows) - 1)
+
+
+def _shrink_photo_rows(rows: list[list[tuple]], available: float) -> list[list[tuple]] | None:
+    """Scale every row down uniformly so the block fits in ``available``.
+
+    Returns None if that would push a row below the readable minimum. Used
+    to fill a page instead of pushing a photo-rich day onto a fresh one and
+    leaving half a page blank (live screenshot).
+    """
+    if not rows:
+        return rows
+    gaps = _DAY_PHOTO_GAP * (len(rows) - 1)
+    heights = sum(row[0][4] for row in rows)
+    if heights + gaps <= available:
+        return rows
+    factor = (available - gaps) / heights if heights else 0.0
+    if factor <= 0 or min(row[0][4] for row in rows) * factor < _DAY_PHOTO_MIN_ROW_H:
+        return None
+    return [
+        [
+            (image, iw, ih, tile_w * factor, tile_h * factor)
+            for image, iw, ih, tile_w, tile_h in row
+        ]
+        for row in rows
+    ]
+
+
+def _day_block_height(day: PdfDay, photo_rows: list[list[tuple]]) -> float:
     """Height one day section needs - the basis of the flowing layout.
 
     Live report: "Das pdf ist untauglich" - every day owned a full A4 page
@@ -658,9 +725,8 @@ def _day_block_height(day: PdfDay, photo_count: int) -> float:
     height = 14 * mm  # title + meta line
     if day.highlights:
         height += 9 * mm
-    if photo_count:
-        _tile_w, tile_h, _columns, rows = _photo_grid(photo_count)
-        height += rows * tile_h + (rows - 1) * _DAY_PHOTO_GAP + 5 * mm
+    if photo_rows:
+        height += _photo_block_height(photo_rows) + 5 * mm
     elif day.photo_note:
         height += 6 * mm
     height += len(day.stops) * _STOP_ROW_H
@@ -678,7 +744,7 @@ def _start_day_page(c) -> float:
 
 
 def _draw_day_block(
-    c, day: PdfDay, index: int, total: int, top: float, decoded: list
+    c, day: PdfDay, index: int, total: int, top: float, photo_rows: list
 ) -> float:
     """Draw one day section starting at ``top``; return the new cursor."""
     full_w = PAGE_W - 2 * MARGIN
@@ -713,21 +779,15 @@ def _draw_day_block(
             x += w + 3 * mm
         y -= 9 * mm
 
-    if decoded:
-        tile_w, tile_h, columns, rows = _photo_grid(len(decoded))
-        for position, (image, iw, ih) in enumerate(decoded):
-            column, row = position % columns, position // columns
-            _draw_photo(
-                c,
-                MARGIN + column * (tile_w + _DAY_PHOTO_GAP),
-                y - (row + 1) * tile_h - row * _DAY_PHOTO_GAP,
-                tile_w,
-                tile_h,
-                image,
-                iw,
-                ih,
-            )
-        y -= rows * tile_h + (rows - 1) * _DAY_PHOTO_GAP + 5 * mm
+    if photo_rows:
+        for row in photo_rows:
+            row_h = row[0][4]
+            x = MARGIN
+            for image, iw, ih, tile_w, tile_h in row:
+                _draw_photo(c, x, y - tile_h, tile_w, tile_h, image, iw, ih)
+                x += tile_w + _DAY_PHOTO_GAP
+            y -= row_h + _DAY_PHOTO_GAP
+        y -= 5 * mm - _DAY_PHOTO_GAP
     elif day.photo_note:
         c.setFillColor(MUTED)
         c.setFont(FONT, 8.5)
@@ -781,14 +841,23 @@ def _day_pages(c, days: list[PdfDay], first_page_number: int) -> int:
             for photo in day.photos[:MAX_PHOTOS_PER_DAY]
             if (decoded_photo := _decode_photo(photo))
         ]
-        needed = _day_block_height(day, len(decoded))
+        photo_rows = _photo_rows(decoded)
+        needed = _day_block_height(day, photo_rows)
         if used and y - needed < _DAY_BOTTOM:
-            _footer(c, str(page_number))
-            c.showPage()
-            page_number += 1
-            y = _start_day_page(c)
-            used = False
-        y = _draw_day_block(c, day, index, total, y, decoded)
+            # Before starting a fresh page: can the day still fit here with
+            # slightly smaller photos? Pushing it down left half a page
+            # blank while the photos had room to spare (live screenshot).
+            room = (y - _DAY_BOTTOM) - (needed - _photo_block_height(photo_rows))
+            shrunk = _shrink_photo_rows(photo_rows, room) if photo_rows else None
+            if shrunk is not None:
+                photo_rows = shrunk
+            else:
+                _footer(c, str(page_number))
+                c.showPage()
+                page_number += 1
+                y = _start_day_page(c)
+                used = False
+        y = _draw_day_block(c, day, index, total, y, photo_rows)
         used = True
     _footer(c, str(page_number))
     c.showPage()
