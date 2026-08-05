@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.21.1] - 2026-08-05
+
+### Fixed
+
+- The Park4Night coordinate automation handed the same proposal over again and again (live report: "Der Änderungsvorschlag ist mit 4 solchen Änderungen voll" - four identical handoffs for one stop, every one of them stale against a trip that had moved on). Each hourly run used a fresh id, so nothing recognised the proposal already waiting under "Übergaben", and every Home Assistant restart additionally cleared the in-memory "already attempted" list. The identity is the content now - same stop, same coordinates, same handoff - so a repeated run reports "already waiting" and creates nothing. Different coordinates are still a new proposal.
+
+### Note
+
+- Handoffs that already piled up stay as they are; reject them and keep one, or use "Neu aufsetzen" to rebase it onto the current revision.
+
 ## [4.21.0] - 2026-08-05
 
 ### Changed

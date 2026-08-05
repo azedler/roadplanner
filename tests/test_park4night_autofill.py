@@ -173,14 +173,27 @@ class FakeLookup:
 
 
 class FakeManager:
+    """Stands in for the manager, including its idempotency behaviour."""
+
     def __init__(self, payload: dict) -> None:
         self.payload = payload
         self.ingested: list[dict] = []
+        self.external_ids: list[str] = []
+        self._seen: set[str] = set()
 
     async def async_get_assistant_payload(self, trip_id=None) -> dict:
         return self.payload
 
-    async def async_ingest_external_changeset(self, *, changeset, **kwargs) -> dict:
+    async def async_ingest_external_changeset(
+        self, *, changeset, external_id=None, source_payload_sha256=None, **kwargs
+    ) -> dict:
+        self.external_ids.append(str(external_id or ""))
+        key = f"{external_id}|{source_payload_sha256}"
+        if key in self._seen:
+            # The real store recognises an identical proposal that is
+            # already waiting and creates nothing new.
+            return {"handoff": {"id": "handoff-1", "status": "pending"}, "duplicate": True}
+        self._seen.add(key)
         self.ingested.append(changeset)
         return {"handoff": {"id": "handoff-1", "status": "pending"}}
 
@@ -211,9 +224,43 @@ def verify_run_parks_a_review_handoff_and_never_applies() -> None:
     status = asyncio.run(autofill.async_run())
     assert status["filled"] == 0
     assert len(manager.ingested) == 1
-    # ... unless the run is forced.
-    asyncio.run(autofill.async_run(force=True))
+    # A forced run re-reads the page, but the identical proposal is
+    # recognised as the one already waiting - it does not pile up a second
+    # handoff (live report: four identical handoffs for one stop).
+    assert asyncio.run(autofill.async_run(force=True))["state"] == "duplicate"
+    assert len(manager.ingested) == 1
+
+
+def verify_the_same_proposal_is_never_handed_over_twice() -> None:
+    """Live report: four identical handoffs for ONE stop, all stale.
+
+    The hourly job used a fresh id per run, so nothing recognised the
+    proposal already waiting under "Übergaben" - and every Home Assistant
+    restart cleared the in-memory "already attempted" set as well. The
+    identity is the CONTENT now: same stop, same coordinates, same handoff.
+    """
+    manager = FakeManager(PAYLOAD)
+    lookup = FakeLookup({"latitude": 58.7123, "longitude": 14.5987, "name": "Angelsee"})
+    first = module.Park4NightAutofillManager(None, manager, lookup)
+    assert asyncio.run(first.async_run())["state"] == "ready"
+    assert len(manager.ingested) == 1
+
+    # A restart loses the in-memory memory - the pile-up used to start here.
+    after_restart = module.Park4NightAutofillManager(None, manager, lookup)
+    status = asyncio.run(after_restart.async_run())
+    assert status["state"] == "duplicate", status
+    assert status["filled"] == 0
+    assert len(manager.ingested) == 1, "no second handoff for the same facts"
+    assert manager.external_ids[0] == manager.external_ids[1], manager.external_ids
+    assert manager.external_ids[0].startswith("p4n-autofill-")
+
+    # DIFFERENT coordinates are a new proposal, not a duplicate.
+    moved = module.Park4NightAutofillManager(
+        None, manager, FakeLookup({"latitude": 59.0, "longitude": 15.0})
+    )
+    assert asyncio.run(moved.async_run())["state"] == "ready"
     assert len(manager.ingested) == 2
+    assert manager.external_ids[2] != manager.external_ids[0]
 
 
 def verify_unusable_pages_never_produce_a_handoff() -> None:
@@ -245,6 +292,7 @@ if __name__ == "__main__":
     verify_only_gps_less_stops_with_a_link_are_candidates()
     verify_operations_are_reviewable_and_never_invent_gps()
     verify_run_parks_a_review_handoff_and_never_applies()
+    verify_the_same_proposal_is_never_handed_over_twice()
     verify_unusable_pages_never_produce_a_handoff()
     verify_wiring()
     print("Park4Night autofill tests passed.")
