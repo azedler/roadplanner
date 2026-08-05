@@ -79,6 +79,13 @@ export const PANEL_STYLES = `<style>
       .toolbar-card h2, .panel-card h2, .section-heading h2 { margin: 4px 0 0; font-size: 23px; }
       .toolbar-card p { margin: 7px 0 0; color: var(--secondary-text-color); }
       .toolbar-actions, .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+      /* One flat row let unrelated controls wrap into each other - the video
+         length ended up sitting next to "Letztes PDF" (live report: "Bisschen
+         mehr Ordnung wär da schön"). Related controls now stay together. */
+      .toolbar-actions.grouped { flex-direction: column; align-items: stretch; gap: 16px; }
+      .action-group { display: flex; flex-direction: column; gap: 8px; }
+      .action-group-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary-text-color); }
+      .action-group-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
       .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
       .section-heading.compact { margin-bottom: 14px; }
       .section-heading > ha-icon { color: var(--primary-color); --mdc-icon-size: 34px; }

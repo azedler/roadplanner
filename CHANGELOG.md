@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.26.1] - 2026-08-05
+
+### Changed
+
+- **Die Knopfleiste der Gesamtroute ist aufgeräumt** (live: „Bisschen mehr Ordnung wär da schön“). Alles lag in einer einzigen flachen Reihe und ist auf dem Handy beliebig umgebrochen – die Auswahl der Videolänge landete direkt neben „Letztes PDF“ und las sich dadurch wie eine PDF-Einstellung. Die Aktionen stehen jetzt in zwei beschrifteten Gruppen: **Planung** (Routen berechnen, Tag hinzufügen) und **Rückblick** mit je einer eigenen Zeile für PDF und Video. Die Videolänge steht dort, wo sie hingehört: beim Video.
+  - „Tag“ heißt jetzt „Tag hinzufügen“ – ein einzelnes Wort neben „Alle neu berechnen“ ließ offen, was es tut.
+
 ## [4.26.0] - 2026-08-05
 
 ### Added

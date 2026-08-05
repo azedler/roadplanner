@@ -115,6 +115,21 @@ for workflow in ("release.yml", "roadplanner-validation.yml"):
 frontend_source = (ROOT / "frontend/features/route-map.js").read_text(encoding="utf-8")
 assert 'data-action="export-trip-video"' in frontend_source
 assert 'data-action="select-video-style"' in frontend_source
+# The video length belongs to the VIDEO row. In one flat button strip it
+# wrapped to sit right next to "Letztes PDF", which read like a PDF option
+# (live report: "Bisschen mehr Ordnung wär da schön").
+_video_row = frontend_source.split('data-action="export-trip-video"', 1)[1]
+_video_row = _video_row.split("</div>", 1)[0]
+assert 'data-action="select-video-style"' in _video_row, (
+    "the length selector must live in the same row as the video button"
+)
+assert 'data-action="open-last-trip-video"' in _video_row
+assert 'data-action="open-last-trip-pdf"' not in _video_row, (
+    "the PDF download must not sit inside the video row"
+)
+assert 'class="action-group-label">Rückblick<' in frontend_source, (
+    "the export actions need a heading that says what they are"
+)
 
 panel_js_source = (ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
 assert 'action === "export-trip-video"' in panel_js_source

@@ -496,21 +496,34 @@ export const routeMapMixin = {
       ${this._renderReadOnlyNotice()}
       <section class="toolbar-card">
         <div><span class="eyebrow">Gesamtroute</span><h2>${escapeHtml(this._data.summary.trip.title)}</h2><p>${days.length} Tage · ${this._data.summary.stop_count} Stopps · ${distance != null ? `${escapeHtml(distance)} km Auto` : "Autostrecke noch offen"}${ferryDistance != null ? ` · ${escapeHtml(ferryDistance)} km Fähre` : ""}${movementDistance != null ? ` · ${escapeHtml(movementDistance)} km Bewegung gesamt` : ""}${drive ? ` · ${escapeHtml(drive)} Fahrzeit` : ""}</p><p>${escapeHtml(coverage)}</p></div>
-        <div class="toolbar-actions">
-          ${this._canEdit() && routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-trip-routes" data-force="${paths.length ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${paths.length ? "Alle neu berechnen" : "Alle Routen berechnen"}</button>` : ""}
-          ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Tag</button>` : ""}
-          <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Reisezusammenfassung als PDF"}</button>
-          <button class="text-button" type="button" data-action="open-last-trip-pdf" title="Zuletzt erstelltes PDF herunterladen"><ha-icon icon="mdi:file-find-outline"></ha-icon> Letztes PDF${this._tripPdfStatus?.last_pdf ? ` (${escapeHtml(String(this._tripPdfStatus.last_pdf.size_mb))} MB)` : ""}</button>
-          ${this._data?.settings?.video_export_available ? `
-            <select data-action="select-video-style" aria-label="Videolänge" ${this._exportingTripVideo ? "disabled" : ""}>
-              <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>
-              <option value="full" ${this._videoStyle === "full" ? "selected" : ""}>Ausführlicher Rückblick</option>
-            </select>
-            <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo || this._tripVideoStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._tripVideoStatus?.state === "running" ? "Video wird erstellt …" : "Reise als Video"}</button>
-            <button class="text-button" type="button" data-action="open-last-trip-video" title="Zuletzt erstelltes Video herunterladen"><ha-icon icon="mdi:movie-search-outline"></ha-icon> Letztes Video${this._tripVideoStatus?.last_video ? ` (${escapeHtml(String(this._tripVideoStatus.last_video.size_mb))} MB)` : ""}</button>
-          ` : `
-            <button class="secondary-button" type="button" disabled title="ffmpeg wurde auf diesem Home-Assistant-Host nicht gefunden"><ha-icon icon="mdi:movie-open-outline"></ha-icon> Reise als Video</button>
-          `}
+        <div class="toolbar-actions grouped">
+          ${this._canEdit() ? `
+            <div class="action-group">
+              <span class="action-group-label">Planung</span>
+              <div class="action-group-row">
+                ${routingConfigured ? `<button class="primary-button" type="button" data-action="calculate-trip-routes" data-force="${paths.length ? "true" : "false"}"><ha-icon icon="mdi:routes"></ha-icon>${paths.length ? "Alle neu berechnen" : "Alle Routen berechnen"}</button>` : ""}
+                <button class="secondary-button" type="button" data-action="add-day"><ha-icon icon="mdi:calendar-plus"></ha-icon> Tag hinzufügen</button>
+              </div>
+            </div>` : ""}
+          <div class="action-group">
+            <span class="action-group-label">Rückblick</span>
+            <div class="action-group-row">
+              <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Als PDF"}</button>
+              <button class="text-button" type="button" data-action="open-last-trip-pdf" title="Zuletzt erstelltes PDF herunterladen"><ha-icon icon="mdi:file-find-outline"></ha-icon> Letztes PDF${this._tripPdfStatus?.last_pdf ? ` (${escapeHtml(String(this._tripPdfStatus.last_pdf.size_mb))} MB)` : ""}</button>
+            </div>
+            ${this._data?.settings?.video_export_available ? `
+              <div class="action-group-row">
+                <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo || this._tripVideoStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._tripVideoStatus?.state === "running" ? "Video wird erstellt …" : "Als Video"}</button>
+                <select data-action="select-video-style" aria-label="Videolänge" ${this._exportingTripVideo ? "disabled" : ""}>
+                  <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>
+                  <option value="full" ${this._videoStyle === "full" ? "selected" : ""}>Ausführlicher Rückblick</option>
+                </select>
+                <button class="text-button" type="button" data-action="open-last-trip-video" title="Zuletzt erstelltes Video herunterladen"><ha-icon icon="mdi:movie-search-outline"></ha-icon> Letztes Video${this._tripVideoStatus?.last_video ? ` (${escapeHtml(String(this._tripVideoStatus.last_video.size_mb))} MB)` : ""}</button>
+              </div>` : `
+              <div class="action-group-row">
+                <button class="secondary-button" type="button" disabled title="ffmpeg wurde auf diesem Home-Assistant-Host nicht gefunden"><ha-icon icon="mdi:movie-open-outline"></ha-icon> Als Video</button>
+              </div>`}
+          </div>
         </div>
       </section>
       ${this._renderTripVideoStatusLine()}
