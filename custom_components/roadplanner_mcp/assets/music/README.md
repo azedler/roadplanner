@@ -1,8 +1,14 @@
 # Background music for the trip video export
 
-This folder ships empty. The trip video export (`trip_video_export.py`'s
-`pick_music_track()`) treats a missing or empty folder as "no music" and
-produces a silent video - never a crash or error.
+This folder ships empty ON PURPOSE, and that no longer means a silent
+video: without a file here, the export synthesises a calm chord bed itself
+(`trip_music.py`). Nobody else holds rights in a pad this code describes,
+so there is no licence claim to verify and no attribution to carry - which
+is exactly why no third-party track is bundled.
+
+Anything you put here wins over the generated bed. The export
+(`trip_video_export.py`'s `pick_music_track()`) treats a missing or empty
+folder as "use the generated bed" - never a crash or error.
 
 To enable background music, add a small number of instrumental `.mp3`
 files here (roughly 2-4 minutes each, calm/ambient enough to sit under the

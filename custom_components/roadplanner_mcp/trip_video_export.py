@@ -36,6 +36,7 @@ from .ffmpeg_runner import async_run_ffmpeg, ffmpeg_available
 from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import LAST_PHOTO_ERROR, async_fetch_day_photos
+from .trip_music import build_music_graph
 from .trip_video import (
     LAST_FRAME_ERROR,
     TripVideoData,
@@ -450,19 +451,31 @@ class TripVideoExporter:
             )
             output_path = workdir / "trip_video.mp4"
             ffmpeg_args = list(input_args)
-            audio_input_index = len(frame_paths)
+            filter_parts = [filter_complex]
             if music_path is not None:
+                # A real track the user placed in assets/music always wins.
                 ffmpeg_args += ["-i", str(music_path)]
+                audio_map = f"{len(frame_paths)}:a"
             else:
-                # A SILENT track, not "no track at all": the bundled music
-                # folder ships empty, and a video without any audio stream
-                # is rejected or shown as broken by several players and
-                # photo libraries (live question: "War da Musik enthalten?"
-                # - there was no audio stream whatsoever).
-                ffmpeg_args += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-            ffmpeg_args += ["-filter_complex", filter_complex, "-map", video_label]
+                # Otherwise the bed is SYNTHESISED rather than downloaded -
+                # nobody else holds rights in it, so there is no licence to
+                # verify or carry (live question: "Du kannst keine
+                # lizenzfreie Musik besorgen?").
+                music_inputs, music_graph, audio_map = build_music_graph(
+                    trip_id, first_input_index=len(frame_paths)
+                )
+                ffmpeg_args += music_inputs
+                filter_parts.append(music_graph)
             ffmpeg_args += [
-                "-map", f"{audio_input_index}:a", "-shortest", "-c:a", "aac"
+                "-filter_complex",
+                ";".join(filter_parts),
+                "-map",
+                video_label,
+                "-map",
+                audio_map,
+                "-shortest",
+                "-c:a",
+                "aac",
             ]
             ffmpeg_args += [
                 "-r", str(data.fps),
