@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.26.2] - 2026-08-05
+
+### Fixed
+
+- **Die Größe neben „Letztes PDF“ und „Letztes Video“ erscheint jetzt zuverlässig** (live: „zeigt er nur manchmal die Größe vom letzten Video und pdf“). Die Angabe stammt aus dem Export-Status, und den hat schlicht niemand abgerufen, wenn man die Gesamtroute nur geöffnet hat – das passierte ausschließlich beim Starten eines Exports, beim Abfragen eines laufenden Videos oder beim Klick auf den Download selbst. Nach jedem Neuladen des Panels blieben die Beschriftungen deshalb nackt, bis zufällig eines dieser Ereignisse eintrat. Der Status wird jetzt beim Öffnen der Ansicht geladen, einmal je Reise und stumm im Hintergrund: Eine fehlende Größenangabe ist ein Schönheitsfehler und nie ein Grund, eine Fehlermeldung vor die Reise zu stellen.
+
 ## [4.26.1] - 2026-08-05
 
 ### Changed

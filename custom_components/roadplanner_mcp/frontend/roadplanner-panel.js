@@ -354,6 +354,7 @@ class RoadplannerPanel extends HTMLElement {
         this._render({ preserveScroll: true });
         void this._refreshOfflineDocumentIds();
         if (this._activeTab === "assistant") this._maybeStartAutoBriefing();
+        this._maybeLoadExportStatus();
         void this._maybeAutoPopulateDestinationGalleries(payload);
       } else if (this._initialLoading) {
         this._initialLoading = false;
@@ -792,6 +793,7 @@ class RoadplannerPanel extends HTMLElement {
       this._activeTab = target.dataset.tab;
       this._render();
       if (this._activeTab === "assistant") this._maybeStartAutoBriefing();
+      this._maybeLoadExportStatus();
       return;
     }
 
