@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.25.0] - 2026-08-05
+
+### Fixed
+
+- **Ein abgelehnter Google-Schlüssel führt nicht mehr zu Exporten ganz ohne Karte.** Der Systemcheck zeigte es im Klartext: Google antwortet mit „This API is not activated on your API project“, während OpenStreetMap im selben Lauf grün war – und die Routenseite im PDF kam trotzdem kartenlos heraus. Ist Google als Kartenquelle eingestellt und lehnt Google ab, übernimmt jetzt OpenStreetMap. Die eingestellte Quelle wird weiterhin zuerst versucht, und der Grund der Ablehnung bleibt erhalten: Der Rückfall lässt den Export funktionieren, er räumt die Fehlkonfiguration nicht weg.
+  - Scheitern beide, nennt die Meldung beide Ursachen statt nur der zuletzt aufgetretenen.
+  - Die Google-Prüfung im Systemcheck ruft bewusst weiterhin direkt Google auf – sonst würde sie dank des Rückfalls ein fröhliches „OK“ melden, während Google jeden Aufruf ablehnt.
+- **Ein Seitentitel wird auch ohne Open-Graph-Auszeichnung gefunden.** Der Systemcheck meldete für Park4Night „67 kB gelesen, ohne Seitentitel“ – eine Seite kann aber schlicht keine Open-Graph-Tags haben und trotzdem ein völlig normales Dokument sein. Der Rückfall auf das gewöhnliche `<title>` unterscheidet eine echte Seite von einer JavaScript-Hülle, und genau dafür ist die Zeile da.
+
 ## [4.24.1] - 2026-08-05
 
 ### Fixed

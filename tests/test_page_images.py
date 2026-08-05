@@ -312,6 +312,28 @@ def verify_gallery_and_enrichment_wiring() -> None:
     assert 'shared_link: "Geteilter Link"' in media_source
 
 
+def verify_a_page_without_open_graph_still_yields_its_name() -> None:
+    """Live Systemcheck: 67 kB read from Park4Night, "ohne Seitentitel".
+
+    A page can carry no Open Graph tags at all and still be a perfectly
+    normal document. Falling back to plain <title> tells a real page apart
+    from a JavaScript shell, which is the whole point of the report line.
+    """
+    place = module.extract_page_place(
+        "<html><head><title>Dammtorp naturnära | Park4Night</title></head>"
+        "<body>kein og:title weit und breit</body></html>"
+    )
+    assert place.get("name") == "Dammtorp naturnära", place
+    # og:title still wins where it exists.
+    place = module.extract_page_place(
+        '<html><head><title>Falscher Titel</title>'
+        '<meta property="og:title" content="Echter Ort"></head></html>'
+    )
+    assert place.get("name") == "Echter Ort", place
+    # A shell with no title at all still reports nothing rather than junk.
+    assert "name" not in module.extract_page_place("<html><body><div id=app></div></body></html>")
+
+
 if __name__ == "__main__":
     verify_extraction_shapes_and_filters()
     verify_page_place_extraction()
@@ -322,4 +344,5 @@ if __name__ == "__main__":
     verify_shared_pages_are_requested_like_a_link_preview()
     verify_source_hint_fetch_skips_covered_providers()
     verify_gallery_and_enrichment_wiring()
+    verify_a_page_without_open_graph_still_yields_its_name()
     print("Shared-page image extraction tests passed.")

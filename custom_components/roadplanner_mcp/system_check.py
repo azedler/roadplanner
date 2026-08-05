@@ -29,7 +29,11 @@ from typing import Any
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .map_snapshot import LAST_SNAPSHOT_ERROR, async_fetch_snapshot
+from .map_snapshot import (
+    LAST_SNAPSHOT_ERROR,
+    async_fetch_google_static_map,
+    async_fetch_snapshot,
+)
 from .page_images import async_fetch_page_place
 from .trip_export_photos import _format_name, async_download_photo
 
@@ -302,9 +306,11 @@ async def async_run_system_check(
     else:
         async def _google_map() -> tuple[str, str]:
             LAST_SNAPSHOT_ERROR.clear()
-            snapshot = await async_fetch_snapshot(
+            # The GOOGLE branch directly, not async_fetch_snapshot: that one
+            # falls back to OpenStreetMap now, which would let the probe
+            # report a cheerful OK while Google keeps rejecting every call.
+            snapshot = await async_fetch_google_static_map(
                 session,
-                "google_static_maps",
                 google_key,
                 center_lat=59.3,
                 center_lon=15.2,

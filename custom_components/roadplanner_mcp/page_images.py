@@ -223,6 +223,7 @@ _META_GEO_POSITION_RE = re.compile(
     r'[^>]+name="(?:geo\.position|ICBM)"',
     re.IGNORECASE,
 )
+_PAGE_TITLE_RE = re.compile(r"<title[^>]*>(.{1,300}?)</title>", re.IGNORECASE | re.DOTALL)
 _META_PAGE_OG_TITLE_RE = re.compile(
     r'<meta[^>]+property="og:title"[^>]+content="([^"]{1,300})"'
     r'|<meta[^>]+content="([^"]{1,300})"[^>]+property="og:title"',
@@ -379,11 +380,21 @@ def extract_page_place(page_html: str) -> dict[str, Any]:
             place["latitude"], place["longitude"] = scanned
     if "name" not in place:
         title_match = _META_PAGE_OG_TITLE_RE.search(page_html)
+        raw_title = ""
         if title_match:
             raw_title = title_match.group(1) or title_match.group(2) or ""
-            name = re.split(r"\s+[|·–]\s+", raw_title.strip(), maxsplit=1)[0].strip()
-            if name:
-                place["name"] = name[:500]
+        else:
+            # Plain <title> as a fallback: a page can carry no Open Graph
+            # tags at all and still be a perfectly normal document. Without
+            # this, "no name" meant both "we got a JavaScript shell" and
+            # "the site simply does not use og:title" (live Systemcheck:
+            # 67 kB read from Park4Night, no title reported).
+            plain = _PAGE_TITLE_RE.search(page_html)
+            if plain:
+                raw_title = re.sub(r"<[^>]+>", " ", plain.group(1))
+        name = re.split(r"\s+[|·–]\s+", " ".join(raw_title.split()), maxsplit=1)[0].strip()
+        if name:
+            place["name"] = name[:500]
     return place
 
 
