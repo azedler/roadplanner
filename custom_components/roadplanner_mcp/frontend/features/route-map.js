@@ -143,6 +143,23 @@ export const routeMapMixin = {
     return null;
   },
 
+  // The sizes next to "Letztes PDF"/"Letztes Video" come from the export
+  // status, and NOTHING fetched it when the overview was merely opened -
+  // only an export, a poll or a click on the download itself did. After a
+  // reload the labels were therefore bare until you clicked, which looked
+  // like the size showed up at random (live report: "zeigt er nur manchmal
+  // die Größe vom letzten Video und pdf").
+  _maybeLoadExportStatus() {
+    if (this._activeTab !== "total-route" || !this._selectedTripId) return;
+    const token = `${this._selectedTripId}`;
+    if (this._exportStatusLoadedFor === token) return;
+    this._exportStatusLoadedFor = token;
+    // Silent and non-blocking: a missing size is a cosmetic gap, never a
+    // reason to put an error in front of the trip.
+    void this._fetchTripPdfStatus({ silent: true });
+    void this._fetchTripVideoStatus({ silent: true });
+  },
+
   async _fetchTripPdfStatus({ silent = false } = {}) {
     try {
       const result = await this._runAction("trip_pdf_status", {}, "", {
