@@ -104,6 +104,14 @@ def normalize_person(value: dict[str, Any]) -> dict[str, Any]:
         # Optional normalized crop (0..1) of that photo - the face region,
         # so a group picture can still identify ONE person.
         "reference_crop": _normalize_crop(value.get("reference_crop")),
+        # The written "what did this person get up to" summary, generated
+        # from the trip photos (live request: "zu jeder Person eine kleine
+        # lustige Zusammenfassung ... erstellt von der KI aus den Bildern").
+        # Stored rather than recomputed per export: it costs a Vision call
+        # per person, the answer barely changes between two exports, and a
+        # stored text can be read and corrected by hand.
+        "summary": _clean(value.get("summary"), 2_000),
+        "summary_generated_at": _clean(value.get("summary_generated_at"), 100),
         "active": bool(value.get("active", True)),
         "created_at": _clean(value.get("created_at"), 100) or utc_now_iso(),
         "updated_at": utc_now_iso(),

@@ -48,6 +48,7 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "assistant_test",
   "assistant_briefing",
   "export_trip_video",
+  "generate_trip_summaries",
   "park4night_lookup",
   "place_link_lookup",
 ]);
@@ -1550,6 +1551,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._calculateTripRoutes(target.dataset.force === "true");
     } else if (action === "export-trip-pdf") {
       void this._exportTripPdf();
+    } else if (action === "generate-trip-summaries" && this._canEdit()) {
+      this._generateTripSummaries();
     } else if (action === "export-trip-video") {
       void this._exportTripVideo();
     } else if (action === "open-last-trip-video") {

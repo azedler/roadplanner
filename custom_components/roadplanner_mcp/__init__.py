@@ -178,6 +178,7 @@ from .travel_archive_http import async_register_travel_archive_views
 from .travel_archive_manager import TravelArchiveManager
 from .trip_pdf_export import TripPdfExporter
 from .trip_pdf_http import async_register_trip_pdf_view
+from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
 from .trip_video_library_http import async_register_trip_video_library_view
@@ -212,6 +213,7 @@ class RoadplannerRuntimeData:
     park4night_autofill: Park4NightAutofillManager
     trip_pdf: TripPdfExporter
     trip_video: TripVideoExporter
+    trip_summaries: TripSummaryService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -667,6 +669,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         media_cache=media_cache,
     )
 
+    trip_summaries = TripSummaryService(
+        hass,
+        manager,
+        experience,
+        crew,
+        provider,
+        media_cache=media_cache,
+    )
+
     runtime = RoadplannerRuntimeData(
         manager=manager,
         coordinator=coordinator,
@@ -687,6 +698,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         park4night_autofill=park4night_autofill,
         trip_pdf=trip_pdf,
         trip_video=trip_video,
+        trip_summaries=trip_summaries,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
