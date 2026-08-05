@@ -16,6 +16,11 @@ Both backends are best-effort and defensive: any HTTP error, timeout, or
 malformed/undecodable response returns ``None`` rather than raising, the
 same contract trip_export_photos.py already uses for photo downloads - a
 missing map snapshot just means that chapter opens without one.
+
+Google is not a dead end either: if the configured key is rejected (an
+unactivated Static Maps API is a Google Cloud setting nobody can fix from
+here), the free OpenStreetMap backend takes over rather than the export
+shipping without any map at all.
 """
 
 from __future__ import annotations
@@ -143,10 +148,19 @@ async def async_fetch_snapshot(
     width_px: int = 1280,
     height_px: int = 720,
 ) -> bytes | None:
-    """Return a static map snapshot as PNG/JPEG bytes, or ``None`` on failure."""
+    """Return a static map snapshot as PNG/JPEG bytes, or ``None`` on failure.
+
+    A configured Google key that Google then rejects falls back to
+    OpenStreetMap rather than producing no map at all: an unactivated
+    Static Maps API is a Google Cloud setting, but a working free tile
+    server is right there (live Systemcheck: Google answered "This API is
+    not activated on your API project" while the OSM probe was green, and
+    the PDF's route page came out mapless).
+    """
+    google_reason = ""
     try:
         if provider == "google_static_maps" and api_key:
-            return await _async_fetch_google_static_map(
+            snapshot = await async_fetch_google_static_map(
                 session,
                 api_key,
                 center_lat=center_lat,
@@ -156,7 +170,15 @@ async def async_fetch_snapshot(
                 width_px=width_px,
                 height_px=height_px,
             )
-        return await _async_fetch_osm_snapshot(
+            if snapshot:
+                return snapshot
+            # The reason is carried along, not dropped: the fallback makes
+            # the export work, it does not make the misconfiguration go
+            # away, and if OpenStreetMap fails too the report must still be
+            # able to name BOTH causes.
+            google_reason = str(LAST_SNAPSHOT_ERROR.get("reason") or "")
+            _LOGGER.info("Google Static Maps unusable - falling back to OpenStreetMap")
+        snapshot = await _async_fetch_osm_snapshot(
             session,
             center_lat=center_lat,
             center_lon=center_lon,
@@ -165,6 +187,12 @@ async def async_fetch_snapshot(
             width_px=width_px,
             height_px=height_px,
         )
+        if snapshot is None and google_reason:
+            _record_snapshot_error(
+                f"{google_reason} - und der Rückfall auf OpenStreetMap "
+                f"schlug ebenfalls fehl: {LAST_SNAPSHOT_ERROR.get('reason') or 'unbekannt'}"
+            )
+        return snapshot
     except Exception as err:  # noqa: BLE001 - a map snapshot must never abort the export
         _record_snapshot_error(
             f"Kartenbild konnte nicht erzeugt werden ({type(err).__name__})"
@@ -172,7 +200,7 @@ async def async_fetch_snapshot(
         return None
 
 
-async def _async_fetch_google_static_map(
+async def async_fetch_google_static_map(
     session: Any,
     api_key: str,
     *,

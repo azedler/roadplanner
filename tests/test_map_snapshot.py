@@ -236,6 +236,7 @@ def verify_a_rejected_google_request_reports_googles_own_reason() -> None:
     async def scenario() -> None:
         module.LAST_SNAPSHOT_ERROR.clear()
         session = _FakeSession(
+            tile_body=_png_bytes(),
             google_body=None,
             error_body=(
                 b"<html><body><h1>Error</h1><p>The Google Maps Platform server "
@@ -247,7 +248,7 @@ def verify_a_rejected_google_request_reports_googles_own_reason() -> None:
             session, "google_static_maps", "key-123",
             center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
         )
-        assert result is None
+        assert result is not None, "a rejected Google key must fall back to OSM"
         reason = module.LAST_SNAPSHOT_ERROR.get("reason", "")
         assert "404" in reason, reason
         assert "not authorized to use this API" in reason, reason
@@ -263,6 +264,7 @@ def verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map() -> None:
         session = _FakeSession(
             google_body=b"<html><body>Sorry, the API key is invalid.</body></html>"
         )
+        # No tiles either, so the fallback cannot mask the rejection here.
         result = await module.async_fetch_snapshot(
             session, "google_static_maps", "key-123",
             center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
@@ -273,11 +275,52 @@ def verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map() -> None:
     asyncio.run(scenario())
 
 
+def verify_a_rejected_google_key_falls_back_to_openstreetmap() -> None:
+    """Live Systemcheck: Google said "This API is not activated on your API
+    project" while the OpenStreetMap probe was green - and the PDF's route
+    page came out without any map. A working free tile server is right
+    there; an unactivated API is a Google Cloud setting nobody can fix from
+    inside Home Assistant.
+    """
+    async def scenario() -> None:
+        module.LAST_SNAPSHOT_ERROR.clear()
+        session = _FakeSession(tile_body=_png_bytes(), google_body=None, error_body=b"nope")
+        result = await module.async_fetch_snapshot(
+            session, "google_static_maps", "key-123",
+            center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
+        )
+        assert result is not None and result.startswith(b"\x89PNG")
+        assert any("tile.openstreetmap.org" in r["url"] for r in session.requests)
+        assert any("maps.googleapis.com" in r["url"] for r in session.requests), (
+            "the configured provider must still be tried FIRST"
+        )
+
+    asyncio.run(scenario())
+
+
+def verify_both_backends_failing_names_both_causes() -> None:
+    async def scenario() -> None:
+        module.LAST_SNAPSHOT_ERROR.clear()
+        session = _FakeSession(tile_body=None, google_body=None, error_body=b"not authorized")
+        result = await module.async_fetch_snapshot(
+            session, "google_static_maps", "key-123",
+            center_lat=59.3, center_lon=15.2, zoom=6, width_px=320, height_px=240,
+        )
+        assert result is None
+        reason = module.LAST_SNAPSHOT_ERROR.get("reason", "")
+        assert "not authorized" in reason, reason
+        assert "OpenStreetMap" in reason, reason
+
+    asyncio.run(scenario())
+
+
 verify_openstreetmap_snapshot_is_stitched_and_attributed()
 verify_google_static_maps_uses_key_as_query_param_not_header()
 verify_google_branch_is_skipped_without_an_api_key()
 verify_a_rejected_google_request_reports_googles_own_reason()
 verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map()
+verify_a_rejected_google_key_falls_back_to_openstreetmap()
+verify_both_backends_failing_names_both_causes()
 verify_http_error_returns_none_gracefully()
 verify_malformed_tile_bytes_return_none_gracefully()
 verify_tile_math_is_within_valid_bounds_at_a_known_coordinate()

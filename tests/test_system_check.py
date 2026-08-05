@@ -114,6 +114,19 @@ class FakeRuntime:
         )
 
 
+def _google_of(snapshot_fn):
+    """The Google probe calls the Google branch DIRECTLY.
+
+    async_fetch_snapshot falls back to OpenStreetMap now, so probing
+    through it would report a cheerful OK while Google keeps rejecting
+    every call.
+    """
+    async def _call(session, key, **kwargs):
+        return await snapshot_fn(session, "google_static_maps", key, **kwargs)
+
+    return _call
+
+
 def _patch(**functions) -> None:
     for name, value in functions.items():
         setattr(module, name, value)
@@ -142,6 +155,7 @@ def verify_a_healthy_system_reports_ok_for_every_reachable_interface() -> None:
         async_download_photo=fake_download,
         async_fetch_page_place=fake_place,
         async_fetch_snapshot=fake_snapshot,
+        async_fetch_google_static_map=_google_of(fake_snapshot),
     )
     onedrive = FakeOneDrive({"configured": True, "connected": True, "account_email": "a@b.c"})
     experience = FakeExperience(
@@ -177,6 +191,7 @@ def verify_each_interface_fails_on_its_own() -> None:
         async_download_photo=failing_download,
         async_fetch_page_place=fake_place,
         async_fetch_snapshot=failing_snapshot,
+        async_fetch_google_static_map=_google_of(failing_snapshot),
     )
     onedrive = FakeOneDrive({"configured": True, "connected": True})
     result = _run(
@@ -209,6 +224,7 @@ def verify_a_raising_probe_becomes_a_result_not_a_crash() -> None:
         async_download_photo=fake_download,
         async_fetch_page_place=fake_place,
         async_fetch_snapshot=fake_snapshot,
+        async_fetch_google_static_map=_google_of(fake_snapshot),
     )
     onedrive = FakeOneDrive({"configured": True, "connected": True})
     experience = FakeExperience(
@@ -287,6 +303,7 @@ def verify_a_failing_map_probe_reports_the_recorded_cause() -> None:
         async_download_photo=fake_download,
         async_fetch_page_place=fake_place,
         async_fetch_snapshot=failing_snapshot,
+        async_fetch_google_static_map=_google_of(failing_snapshot),
     )
     onedrive = FakeOneDrive({"configured": True, "connected": True, "account_email": "a@b.c"})
     experience = FakeExperience(onedrive, [{"id": "m1", "provider_item_id": "d1"}])
@@ -320,6 +337,7 @@ def verify_a_park4night_page_without_gps_says_what_arrived() -> None:
         async_download_photo=fake_download,
         async_fetch_page_place=fake_place,
         async_fetch_snapshot=fake_snapshot,
+        async_fetch_google_static_map=_google_of(fake_snapshot),
     )
     onedrive = FakeOneDrive({"configured": True, "connected": True, "account_email": "a@b.c"})
     result = _run(FakeRuntime(FakeExperience(onedrive, [{"id": "m1", "provider_item_id": "d1"}])))
