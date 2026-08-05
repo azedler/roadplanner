@@ -653,15 +653,24 @@ class PlaceEnrichmentService:
             intent.is_specific_poi and best is None
         )
         if should_forward_search:
-            for index, query in enumerate(
-                intent.query_variants[:_MAX_INTENT_QUERIES]
-            ):
+            # The name-first variants stay capped. The stop's own street
+            # address is appended on top of that cap, as a last resort: it
+            # is the one query that cannot be crowded out, because it exists
+            # precisely for the case where the earlier ones found nothing
+            # (live report - an exact house number sat unused in the stop
+            # while the answer stayed at town level).
+            planned = list(intent.query_variants[:_MAX_INTENT_QUERIES])
+            if intent.address_query and intent.address_query not in planned:
+                planned.append(intent.address_query)
+            for query in planned:
                 if not query:
                     continue
                 safe_default, alternatives = await self._geocoder.async_resolve(
                     query,
                     structured_address=(
-                        structured_address if intent.kind == "address" else None
+                        structured_address
+                        if intent.uses_structured_address(query)
+                        else None
                     ),
                     language=self._language,
                     location_bias=coordinate,
@@ -675,10 +684,10 @@ class PlaceEnrichmentService:
                 ):
                     best = safe_default
                     break
-                # A second query is a deliberate fallback for typed POIs.  A
-                # concrete address already has provider-side structured and
-                # free-text variants in one request.
-                if intent.kind == "address" or index + 1 >= _MAX_INTENT_QUERIES:
+                # A concrete address already has provider-side structured and
+                # free-text variants in one request, so there is nothing
+                # left to try after it.
+                if intent.kind == "address":
                     break
 
         ordered_records = list(records.values())

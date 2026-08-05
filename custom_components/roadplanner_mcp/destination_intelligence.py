@@ -528,10 +528,28 @@ class DestinationIntent:
     country_code: str
     query_variants: tuple[str, ...]
     source_hints: tuple[dict[str, str], ...]
+    # The stop's own street address as a query of its own. Empty unless the
+    # stop HAS a street address and is not already an address search. Used
+    # as the last resort after the name-first attempts: a name like
+    # "Heimatort" is meaningless to a provider, so the search drifted to the
+    # town and produced a locality-level hit while the exact house number
+    # sat unused in the same stop (live report).
+    address_query: str = ""
 
     @property
     def primary_query(self) -> str:
         return self.query_variants[0] if self.query_variants else ""
+
+    def uses_structured_address(self, query: str) -> bool:
+        """Whether ``query`` must be sent as a STRUCTURED address lookup.
+
+        Only then do the providers receive street/house/postal as separate
+        fields, which is what distinguishes "Neuhäuser 40" from "the town
+        of Neustadt".
+        """
+        return self.kind == "address" or bool(
+            self.address_query and query == self.address_query
+        )
 
     @property
     def is_specific_poi(self) -> bool:
@@ -638,11 +656,28 @@ def analyze_destination(
             if len(_unique_text(variants, maximum=_MAX_GEOCODING_QUERY_LENGTH)) >= _MAX_QUERY_VARIANTS:
                 break
 
+    # A named stop that ALSO carries a full street address gets that address
+    # appended as a last-resort variant. The name still goes first - a shop
+    # in a retail park is found by its name, not by the address several
+    # tenants share - but when the name means nothing to a provider, the
+    # house number is the only thing that does, and it used to be dropped
+    # from the search entirely (live report: a stop named "Heimatort" with a
+    # complete address resolved to the town hall).
+    address_query = ""
+    if kind != "address" and _attribute(structured_address, "street"):
+        address_query = _address_query(structured_address)
+        if address_query:
+            variants.append(address_query)
+
     query_variants = tuple(
         _unique_text(variants, maximum=_MAX_GEOCODING_QUERY_LENGTH)[
             :_MAX_QUERY_VARIANTS
         ]
     )
+    if address_query and address_query not in query_variants:
+        # The cap must never be what drops the address - it is the fallback
+        # that exists precisely for the case where the earlier ones failed.
+        query_variants = (*query_variants[: _MAX_QUERY_VARIANTS - 1], address_query)
     strategy = "structured_address" if kind == "address" else "typed_poi"
     if any(hint.get("provider") == "park4night" for hint in source_hints):
         strategy = "source_hint_then_typed_poi"
@@ -658,6 +693,7 @@ def analyze_destination(
         country_code=country_code,
         query_variants=query_variants,
         source_hints=source_hints,
+        address_query=address_query,
     )
 
 
