@@ -146,6 +146,7 @@ class Park4NightAutofillManager:
         self.lookup = lookup
         self._unsub: Any = None
         self._attempted: set[str] = set()
+        self._last_was_duplicate = False
         self._status: dict[str, Any] = {"state": "idle", "filled": 0}
 
     @property
@@ -229,8 +230,10 @@ class Park4NightAutofillManager:
             return self._status
         handoff = await self._async_submit(payload, resolved)
         self._status = {
-            "state": "ready",
-            "filled": len(resolved),
+            # "duplicate" means the identical proposal is already waiting
+            # under Übergaben - nothing new was created.
+            "state": "duplicate" if self._last_was_duplicate else "ready",
+            "filled": 0 if self._last_was_duplicate else len(resolved),
             "candidates": len(candidates),
             "handoff_id": handoff,
             "checked_at": utc_now_iso(),
@@ -277,22 +280,31 @@ class Park4NightAutofillManager:
                 "review_only": True,
             },
         }
-        digest = hashlib.sha256(
-            json.dumps(
-                changeset,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
+        # The identity is the CONTENT, not the run: the same coordinates for
+        # the same stop must be recognised as the proposal that is already
+        # waiting, however often the hourly job asks. Using a per-run id
+        # here piled up four identical handoffs for one stop, each of them
+        # stale against a trip that had moved on (live report). Operation
+        # ids are stable hashes of stop + place + coordinates, so different
+        # facts still produce a new proposal.
+        identity = hashlib.sha256(
+            "|".join(sorted(str(item["operation_id"]) for item in operations)).encode(
+                "utf-8"
+            )
         ).hexdigest()
         ingest = await self.manager.async_ingest_external_changeset(
             changeset=changeset,
             title=title,
             source="roadplanner_park4night_autofill",
-            external_id=changeset_id,
+            external_id=f"p4n-autofill-{identity[:40]}",
             metadata={"park4night_autofill": {"review_only": True}},
-            source_payload_sha256=digest,
+            source_payload_sha256=identity,
         )
         handoff = ingest.get("handoff") if isinstance(ingest.get("handoff"), dict) else {}
+        self._last_was_duplicate = bool(ingest.get("duplicate"))
+        if self._last_was_duplicate:
+            _LOGGER.debug(
+                "Park4Night autofill proposal already waiting for review: %s",
+                handoff.get("id"),
+            )
         return str(handoff.get("id") or "")
