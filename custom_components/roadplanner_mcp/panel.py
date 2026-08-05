@@ -71,6 +71,8 @@ _ACTIONS = {
     "trip_pdf_status",
     "export_trip_video",
     "trip_video_status",
+    "generate_trip_summaries",
+    "trip_summaries_status",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
     "propose_day_calendar_repair",
@@ -142,6 +144,9 @@ _ACTIONS = {
 }
 
 _EDIT_ACTIONS = {
+    # Writes generated text onto days, the trip and the crew records, so it
+    # needs the same permission as any other edit.
+    "generate_trip_summaries",
     "update_trip",
     "add_day",
     "update_day",
@@ -229,6 +234,9 @@ _PROVIDER_CALL_ACTIONS = {
     # call Gemini for narrative text AND runs a long ffmpeg encode - a
     # dropped mobile connection must not abort either.
     "export_trip_video",
+    # Starts a background run that writes into the trip; the START must
+    # survive a dropped connection or the user sees nothing happen.
+    "generate_trip_summaries",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1297,6 +1305,23 @@ async def _execute_action(
 
     if action == "trip_video_status":
         return {"status": await runtime.trip_video.async_status()}
+
+    if action == "generate_trip_summaries":
+        trip_id = str(data.get("trip_id") or "").strip()
+        if not trip_id:
+            raise ValidationError(
+                "Für die Zusammenfassungen wurde keine Reise ausgewählt"
+            )
+        scope = str(data.get("scope") or "all").strip()
+        if scope not in ("all", "days", "people", "trip"):
+            raise ValidationError(f"Unbekannter Umfang: {scope}")
+        # A BACKGROUND run, like the video export: one Vision call per day
+        # plus one per crew member takes minutes, and an open request would
+        # die on the first mobile connection change.
+        return {"status": runtime.trip_summaries.async_start(trip_id, scope=scope)}
+
+    if action == "trip_summaries_status":
+        return {"status": await runtime.trip_summaries.async_status()}
 
     if action == "park4night_autofill_run":
         # Reads the linked Park4Night pages and parks the coordinates as a

@@ -6,6 +6,19 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.29.0] - 2026-08-05
+
+### Added
+
+- **Geschriebene Zusammenfassungen für Reise, Tage und Crew** (live gewünscht: „zu jeder Person eine kleine lustige Zusammenfassung … erstellt von der ki aus den Bildern. Dann zu jedem Tag eine Zusammenfassung was wir da gemacht haben und natürlich für die gesamte Reise eine Zusammenfassung“). Neuer Knopf „Zusammenfassungen schreiben“ unter „Rückblick“ in der Gesamtroute.
+  - **Pro Tag** aus den Fotos **und** den Plandaten: Die Fotos zeigen, was tatsächlich erlebt wurde, die Plandaten liefern Orte, Datum und Strecke. Fotos allein erfinden Ortsnamen, Plandaten allein beschreiben nur, was vorgesehen war. Ein Tag ohne Fotos bekommt einen bewusst zurückhaltenderen Text, der nicht behauptet, was dort erlebt wurde.
+  - **Pro Person** über das Referenzfoto aus „Crew & Fahrzeuge“: Nur wer darauf eindeutig wiedererkannt wird, bekommt einen Text. Ohne Referenzfoto bleiben die Bildunterschriften die einzige ehrliche Quelle — geraten wird nicht.
+  - **Für die ganze Reise** als Vorwort auf einer eigenen Seite, geschrieben aus den bereits fertigen Tagestexten statt aus 200 Fotos noch einmal.
+  - Der Ton ist augenzwinkernd, aber nie auf Kosten der Personen — das landet in einem gedruckten Andenken, das die Beschriebenen lesen.
+  - Jeder Prompt verbietet ausdrücklich, Orte, Namen, Uhrzeiten, Wetter oder Ereignisse zu erfinden.
+- **Die Texte werden gespeichert, nicht bei jedem Export neu erzeugt.** Ein Tagestext kostet einen Bildanalyse-Aufruf; 23 Tage plus Crew bei jedem PDF würden den Export auf Minuten verlängern und das Tageskontingent verbrauchen. Sie liegen jetzt am Reisetag, an der Reise und am Crew-Eintrag — das PDF liest sie nur noch, und ein misslungener Satz lässt sich von Hand korrigieren statt nur neu würfeln.
+- **Die Erstellung läuft im Hintergrund** mit Fortschrittsanzeige und Statuszeile, wie schon beim Video: Eine über Minuten offene Anfrage stirbt am ersten Verbindungswechsel des Handys. Schlägt ein einzelner Tag fehl, läuft der Rest weiter — ein teilweise geschriebener Satz Texte ist besser als ein Abbruch, der nichts speichert.
+
 ## [4.28.0] - 2026-08-05
 
 ### Fixed

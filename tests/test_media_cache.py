@@ -127,9 +127,19 @@ def verify_exports_use_the_cache() -> None:
     assert "cache" not in stock.split("async def")[0]
     init_source = (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8")
     assert 'MediaCache(archive_root / "media_cache")' in init_source
-    assert init_source.count("media_cache=media_cache,") == 2, (
-        "both the PDF and the video exporter share one cache"
+    # ONE cache for every consumer that downloads the user's own photos:
+    # the PDF export, the video export and the summary generator all fetch
+    # the same pictures ("da ist ein permanentes Runterladen eigentlich
+    # übertrieben").
+    assert init_source.count("media_cache=media_cache,") >= 3, (
+        "the PDF, video and summary paths must share one cache"
     )
+    for consumer in ("TripPdfExporter", "TripVideoExporter", "TripSummaryService"):
+        constructed = init_source.split(f"{consumer}(", 1)
+        assert len(constructed) == 2, consumer
+        assert "media_cache=media_cache," in constructed[1].split(")\n", 1)[0], (
+            f"{consumer} must be given the shared media cache"
+        )
 
 
 if __name__ == "__main__":

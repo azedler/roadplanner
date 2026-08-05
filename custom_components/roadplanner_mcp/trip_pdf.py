@@ -133,6 +133,10 @@ class PdfDay:
     distance_km: float | None = None
     duration_minutes: int | None = None
     highlights: list[str] = field(default_factory=list)
+    # The written "what we did that day", generated from the day's photos
+    # and its planned facts and stored on the day (live request: "zu jedem
+    # Tag eine Zusammenfassung was wir da gemacht haben").
+    summary: str = ""
     # Set when the day HAS personal photos that could not be fetched or
     # decoded. A page that announces "20 eigene Fotos" and then shows none
     # has to say why instead of leaving the reader guessing.
@@ -181,6 +185,10 @@ class TripPdfData:
     country_count: int = 0
     route_map: bytes | None = None
     cover_photo: bytes | None = None
+    # The whole trip in a few sentences, printed as the opening page's
+    # foreword (live request: "natürlich für die gesamte Reise eine
+    # Zusammenfassung").
+    summary: str = ""
 
 
 def _rounded_rect(c, x, y, w, h, r, fill, stroke=None) -> None:
@@ -624,6 +632,24 @@ _DAY_PHOTO_MIN_ROW_H = 26 * mm
 _DAY_PHOTO_MAX_ROW_H = 52 * mm
 
 
+_DAY_SUMMARY_SIZE = 9.5
+_DAY_SUMMARY_LEADING = 4.8 * mm
+_DAY_SUMMARY_MAX_LINES = 5
+
+
+def _day_summary_lines(day: PdfDay) -> list[str]:
+    """The day's written summary, wrapped to the text column."""
+    if not str(day.summary or "").strip():
+        return []
+    return _wrap_lines(
+        day.summary,
+        FONT,
+        _DAY_SUMMARY_SIZE,
+        PAGE_W - 2 * MARGIN - 21 * mm,
+        max_lines=_DAY_SUMMARY_MAX_LINES,
+    )
+
+
 def _day_meta_line(day: PdfDay) -> str:
     parts = [part for part in (day.date,) if part]
     if day.distance_km:
@@ -729,6 +755,9 @@ def _day_block_height(day: PdfDay, photo_rows: list[list[tuple]]) -> float:
         height += _photo_block_height(photo_rows) + 5 * mm
     elif day.photo_note:
         height += 6 * mm
+    summary_lines = _day_summary_lines(day)
+    if summary_lines:
+        height += len(summary_lines) * _DAY_SUMMARY_LEADING + 3 * mm
     height += len(day.stops) * _STOP_ROW_H
     return height + 9 * mm  # separating gap
 
@@ -778,6 +807,18 @@ def _draw_day_block(
             c.drawString(x + 6 * mm, y + 0.6 * mm, label)
             x += w + 3 * mm
         y -= 9 * mm
+
+    # What actually happened that day, in words. It sits above the photos
+    # so the page reads as "here is the day, and here is what it looked
+    # like" (live request: "zu jedem Tag eine Zusammenfassung was wir da
+    # gemacht haben").
+    for line in _day_summary_lines(day):
+        c.setFillColor(INK)
+        c.setFont(FONT, _DAY_SUMMARY_SIZE)
+        c.drawString(MARGIN + 21 * mm, y, line)
+        y -= _DAY_SUMMARY_LEADING
+    if str(day.summary or "").strip():
+        y -= 3 * mm
 
     if photo_rows:
         for row in photo_rows:
@@ -898,6 +939,46 @@ def _closing_page(c, data: TripPdfData, page_number: int) -> None:
     c.showPage()
 
 
+def _foreword_page(c, data: TripPdfData, page_number: int) -> int:
+    """The whole trip in a few sentences, before the crew and the route.
+
+    Live request: "natürlich für die gesamte Reise eine Zusammenfassung".
+    Returns 0 when there is none - an empty page saying nothing is worse
+    than no page.
+    """
+    text = str(data.summary or "").strip()
+    if not text:
+        return 0
+    c.setFillColor(CREAM)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    c.setFillColor(ORANGE)
+    c.rect(0, PAGE_H - 6 * mm, PAGE_W, 6 * mm, fill=1, stroke=0)
+
+    c.setFillColor(TEAL)
+    c.setFont(FONT_B, 9)
+    c.drawString(MARGIN, PAGE_H - 30 * mm, "UNSERE REISE")
+    c.setFillColor(NAVY)
+    c.setFont(FONT_B, 26)
+    c.drawString(MARGIN, PAGE_H - 40 * mm, _fit(
+        data.title or "Reise-Rückblick", FONT_B, 26, PAGE_W - 2 * MARGIN
+    ))
+
+    y = PAGE_H - 58 * mm
+    for line in _wrap_lines(
+        text, FONT, 13, PAGE_W - 2 * MARGIN, max_lines=26
+    ):
+        c.setFillColor(INK)
+        c.setFont(FONT, 13)
+        c.drawString(MARGIN, y, line)
+        y -= 7 * mm
+        if y < 40 * mm:
+            break
+
+    _footer(c, str(page_number))
+    c.showPage()
+    return 1
+
+
 def build_trip_pdf(data: TripPdfData) -> bytes:
     """Render the full trip-summary PDF and return its bytes."""
     _ensure_fonts()
@@ -905,7 +986,8 @@ def build_trip_pdf(data: TripPdfData) -> bytes:
     c = canvas.Canvas(buffer, pagesize=A4)
 
     _cover_page(c, data)
-    page_number = 1 + _crew_page(c, data)
+    page_number = 1 + _foreword_page(c, data, 2)
+    page_number += _crew_page(c, data)
     page_number += _route_page(c, data, page_number + 1)
 
     page_number += _day_pages(c, data.days[:MAX_DAYS_RENDERED], page_number + 1)

@@ -26,7 +26,9 @@ from .assistant_provider import AssistantImageInput
 from .canonical_day import canonical_roadbook_stops
 from .map_snapshot import async_fetch_snapshot, fit_center_zoom
 from .media_intelligence import media_quality_score
-from .roadplanner import RoadplannerError, ValidationError
+from .roadplanner import RoadplannerError
+from .roadplanner import ValidationError
+from .trip_summaries import SUMMARY_DETAIL_KEY
 from .trip_export_photos import (
     LAST_PHOTO_ERROR,
     async_fetch_day_photos,
@@ -79,6 +81,14 @@ _OVERNIGHT_STOP_TYPES = {
     "wildcamp",
     "accommodation",
 }
+
+
+def _stored_summary(document: Any) -> str:
+    """Read the generated summary a document carries, if any."""
+    details = document.get("details") if isinstance(document, dict) else None
+    if not isinstance(details, dict):
+        return ""
+    return _one_line(details.get(SUMMARY_DETAIL_KEY))[:1_200]
 
 
 def _day_highlights(
@@ -550,6 +560,11 @@ class TripPdfExporter:
                         media_by_stop,
                         media_by_day.get(str(day.get("id") or "")),
                     ),
+                    # Written once by the summary generator and STORED on
+                    # the day, not produced here: a Vision call per day
+                    # would make every export take minutes (see
+                    # trip_summary_service.py).
+                    summary=_stored_summary(day),
                 )
             )
 
@@ -569,11 +584,15 @@ class TripPdfExporter:
             except (RoadplannerError, OSError):
                 crew_payload = {}
             for person in crew_payload.get("people") or []:
-                if isinstance(person, dict) and person.get("reference_media_id"):
-                    reference_by_name[str(person.get("name") or "").casefold()] = {
-                        "media_id": str(person["reference_media_id"]),
-                        "crop": person.get("reference_crop"),
-                    }
+                if not isinstance(person, dict):
+                    continue
+                # Every person, not only those WITH a reference photo: the
+                # stored summary has to be found for all of them.
+                reference_by_name[str(person.get("name") or "").casefold()] = {
+                    "media_id": str(person.get("reference_media_id") or ""),
+                    "crop": person.get("reference_crop"),
+                    "summary": str(person.get("summary") or ""),
+                }
         for member in crew:
             reference = reference_by_name.get(member.name.casefold()) or {}
             reference_item = media_by_id.get(str(reference.get("media_id") or ""))
@@ -597,6 +616,13 @@ class TripPdfExporter:
                 for item in mentions[:6]
                 if str(item.get("caption") or "").strip()
             ]
+            stored = str((reference or {}).get("summary") or "").strip()
+            if stored:
+                # Generated once from the photos and stored on the crew
+                # record - and correctable by hand, which a freshly rolled
+                # text never is.
+                member.summary = stored[:400]
+                continue
             member.summary = await self._async_person_summary(
                 member.name, member.note, captions
             )
@@ -626,6 +652,7 @@ class TripPdfExporter:
             # The trip's own best photo owns the cover instead of an empty
             # decorative half-page.
             cover_photo=day_photo_bytes[0] if day_photo_bytes else None,
+            summary=_stored_summary(trip),
         )
         return await self.hass.async_add_executor_job(build_trip_pdf, data)
 

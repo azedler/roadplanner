@@ -100,6 +100,99 @@ export const routeMapMixin = {
     }
   },
 
+  async _generateTripSummaries() {
+    if (this._generatingSummaries || !this._selectedTripId) return;
+    this._generatingSummaries = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction("generate_trip_summaries", {
+        trip_id: this._selectedTripId,
+        scope: "all",
+      }, "", {
+        refresh: false,
+        errorTitle: "Zusammenfassungen konnten nicht gestartet werden",
+        blockUi: false,
+      });
+      if (!result?.status) return;
+      this._tripSummaryStatus = result.status;
+      this._showToast(
+        "Zusammenfassungen werden geschrieben - das dauert bei vielen Tagen einige Minuten",
+        "success",
+        6000,
+      );
+      this._pollTripSummaryStatus();
+    } finally {
+      this._generatingSummaries = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  async _pollTripSummaryStatus() {
+    if (this._tripSummaryPolling) return;
+    this._tripSummaryPolling = true;
+    try {
+      for (let attempt = 0; attempt < 360; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        if (!this.isConnected) return;
+        const status = await this._fetchTripSummaryStatus({ silent: true });
+        if (!status || status.state !== "running") {
+          if (status?.state === "ready") {
+            const written = status.written || {};
+            this._showToast(
+              `Zusammenfassungen fertig: ${written.days || 0} Tage, `
+              + `${written.people || 0} Personen, `
+              + `${written.trip ? "Reise" : "keine Reisezusammenfassung"}`,
+              "success",
+              9000,
+            );
+            // The stored texts are part of the trip now.
+            this._loadData({ silent: true, force: true });
+          } else if (status?.state === "error") {
+            this._showToast(
+              `Zusammenfassungen fehlgeschlagen: ${status.error || "unbekannter Fehler"}`,
+              "error",
+              10000,
+            );
+          }
+          return;
+        }
+      }
+    } finally {
+      this._tripSummaryPolling = false;
+    }
+  },
+
+  async _fetchTripSummaryStatus({ silent = false } = {}) {
+    try {
+      const result = await this._runAction("trip_summaries_status", {}, "", {
+        refresh: false,
+        blockUi: false,
+        errorTitle: silent ? "" : "Status der Zusammenfassungen nicht abrufbar",
+      });
+      if (result?.status) {
+        this._tripSummaryStatus = result.status;
+        this._render({ preserveScroll: true });
+        return result.status;
+      }
+    } catch (err) {
+      if (!silent) throw err;
+    }
+    return null;
+  },
+
+  _renderTripSummaryStatusLine() {
+    const status = this._tripSummaryStatus;
+    if (!status || status.state === "idle") return "";
+    if (status.state === "running") {
+      return `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Zusammenfassungen werden geschrieben: ${escapeHtml(status.stage || "läuft")} …</span></div>`;
+    }
+    if (status.state === "error") {
+      return `<div class="notice warning">Zusammenfassungen fehlgeschlagen: ${escapeHtml(status.error || "unbekannter Fehler")}</div>`;
+    }
+    const written = status.written || {};
+    return `<div class="notice neutral">Zusammenfassungen geschrieben: ${escapeHtml(String(written.days || 0))} Tage, ${escapeHtml(String(written.people || 0))} Personen${written.trip ? ", Gesamtreise" : ""}. Sie stehen im nächsten PDF.</div>`;
+  },
+
   async _pollTripVideoStatus() {
     // The build runs server-side in the background; poll until it settles.
     // Bounded: at most ~30 minutes of polling, then the manual status
@@ -528,6 +621,10 @@ export const routeMapMixin = {
               <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Als PDF"}</button>
               <button class="text-button" type="button" data-action="open-last-trip-pdf" title="Zuletzt erstelltes PDF herunterladen"><ha-icon icon="mdi:file-find-outline"></ha-icon> Letztes PDF${this._tripPdfStatus?.last_pdf ? ` (${escapeHtml(String(this._tripPdfStatus.last_pdf.size_mb))} MB)` : ""}</button>
             </div>
+            ${this._canEdit() ? `
+              <div class="action-group-row">
+                <button class="secondary-button" type="button" data-action="generate-trip-summaries"${this._generatingSummaries || this._tripSummaryStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:text-box-edit-outline"></ha-icon> ${this._tripSummaryStatus?.state === "running" ? "Zusammenfassungen werden geschrieben …" : "Zusammenfassungen schreiben"}</button>
+              </div>` : ""}
             ${this._data?.settings?.video_export_available ? `
               <div class="action-group-row">
                 <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo || this._tripVideoStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._tripVideoStatus?.state === "running" ? "Video wird erstellt …" : "Als Video"}</button>
@@ -543,6 +640,7 @@ export const routeMapMixin = {
           </div>
         </div>
       </section>
+      ${this._renderTripSummaryStatusLine()}
       ${this._renderTripVideoStatusLine()}
       ${!routingConfigured ? '<div class="notice neutral">Aktiviere Straßenrouting in den Roadplanner-Optionen, um Kilometer und Fahrzeiten zu berechnen.</div>' : ""}
       ${metrics.stale_day_count ? `<div class="notice warning">${metrics.stale_day_count} gespeicherte ${metrics.stale_day_count === 1 ? "Route ist" : "Routen sind"} nach Änderungen veraltet.</div>` : ""}
