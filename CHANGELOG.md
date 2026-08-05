@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.27.1] - 2026-08-05
+
+### Fixed
+
+- **Das Zeitlimit fürs Videorendern richtet sich jetzt nach der tatsächlichen Arbeit** (live: „Ich glaube die Videoerstellung hängt“, stehend bei „Video rendern (ffmpeg) … 36 Fotos und 12 Kartenbilder“ – also 48 Bildern). Das Limit war eine feste Größe von 240 Sekunden, unabhängig davon, ob drei oder fünfzig Bilder zu verarbeiten waren. Nachgemessen kostet die Überblendkette rund 2,3 Sekunden pro Bild auf vier Kernen; 48 Bilder brauchen dort knapp zwei Minuten – und auf einer kleinen Home-Assistant-Box ein Vielfaches davon, womit der Lauf zwangsläufig ins Limit lief. Das Budget wächst jetzt mit der Bildzahl, bleibt aber nach oben begrenzt: Was darüber hinausgeht, ist kein langsames Rendern mehr, sondern ein Ausreißer.
+- **Die Kodierung läuft schneller.** Ohne Angabe nutzt x264 die Voreinstellung „medium“, die Detailtreue erkauft, die eine Diashow aus Standbildern nicht braucht. Gleicher 48-Bild-Lauf: 111 Sekunden mit „medium“, 96 Sekunden mit „veryfast“.
+- **Die Statuszeile nennt jetzt den Umfang** („Video rendern (ffmpeg), 48 Bilder – das dauert einige Minuten“). Vorher stand dort nur „Video rendern (ffmpeg)“, was nach mehreren Minuten wie ein Stillstand aussah.
+- **Ein abgebrochener Lauf bleibt nicht mehr ewig auf „läuft“ stehen.** `CancelledError` ist keine gewöhnliche Ausnahme und wurde von der Fehlerbehandlung nie erfasst: Ein Neustart von Home Assistant oder ein Neuladen der Integration mitten im Rendern hinterließ einen Status, der für immer „läuft“ meldete, während das Panel für einen längst beendeten Auftrag weiterdrehte.
+
 ## [4.27.0] - 2026-08-05
 
 ### Fixed

@@ -17,6 +17,7 @@ the result survives regardless of what the client did in the meantime.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import hashlib
 import logging
@@ -47,7 +48,33 @@ from .trip_video import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_FFMPEG_TIMEOUT_SECONDS = 240
+# A FIXED render budget was wrong: the work is proportional to the number
+# of frames, and that number varies from three to several dozen. Measured
+# on a four-core machine the chained crossfade costs about 2.3 s per frame,
+# so 48 frames need close to two minutes there - and several times that on
+# a small Home Assistant box, which ran straight into the old flat 240 s
+# (live report: "Ich glaube die Videoerstellung hängt", stuck at "Video
+# rendern (ffmpeg) ... 36 Fotos und 12 Kartenbilder").
+_FFMPEG_BASE_TIMEOUT_SECONDS = 240
+# Deliberately generous per frame: it is a ceiling for a slow host, not an
+# estimate. Anything beyond it is a runaway, not a slow render.
+_FFMPEG_TIMEOUT_PER_FRAME_SECONDS = 20
+_FFMPEG_MAX_TIMEOUT_SECONDS = 1_800
+
+
+def _render_timeout_seconds(frame_count: int) -> float:
+    """Render budget for ``frame_count`` frames, bounded at both ends."""
+    return float(
+        min(
+            _FFMPEG_MAX_TIMEOUT_SECONDS,
+            max(
+                _FFMPEG_BASE_TIMEOUT_SECONDS,
+                frame_count * _FFMPEG_TIMEOUT_PER_FRAME_SECONDS,
+            ),
+        )
+    )
+
+
 VIDEO_FILENAME_RE = re.compile(r"^[0-9a-f]{32}\.mp4$")
 
 VIDEO_STYLES = ("highlight", "full")
@@ -182,6 +209,23 @@ class TripVideoExporter:
                 }
             )
             _LOGGER.warning("Trip video build failed: %s", err)
+        except asyncio.CancelledError:
+            # CancelledError is a BaseException, so "except Exception" never
+            # saw it: a build interrupted by a Home Assistant restart or a
+            # config reload left the status on "running" forever, and the
+            # panel spun for a job that had long stopped existing.
+            self._status.update(
+                {
+                    "state": "error",
+                    "stage": "Abgebrochen",
+                    "error": (
+                        "Die Video-Erstellung wurde abgebrochen (Neustart oder "
+                        "Neuladen der Integration) - bitte neu starten"
+                    ),
+                    "finished_at": utc_now_iso(),
+                }
+            )
+            raise
         except Exception as err:  # noqa: BLE001 - status must always resolve
             self._status.update(
                 {
@@ -481,10 +525,24 @@ class TripVideoExporter:
                 "-r", str(data.fps),
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264",
+                # x264's default preset ("medium") buys detail retention
+                # that a slideshow of stills does not need, and costs real
+                # minutes on a small host. Measured on the same 48-frame
+                # render: 111 s at "medium" against 96 s at "veryfast".
+                "-preset", "veryfast",
                 str(output_path),
             ]
-            self._set_stage("Video rendern (ffmpeg)")
-            await async_run_ffmpeg(ffmpeg_args, timeout_seconds=_FFMPEG_TIMEOUT_SECONDS)
+            # Naming the size of the job stops a long render from reading
+            # as a hang - "Video rendern (ffmpeg)" alone said nothing about
+            # whether anything was still happening (live report).
+            self._set_stage(
+                f"Video rendern (ffmpeg), {len(frame_paths)} Bilder - "
+                "das dauert einige Minuten"
+            )
+            await async_run_ffmpeg(
+                ffmpeg_args,
+                timeout_seconds=_render_timeout_seconds(len(frame_paths)),
+            )
             return data.title, output_path.read_bytes()
 
     async def _async_fetch_chapter_map_snapshot(
