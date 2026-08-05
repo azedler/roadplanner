@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.24.0] - 2026-08-05
+
+### Added
+
+- **„Reisetage aufräumen“** unter Reisequalität (live report: "Die Tage sind verwurschtelt" - drei titellose Platzhalter-Tage steckten zwischen den geplanten Tagen und haben jeden echten Tag dahinter geschoben, sodass „Heute“ auf dem falschen Tag landete). Die Funktion prüft den kompletten Reisekalender und schlägt zwei Dinge vor:
+  - **Leere Platzhalter-Tage entfernen** - und zwar ausschließlich Tage ohne Stopp, ohne Notiz, ohne gefahrene Kilometer und ohne selbst vergebenen Titel (der automatische `Tag <Datum>` zählt nicht als Titel). Ein bestätigter oder abgeschlossener Tag bleibt selbst dann stehen, wenn er leer ist.
+  - **Die verbliebenen Tage der Reihenfolge nach neu datieren**, sodass der Kalender wieder lückenlos und chronologisch läuft und der Reisezeitraum dazu passt.
+  - **Die Reihenfolge der Tage wird dabei nie verändert.** Sie ist der Plan und das Einzige in diesen Daten, das sich nicht wieder herleiten lässt - die Daten folgen ihr, nicht umgekehrt.
+  - Vor dem Vorschlag zeigt ein Dialog, was passieren würde: wie viele Tage übrig bleiben, von wann bis wann die Reise dann läuft und mit welchem Tag sie endet. So lässt sich das Ergebnis gegen die eigene Planung prüfen, bevor irgendetwas entsteht.
+  - Übernommen wird nichts automatisch. Das Entfernen eines Tages ist destruktiv, also landet der Vorschlag als reiner Prüf-ChangeSet unter „Übergaben“ - dieselbe Regel wie beim Park4Night-Abgleich. Jede einzelne Änderung trägt ihre Begründung mit.
+  - Fragt man zweimal, ohne dass sich am Kalender etwas geändert hat, wird der bereits wartende Vorschlag gefunden, statt einen zweiten daneben zu legen.
+
 ## [4.23.0] - 2026-08-05
 
 ### Changed

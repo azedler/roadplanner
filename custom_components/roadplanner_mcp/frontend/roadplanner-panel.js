@@ -819,6 +819,10 @@ class RoadplannerPanel extends HTMLElement {
       void this._loadData({ silent: true, force: true });
     } else if (action === "integrity-prepare-locations") {
       void this._preparePlaceEnrichment();
+    } else if (action === "integrity-repair-days") {
+      void this._planDayCalendarRepair();
+    } else if (action === "day-calendar-repair-submit") {
+      void this._proposeDayCalendarRepair();
     } else if (action === "place-enrichment-select") {
       if (this._dialog?.type !== "place-enrichment") return;
       const selectedStopId = cleanText(target.dataset.stopId);
@@ -2442,6 +2446,7 @@ class RoadplannerPanel extends HTMLElement {
     else if (this._dialog.type === "media-gallery") body = this._renderMediaGallery(this._dialog);
     else if (this._dialog.type === "destination-gallery") body = this._renderDestinationGallery(this._dialog);
     else if (this._dialog.type === "travel-integrity") body = this._renderTravelIntegrity(this._dialog);
+    else if (this._dialog.type === "day-calendar-repair") body = this._renderDayCalendarRepair(this._dialog);
     else if (this._dialog.type === "place-enrichment") body = this._renderPlaceEnrichment(this._dialog);
     else if (this._dialog.type === "crew-person-form") body = this._renderCrewPersonForm(this._dialog);
     else if (this._dialog.type === "crew-vehicle-form") body = this._renderCrewVehicleForm(this._dialog);

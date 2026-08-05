@@ -72,6 +72,8 @@ _ACTIONS = {
     "export_trip_video",
     "trip_video_status",
     "park4night_autofill_run",
+    "plan_day_calendar_repair",
+    "propose_day_calendar_repair",
     "scan_handoffs",
     "preview_handoff",
     "apply_handoff",
@@ -165,6 +167,7 @@ _EDIT_ACTIONS = {
     "assistant_prepare_trip_locations",
     "prepare_place_enrichment",
     "submit_place_enrichment",
+    "propose_day_calendar_repair",
     "archive_create_upload_ticket",
     "archive_analyze_document",
     "archive_confirm_document",
@@ -1303,6 +1306,19 @@ async def _execute_action(
                 force=data.get("force") is True
             )
         }
+
+    if action == "plan_day_calendar_repair":
+        # Read-only: says what a repair WOULD do, changes nothing.
+        return await manager.async_plan_day_calendar_repair(
+            str(data.get("trip_id") or "").strip() or None
+        )
+
+    if action == "propose_day_calendar_repair":
+        # Parks the repair under "Übergaben" - removing a day is
+        # destructive and stays the traveller's decision.
+        return await manager.async_propose_day_calendar_repair(
+            str(data.get("trip_id") or "").strip() or None
+        )
 
     if action == "scan_handoffs":
         return await manager.async_scan_handoffs()
