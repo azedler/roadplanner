@@ -374,6 +374,62 @@ def verify_a_highlight_reel_is_not_two_stills() -> None:
     assert '_MAX_CHAPTERS = {"highlight": 12, "full": 40}' in source
 
 
+def verify_the_render_budget_follows_the_amount_of_work() -> None:
+    """Live report: "Ich glaube die Videoerstellung hängt".
+
+    The render was stuck at "Video rendern (ffmpeg) ... 36 Fotos und 12
+    Kartenbilder" - 48 frames. Measured, the chained crossfade costs about
+    2.3 s per frame on four cores, so that render needs close to two
+    minutes there and several times that on a small Home Assistant box.
+    The old budget was a flat 240 s regardless of length.
+    """
+    short = export_module._render_timeout_seconds(6)
+    long = export_module._render_timeout_seconds(48)
+    assert long > short, "a longer video must get a longer budget"
+    assert short >= 240, "a tiny render keeps the old floor"
+    # 48 frames took ~111 s on four cores; the budget has to hold for a
+    # host several times slower than that.
+    assert long >= 900, long
+    # ... but it stays bounded: beyond this it is a runaway, not a render.
+    assert export_module._render_timeout_seconds(10_000) == 1_800
+
+    source = (PACKAGE_ROOT / "trip_video_export.py").read_text(encoding="utf-8")
+    assert "_render_timeout_seconds(len(frame_paths))" in source, (
+        "the budget must be derived from the ACTUAL frame count"
+    )
+    assert '"-preset", "veryfast"' in source, (
+        "x264's default preset costs minutes a slideshow of stills does not need"
+    )
+    assert "Bilder - " in source, (
+        "the stage must name the size of the job, or a long render reads as a hang"
+    )
+
+
+def verify_a_cancelled_build_does_not_spin_forever() -> None:
+    """CancelledError is a BaseException - "except Exception" never saw it.
+
+    A build interrupted by a restart or a config reload left the status on
+    "running" for good, and the panel kept spinning for a job that had
+    stopped existing.
+    """
+    exporter = export_module.TripVideoExporter.__new__(export_module.TripVideoExporter)
+    exporter._status = {"state": "running", "stage": "Video rendern (ffmpeg)"}
+    exporter._task = None
+
+    async def cancelled(trip_id, style):
+        raise asyncio.CancelledError
+
+    exporter.async_generate_and_publish = lambda trip_id, style: cancelled(trip_id, style)
+    try:
+        asyncio.run(exporter._async_run("trip-1", "highlight"))
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("cancellation must still propagate")
+    assert exporter._status["state"] == "error", exporter._status
+    assert "abgebrochen" in exporter._status["error"].casefold()
+
+
 verify_missing_ffmpeg_fails_fast_before_any_other_work()
 verify_async_generate_reads_trip_from_the_real_nested_payload_shape()
 verify_narrative_generation_failure_degrades_to_an_empty_string()
@@ -388,5 +444,7 @@ verify_notify_ready_failure_does_not_raise()
 verify_async_generate_and_publish_saves_and_notifies()
 verify_a_video_always_has_an_audio_track()
 verify_a_highlight_reel_is_not_two_stills()
+verify_the_render_budget_follows_the_amount_of_work()
+verify_a_cancelled_build_does_not_spin_forever()
 
 print("Trip video export tests passed.")
