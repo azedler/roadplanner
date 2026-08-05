@@ -51,8 +51,11 @@ VIDEO_FILENAME_RE = re.compile(r"^[0-9a-f]{32}\.mp4$")
 
 VIDEO_STYLES = ("highlight", "full")
 DEFAULT_VIDEO_STYLE = "highlight"
-_MAX_PHOTOS_PER_CHAPTER = {"highlight": 1, "full": 3}
-_MAX_CHAPTERS = {"highlight": 8, "full": 40}
+# One photo per chapter made a "Highlight-Reel" of two stills out of a trip
+# with 261 photos (live report: "Video enthält zwei Bilder?"). A highlight
+# reel is still short - it just is not a slideshow of two.
+_MAX_PHOTOS_PER_CHAPTER = {"highlight": 3, "full": 6}
+_MAX_CHAPTERS = {"highlight": 12, "full": 40}
 
 _MUSIC_DIR_NAME = "assets/music"
 _MUSIC_EXTENSIONS = (".mp3",)
@@ -447,13 +450,20 @@ class TripVideoExporter:
             )
             output_path = workdir / "trip_video.mp4"
             ffmpeg_args = list(input_args)
-            audio_input_index: int | None = None
+            audio_input_index = len(frame_paths)
             if music_path is not None:
-                audio_input_index = len(frame_paths)
                 ffmpeg_args += ["-i", str(music_path)]
+            else:
+                # A SILENT track, not "no track at all": the bundled music
+                # folder ships empty, and a video without any audio stream
+                # is rejected or shown as broken by several players and
+                # photo libraries (live question: "War da Musik enthalten?"
+                # - there was no audio stream whatsoever).
+                ffmpeg_args += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
             ffmpeg_args += ["-filter_complex", filter_complex, "-map", video_label]
-            if audio_input_index is not None:
-                ffmpeg_args += ["-map", f"{audio_input_index}:a", "-shortest", "-c:a", "aac"]
+            ffmpeg_args += [
+                "-map", f"{audio_input_index}:a", "-shortest", "-c:a", "aac"
+            ]
             ffmpeg_args += [
                 "-r", str(data.fps),
                 "-pix_fmt", "yuv420p",

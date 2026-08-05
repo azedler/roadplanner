@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.21.0] - 2026-08-05
+
+### Changed
+
+- Up to six photos per travel day in the PDF instead of two (live report: "es hat wenige Bilder pro Tag"). A day with 38 assigned photos showed two.
+- Photos are no longer cropped to a page-wide strip. That strip was nearly 4:1, so every portrait photo lost its top and bottom ("die sind zu hart geschnitten"). Photos now sit in uniform 4:3 tiles, three per row - a single photo keeps the same tile size as any other instead of being blown up to page width.
+- The short highlight reel uses up to three photos per chapter across twelve chapters, instead of one photo across eight. A trip with 261 photos produced a two-still video ("Video enthält zwei Bilder?").
+- A generated video always carries an audio track. Without music - the bundled folder ships empty - the export produced a file with no audio stream at all ("War da Musik enthalten?"), which several players and photo libraries treat as broken. A silent track is added instead.
+
 ## [4.20.0] - 2026-08-05
 
 ### Fixed

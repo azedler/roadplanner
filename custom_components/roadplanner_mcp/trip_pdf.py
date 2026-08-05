@@ -98,7 +98,7 @@ OLIVE = HexColor("#8a9a5b")
 
 MAX_DAYS_RENDERED = 60
 MAX_STOPS_PER_DAY_CHIP = 6
-MAX_PHOTOS_PER_DAY = 2
+MAX_PHOTOS_PER_DAY = 6
 
 
 @dataclass
@@ -613,7 +613,12 @@ def _route_page(c, data: TripPdfData, page_number: int) -> int:
 _DAY_TOP = PAGE_H - 20 * mm
 _DAY_BOTTOM = 20 * mm
 _STOP_ROW_H = 7.2 * mm
-_DAY_PHOTO_H = 46 * mm
+# Photo tiles keep a 4:3 frame instead of one letterbox strip across the
+# whole page. A 174 x 46 mm strip is nearly 4:1, so every portrait photo
+# lost its top and bottom (live report: "die sind zu hart geschnitten").
+_DAY_PHOTO_COLUMNS = 3
+_DAY_PHOTO_GAP = 4 * mm
+_DAY_PHOTO_ASPECT = 4 / 3
 
 
 def _day_meta_line(day: PdfDay) -> str:
@@ -628,6 +633,20 @@ def _day_meta_line(day: PdfDay) -> str:
     return "  ·  ".join(parts)
 
 
+def _photo_grid(count: int) -> tuple[float, float, int, int]:
+    """(tile_w, tile_h, columns, rows) for ``count`` photos of one day."""
+    if count <= 0:
+        return 0.0, 0.0, 0, 0
+    # The tile size is FIXED, whatever a day happens to have: a single
+    # photo blown up to page width next to a day with three small ones
+    # reads as an accident, not as a layout.
+    full_w = PAGE_W - 2 * MARGIN
+    columns = _DAY_PHOTO_COLUMNS
+    tile_w = (full_w - _DAY_PHOTO_GAP * (columns - 1)) / columns
+    rows = -(-count // columns)  # ceil
+    return tile_w, tile_w / _DAY_PHOTO_ASPECT, columns, rows
+
+
 def _day_block_height(day: PdfDay, photo_count: int) -> float:
     """Height one day section needs - the basis of the flowing layout.
 
@@ -640,7 +659,8 @@ def _day_block_height(day: PdfDay, photo_count: int) -> float:
     if day.highlights:
         height += 9 * mm
     if photo_count:
-        height += _DAY_PHOTO_H + 5 * mm
+        _tile_w, tile_h, _columns, rows = _photo_grid(photo_count)
+        height += rows * tile_h + (rows - 1) * _DAY_PHOTO_GAP + 5 * mm
     elif day.photo_note:
         height += 6 * mm
     height += len(day.stops) * _STOP_ROW_H
@@ -694,21 +714,20 @@ def _draw_day_block(
         y -= 9 * mm
 
     if decoded:
-        gap = 5 * mm
-        photo_w = (full_w - gap * (len(decoded) - 1)) / len(decoded)
-        photo_y = y - _DAY_PHOTO_H
+        tile_w, tile_h, columns, rows = _photo_grid(len(decoded))
         for position, (image, iw, ih) in enumerate(decoded):
+            column, row = position % columns, position // columns
             _draw_photo(
                 c,
-                MARGIN + position * (photo_w + gap),
-                photo_y,
-                photo_w,
-                _DAY_PHOTO_H,
+                MARGIN + column * (tile_w + _DAY_PHOTO_GAP),
+                y - (row + 1) * tile_h - row * _DAY_PHOTO_GAP,
+                tile_w,
+                tile_h,
                 image,
                 iw,
                 ih,
             )
-        y = photo_y - 5 * mm
+        y -= rows * tile_h + (rows - 1) * _DAY_PHOTO_GAP + 5 * mm
     elif day.photo_note:
         c.setFillColor(MUTED)
         c.setFont(FONT, 8.5)
@@ -759,7 +778,7 @@ def _day_pages(c, days: list[PdfDay], first_page_number: int) -> int:
     for index, day in enumerate(days, start=1):
         decoded = [
             decoded_photo
-            for photo in day.photos[:3]
+            for photo in day.photos[:MAX_PHOTOS_PER_DAY]
             if (decoded_photo := _decode_photo(photo))
         ]
         needed = _day_block_height(day, len(decoded))
