@@ -20,7 +20,7 @@ from aiohttp import ClientError, ClientTimeout
 
 from .http_read import async_read_bounded
 from .media_cache import cache_key, is_decodable_image
-from .media_intelligence import media_quality_score
+from .media_intelligence import media_quality_score, select_media_highlights
 from .roadplanner import RoadplannerError
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,38 +97,30 @@ async def async_fetch_day_photos(
     job, so they are deliberately skipped. A missing or failed photo is
     simply omitted, never an error.
     """
+    # THE SAME curation the panel shows ("5 Highlights aus 20 Fotos · Lokal
+    # nach Qualität, Dubletten und Serien ausgewählt"). Sorting by score
+    # alone picked near-identical shots out of one burst and missed the
+    # variety the panel finds - live report: "Die Bildauswahl im
+    # roadplanner finde ich aber gelungener als im pdf."
+    own_media: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for pool in (
+        [item for stop in stops for item in media_by_stop.get(str(stop.get("id") or ""), [])],
+        list(day_media or []),
+    ):
+        for item in pool:
+            if not isinstance(item, dict):
+                continue
+            identifier = str(item.get("id") or "")
+            if identifier and identifier in seen_ids:
+                continue
+            seen_ids.add(identifier)
+            own_media.append(item)
+
     photos: list[bytes] = []
-    for stop in stops:
-        if len(photos) >= max_photos:
-            break
-        photo = await async_fetch_personal_stop_photo(
-            session,
-            experience,
-            trip_id,
-            str(stop.get("id") or ""),
-            media_by_stop,
-            cache=cache,
-            hass=hass,
-        )
-        if photo is None:
-            photo = await async_fetch_stock_stop_photo(
-                session, str(stop.get("id") or ""), destination_galleries
-            )
-        if photo:
-            photos.append(photo)
-    if len(photos) < max_photos and day_media:
-        used_stop_media = {
-            str(item.get("id") or "")
-            for stop in stops
-            for item in media_by_stop.get(str(stop.get("id") or ""), [])
-        }
-        remaining = [
-            item
-            for item in day_media
-            if str(item.get("id") or "") not in used_stop_media
-        ]
-        remaining.sort(key=media_quality_score, reverse=True)
-        for item in remaining:
+    if own_media:
+        highlights, _stats = select_media_highlights(own_media, limit=max_photos)
+        for item in highlights:
             if len(photos) >= max_photos:
                 break
             photo = await async_fetch_media_photo(
@@ -136,6 +128,18 @@ async def async_fetch_day_photos(
             )
             if photo:
                 photos.append(photo)
+
+    # Planning gallery images only fill what the day's own photos left open.
+    for stop in stops:
+        if len(photos) >= max_photos:
+            break
+        if media_by_stop.get(str(stop.get("id") or "")):
+            continue
+        photo = await async_fetch_stock_stop_photo(
+            session, str(stop.get("id") or ""), destination_galleries
+        )
+        if photo:
+            photos.append(photo)
     return photos
 
 

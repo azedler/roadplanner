@@ -103,32 +103,48 @@ def verify_days_flow_instead_of_owning_a_page_each() -> None:
     assert _page_count(rich) <= 20, "photos must not bring back one page per day"
 
 
-def verify_photos_keep_a_sane_frame_and_a_uniform_size() -> None:
-    """Live report: "es hat wenige Bilder pro Tag und die sind zu hart geschnitten".
+def verify_portrait_photos_keep_their_own_shape() -> None:
+    """Live request: "auch im Hochformat" - and more photos when available.
 
-    One strip across the page is nearly 4:1, so every portrait photo lost
-    its top and bottom. Tiles are 4:3 and always the same size, whatever a
-    day happens to have.
+    A fixed 4:3 tile grid cropped every portrait shot back to landscape.
+    Photos are laid out in justified rows instead: one shared row height,
+    each photo's width from its OWN aspect ratio.
     """
-    for count in (1, 2, 3, 4, 6):
-        tile_w, tile_h, columns, rows = module._photo_grid(count)
-        assert columns == module._DAY_PHOTO_COLUMNS, "tile width never depends on the count"
-        assert abs(tile_w / tile_h - 4 / 3) < 0.01, (tile_w, tile_h)
-        assert rows == -(-count // columns)
-    # A single photo is NOT blown up to page width.
-    single_w, _, _, _ = module._photo_grid(1)
-    assert single_w < (module.PAGE_W - 2 * module.MARGIN) / 2
-    assert module._photo_grid(0) == (0.0, 0.0, 0, 0)
-    # Six photos per day instead of two.
-    assert module.MAX_PHOTOS_PER_DAY == 6
+    portrait = (object(), 600, 900)
+    landscape = (object(), 800, 600)
+
+    rows = module._photo_rows([portrait, landscape])
+    assert len(rows) == 1
+    for _image, iw, ih, w, h in rows[0]:
+        assert abs((w / h) - (iw / ih)) < 0.01, "aspect ratio must survive the layout"
+    heights = {round(item[4], 3) for item in rows[0]}
+    assert len(heights) == 1, "one row, one height"
+
+    # No row is wider than the text column, and none is over-full.
+    full_w = module.PAGE_W - 2 * module.MARGIN
+    for rows_for in ([portrait] * 9, [landscape] * 9, [portrait, landscape] * 4):
+        for row in module._photo_rows(rows_for):
+            assert len(row) <= module._DAY_PHOTO_MAX_PER_ROW
+            used = sum(item[3] for item in row) + module._DAY_PHOTO_GAP * (len(row) - 1)
+            assert used <= full_w + 0.5, used
+            assert module._DAY_PHOTO_MIN_ROW_H - 0.5 <= row[0][4] <= module._DAY_PHOTO_MAX_ROW_H + 0.5
+
+    # A single leftover photo is NOT blown up across the page.
+    single = module._photo_rows([landscape])
+    assert single[0][0][3] < full_w / 2
+
+    assert module._photo_rows([]) == []
+    # Nine photos per day instead of six.
+    assert module.MAX_PHOTOS_PER_DAY == 9
 
 
 def verify_a_day_block_reserves_room_for_every_photo_row() -> None:
     day = module.PdfDay(title="Tag", date="2026-07-01", stops=[])
-    one_row = module._day_block_height(day, 3)
-    two_rows = module._day_block_height(day, 6)
+    landscape = (object(), 800, 600)
+    one_row = module._day_block_height(day, module._photo_rows([landscape] * 3))
+    two_rows = module._day_block_height(day, module._photo_rows([landscape] * 8))
     assert two_rows > one_row, "a second row needs a second row's height"
-    assert module._day_block_height(day, 0) < one_row
+    assert module._day_block_height(day, []) < one_row
 
 
 def verify_a_day_that_lost_its_photos_says_so() -> None:
@@ -230,7 +246,7 @@ def verify_many_days_are_bounded() -> None:
 verify_full_trip_renders_a_valid_pdf()
 verify_empty_trip_still_renders()
 verify_days_flow_instead_of_owning_a_page_each()
-verify_photos_keep_a_sane_frame_and_a_uniform_size()
+verify_portrait_photos_keep_their_own_shape()
 verify_a_day_block_reserves_room_for_every_photo_row()
 verify_a_day_that_lost_its_photos_says_so()
 verify_the_cover_uses_a_real_photo_when_there_is_one()

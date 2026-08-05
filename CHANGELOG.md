@@ -6,6 +6,19 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.23.0] - 2026-08-05
+
+### Changed
+
+- **The exports now use exactly the picture selection the panel shows** (live report: "Die Bildauswahl im Roadplanner finde ich aber gelungener als im PDF. Kann das sein?" - yes, it could: the panel curated its highlights, the exports just sorted by quality score). PDF and video now call the same curator ("5 Highlights aus 20 Fotos · Lokal nach Qualität, Dubletten und Serien ausgewählt"), so duplicates and burst series are collapsed and different moments of a day get a place instead of five near-identical shots from one minute.
+- **Photos in the PDF keep their own shape, portrait included, and there may be up to nine per day** (live request: "Wenn verfügbar sollten wir auch mehr Bilder zulassen und auch im Hochformat"). The fixed 4:3 tile grid is gone; photos are laid out in justified rows where all pictures in one row share a height and each keeps its own aspect ratio. A photo-rich day whose pictures do not quite fit shrinks them a little rather than jumping to a new page and leaving half of the current one blank.
+- **The video says something now** (live report: "Das Video war jetzt ziemlich langweilig"). Every chapter's first frame carries its title, date and the story line Gemini writes for that day - that text was computed and then thrown away, so the video showed photos and nothing else. Stills are also held a little shorter (2.8 s instead of 3.5 s), so the same trip moves along instead of standing still.
+  - The caption is drawn into the frame with Pillow rather than by ffmpeg, so anything Gemini writes - quotes, umlauts, colons - needs no escaping and can never break a render.
+
+### Note
+
+- Ken-Burns panning was built for the video and removed again: it re-renders every output frame and a three-chapter test needed over six minutes, which would run straight into the export's ffmpeg timeout on a Home Assistant box. The liveliness comes from content instead, which costs nothing at render time.
+
 ## [4.22.0] - 2026-08-05
 
 ### Added
