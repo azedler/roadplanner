@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.22.0] - 2026-08-05
+
+### Added
+
+- The trip video now has real background music (live question: "Du kannst keine lizenzfreie Musik besorgen?"). Not downloaded - **synthesised**: a slow chord pad built from plain sine tones by ffmpeg itself, looped over the whole slideshow and levelled to a predictable background loudness. Nobody else holds rights in it, so there is no licence claim to verify, no attribution to carry and no audio file in the repository.
+  - The key is picked deterministically per trip, so the same trip always sounds the same.
+  - A real track placed in `assets/music` still wins over the generated bed.
+  - Verified end to end with real ffmpeg: video and audio stream, music at roughly -27 dB mean.
+
 ## [4.21.1] - 2026-08-05
 
 ### Fixed

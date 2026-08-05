@@ -359,10 +359,13 @@ def verify_a_video_always_has_an_audio_track() -> None:
     libraries treat that as broken, so a silent track is added instead.
     """
     source = (PACKAGE_ROOT / "trip_video_export.py").read_text(encoding="utf-8")
-    assert "anullsrc=r=44100:cl=stereo" in source
+    assert "build_music_graph(" in source, (
+        "without a bundled track the bed is generated, not left out"
+    )
     assert "audio_input_index: int | None = None" not in source, (
         "there is no audio-less branch any more"
     )
+    assert '"-shortest"' in source
 
 
 def verify_a_highlight_reel_is_not_two_stills() -> None:
