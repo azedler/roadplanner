@@ -15,6 +15,7 @@ from .json_io import RoadplannerError, TripNotFoundError, ValidationError
 from .routing_helpers import (
     _effective_routing_stops,
     _routing_leg_mode,
+    ferry_crossing_minutes,
     _routing_summary,
     _stop_coordinate,
     _trip_route_metrics,
@@ -409,6 +410,13 @@ class TripQueries:
                     source_stop = effective_entries[source_index]["stop"]
                     target_stop = effective_entries[target_index]["stop"]
                     mode, reason = _routing_leg_mode(source_stop, target_stop)
+                    if mode == "ferry":
+                        # Both terminal stops are in hand exactly here, and
+                        # their times are the only real source for how long
+                        # the crossing takes.
+                        crossing = ferry_crossing_minutes(source_stop, target_stop)
+                        if crossing is not None:
+                            source_point["ferry_minutes"] = crossing
                 source_point["mode_to_next"] = mode
                 if reason:
                     source_point["mode_reason"] = reason

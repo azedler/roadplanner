@@ -279,6 +279,11 @@ export const PANEL_STYLES = `<style>
       .system-check-row.skipped ha-icon { color: var(--disabled-text-color); }
       .crew-row-avatar { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: var(--secondary-background-color); }
       .crew-row-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      /* A cropped avatar positions the image itself, so "cover" must not
+         pre-crop it to a centred square first - that is what made the
+         shown region differ from the picked one. */
+      .crew-row-avatar.cropped { position: relative; }
+      .crew-row-avatar.cropped img { position: absolute; left: 0; top: 0; object-fit: fill; max-width: none; }
       .crew-row-body { flex: 1; display: flex; flex-direction: column; }
       .crew-row-body span { color: var(--secondary-text-color); font-size: 13px; }
       .crew-retired { margin-top: 14px; }

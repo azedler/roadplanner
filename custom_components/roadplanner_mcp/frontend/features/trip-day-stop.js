@@ -362,6 +362,11 @@ export const tripDayStopMixin = {
     const missingCount = Number(day?.routing?.missing_stop_count || 0);
     const gapCount = Number(day?.routing?.gap_count || 0);
     const ferryDistanceKm = Number(day?.routing?.ferry_distance_m || 0) / 1000;
+    // "Fahrzeit" is road time by design; the crossing is its own number,
+    // like the ferry kilometres already are (live report: "Die Fahrzeit
+    // scheint nicht die Fährzeit zu berücksichtigen?").
+    const ferryMinutes = Number(day?.routing?.ferry_duration_s || 0) / 60;
+    const totalTravel = Number(day?.drive_minutes || 0) + ferryMinutes;
     const routeWarnings = Array.isArray(day?.routing?.warnings) ? day.routing.warnings.filter(Boolean) : [];
     const archiveRecords = this._archiveRecordsForDay(day.id);
     const experienceDayMedia = this._experienceMediaForDay(day.id);
@@ -383,6 +388,13 @@ export const tripDayStopMixin = {
     }
     if (missingCount) {
       routingNotices.push(`Teilroute: ${missingCount} ${missingCount === 1 ? "Stopp besitzt" : "Stopps besitzen"} noch keine GPS-Koordinaten.`);
+    }
+    if (ferryDistanceKm > 0 && !(ferryMinutes > 0)) {
+      routingNotices.push(
+        "Die Fährzeit ist unbekannt. Trage am Abfahrtsterminal eine Abfahrtszeit "
+        + "und am Ankunftsterminal eine Ankunftszeit ein - daraus wird die "
+        + "Überfahrt berechnet.",
+      );
     }
     if (gapCount) {
       routingNotices.push(`${gapCount} ${gapCount === 1 ? "Routenabschnitt ist" : "Routenabschnitte sind"} bewusst unterbrochen. Für eine Fähre werden Abfahrts- und Ankunftsterminal als zwei GPS-Stopps benötigt.`);
@@ -415,6 +427,8 @@ export const tripDayStopMixin = {
             <div><span>Autofahrt</span><strong>${day.distance_km != null ? `${escapeHtml(day.distance_km)} km` : "—"}</strong></div>
             <div><span>Fahrzeit</span><strong>${escapeHtml(drive || "—")}</strong></div>
             <div><span>Fähre</span><strong>${ferryDistanceKm > 0 ? `${escapeHtml(ferryDistanceKm.toFixed(1))} km` : "—"}</strong></div>
+            <div><span>Fährzeit</span><strong>${ferryMinutes > 0 ? escapeHtml(this._formatDriveMinutes(ferryMinutes)) : (ferryDistanceKm > 0 ? "unbekannt" : "—")}</strong></div>
+            <div><span>Unterwegs gesamt</span><strong>${totalTravel > 0 ? escapeHtml(this._formatDriveMinutes(totalTravel)) : "—"}</strong></div>
             <div><span>Stopps</span><strong>${routeStops.length}</strong></div>
             <div><span>Mit GPS</span><strong>${coordinateCount}</strong></div>
             <div><span>Routing</span><strong>${escapeHtml(routeStatus)}</strong></div>

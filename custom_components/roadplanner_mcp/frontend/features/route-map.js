@@ -605,7 +605,7 @@ export const routeMapMixin = {
     return `
       ${this._renderReadOnlyNotice()}
       <section class="toolbar-card">
-        <div><span class="eyebrow">Gesamtroute</span><h2>${escapeHtml(this._data.summary.trip.title)}</h2><p>${days.length} Tage · ${this._data.summary.stop_count} Stopps · ${distance != null ? `${escapeHtml(distance)} km Auto` : "Autostrecke noch offen"}${ferryDistance != null ? ` · ${escapeHtml(ferryDistance)} km Fähre` : ""}${movementDistance != null ? ` · ${escapeHtml(movementDistance)} km Bewegung gesamt` : ""}${drive ? ` · ${escapeHtml(drive)} Fahrzeit` : ""}</p><p>${escapeHtml(coverage)}</p></div>
+        <div><span class="eyebrow">Gesamtroute</span><h2>${escapeHtml(this._data.summary.trip.title)}</h2><p>${days.length} Tage · ${this._data.summary.stop_count} Stopps · ${distance != null ? `${escapeHtml(distance)} km Auto` : "Autostrecke noch offen"}${ferryDistance != null ? ` · ${escapeHtml(ferryDistance)} km Fähre` : ""}${movementDistance != null ? ` · ${escapeHtml(movementDistance)} km Bewegung gesamt` : ""}${drive ? ` · ${escapeHtml(drive)} Fahrzeit` : ""}${metrics.total_ferry_minutes ? ` · ${escapeHtml(this._formatDriveMinutes(metrics.total_ferry_minutes))} Fährzeit` : ""}</p><p>${escapeHtml(coverage)}</p></div>
         <div class="toolbar-actions grouped">
           ${this._canEdit() ? `
             <div class="action-group">
