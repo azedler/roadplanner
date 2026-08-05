@@ -231,4 +231,51 @@ assert "Interne Notiz" not in image_query
 assert "Tagestitel" not in image_query
 assert len(image_query) <= 180
 
+# A stop with a personal name AND a full street address: the name goes
+# first (a shop in a retail park is found by its name, not by the address
+# several tenants share), but the address must not be thrown away. Live
+# report: a stop named "Heimatort" carrying "Neuhäuser 40, 01844 Neustadt
+# in Sachsen" resolved to the town hall at Markt 1, because street and
+# house number never reached any provider.
+home = module.analyze_destination(
+    {"title": "Trelleborg -> Rostock (TT-Line Fähre)"},
+    {"name": "Heimatort", "type": "", "notes": ""},
+    structured_address=StructuredAddress(
+        street="Neuhäuser",
+        house_number="40",
+        postal_code="01844",
+        city="Neustadt in Sachsen",
+        district="Krumhermsdorf",
+        country="Deutschland",
+        country_code="DE",
+    ),
+)
+# The name-first classification is unchanged - that part was deliberate.
+assert home.kind == "place", home.kind
+# But the address is now a query of its own, and it is the LAST resort.
+assert home.address_query, "the street address must become a query"
+assert "Neuhäuser" in home.address_query and "40" in home.address_query
+assert home.query_variants[0] != home.address_query, "the name still goes first"
+assert home.address_query in home.query_variants, "and the address must survive the cap"
+# Only the address variant may be sent as a STRUCTURED lookup - that is
+# what separates "Neuhäuser 40" from "the town of Neustadt".
+assert home.uses_structured_address(home.address_query)
+assert not home.uses_structured_address(home.query_variants[0])
+
+# A stop without any street address gains nothing and must stay untouched.
+assert not ferry.address_query
+assert not ferry.uses_structured_address("Fährterminal Tallinn")
+
+# A pure address stop keeps its existing structured path.
+pure = module.analyze_destination(
+    {"title": "Anreise"},
+    {"name": "Neuhäuser 40", "type": "", "notes": ""},
+    structured_address=StructuredAddress(
+        street="Neuhäuser", house_number="40", city="Neustadt in Sachsen",
+        country="Deutschland", country_code="DE",
+    ),
+)
+assert pure.kind == "address", pure.kind
+assert pure.uses_structured_address(pure.primary_query)
+
 print("Destination intelligence tests passed.")

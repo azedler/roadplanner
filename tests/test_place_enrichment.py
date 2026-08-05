@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import math
+import re
 import sys
 import types
 
@@ -165,11 +166,26 @@ class StructuredAddress:
 
 
 def parse_structured_address(**values):
-    return StructuredAddress(
-        name=str(values.get("name") or ""),
-        city=str(values.get("city") or ""),
-        country_code=str(values.get("country_code") or ""),
-    )
+    """Minimal stand-in that still SPLITS a free-text address.
+
+    The production parser turns "01844 Neustadt in Sachsen-Krumhermsdorf,
+    Neuhäuser 40" into street/house/postal. A fake that quietly dropped
+    those fields would hide exactly the defect this file now tests.
+    """
+    fields = {
+        key: str(values.get(key) or "")
+        for key in StructuredAddress.__dataclass_fields__
+    }
+    address = str(values.get("address") or "")
+    if address and not fields["street"]:
+        postal = re.search(r"\b(\d{4,5})\b", address)
+        if postal and not fields["postal_code"]:
+            fields["postal_code"] = postal.group(1)
+        tail = address.rsplit(",", 1)[-1].strip()
+        house = re.search(r"^(.+?)\s+(\d+[a-zA-Z]?)$", tail)
+        if house:
+            fields["street"], fields["house_number"] = house.group(1), house.group(2)
+    return StructuredAddress(**fields)
 
 
 def parse_coordinate_pair(value):
@@ -434,7 +450,104 @@ class RecordingImages:
         return {"results": [], "provider_errors": {}}
 
 
+
+class NoImages:
+    async def async_search(self, query, *, limit, latitude, longitude):
+        return {"results": []}
+
+
+class HomeAddressGeocoder:
+    """A provider that knows the house number but nothing about "Heimatort".
+
+    Exactly the live situation: the personal name means nothing to any
+    provider, so a free-text search drifts to the town and returns its most
+    prominent civic POI. Only a STRUCTURED lookup finds the house number.
+    """
+
+    def __init__(self):
+        self.calls = []
+
+    async def async_resolve(self, query, *, structured_address=None, language, location_bias=None):
+        self.calls.append((query, structured_address is not None))
+        if structured_address is not None and structured_address.house_number:
+            candidate = GeocodingCandidate(
+                display_name="Neuhäuser 40, Krumhermsdorf, 01844 Neustadt in Sachsen",
+                latitude=51.0102,
+                longitude=14.2410,
+                score=0.93,
+                address={"city": "Neustadt in Sachsen", "country_code": "de"},
+                match_type="house_exact",
+                match_label="Hausnummer exakt",
+                auto_selectable=True,
+            )
+            return candidate, [candidate]
+        town_hall = GeocodingCandidate(
+            display_name="Stadtverwaltung Neustadt in Sachsen, Markt 1",
+            latitude=51.025794,
+            longitude=14.214987,
+            score=0.41,
+            address={"city": "Neustadt in Sachsen", "country_code": "de"},
+            match_type="generic",
+            match_label="Ort",
+            auto_selectable=False,
+        )
+        return None, [town_hall]
+
+    async def async_reverse(self, latitude, longitude, *, language):
+        return None
+
+
+async def verify_a_named_stop_still_uses_its_street_address() -> None:
+    """Live report: "Warum schafft er es nicht die Daten zuzuordnen".
+
+    A stop named "Heimatort" carrying a complete street address resolved
+    only to the town hall. Street and house number were dropped from the
+    search entirely, and the structured-address path was switched off,
+    because a stop with a real name is not classified as an address.
+    """
+    geocoder = HomeAddressGeocoder()
+    service = module.PlaceEnrichmentService(geocoder, NoImages())
+    preview = await service.async_prepare(
+        user_id="user-1",
+        trip_id="trip-1",
+        days=[{
+            "id": "day-23",
+            "date": "2026-08-08",
+            "title": "Trelleborg -> Rostock (TT-Line Fähre)",
+            "stops": [{
+                "id": "stop-home",
+                "name": "Heimatort",
+                "type": "",
+                "position": 1,
+                "location": {
+                    "address": "01844 Neustadt in Sachsen-Krumhermsdorf, Neuhäuser 40",
+                    "city": "Neustadt in Sachsen",
+                    "country_code": "DE",
+                },
+            }],
+        }],
+    )
+    item = preview["items"][0]
+    queries = [query for query, _structured in geocoder.calls]
+    assert len(geocoder.calls) >= 2, f"the address must be tried too: {queries}"
+    # The name still goes first - that ordering is deliberate.
+    assert "heimatort" in queries[0].casefold(), queries
+    # ... and the address follows, as a STRUCTURED lookup.
+    structured_queries = [query for query, structured in geocoder.calls if structured]
+    assert structured_queries, f"no structured address lookup happened: {geocoder.calls}"
+    assert "Neuhäuser" in structured_queries[0], structured_queries
+    # Which is what turns "Auswahl nötig" into an actual answer.
+    assert item["status"] == "resolved", item["status"]
+    chosen = next(
+        candidate for candidate in item["candidates"]
+        if candidate["id"] == item["selected_candidate_id"]
+    )
+    assert "Neuhäuser 40" in chosen["display_name"], chosen["display_name"]
+    assert abs(chosen["location"]["latitude"] - 51.0102) < 0.001, chosen["location"]
+
+
 async def main() -> None:
+    await verify_a_named_stop_still_uses_its_street_address()
     service = module.PlaceEnrichmentService(FakeGeocoder(), FakeImages())
     day = {
         "id": "day-6",

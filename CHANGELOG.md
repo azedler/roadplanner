@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.27.0] - 2026-08-05
+
+### Fixed
+
+- **Ein Stopp mit eigenem Namen nutzt jetzt auch seine Straßenadresse für die Suche** (live: „Warum schafft er es nicht die Daten zuzuordnen. Da sind im Hintergrund vermutlich Daten die ich nicht sehen kann?“ – ja, waren da). Ein Stopp namens „Heimatort“ trug die vollständige Adresse „Neuhäuser 40, 01844 Neustadt in Sachsen-Krumhermsdorf“ – gesucht wurde aber nur „Heimatort, Neustadt in Sachsen, Deutschland“. Straße und Hausnummer wurden vor der Suche verworfen, und damit war zugleich der strukturierte Adressweg abgeschaltet, der genau diese Hausnummer gefunden hätte. Der Anbieter konnte mit „Heimatort“ nichts anfangen, der Ortsname dominierte, und heraus kam die Stadtverwaltung am Markt 1 – Treffertyp „Ort“, also „Auswahl nötig“.
+  - Die Namenssuche bleibt an erster Stelle: Ein Geschäft in einem Einkaufszentrum wird über seinen Namen gefunden, nicht über die Adresse, die sich mehrere Mieter teilen. Erst wenn sie nichts Eindeutiges liefert, folgt die Adresse des Stopps als eigene Suche – und zwar als **strukturierte** Adressabfrage mit Straße, Hausnummer und Postleitzahl in getrennten Feldern. Nur so unterscheidet ein Anbieter „Neuhäuser 40“ von „die Stadt Neustadt“.
+  - Diese Rückfall-Suche kann nicht durch die Obergrenze für Suchvarianten verdrängt werden – sie existiert gerade für den Fall, dass die vorherigen nichts gefunden haben.
+
+### Note
+
+- Die Testhilfe für Adressen im Prüflauf zerlegte eine Freitext-Adresse bisher nicht in Straße und Hausnummer und hätte diesen Fehler damit dauerhaft verdeckt. Sie tut es jetzt.
+
 ## [4.26.2] - 2026-08-05
 
 ### Fixed
