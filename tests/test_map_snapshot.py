@@ -314,6 +314,53 @@ def verify_both_backends_failing_names_both_causes() -> None:
     asyncio.run(scenario())
 
 
+def verify_a_route_is_drawn_as_a_line_not_loose_dots() -> None:
+    """Live report on the PDF: "Die Route ergibt so noch keinen Sinn".
+
+    The page showed scattered dots - and only ten of them, whatever the
+    length of the trip - so it said nothing about the order things were
+    visited in, nor about most of the trip at all.
+    """
+    async def scenario() -> None:
+        route = [(51.0 + index * 0.4, 14.0 + index * 0.3) for index in range(24)]
+        with_line = _FakeSession(tile_body=_png_bytes())
+        drawn = await module.async_fetch_snapshot(
+            with_line, "openstreetmap", None,
+            center_lat=55.0, center_lon=18.0, markers=route, path=route,
+            zoom=5, width_px=640, height_px=480,
+        )
+        without = _FakeSession(tile_body=_png_bytes())
+        plain = await module.async_fetch_snapshot(
+            without, "openstreetmap", None,
+            center_lat=55.0, center_lon=18.0, markers=route,
+            zoom=5, width_px=640, height_px=480,
+        )
+        assert drawn is not None and plain is not None
+        assert drawn != plain, "the path must actually change the image"
+
+        # No silent cap at ten - a 24-point trip keeps its points.
+        assert module._MAX_MAP_POINTS >= 24
+
+    asyncio.run(scenario())
+
+
+def verify_google_receives_the_route_as_a_path_parameter() -> None:
+    async def scenario() -> None:
+        route = [(51.0, 14.0), (55.0, 18.0), (60.0, 24.0)]
+        session = _FakeSession(google_body=_png_bytes())
+        await module.async_fetch_snapshot(
+            session, "google_static_maps", "key-1",
+            center_lat=55.0, center_lon=18.0, markers=route, path=route,
+            zoom=5, width_px=640, height_px=480,
+        )
+        params = session.requests[0]["params"]
+        assert "path" in params, params
+        assert params["path"].count("|") >= 3, params["path"]
+        assert "60.0,24.0" in params["path"]
+
+    asyncio.run(scenario())
+
+
 verify_openstreetmap_snapshot_is_stitched_and_attributed()
 verify_google_static_maps_uses_key_as_query_param_not_header()
 verify_google_branch_is_skipped_without_an_api_key()
@@ -321,6 +368,8 @@ verify_a_rejected_google_request_reports_googles_own_reason()
 verify_a_200_that_is_not_an_image_is_not_accepted_as_a_map()
 verify_a_rejected_google_key_falls_back_to_openstreetmap()
 verify_both_backends_failing_names_both_causes()
+verify_a_route_is_drawn_as_a_line_not_loose_dots()
+verify_google_receives_the_route_as_a_path_parameter()
 verify_http_error_returns_none_gracefully()
 verify_malformed_tile_bytes_return_none_gracefully()
 verify_tile_math_is_within_valid_bounds_at_a_known_coordinate()

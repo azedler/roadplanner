@@ -2259,7 +2259,12 @@ class RoadplannerPanel extends HTMLElement {
       ["pitches", "mdi:caravan", "Stellplätze", 0, ""],
       ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
       ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
-      ["trips", "mdi:map-multiple-outline", "Reisen", 0, ""],
+      // "mdi:map-multiple-outline" does not exist in Material Design Icons,
+      // so this entry rendered with no icon at all while every other one had
+      // theirs (live report: "Für Reisen habe ich noch immer kein Symbol").
+      // A suitcase also reads better here than a third map icon next to
+      // "Reise" and "Gesamtroute".
+      ["trips", "mdi:bag-suitcase-outline", "Reisen", 0, ""],
       ["crew", "mdi:account-group-outline", "Crew & Fahrzeuge", 0, ""],
       ["handoffs", "mdi:inbox-arrow-down", "Übergaben", pending, ""],
     ];
