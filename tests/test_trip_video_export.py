@@ -13,6 +13,8 @@ tied to one WebSocket response).
 """
 from __future__ import annotations
 
+import re
+
 import asyncio
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -349,6 +351,26 @@ def verify_async_generate_and_publish_saves_and_notifies() -> None:
     asyncio.run(scenario())
 
 
+def verify_a_video_always_has_an_audio_track() -> None:
+    """Live question: "War da Musik enthalten?" - there was no audio at all.
+
+    The bundled music folder ships empty, and without music the export
+    produced a file with a single video stream. Several players and photo
+    libraries treat that as broken, so a silent track is added instead.
+    """
+    source = (PACKAGE_ROOT / "trip_video_export.py").read_text(encoding="utf-8")
+    assert "anullsrc=r=44100:cl=stereo" in source
+    assert "audio_input_index: int | None = None" not in source, (
+        "there is no audio-less branch any more"
+    )
+
+
+def verify_a_highlight_reel_is_not_two_stills() -> None:
+    source = (PACKAGE_ROOT / "trip_video_export.py").read_text(encoding="utf-8")
+    assert '_MAX_PHOTOS_PER_CHAPTER = {"highlight": 3, "full": 6}' in source
+    assert '_MAX_CHAPTERS = {"highlight": 12, "full": 40}' in source
+
+
 verify_missing_ffmpeg_fails_fast_before_any_other_work()
 verify_async_generate_reads_trip_from_the_real_nested_payload_shape()
 verify_narrative_generation_failure_degrades_to_an_empty_string()
@@ -361,5 +383,7 @@ verify_library_prunes_beyond_the_retention_limit()
 verify_notify_ready_calls_persistent_notification_with_the_link()
 verify_notify_ready_failure_does_not_raise()
 verify_async_generate_and_publish_saves_and_notifies()
+verify_a_video_always_has_an_audio_track()
+verify_a_highlight_reel_is_not_two_stills()
 
 print("Trip video export tests passed.")
