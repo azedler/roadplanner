@@ -104,11 +104,14 @@ class FakeAssistant:
 
 
 class FakeRuntime:
-    def __init__(self, experience) -> None:
+    def __init__(self, experience, *, google_key=None, map_provider="openstreetmap") -> None:
         self.experience = experience
         self.manager = FakeManager()
         self.assistant = FakeAssistant()
-        self.trip_pdf = types.SimpleNamespace(_google_maps_api_key=None)
+        self.trip_pdf = types.SimpleNamespace(
+            _google_maps_api_key=google_key,
+            _map_snapshot_provider=map_provider,
+        )
 
 
 def _patch(**functions) -> None:
@@ -261,10 +264,76 @@ def verify_wiring_and_read_only_contract() -> None:
     assert "_copyToClipboard(text, successMessage)" in panel_js
 
 
+def verify_a_failing_map_probe_reports_the_recorded_cause() -> None:
+    """Live Systemcheck: "kein Kartenbild erhalten" said nothing usable.
+
+    The map module records WHY it failed. The check has to pass that on,
+    and an unused provider must not be shouted about as a failure.
+    """
+    async def fake_download(session, url):
+        return JPEG
+
+    async def fake_place(hass, url):
+        return {"read_status": "ok", "latitude": 59.9, "longitude": 15.2}
+
+    async def failing_snapshot(session, provider, key, **kwargs):
+        module.LAST_SNAPSHOT_ERROR["reason"] = (
+            "Google Static Maps antwortete mit HTTP 403: This API project is "
+            "not authorized to use this API."
+        )
+        return None
+
+    _patch(
+        async_download_photo=fake_download,
+        async_fetch_page_place=fake_place,
+        async_fetch_snapshot=failing_snapshot,
+    )
+    onedrive = FakeOneDrive({"configured": True, "connected": True, "account_email": "a@b.c"})
+    experience = FakeExperience(onedrive, [{"id": "m1", "provider_item_id": "d1"}])
+
+    result = _run(FakeRuntime(experience, google_key="key-1"))
+    states = _states(result)
+    assert states["map_google"] == "warn", (
+        "Google is not the selected provider - that is not a broken system"
+    )
+    assert "not authorized to use this API" in result["report"], result["report"]
+
+    # With Google actually selected, the same failure IS a failure.
+    result = _run(
+        FakeRuntime(experience, google_key="key-1", map_provider="google_static_maps")
+    )
+    assert _states(result)["map_google"] == "fail"
+
+
+def verify_a_park4night_page_without_gps_says_what_arrived() -> None:
+    """A consent wall and the real page both read "ok" - the size tells them apart."""
+    async def fake_download(session, url):
+        return JPEG
+
+    async def fake_place(hass, url):
+        return {"read_status": "ok", "page_bytes": 4096, "name": "Dammtorp"}
+
+    async def fake_snapshot(session, provider, key, **kwargs):
+        return JPEG
+
+    _patch(
+        async_download_photo=fake_download,
+        async_fetch_page_place=fake_place,
+        async_fetch_snapshot=fake_snapshot,
+    )
+    onedrive = FakeOneDrive({"configured": True, "connected": True, "account_email": "a@b.c"})
+    result = _run(FakeRuntime(FakeExperience(onedrive, [{"id": "m1", "provider_item_id": "d1"}])))
+    assert _states(result)["park4night"] == "warn"
+    assert "4 kB gelesen" in result["report"], result["report"]
+    assert "Dammtorp" in result["report"]
+
+
 if __name__ == "__main__":
     verify_a_healthy_system_reports_ok_for_every_reachable_interface()
     verify_each_interface_fails_on_its_own()
     verify_a_raising_probe_becomes_a_result_not_a_crash()
     verify_unconfigured_interfaces_are_skipped_not_failed()
     verify_wiring_and_read_only_contract()
+    verify_a_failing_map_probe_reports_the_recorded_cause()
+    verify_a_park4night_page_without_gps_says_what_arrived()
     print("System check tests passed.")
