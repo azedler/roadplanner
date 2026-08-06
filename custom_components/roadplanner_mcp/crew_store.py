@@ -127,6 +127,11 @@ def normalize_vehicle(value: dict[str, Any]) -> dict[str, Any]:
         "id": vehicle_id,
         "name": name,
         "description": _clean(value.get("description"), 1_000),
+        # The camper deserves a picture too (live request: "Vielleicht auch
+        # vom Fahrzeug ein Bild?"). Same mechanism as a person's portrait:
+        # one assigned trip photo plus an optional crop.
+        "reference_media_id": _clean(value.get("reference_media_id"), 200),
+        "reference_crop": _normalize_crop(value.get("reference_crop")),
         "active": bool(value.get("active", True)),
         "created_at": _clean(value.get("created_at"), 100) or utc_now_iso(),
         "updated_at": utc_now_iso(),

@@ -11,6 +11,12 @@ Roadplanner architecture is governed at three levels:
 - [Roadbook v1](ROADBOOK_V1.md)
 - [Plugin API v1](PLUGIN_API_V1.md)
 
+## Pipeline walkthroughs
+
+- [Export pipelines: PDF and video](EXPORT_PIPELINES.md) — how the two
+  exports are built, why each non-obvious decision was made, and the known
+  weak points. Written to be handed to an external reviewer.
+
 ## Decision policy
 
 A runtime change that conflicts with an accepted ADR must introduce a new ADR that explicitly supersedes the old decision. Implementation details and transient tasks do not belong in ADRs.

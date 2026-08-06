@@ -1487,6 +1487,16 @@ async def websocket_get_panel_data(
     user = connection.user
     capabilities = _capabilities(connection, runtime)
     selected_trip_id = str(payload.get("selected_trip_id") or "")
+    # Portraits are kept as local files so a face never depends on OneDrive
+    # still being reachable (live request: "Ich fände es auch sinnvoll wenn
+    # die Bilder der Crew permanent lokal gespeichert werden"). Missing ones
+    # are fetched once, here, and never again.
+    portraits = getattr(runtime, "crew_portrait_service", None)
+    if portraits is not None:
+        try:
+            crew_state = await portraits.async_refresh(crew_state, selected_trip_id)
+        except Exception:  # noqa: BLE001 - a portrait must never fail the panel
+            _LOGGER.debug("Crew portraits could not be refreshed", exc_info=True)
     assistant_state = runtime.assistant.state(
         _user_id(connection),
         selected_trip_id,

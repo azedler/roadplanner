@@ -6,6 +6,20 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.31.0] - 2026-08-05
+
+### Added
+
+- **Crew-Bilder liegen jetzt dauerhaft lokal** (live gewünscht: „Ich fände es auch sinnvoll wenn die Bilder der Crew permanent lokal gespeichert werden“). Bisher war ein Porträt nur ein Verweis nach OneDrive: bei jedem Aufbau der Oberfläche neu aufgelöst, bei jedem Export neu heruntergeladen. Ein Gesicht hing damit davon ab, dass ein Cloud-Konto erreichbar bleibt und das Quellfoto nie verschoben wird. Es wird jetzt einmal geholt, zugeschnitten, verkleinert und abgelegt.
+  - **Die Datei ist bereits zugeschnitten.** Damit gibt es beim Anzeigen überhaupt keine Ausschnitts-Rechnung mehr – genau die Rechnung, die den gezeigten Bereich vom gewählten abweichen ließ.
+  - Der Dateiname enthält Quellfoto **und** Ausschnitt. Ein neuer Ausschnitt ist eine neue Datei; ein veraltetes Porträt kann gar nicht mehr ausgeliefert werden, und es gibt nichts zu invalidieren.
+  - Nicht mehr referenzierte Porträts werden aufgeräumt. Ein Porträt, das gerade nicht geladen werden kann, fehlt einfach – der bisherige Weg über OneDrive bleibt als Rückfall.
+- **Das Fahrzeug bekommt ein Bild** (live gewünscht: „Vielleicht auch vom Fahrzeug ein Bild?“). Gleicher Bildwähler wie bei Personen, samt Ausschnitt, nur mit passendem Text – ein Camper hat kein Gesicht zu erkennen. Es erscheint in der Fahrzeugliste und auf der Crew-Seite des PDFs.
+
+### Documentation
+
+- **Neues Dokument [Export-Pipelines: PDF und Video](docs/architecture/EXPORT_PIPELINES.md)** (live gewünscht: „Exportiere mir später bitte das Vorgehen zur Videoerstellung und PDF-Erstellung. Ich möchte das ChatGPT zum Architekturreview übergeben“). Beschreibt beide Wege vom Panel-Klick bis zur fertigen Datei, begründet die nicht offensichtlichen Entscheidungen – warum Vorschaubilder vor Originalen kommen, warum ffmpeg ein Unterprozess und kein Executor-Job ist, warum Ken-Burns gebaut und wieder entfernt wurde, warum Zusammenfassungen gespeichert statt neu erzeugt werden – und benennt sechs bekannte Schwachstellen offen, damit ein Review daran ansetzen kann.
+
 ## [4.30.0] - 2026-08-05
 
 ### Fixed

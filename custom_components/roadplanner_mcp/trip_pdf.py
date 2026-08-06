@@ -114,6 +114,9 @@ class PdfCrewMember:
 class PdfVehicle:
     name: str
     note: str = ""
+    # The camper gets a picture on the crew page too (live request:
+    # "Vielleicht auch vom Fahrzeug ein Bild?").
+    photo: bytes | None = None
 
 
 @dataclass
@@ -440,7 +443,10 @@ def _crew_page(c, data: TripPdfData) -> int:
     if data.vehicle:
         entries.append(
             PdfCrewMember(
-                name=data.vehicle.name, kind="camper", note=data.vehicle.note
+                name=data.vehicle.name,
+                kind="camper",
+                note=data.vehicle.note,
+                photo=data.vehicle.photo,
             )
         )
 
