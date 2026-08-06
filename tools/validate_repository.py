@@ -79,6 +79,19 @@ CONST_VERSION_RE = re.compile(r'^INTEGRATION_VERSION\s*=\s*["\']([^"\']+)["\']',
 ADR_NAME_RE = re.compile(r"^ADR-(\d{3})-.+\.md$")
 
 
+# Directories that are legitimately present in a working copy but are not
+# part of the repository: build output and installed dependencies. The
+# Remotion spike (see docs/architecture/REMOTION_SPIKE.md) brings a Node
+# project with it, and an installed node_modules holds thousands of files -
+# including deliberately malformed JS/JSON fixtures that would fail these
+# validators for something the repository does not ship.
+IGNORED_DIRECTORY_NAMES = {".git", "node_modules", ".remotion", "dist", "build"}
+
+
+def is_ignored(path: Path) -> bool:
+    return any(part in IGNORED_DIRECTORY_NAMES for part in path.parts)
+
+
 def fail(message: str) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -129,7 +142,7 @@ def validate_layout() -> None:
         "roadbook",
     }
     for path in ROOT.rglob("*"):
-        if ".git" in path.parts:
+        if is_ignored(path):
             continue
         if path.is_dir() and path.name in forbidden_runtime_dirs:
             fail(f"Runtime/private directory must not be committed: {relative(path)}")
@@ -142,7 +155,7 @@ def validate_layout() -> None:
 def validate_json_files() -> int:
     count = 0
     for path in ROOT.rglob("*.json"):
-        if ".git" in path.parts:
+        if is_ignored(path):
             continue
         try:
             json.loads(path.read_text(encoding="utf-8"))
@@ -201,7 +214,7 @@ def validate_license() -> None:
 def validate_python_syntax() -> int:
     count = 0
     for path in ROOT.rglob("*.py"):
-        if ".git" in path.parts:
+        if is_ignored(path):
             continue
         try:
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
@@ -212,7 +225,7 @@ def validate_python_syntax() -> int:
 
 
 def validate_javascript_syntax() -> int:
-    files = [p for p in ROOT.rglob("*.js") if ".git" not in p.parts]
+    files = [p for p in ROOT.rglob("*.js") if not is_ignored(p)]
     if not files:
         return 0
     node = shutil.which("node")
@@ -237,7 +250,7 @@ def validate_yaml_basics() -> int:
     count = 0
     for pattern in ("*.yaml", "*.yml"):
         for path in ROOT.rglob(pattern):
-            if ".git" in path.parts:
+            if is_ignored(path):
                 continue
             text = path.read_text(encoding="utf-8")
             if "\t" in text:
@@ -260,7 +273,7 @@ def normalize_markdown_target(raw: str) -> str:
 def validate_markdown_links() -> int:
     checked = 0
     for path in ROOT.rglob("*.md"):
-        if ".git" in path.parts:
+        if is_ignored(path):
             continue
         text = path.read_text(encoding="utf-8")
         for match in MARKDOWN_LINK_RE.finditer(text):
@@ -314,7 +327,7 @@ def scan_secrets() -> int:
     for path in ROOT.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in text_suffixes:
             continue
-        if ".git" in path.parts:
+        if is_ignored(path):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         for label, pattern in SUSPICIOUS_PATTERNS.items():

@@ -16,6 +16,9 @@ Roadplanner architecture is governed at three levels:
 - [Export pipelines: PDF and video](EXPORT_PIPELINES.md) — how the two
   exports are built, why each non-obvious decision was made, and the known
   weak points. Written to be handed to an external reviewer.
+- [Remotion subprocess spike](REMOTION_SPIKE.md) — an experiment, not a
+  feature: can Home Assistant run a local Node renderer at all? Includes
+  the open HACS packaging question and the Go/No-Go criteria.
 
 ## Decision policy
 

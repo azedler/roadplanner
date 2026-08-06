@@ -14,6 +14,8 @@ from homeassistant.components import frontend, panel_custom, websocket_api
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 
+import uuid
+
 from .const import (
     DOMAIN,
     DRIVE_IMPORT_PATH,
@@ -73,6 +75,10 @@ _ACTIONS = {
     "trip_video_status",
     "generate_trip_summaries",
     "trip_summaries_status",
+    "remotion_diagnose",
+    "remotion_test_render",
+    "remotion_status",
+    "remotion_cancel",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
     "propose_day_calendar_repair",
@@ -147,6 +153,10 @@ _EDIT_ACTIONS = {
     # Writes generated text onto days, the trip and the crew records, so it
     # needs the same permission as any other edit.
     "generate_trip_summaries",
+    # Starting a child process is not a read - it needs edit rights even
+    # though it changes no trip data.
+    "remotion_test_render",
+    "remotion_cancel",
     "update_trip",
     "add_day",
     "update_day",
@@ -237,6 +247,10 @@ _PROVIDER_CALL_ACTIONS = {
     # Starts a background run that writes into the trip; the START must
     # survive a dropped connection or the user sees nothing happen.
     "generate_trip_summaries",
+    # Spawns a child process and inspects the runtime - seconds at worst,
+    # but a dropped connection must not orphan the probe.
+    "remotion_diagnose",
+    "remotion_test_render",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1322,6 +1336,23 @@ async def _execute_action(
 
     if action == "trip_summaries_status":
         return {"status": await runtime.trip_summaries.async_status()}
+
+    if action == "remotion_diagnose":
+        # READ-ONLY. Installs nothing, downloads nothing - a missing
+        # runtime is the answer, not a problem to fix silently.
+        return {"remotion_diagnosis": await runtime.remotion_spike.async_diagnose()}
+
+    if action == "remotion_test_render":
+        # The id only has to be unique and filename-safe; it is also the
+        # output filename, so it never comes from the client.
+        job_id = f"remotion_spike_{uuid.uuid4().hex[:16]}"
+        return {"status": runtime.remotion_spike.async_start(job_id=job_id)}
+
+    if action == "remotion_status":
+        return {"status": await runtime.remotion_spike.async_status()}
+
+    if action == "remotion_cancel":
+        return {"status": await runtime.remotion_spike.async_cancel()}
 
     if action == "park4night_autofill_run":
         # Reads the linked Park4Night pages and parks the coordinates as a

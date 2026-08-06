@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.32.0] - 2026-08-06
+
+### Experimental (ausgeliefert, aber inaktiv)
+
+- **Remotion-Unterprozess-Spike.** Reiner Machbarkeitstest zur Frage, ob eine Home-Assistant-Installation einen lokalen Node-/Remotion-Kindprozess starten, überwachen und beenden kann. Der produktive ffmpeg-Videoexport bleibt vollständig unberührt und ist weiterhin der einzige Renderer für Reisevideos.
+  - **Laufzeitdiagnose**, die ausschließlich liest: Node (tatsächlich gestartet, nicht nur im Pfad gesucht), Version, npm, ffmpeg, ffprobe, beschreibbares Ausgabeverzeichnis, freier Speicher, auffindbarer Browser, konfigurierter Renderer. Sie installiert nichts und lädt nichts herunter – eine fehlende Voraussetzung ist das Ergebnis, kein still zu behebendes Problem. Jeder Befund ist ein stabiler Code mit deutscher Erklärung.
+  - **Versionierter Jobvertrag** mit Weißliste für Kompositionen, serverseitig erzeugtem Ausgabepfad (gegen Traversal und Symlinks geprüft) und fest auf „aus“ verdrahteten Downloads.
+  - **Minimaler Renderer** mit exakt gepinnten Abhängigkeiten und Lockfile, JSONL-Fortschritt auf stdout, eigener CI-Job mit ffprobe-Prüfung. Der CI-Job ist bewusst getrennt, damit das Experiment einen normalen Release nie blockieren kann.
+  - **Überwachter Lauf** ohne `shell=True`, mit eigener Prozessgruppe (ein Timeout beendet auch den Browser), Abbruch, Statusabfrage und Ausgabeprüfung per ffprobe – Rückgabecode 0 ist eine Behauptung, ffprobe ist der Beleg.
+  - **Eigener Status, eigener Ordner, eigenes Ergebnis.** Ein Testrender kann „Letztes Video“ weder überschreiben noch damit verwechselt werden.
+  - Siehe [Remotion-Spike](docs/architecture/REMOTION_SPIKE.md) samt offener HACS-Paketierungsfrage und Go/No-Go-Kriterien.
+  - **Warum das trotzdem ausgeliefert wird:** Der Live-Test kann nur auf der echten Home-Assistant-Installation stattfinden, und dorthin kommt Code nur über ein Release. Ausgeliefert wird deshalb ein **inaktiver** Stand: Die Diagnose liest ausschließlich, und der Renderer-Pfad ist standardmäßig leer – ohne einen bewusst eingetragenen Pfad kann nichts rendern. Über einen produktiven Einsatz wird erst nach dem Live-Ergebnis entschieden.
+- **Neue Datei `THIRD_PARTY_NOTICES.md`** mit den separat lizenzierten Bestandteilen, inklusive gepinnter Remotion-Version und Prüfdatum.
+- **Die Repo-Validierung überspringt installierte Abhängigkeiten** (`node_modules`, Build-Ausgaben). Ohne das würde sie tausende Fremddateien prüfen – darunter absichtlich fehlerhafte JS-/JSON-Testdaten – und an Inhalten scheitern, die das Repository gar nicht ausliefert.
+
 ## [4.31.1] - 2026-08-05
 
 ### Documentation

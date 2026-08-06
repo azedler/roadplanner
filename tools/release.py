@@ -278,7 +278,12 @@ def run_repository_checks(
         print(f"[python] {test.relative_to(ROOT)}", flush=True)
         run([sys.executable, str(test)], capture=False)
 
-    if javascript_tests() or list(ROOT.rglob("*.js")):
+    # Installed Node dependencies (the Remotion spike's node_modules) are
+    # not repository content - walking them here would be slow and would
+    # syntax-check third-party fixtures.
+    if javascript_tests() or any(
+        path for path in ROOT.rglob("*.js") if "node_modules" not in path.parts
+    ):
         if not command_exists("node"):
             raise ReleaseError("Node.js is required for JavaScript release checks.")
         for test in javascript_tests():
