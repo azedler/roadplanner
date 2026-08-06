@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.33.1] - 2026-08-06
+
+### Fixed
+
+- **„App aktualisieren“ umgeht jetzt wirklich den Cache** (live: „Dein Mechanismus zur Cache Aktualisierung funktioniert also nicht. Ich hatte schon auf deinen Button gedrückt als der mir das veraltete frontend zeigte. Nach ‚von oben nach unten ziehen‘ ist jetzt der neue Check da.“). Das Neuladen des **Dokuments** war nie das Problem: Home Assistant holt das Panel-Modul über eine URL, die das Backend liefert, und die stimmt nach einem Update bereits. Veraltet war der **Abruf** – der Service Worker der Oberfläche beantwortet ihn aus seinem Cache, und mehrere seiner Regeln greifen unabhängig vom Query-String. Das frische `?v=4.32.0` wurde also aus dem Eintrag für `?v=4.31.1` bedient, und ein Cache-Buster am Dokument kommt da gar nicht hin. Vor dem Neuladen werden jetzt die Roadplanner-Einträge aus allen Caches entfernt – gezielt mit `ignoreSearch`, weil die alte Kopie unter einem anderen Query liegt.
+  - **Bewusst zielgerichtet:** Alle Caches von Home Assistant zu leeren oder den Service Worker abzumelden würde die gesamte App für ein Problem beeinträchtigen, das zu einem einzelnen Panel gehört. Fremde Einträge bleiben unangetastet; der Worker wird nur zur Neuprüfung aufgefordert.
+  - Der Hinweis nennt zusätzlich den Handgriff, der nachweislich funktioniert: in der App einmal von oben nach unten ziehen.
+
 ## [4.33.0] - 2026-08-06
 
 ### Fixed
