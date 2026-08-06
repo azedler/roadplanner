@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.34.1] - 2026-08-06
+
+### Fixed
+
+- **Renderer-App-PoC 0.1.0-poc.2: Die gemeldete App-Version stimmt jetzt auch, wenn Home Assistant das Image selbst baut.** Im Live-Test meldete der Heartbeat `0.0.0-dev` – eine Version, die das veröffentlichte Image nie trägt. Das GHCR-Paket war beim Installieren noch privat, Home Assistant konnte es nicht ziehen und der Supervisor hat den Container lokal gebaut. Dabei übergibt er `BUILD_VERSION` aus der `config.yaml`, während CI `APP_VERSION` übergibt; das Dockerfile las nur letzteres und fiel auf einen Platzhalter zurück. Damit identifizierte ausgerechnet das Feld, das den laufenden Build identifizieren soll, gar nichts. Beide Wege führen jetzt zu einer echten Version, und ein Vertragstest fällt aus, sobald einer von beiden das nicht mehr tut.
+
+### Changed
+
+- Der Renderer-App-PoC ist auf dem echten System nachgewiesen: Supervisor vorhanden, `/share` beschreibbar, App gestartet, Testauftrag übernommen und abgeschlossen, beide Artefakte mit passenden Prüfsummen. Ressourcenbedarf der App im Leerlauf: 0 % CPU, 0,2 % RAM. Offen bleiben die Neustarttests und eine Installation über ein gezogenes statt lokal gebautes Image; dokumentiert in `docs/architecture/RENDERER_APP_POC.md`.
+
 ## [4.34.0] - 2026-08-06
 
 ### Added
