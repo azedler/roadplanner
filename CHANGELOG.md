@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.33.2] - 2026-08-06
+
+### Fixed
+
+- **Die Remotion-Diagnose behauptete Dinge, die sie nie geprüft hatte** (live gemeldet: `Status: NODE_MISSING … ffmpeg/ffprobe: nein / nein … Ausgabeordner beschreibbar: nein` – auf genau dem Home Assistant, das mit diesem ffmpeg regelmäßig Reisevideos rendert). Die Prüfung kehrte beim ersten blockierenden Befund sofort zurück, also lief ohne Node keine einzige weitere Prüfung mehr – und der Bericht machte aus jedem leeren Feld ein selbstbewusstes „nein“.
+  - Die übrigen Prüfungen sind billig, nur lesend und voneinander unabhängig. Sie laufen jetzt **alle**, bevor überhaupt ein Urteil gebildet wird; die Reihenfolge des Urteils selbst bleibt unverändert, damit die Meldung weiterhin genau eine Ursache benennt statt einer Symptomliste. Nur der Node-Testaufruf bleibt daran gebunden, dass Node existiert – er ist der einzige Schritt, der einen Prozess startet.
+  - Ein Feld, das das Backend gar nicht gemeldet hat, steht jetzt als **„nicht geprüft“** im Bericht, statt die Formulierung eines fehlgeschlagenen Tests zu übernehmen. Ebenso wird „Node gefunden, aber nicht startbar“ nicht mehr als „nicht gefunden“ dargestellt – das sind zwei verschiedene Ergebnisse.
+  - Hintergrund: Dieser Bericht wird als Beleg für eine Go/No-Go-Entscheidung gelesen. Ein ungeprüftes Feld darf darin nie wie ein negativer Befund aussehen.
+
+### Changed
+
+- **Der Remotion-Spike ist abgeschlossen: NO-GO.** Auf dem realen Home Assistant sind weder Node.js noch ein Browser vorhanden, und beide können den Weg, auf den der Spike ausdrücklich beschränkt war, nicht nehmen – HACS liefert die Dateien innerhalb der Integration aus, und eine Node-Laufzeit samt plattformspezifischem Chromium sind keine solchen Dateien. Der Unterprozessweg scheitert damit an seiner Voraussetzung, nicht an seiner Mechanik.
+  - **Der produktive Videoexport bleibt vollständig unberührt**; ffmpeg bleibt der einzige Renderer, der ein Reisevideo erzeugt. Es wurde nichts installiert, um zu diesem Ergebnis zu kommen – genau das macht es verwertbar.
+  - Die Diagnose bleibt in der Integration: klein, nur lesend, ohne Installation – auf einer anderen Installation kann das Ergebnis durchaus anders ausfallen.
+
 ## [4.33.1] - 2026-08-06
 
 ### Fixed

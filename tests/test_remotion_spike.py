@@ -74,6 +74,45 @@ def verify_a_missing_node_is_a_result_not_an_error() -> None:
     assert "installier" not in result["recommended_next_step_de"].casefold()[:20]
 
 
+def verify_a_blocking_finding_does_not_suppress_the_other_facts() -> None:
+    """Live report: NODE_MISSING, and with it "ffmpeg/ffprobe: nein / nein"
+    plus "Ausgabeordner beschreibbar: nein" - on a Home Assistant that
+    renders trip videos with that very ffmpeg every week.
+
+    The early return was the cause: no other check ever ran, and the report
+    renders an empty field as "not found". A feasibility report is read as
+    evidence, so an unchecked field must never look like a negative one.
+    """
+    import shutil as real_shutil
+
+    real_which = real_shutil.which
+    ffmpeg = real_which("ffmpeg")
+    if not ffmpeg:
+        return  # nothing to prove on a host without ffmpeg
+
+    def which_without_node(name, *args, **kwargs):
+        return None if name == "node" else real_which(name, *args, **kwargs)
+
+    original = diagnostics.shutil.which
+    diagnostics.shutil.which = which_without_node
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = asyncio.run(diagnostics.async_diagnose(output_dir=Path(tmp)))
+    finally:
+        diagnostics.shutil.which = original
+
+    assert result["status"] == diagnostics.NODE_MISSING, result["status"]
+    details = result["details"]
+    assert details["ffmpeg_path"] == ffmpeg, (
+        f"ffmpeg was on this system all along, reported: {details.get('ffmpeg_path')!r}"
+    )
+    assert details["output_writable"] is True, (
+        "a writable temp directory must not be reported as unwritable"
+    )
+    for key in ("npm_path", "ffprobe_path", "browser_path", "renderer_path"):
+        assert key in details, f"{key} was never checked, so the report cannot state it"
+
+
 def verify_every_status_has_a_message_and_an_envelope() -> None:
     for status in diagnostics.ALL_STATUSES:
         envelope = diagnostics.describe(status, {"x": 1})
@@ -308,6 +347,7 @@ def verify_the_wiring_never_uses_a_shell() -> None:
 
 
 verify_a_missing_node_is_a_result_not_an_error()
+verify_a_blocking_finding_does_not_suppress_the_other_facts()
 verify_every_status_has_a_message_and_an_envelope()
 verify_a_real_node_is_probed_by_actually_running_it()
 verify_an_unwritable_output_directory_is_named()

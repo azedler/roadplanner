@@ -242,49 +242,8 @@ async def _probe_node_subprocess(node_path: str) -> tuple[bool, str]:
     return bool(payload.get("ok")), str(payload.get("version") or "")
 
 
-async def async_diagnose(
-    *,
-    output_dir: Path,
-    renderer_path: str = "",
-    browser_path: str = "",
-    node_path: str = "",
-) -> dict[str, Any]:
-    """Inspect the environment and return one envelope. Changes nothing."""
-    details: dict[str, Any] = {
-        "platform": platform.system(),
-        "machine": platform.machine(),
-        "python": platform.python_version(),
-    }
-
-    node = node_path or shutil.which("node") or ""
-    details["node_path"] = node
-    if not node:
-        return describe(NODE_MISSING, details)
-
-    ok, version_or_error = await _probe_node_subprocess(node)
-    if not ok:
-        details["error"] = version_or_error
-        return describe(SUBPROCESS_FORBIDDEN, details)
-    details["node_version"] = version_or_error
-
-    major = _node_major(version_or_error)
-    details["node_major"] = major
-    if major is not None and major < MIN_NODE_MAJOR:
-        details["required_major"] = MIN_NODE_MAJOR
-        return describe(NODE_VERSION_UNSUPPORTED, details)
-
-    details["npm_path"] = shutil.which("npm") or ""
-    details["ffmpeg_path"] = shutil.which("ffmpeg") or ""
-    details["ffprobe_path"] = shutil.which("ffprobe") or ""
-
-    browser, browser_status = _find_browser(browser_path)
-    details["browser_path"] = browser
-    details["browser_configured"] = bool(browser_path)
-
-    renderer, renderer_status = _renderer_state(renderer_path)
-    details["renderer_path"] = renderer
-    details["renderer_configured"] = bool(renderer_path)
-
+def _inspect_output_dir(output_dir: Path, details: dict[str, Any]) -> None:
+    """Record whether the export directory can actually be written to."""
     free_bytes = 0
     writable = False
     try:
@@ -300,10 +259,72 @@ async def async_diagnose(
     details["output_writable"] = writable
     details["free_bytes"] = free_bytes
 
-    # Order matters: report the FIRST thing that actually blocks a render,
-    # so the message names one cause rather than a list of symptoms.
-    if not writable:
+
+async def async_diagnose(
+    *,
+    output_dir: Path,
+    renderer_path: str = "",
+    browser_path: str = "",
+    node_path: str = "",
+) -> dict[str, Any]:
+    """Inspect the environment and return one envelope. Changes nothing.
+
+    Every cheap read-only check runs *before* any verdict is formed, even
+    when an earlier one already decides the outcome. Returning early would
+    leave the untested fields empty, and the report renders an empty field
+    as "not found" - so a missing Node would have claimed this system has
+    no ffmpeg, on a machine whose ffmpeg demonstrably renders trip videos.
+    A feasibility report that reads as evidence has to distinguish "looked
+    and it is absent" from "never looked".
+    """
+    details: dict[str, Any] = {
+        "platform": platform.system(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+    }
+
+    # --- facts that cost nothing and never depend on each other ---------
+    node = node_path or shutil.which("node") or ""
+    details["node_path"] = node
+    details["npm_path"] = shutil.which("npm") or ""
+    details["ffmpeg_path"] = shutil.which("ffmpeg") or ""
+    details["ffprobe_path"] = shutil.which("ffprobe") or ""
+
+    browser, browser_status = _find_browser(browser_path)
+    details["browser_path"] = browser
+    details["browser_configured"] = bool(browser_path)
+
+    renderer, renderer_status = _renderer_state(renderer_path)
+    details["renderer_path"] = renderer
+    details["renderer_configured"] = bool(renderer_path)
+
+    _inspect_output_dir(output_dir, details)
+
+    # --- the one check that cannot run without its precondition ---------
+    # Spawning Node is the actual feasibility question, and it is the only
+    # step here that starts a process. It stays gated on Node existing.
+    node_probe_ok = False
+    if node:
+        node_probe_ok, version_or_error = await _probe_node_subprocess(node)
+        if node_probe_ok:
+            details["node_version"] = version_or_error
+            details["node_major"] = _node_major(version_or_error)
+        else:
+            details["error"] = version_or_error
+    details["node_probed"] = bool(node)
+
+    # --- one verdict, naming the FIRST thing that blocks a render -------
+    if not node:
+        return describe(NODE_MISSING, details)
+    if not node_probe_ok:
+        return describe(SUBPROCESS_FORBIDDEN, details)
+    major = details.get("node_major")
+    if major is not None and major < MIN_NODE_MAJOR:
+        details["required_major"] = MIN_NODE_MAJOR
+        return describe(NODE_VERSION_UNSUPPORTED, details)
+    if not details["output_writable"]:
         return describe(OUTPUT_NOT_WRITABLE, details)
+    free_bytes = details["free_bytes"]
     if free_bytes and free_bytes < MIN_FREE_BYTES:
         details["required_bytes"] = MIN_FREE_BYTES
         return describe(INSUFFICIENT_DISK_SPACE, details)
