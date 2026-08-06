@@ -1,8 +1,11 @@
 # Remotion as a local subprocess — technical spike
 
-**Status: experiment. Not a product feature, not enabled by default, not
-released.** The production video export (ffmpeg) is untouched and remains
-the only renderer that produces a trip video.
+**Status: concluded — NO-GO.** Node.js and a browser are absent on the
+target Home Assistant and cannot arrive through HACS; the verdict and its
+reasoning are in *Go / No-Go* below. Nothing was installed to establish
+that. This was never a product feature, was never enabled by default and
+was never released: the production video export (ffmpeg) is untouched and
+remains the only renderer that produces a trip video.
 
 ## The one question
 

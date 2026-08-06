@@ -6,6 +6,23 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.34.0] - 2026-08-06
+
+### Added
+
+- **Machbarkeitsnachweis für eine optionale Renderer-App** (`apps/roadplanner_renderer`). Der vorherige Remotion-Spike endete mit NO-GO, weil Home Assistant Core weder Node.js noch einen Browser hat und HACS nur Dateien innerhalb des Integrationsverzeichnisses ausliefert – also keine Laufzeitumgebung. Eine App ist dagegen ein eigener Container und darf eine eigene Laufzeit mitbringen. Bevor dort Remotion hineingebaut wird, beweist dieser PoC ausschließlich den Weg dorthin: Installation aus demselben Repository, Heartbeat, Auftrag, Status, Ergebnisartefakte und Neustartverhalten. **Kein Remotion, kein Browser, kein Videoexport** – der produktive PDF- und ffmpeg-Pfad ist unberührt, und ohne die App funktioniert Roadplanner unverändert.
+  - **Ein Repository, zwei Konsumenten:** HACS liest `hacs.json` und `custom_components/`, der Supervisor liest die neue `repository.yaml` und `apps/`. Sie sehen einander nicht, der bestehende HACS- und Releaseweg bleibt exakt wie er war.
+  - **Der Austauschkanal ist ein einziger gemeinsamer Ordner** unter `/share` – kein Port, kein Socket, kein Token, keine Supervisor-API. Jede Datei wird über einen temporären Namen im selben Verzeichnis geschrieben und dann umbenannt, damit ein Leser nie eine halbe Datei sieht. Ein Auftrag wird durch Verschieben übernommen, kann also nicht doppelt laufen. Terminale Zustände sind endgültig – ein neu gestarteter Worker kann einen fertigen Auftrag nicht wiederbeleben, was genau der Weg wäre, auf dem sonst ein ewig laufender Job entsteht.
+  - **Dateinamen bestehen ausschließlich aus einer serverseitig erzeugten UUID.** Kein Pfad und kein Dateiname stammt aus Nutzertext; der Schutz gegen Traversal ist, dass die Eingabe gar nicht existiert.
+  - **Die App fordert genau eine Sache über einen einfachen Container hinaus an:** Schreibzugriff auf `/share`. Keine Ports, kein Ingress, kein Host-Netzwerk, kein privilegierter Modus, kein Docker-Socket, kein Zugriff auf `/config`, keine Secrets, keine Supervisor- oder Home-Assistant-API. Ein AppArmor-Profil erzwingt die Grenze. `stage: experimental` und `boot: manual` – das Experiment startet nicht von selbst.
+  - **Keine npm-Laufzeitabhängigkeiten.** Die App nutzt nur Node-Bordmittel; das ist die billigste Lieferkette für etwas, das neben einem fremden Home Assistant läuft.
+  - Die Umgebungsprüfung meldet als eigenständiges Ergebnis, wenn kein Supervisor vorhanden ist: Apps gibt es nur unter Home Assistant OS oder Supervised, auf Container- oder Core-Installationen kann nie eine App installiert werden. Das ist eine Antwort, kein Fehler.
+
+### Fixed
+
+- **Der Repository-Validator lehnt jetzt jede `config.*` außerhalb von `apps/<slug>/` ab.** Sobald dieses Repository als App-Quelle hinzugefügt wird, durchsucht Home Assistant den gesamten Checkout rekursiv nach `**/config.*` und liest jeden Treffer als App-Manifest. Eine später aus ganz anderem Grund angelegte `config.yaml` – eine Testvorlage, die Einstellungen eines Werkzeugs – würde im App-Store des Nutzers als kaputte App auftauchen. Am Verzeichnisaufbau verhindert das nichts, also prüft es jetzt der Validator.
+- Die JavaScript-Syntaxprüfung erfasst jetzt auch `.mjs`-Dateien. Der Renderer der App und der Spike-Renderer sind ES-Module und wurden bisher stillschweigend übersprungen, obwohl ein Syntaxfehler dort genauso fatal ist wie im Panel.
+
 ## [4.33.2] - 2026-08-06
 
 ### Fixed

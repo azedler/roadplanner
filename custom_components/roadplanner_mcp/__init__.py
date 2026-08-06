@@ -184,6 +184,7 @@ from .crew_portrait_http import async_register_crew_portrait_view
 from .crew_portrait_service import CrewPortraitService
 from .crew_portraits import CrewPortraitStore
 from .remotion_spike import RemotionSpikeService
+from .renderer_app_client import RendererAppClient, default_exchange_dir
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -223,6 +224,7 @@ class RoadplannerRuntimeData:
     crew_portraits: CrewPortraitStore
     crew_portrait_service: CrewPortraitService
     remotion_spike: RemotionSpikeService
+    renderer_app: RendererAppClient
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -695,6 +697,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         browser_path=options.get(CONF_REMOTION_BROWSER_PATH, ""),
     )
 
+    # Renderer-app proof of concept. Constructed unconditionally because
+    # the environment probe must answer everywhere - including where no app
+    # can ever be installed, which is itself the answer. It touches nothing
+    # until an action asks it to.
+    renderer_app = RendererAppClient(hass, exchange_dir=default_exchange_dir())
+
     trip_summaries = TripSummaryService(
         hass,
         manager,
@@ -728,6 +736,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         crew_portraits=crew_portraits,
         crew_portrait_service=crew_portrait_service,
         remotion_spike=remotion_spike,
+        renderer_app=renderer_app,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

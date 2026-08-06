@@ -1,0 +1,159 @@
+# CI for the renderer-app proof of concept.
+#
+# Its own workflow on purpose: this is an experiment, and it must never be
+# able to slow down or block an ordinary Roadplanner release. Nothing here
+# publishes anything by itself.
+name: Renderer app PoC
+
+on:
+  push:
+    branches:
+      - develop
+      - "claude/**"
+    paths:
+      - "apps/roadplanner_renderer/**"
+      - "custom_components/roadplanner_mcp/renderer_app_*.py"
+      - "tests/test_renderer_app_*.py"
+      - ".github/workflows/renderer-app-poc.yml"
+  pull_request:
+    paths:
+      - "apps/roadplanner_renderer/**"
+      - "custom_components/roadplanner_mcp/renderer_app_*.py"
+      - "tests/test_renderer_app_*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  worker:
+    name: Worker and protocol
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned dependencies
+        working-directory: apps/roadplanner_renderer
+        run: npm ci
+
+      - name: Syntax check
+        working-directory: apps/roadplanner_renderer
+        run: npm run check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Protocol rules
+        run: python3 tests/test_renderer_app_protocol.py
+
+      - name: Home Assistant side
+        run: python3 tests/test_renderer_app_client.py
+
+      # The real worker, the real Python side, a real directory. The two
+      # implementations share no code, so only this proves they agree.
+      - name: End-to-end through a real exchange folder
+        run: python3 tests/test_renderer_app_end_to_end.py
+
+      - name: Cross-file wiring and boundaries
+        run: python3 tests/test_renderer_app_contract.py
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    needs: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app image for the target architecture
+        run: |
+          docker build \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22 \
+            --build-arg APP_VERSION=0.1.0-poc.1 \
+            --tag roadplanner-renderer-poc:ci \
+            apps/roadplanner_renderer
+
+      # Starting the container is the only way to learn that the image can
+      # actually run - a build that succeeds and an image that comes up are
+      # different claims.
+      - name: Start it and wait for a heartbeat
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/exchange"
+          docker run --rm --detach \
+            --name renderer-poc \
+            --volume "${RUNNER_TEMP}/exchange:/share/roadplanner-renderer/poc-v1" \
+            roadplanner-renderer-poc:ci
+          for _ in $(seq 1 30); do
+            if [ -f "${RUNNER_TEMP}/exchange/renderer-status.json" ]; then
+              echo "Heartbeat:"
+              cat "${RUNNER_TEMP}/exchange/renderer-status.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Kein Heartbeat innerhalb von 30 s" >&2
+          docker logs renderer-poc >&2 || true
+          exit 1
+
+      - name: Stop it and prove SIGTERM is honoured
+        run: |
+          set -euo pipefail
+          # A container that ignores SIGTERM gets killed after the grace
+          # period; that shows up here as a non-zero exit or a slow stop.
+          start=$(date +%s)
+          docker stop --timeout 15 renderer-poc
+          echo "Stop dauerte $(( $(date +%s) - start )) s"
+
+      - name: Clean up
+        if: always()
+        run: docker rm --force renderer-poc 2>/dev/null || true
+
+  publish:
+    name: Publish PoC image
+    runs-on: ubuntu-latest
+    needs: image
+    # Only on a real push, never on a pull request from elsewhere. Home
+    # Assistant installs the app by PULLING this image, so without it the
+    # device test cannot happen at all - but it stays an experiment: no
+    # `latest`, an explicit -poc tag, and no involvement in the Roadplanner
+    # release workflow.
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        run: |
+          set -euo pipefail
+          IMAGE=ghcr.io/${{ github.repository_owner }}/roadplanner-renderer-poc-amd64
+          VERSION=$(grep '^version:' apps/roadplanner_renderer/config.yaml | cut -d'"' -f2)
+          echo "Version aus config.yaml: ${VERSION}"
+          docker build \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22 \
+            --build-arg APP_VERSION="${VERSION}" \
+            --tag "${IMAGE}:${VERSION}" \
+            apps/roadplanner_renderer
+          docker push "${IMAGE}:${VERSION}"
+          # The digest is what the report has to carry: a tag can move, a
+          # digest cannot.
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}:${VERSION}")
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Renderer-App-PoC-Image"
+            echo ""
+            echo "- Tag: \`${IMAGE}:${VERSION}\`"
+            echo "- Digest: \`${DIGEST}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
