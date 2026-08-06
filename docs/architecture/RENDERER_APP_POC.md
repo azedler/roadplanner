@@ -122,7 +122,24 @@ are inert, rather than injecting it into the DOM.
 | End-to-end, real worker against a real folder | pass, four consecutive runs |
 | Cross-file wiring and permission boundaries | pass |
 | `tools/release.py check` | pass |
-| Container build and start | **not run locally** — no Docker daemon in the development environment; the CI workflow builds the image, starts it, waits for a heartbeat and checks that SIGTERM is honoured |
+| Container build and start | pass **in CI only** — no Docker daemon in the development environment. CI builds the image, starts it, waits for a heartbeat and stops it within the SIGTERM grace period |
+
+### The published PoC image
+
+```
+ghcr.io/azedler/roadplanner-renderer-poc-amd64:0.1.0-poc.1
+sha256:4321687a7ecd36baefe80a9c4e015e395354bf7799438bf1fc684b9b9be34aee
+```
+
+No `latest` tag, an explicit `-poc` name, and nothing in the Roadplanner
+release workflow refers to it.
+
+**One manual step stands between this and the device test.** Packages
+pushed to GHCR are private by default, and Home Assistant pulls
+anonymously — it has no credentials for a private registry. The package
+has to be switched to public once, under *Packages → roadplanner-renderer-poc-amd64
+→ Package settings → Change visibility*. Until then the install will fail
+with a pull error that says nothing about permissions.
 
 **Nothing here says anything about the real system yet.** The device test is
 the point of the PoC, and it is the section this document leaves open.
