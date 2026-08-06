@@ -152,6 +152,45 @@ def validate_layout() -> None:
             fail(f"Python cache directory must not be committed: {relative(path)}")
 
 
+def validate_app_configs() -> None:
+    """Only real apps may look like apps to Home Assistant's Supervisor.
+
+    When this repository is added as an app repository, the Supervisor
+    globs ``**/config.*`` across the whole checkout and reads every hit as
+    an app manifest. A ``config.yaml`` added anywhere for an unrelated
+    reason - a test fixture, a tool's settings, a vendored example - would
+    therefore appear in the user's app store as a broken app, or fail the
+    repository outright. Nothing in the repository layout prevents that, so
+    it is checked here instead.
+    """
+    apps_root = ROOT / "apps"
+    for suffix in (".yaml", ".yml", ".json"):
+        for path in ROOT.rglob(f"config{suffix}"):
+            if is_ignored(path):
+                continue
+            # Supervisor skips dot-directories and rootfs itself.
+            if any(part.startswith(".") or part == "rootfs" for part in path.parts):
+                continue
+            try:
+                path.relative_to(apps_root)
+            except ValueError:
+                fail(
+                    "Home Assistant reads every config.* in this repository as an "
+                    f"app manifest; move or rename: {relative(path)}"
+                )
+                continue
+            if path.parent.parent != apps_root:
+                fail(
+                    "An app manifest must sit directly in apps/<slug>/: "
+                    f"{relative(path)}"
+                )
+
+    if apps_root.is_dir():
+        for app_dir in sorted(p for p in apps_root.iterdir() if p.is_dir()):
+            if not (app_dir / "config.yaml").is_file():
+                fail(f"App directory without config.yaml: {relative(app_dir)}")
+
+
 def validate_json_files() -> int:
     count = 0
     for path in ROOT.rglob("*.json"):
@@ -225,7 +264,14 @@ def validate_python_syntax() -> int:
 
 
 def validate_javascript_syntax() -> int:
-    files = [p for p in ROOT.rglob("*.js") if not is_ignored(p)]
+    # .mjs counts: the renderer app and the spike renderer are ES modules,
+    # and a syntax error there is exactly as fatal as one in the panel.
+    files = sorted(
+        p
+        for pattern in ("*.js", "*.mjs")
+        for p in ROOT.rglob(pattern)
+        if not is_ignored(p)
+    )
     if not files:
         return 0
     node = shutil.which("node")
@@ -362,6 +408,7 @@ def main() -> None:
     args = parser.parse_args()
 
     validate_layout()
+    validate_app_configs()
     version = validate_manifest_and_versions()
     validate_license()
     json_count = validate_json_files()

@@ -36,6 +36,7 @@ from .page_images import async_fetch_page_place
 from .system_check import async_run_system_check
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
+from .renderer_app_protocol import RendererProtocolError
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
 
@@ -79,6 +80,10 @@ _ACTIONS = {
     "remotion_test_render",
     "remotion_status",
     "remotion_cancel",
+    "renderer_app_environment",
+    "renderer_app_status",
+    "renderer_app_run",
+    "renderer_app_job_status",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
     "propose_day_calendar_repair",
@@ -157,6 +162,7 @@ _EDIT_ACTIONS = {
     # though it changes no trip data.
     "remotion_test_render",
     "remotion_cancel",
+    "renderer_app_run",
     "update_trip",
     "add_day",
     "update_day",
@@ -1353,6 +1359,35 @@ async def _execute_action(
 
     if action == "remotion_cancel":
         return {"status": await runtime.remotion_spike.async_cancel()}
+
+    if action == "renderer_app_environment":
+        # READ-ONLY probe. Apps only exist under Home Assistant OS or
+        # Supervised; on Container/Core no app can ever be installed, and
+        # that is a result to report rather than a fault to work around.
+        return {"renderer_app_environment": await runtime.renderer_app.async_environment()}
+
+    if action == "renderer_app_status":
+        return {"renderer_app_status": await runtime.renderer_app.async_app_status()}
+
+    if action == "renderer_app_run":
+        # The job id is generated server-side and becomes the filename, so
+        # nothing a client sends can reach the filesystem.
+        return {"renderer_app_job": await runtime.renderer_app.async_submit_test_job()}
+
+    if action == "renderer_app_job_status":
+        job_id = str(data.get("job_id") or "")
+        try:
+            status = await runtime.renderer_app.async_job_status(job_id)
+            result = (
+                await runtime.renderer_app.async_result(job_id)
+                if status.get("state") == "completed"
+                else None
+            )
+        except RendererProtocolError as err:
+            # A protocol violation is a report about the exchange folder,
+            # not an internal failure - it belongs in front of the user.
+            raise ValidationError(str(err)) from err
+        return {"renderer_app_job": status, "renderer_app_result": result}
 
     if action == "park4night_autofill_run":
         # Reads the linked Park4Night pages and parks the coordinates as a
