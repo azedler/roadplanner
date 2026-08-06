@@ -1,7 +1,8 @@
 # Renderer app: deployment proof of concept
 
-**Status: built, awaiting the device test.** No Remotion, no browser, no
-video export. The production PDF and ffmpeg paths are untouched.
+**Status: the route is proven on the real system; the restart and
+resource checks are still open.** No Remotion, no browser, no video
+export. The production PDF and ffmpeg paths are untouched.
 
 ## Why this exists
 
@@ -140,9 +141,6 @@ anonymously — it has no credentials for a private registry. The package
 has to be switched to public once, under *Packages → roadplanner-renderer-poc-amd64
 → Package settings → Change visibility*. Until then the install will fail
 with a pull error that says nothing about permissions.
-
-**Nothing here says anything about the real system yet.** The device test is
-the point of the PoC, and it is the section this document leaves open.
 
 ## Result of the live run on Home Assistant
 
