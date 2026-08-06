@@ -55,6 +55,11 @@ CONF_GOOGLE_PLACES_ENABLED = "google_places_enabled"
 CONF_GOOGLE_PLACES_API_KEY = "google_places_api_key"
 CONF_GOOGLE_PLACES_MODE = "google_places_mode"
 CONF_MAP_SNAPSHOT_PROVIDER = "map_snapshot_provider"
+# Remotion subprocess spike (see docs/architecture/REMOTION_SPIKE.md).
+# Both default to empty on purpose: Roadplanner installs nothing, so the
+# renderer and the browser only exist if the operator points at them.
+CONF_REMOTION_RENDERER_PATH = "remotion_renderer_path"
+CONF_REMOTION_BROWSER_PATH = "remotion_browser_path"
 CONF_GOOGLE_PLACES_DAILY_LIMIT = "google_places_daily_limit"
 CONF_GOOGLE_PLACES_REQUEST_TIMEOUT = "google_places_request_timeout"
 CONF_GOOGLE_PHOTOS_ENABLED = "google_photos_enabled"
@@ -151,6 +156,8 @@ DEFAULT_GOOGLE_PLACES_MODE = "fallback"
 # attribution); Google Static Maps reuses the configured Google Places key.
 MAP_SNAPSHOT_PROVIDERS = ("openstreetmap", "google_static_maps")
 DEFAULT_MAP_SNAPSHOT_PROVIDER = "openstreetmap"
+DEFAULT_REMOTION_RENDERER_PATH = ""
+DEFAULT_REMOTION_BROWSER_PATH = ""
 DEFAULT_GOOGLE_PLACES_DAILY_LIMIT = 50
 DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT = 25
 # Off by default: unlike Google Places text search, photo requests are a

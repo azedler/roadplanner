@@ -60,3 +60,9 @@ RP-*_SPEC.md
 RP-*_APPLY.md
 RP-*_VALIDATION.log
 RP-*_bundle.zip
+
+# Node dependencies of the experimental Remotion renderer. The lockfile is
+# committed; the installed tree is not, and the repository validators skip
+# it (tools/validate_repository.py IGNORED_DIRECTORY_NAMES).
+node_modules/
+remotion_renderer/.remotion/

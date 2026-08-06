@@ -251,6 +251,7 @@ export const tripDayStopMixin = {
           </div>
           <div class="button-row"><button class="secondary-button" type="button" data-action="run-system-check"${this._systemCheckRunning ? " disabled" : ""}><ha-icon icon="mdi:stethoscope"></ha-icon> ${this._systemCheckRunning ? "Systemcheck läuft…" : "Systemcheck"}</button>${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
           ${this._renderSystemCheck()}
+          ${this._renderRemotionSpike()}
         </div>
       </details>
     `;

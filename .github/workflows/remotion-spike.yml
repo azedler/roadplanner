@@ -1,0 +1,108 @@
+# Renders the Remotion test video for real and validates it with ffprobe.
+#
+# Deliberately a SEPARATE workflow: it installs Node dependencies and a
+# browser, which the normal validation job neither needs nor should be
+# slowed down by. The Remotion spike is experimental and must never be
+# able to block an ordinary Roadplanner release.
+name: Remotion spike render
+
+on:
+  pull_request:
+    paths:
+      - "remotion_renderer/**"
+      - "custom_components/roadplanner_mcp/remotion_*.py"
+      - ".github/workflows/remotion-spike.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remotion-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render and validate the 5s test video
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: remotion_renderer/package-lock.json
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install pinned dependencies
+        working-directory: remotion_renderer
+        run: npm ci
+
+      - name: Type-check the renderer
+        working-directory: remotion_renderer
+        run: npx tsc --noEmit
+
+      # Only HERE is a browser provisioned - in a controlled build job,
+      # never on a user's Home Assistant.
+      - name: Provide a headless browser
+        working-directory: remotion_renderer
+        run: npx remotion browser ensure
+
+      - name: Render the test video
+        working-directory: remotion_renderer
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/remotion"
+          cat > "$RUNNER_TEMP/remotion/job.json" <<JSON
+          {
+            "schema_version": 1,
+            "job_id": "ci_render",
+            "composition": "roadplanner-test",
+            "output_path": "$RUNNER_TEMP/remotion/ci_render.mp4",
+            "input": {"title": "Roadplanner Remotion Test", "subtitle": "CI", "duration_seconds": 5},
+            "render": {"width": 1280, "height": 720, "fps": 30, "codec": "h264", "crf": 20, "x264_preset": "veryfast"},
+            "runtime": {"browser_executable": null, "allow_downloads": false}
+          }
+          JSON
+          node scripts/render.mjs "$RUNNER_TEMP/remotion/job.json" | tee "$RUNNER_TEMP/remotion/events.jsonl"
+          tail -n 1 "$RUNNER_TEMP/remotion/events.jsonl" | grep -q '"event":"completed"'
+
+      - name: Validate the result with ffprobe
+        run: |
+          set -euo pipefail
+          FILE="$RUNNER_TEMP/remotion/ci_render.mp4"
+          test -s "$FILE"
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=codec_name,width,height \
+            -show_entries format=duration,format_name \
+            -of json "$FILE" > "$RUNNER_TEMP/remotion/probe.json"
+          cat "$RUNNER_TEMP/remotion/probe.json"
+          python3 - "$RUNNER_TEMP/remotion/probe.json" <<'PY'
+          import json, sys
+          probe = json.load(open(sys.argv[1]))
+          stream = (probe.get("streams") or [{}])[0]
+          fmt = probe.get("format") or {}
+          assert stream.get("codec_name") == "h264", stream
+          assert stream.get("width") == 1280 and stream.get("height") == 720, stream
+          assert "mp4" in str(fmt.get("format_name")), fmt
+          duration = float(fmt.get("duration") or 0)
+          assert abs(duration - 5.0) < 0.75, duration
+          print("Remotion CI render validated:", duration, "s")
+          PY
+
+      - name: Upload the render on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remotion-spike-render
+          path: |
+            ${{ runner.temp }}/remotion/*.mp4
+            ${{ runner.temp }}/remotion/*.jsonl
+          retention-days: 3
+          if-no-files-found: ignore

@@ -14,6 +14,7 @@ This directory contains the canonical project documentation. Root-level files re
 - [Architecture overview](../ARCHITECTURE.md)
 - [Architecture documentation index](architecture/README.md)
 - [Export pipelines: PDF and video](architecture/EXPORT_PIPELINES.md)
+- [Remotion subprocess spike](architecture/REMOTION_SPIKE.md)
 - [Roadbook v1](architecture/ROADBOOK_V1.md)
 - [Plugin API v1](architecture/PLUGIN_API_V1.md)
 - [Architecture Decision Records](architecture/adr/README.md)

@@ -56,6 +56,8 @@ from .const import (
     CONF_GOOGLE_PLACES_MODE,
     CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
     CONF_MAP_SNAPSHOT_PROVIDER,
+    CONF_REMOTION_BROWSER_PATH,
+    CONF_REMOTION_RENDERER_PATH,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -119,6 +121,8 @@ from .const import (
     DEFAULT_GOOGLE_PLACES_REQUEST_TIMEOUT,
     GOOGLE_PLACES_MODES,
     DEFAULT_MAP_SNAPSHOT_PROVIDER,
+    DEFAULT_REMOTION_BROWSER_PATH,
+    DEFAULT_REMOTION_RENDERER_PATH,
     MAP_SNAPSHOT_PROVIDERS,
     DEFAULT_ROUTING_ENABLED,
     DEFAULT_ROUTING_PROVIDER,
@@ -468,6 +472,20 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                     DEFAULT_MAP_SNAPSHOT_PROVIDER,
                 ),
             ): vol.In(MAP_SNAPSHOT_PROVIDERS),
+            # Experimental, optional and empty unless the operator fills
+            # them in: Roadplanner never installs a renderer or a browser.
+            vol.Optional(
+                CONF_REMOTION_RENDERER_PATH,
+                default=defaults.get(
+                    CONF_REMOTION_RENDERER_PATH, DEFAULT_REMOTION_RENDERER_PATH
+                ),
+            ): str,
+            vol.Optional(
+                CONF_REMOTION_BROWSER_PATH,
+                default=defaults.get(
+                    CONF_REMOTION_BROWSER_PATH, DEFAULT_REMOTION_BROWSER_PATH
+                ),
+            ): str,
             vol.Required(
                 CONF_GOOGLE_PLACES_DAILY_LIMIT,
                 default=defaults.get(
@@ -667,6 +685,8 @@ def _normalize_input(
     ).strip().casefold()
     if result[CONF_MAP_SNAPSHOT_PROVIDER] not in MAP_SNAPSHOT_PROVIDERS:
         result[CONF_MAP_SNAPSHOT_PROVIDER] = DEFAULT_MAP_SNAPSHOT_PROVIDER
+    for key in (CONF_REMOTION_RENDERER_PATH, CONF_REMOTION_BROWSER_PATH):
+        result[key] = str(result.get(key) or "").strip()[:400]
     result[CONF_ROUTING_URL] = normalize_routing_url(
         result.get(CONF_ROUTING_URL, DEFAULT_ROUTING_URL)
     )

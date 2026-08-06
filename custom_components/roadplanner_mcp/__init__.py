@@ -55,6 +55,8 @@ from .const import (
     CONF_GOOGLE_PLACES_MODE,
     CONF_GOOGLE_PLACES_REQUEST_TIMEOUT,
     CONF_MAP_SNAPSHOT_PROVIDER,
+    CONF_REMOTION_BROWSER_PATH,
+    CONF_REMOTION_RENDERER_PATH,
     CONF_ROUTING_ENABLED,
     CONF_ROUTING_PROVIDER,
     CONF_ROUTING_URL,
@@ -181,6 +183,7 @@ from .trip_pdf_http import async_register_trip_pdf_view
 from .crew_portrait_http import async_register_crew_portrait_view
 from .crew_portrait_service import CrewPortraitService
 from .crew_portraits import CrewPortraitStore
+from .remotion_spike import RemotionSpikeService
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -219,6 +222,7 @@ class RoadplannerRuntimeData:
     trip_summaries: TripSummaryService
     crew_portraits: CrewPortraitStore
     crew_portrait_service: CrewPortraitService
+    remotion_spike: RemotionSpikeService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -681,6 +685,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass, experience, crew_portraits, media_cache=media_cache
     )
 
+    # Experimental Remotion subprocess spike. Constructed unconditionally
+    # because the DIAGNOSIS must work everywhere; it renders nothing unless
+    # an operator has pointed it at an existing renderer and browser.
+    remotion_spike = RemotionSpikeService(
+        hass,
+        output_dir=archive_root / "remotion_spike",
+        renderer_path=options.get(CONF_REMOTION_RENDERER_PATH, ""),
+        browser_path=options.get(CONF_REMOTION_BROWSER_PATH, ""),
+    )
+
     trip_summaries = TripSummaryService(
         hass,
         manager,
@@ -713,6 +727,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         trip_summaries=trip_summaries,
         crew_portraits=crew_portraits,
         crew_portrait_service=crew_portrait_service,
+        remotion_spike=remotion_spike,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
