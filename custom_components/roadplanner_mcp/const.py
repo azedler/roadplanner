@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "roadplanner_mcp"
 NAME = "Roadplanner"
-INTEGRATION_VERSION = "4.30.0"
+INTEGRATION_VERSION = "4.31.0"
 
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"

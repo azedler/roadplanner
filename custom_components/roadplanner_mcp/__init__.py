@@ -178,6 +178,9 @@ from .travel_archive_http import async_register_travel_archive_views
 from .travel_archive_manager import TravelArchiveManager
 from .trip_pdf_export import TripPdfExporter
 from .trip_pdf_http import async_register_trip_pdf_view
+from .crew_portrait_http import async_register_crew_portrait_view
+from .crew_portrait_service import CrewPortraitService
+from .crew_portraits import CrewPortraitStore
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -214,6 +217,8 @@ class RoadplannerRuntimeData:
     trip_pdf: TripPdfExporter
     trip_video: TripVideoExporter
     trip_summaries: TripSummaryService
+    crew_portraits: CrewPortraitStore
+    crew_portrait_service: CrewPortraitService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -258,6 +263,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_trip_pdf_view(hass)
     async_register_trip_pdf_library_view(hass)
     async_register_trip_video_library_view(hass)
+    async_register_crew_portrait_view(hass)
     await async_setup_panel_support(hass)
     return True
 
@@ -654,6 +660,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Same folder as the videos: one library for generated trip exports,
         # so a PDF stays retrievable after its five-minute ticket expires.
         library_dir=resolve_config_path(config_dir, trip_video_library_relative),
+        portrait_store=CrewPortraitStore(archive_root / "crew_portraits"),
     )
     trip_video = TripVideoExporter(
         hass,
@@ -667,6 +674,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
         library_dir=resolve_config_path(config_dir, trip_video_library_relative),
         media_cache=media_cache,
+    )
+
+    crew_portraits = CrewPortraitStore(archive_root / "crew_portraits")
+    crew_portrait_service = CrewPortraitService(
+        hass, experience, crew_portraits, media_cache=media_cache
     )
 
     trip_summaries = TripSummaryService(
@@ -699,6 +711,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         trip_pdf=trip_pdf,
         trip_video=trip_video,
         trip_summaries=trip_summaries,
+        crew_portraits=crew_portraits,
+        crew_portrait_service=crew_portrait_service,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

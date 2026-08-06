@@ -83,6 +83,22 @@ _OVERNIGHT_STOP_TYPES = {
 }
 
 
+def _local_portrait(store: Any, entity_id: str, media_id: str, crop: Any, kind: str) -> bytes | None:
+    """Read the stored portrait - blocking, executor only."""
+    if store is None or not entity_id or not media_id:
+        return None
+    from .crew_portraits import portrait_key
+
+    filename = portrait_key(entity_id, media_id, crop, kind=kind)
+    path = store.path_for(filename) if filename else None
+    if path is None:
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def _stored_summary(document: Any) -> str:
     """Read the generated summary a document carries, if any."""
     details = document.get("details") if isinstance(document, dict) else None
@@ -206,6 +222,7 @@ class TripPdfExporter:
         google_maps_api_key: str | None = None,
         media_cache: Any = None,
         library_dir: Path | None = None,
+        portrait_store: Any = None,
     ) -> None:
         self.hass = hass
         self.manager = manager
@@ -215,6 +232,11 @@ class TripPdfExporter:
         self._map_snapshot_provider = map_snapshot_provider
         self._google_maps_api_key = str(google_maps_api_key or "").strip() or None
         self.media_cache = media_cache
+        # Locally stored, already-cropped portraits. Reading them means the
+        # crew page no longer depends on OneDrive being reachable at export
+        # time (live request: "Ich fände es auch sinnvoll wenn die Bilder
+        # der Crew permanent lokal gespeichert werden").
+        self.portrait_store = portrait_store
         # Shared with the video export: one folder for generated trip
         # exports. Without it the PDF is still generated, only the "last
         # PDF" retrieval is unavailable.
@@ -285,6 +307,42 @@ class TripPdfExporter:
         return {
             "last_pdf": await self.hass.async_add_executor_job(self._library_latest)
         }
+
+    async def _async_vehicle_photo(self, session: Any, trip_id: str) -> bytes | None:
+        """The camper's own picture for the crew page, local copy first."""
+        if self.crew is None:
+            return None
+        try:
+            payload = await self.crew.async_panel_payload()
+        except (RoadplannerError, OSError):
+            return None
+        for entry in payload.get("vehicles") or []:
+            if not isinstance(entry, dict) or not entry.get("active", True):
+                continue
+            media_id = str(entry.get("reference_media_id") or "")
+            if not media_id:
+                continue
+            stored = await self.hass.async_add_executor_job(
+                _local_portrait,
+                self.portrait_store,
+                str(entry.get("id") or ""),
+                media_id,
+                entry.get("reference_crop"),
+                "vehicle",
+            )
+            if stored:
+                return stored
+            photo = await async_fetch_media_photo(
+                session,
+                self.experience,
+                trip_id,
+                {"id": media_id},
+                cache=self.media_cache,
+                hass=self.hass,
+            )
+            if photo:
+                return crop_photo(photo, entry.get("reference_crop"))
+        return None
 
     async def _async_route_map(
         self, session: Any, days: list[dict[str, Any]]
@@ -589,6 +647,7 @@ class TripPdfExporter:
                 # Every person, not only those WITH a reference photo: the
                 # stored summary has to be found for all of them.
                 reference_by_name[str(person.get("name") or "").casefold()] = {
+                    "id": str(person.get("id") or ""),
                     "media_id": str(person.get("reference_media_id") or ""),
                     "crop": person.get("reference_crop"),
                     "summary": str(person.get("summary") or ""),
@@ -597,6 +656,30 @@ class TripPdfExporter:
             reference = reference_by_name.get(member.name.casefold()) or {}
             reference_item = media_by_id.get(str(reference.get("media_id") or ""))
             mentions = _media_mentioning(all_media, member.name)
+            # The locally stored portrait wins: it is already cropped and
+            # needs no network at all.
+            stored_photo = await self.hass.async_add_executor_job(
+                _local_portrait,
+                self.portrait_store,
+                str(reference.get("id") or ""),
+                str(reference.get("media_id") or ""),
+                reference.get("crop"),
+                "person",
+            )
+            if stored_photo:
+                member.photo = stored_photo
+                member.summary = str(reference.get("summary") or "")[:400]
+                if not member.summary:
+                    member.summary = await self._async_person_summary(
+                        member.name,
+                        member.note,
+                        [
+                            str(item.get("caption") or "").strip()[:200]
+                            for item in mentions[:6]
+                            if str(item.get("caption") or "").strip()
+                        ],
+                    )
+                continue
             portrait_item = reference_item or (mentions[0] if mentions else None)
             if portrait_item is None:
                 continue
@@ -654,6 +737,8 @@ class TripPdfExporter:
             cover_photo=day_photo_bytes[0] if day_photo_bytes else None,
             summary=_stored_summary(trip),
         )
+        if vehicle is not None:
+            vehicle.photo = await self._async_vehicle_photo(session, trip_id)
         return await self.hass.async_add_executor_job(build_trip_pdf, data)
 
     async def _async_fetch_day_photos(

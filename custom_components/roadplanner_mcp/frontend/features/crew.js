@@ -34,6 +34,12 @@ export const crewMixin = {
     // chosen crop decides which part of a group photo is shown, using the
     // same numbers the picker stores.
     const icon = person.kind === "dog" ? "mdi:dog-side" : "mdi:account-outline";
+    // A stored portrait is ALREADY cropped, so there is no crop maths left
+    // to get wrong, and the face survives OneDrive being unreachable.
+    const stored = this._safeUrl(person.portrait_url || "");
+    if (stored) {
+      return `<span class="crew-row-avatar"><img src="${escapeHtml(stored)}" alt="${escapeHtml(person.name)}" loading="lazy"></span>`;
+    }
     const reference = String(person.reference_media_id || "");
     const item = reference
       ? this._crewPickerPhotos().find((photo) => photo.id === reference)
@@ -79,9 +85,17 @@ export const crewMixin = {
     </li>`;
   },
 
+  _crewVehicleAvatar(vehicle) {
+    const stored = this._safeUrl(vehicle.portrait_url || "");
+    if (stored) {
+      return `<span class="crew-row-avatar"><img src="${escapeHtml(stored)}" alt="${escapeHtml(vehicle.name)}" loading="lazy"></span>`;
+    }
+    return `<ha-icon icon="mdi:rv-truck"></ha-icon>`;
+  },
+
   _renderCrewVehicleRow(vehicle, canEdit) {
     return `<li class="crew-row ${vehicle.active ? "" : "inactive"}">
-      <ha-icon icon="mdi:rv-truck"></ha-icon>
+      ${this._crewVehicleAvatar(vehicle)}
       <div class="crew-row-body"><strong>${escapeHtml(vehicle.name)}</strong>${vehicle.description ? `<span>${escapeHtml(vehicle.description)}</span>` : ""}</div>
       ${canEdit ? `<div class="button-row">
         <button class="icon-button" type="button" data-action="edit-crew-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Bearbeiten" aria-label="${escapeHtml(vehicle.name)} bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>
@@ -211,10 +225,12 @@ export const crewMixin = {
       .join("");
   },
 
-  _renderCrewReferencePhotoPicker(person) {
+  _renderCrewReferencePhotoPicker(person, options = {}) {
     // "Wer ist wer": one assigned trip photo is the person's portrait in
     // the PDF and the Vision reference for personal summaries - no photo
-    // captions needed (live request).
+    // captions needed (live request). A vehicle uses the very same picker
+    // ("Vielleicht auch vom Fahrzeug ein Bild?") - only the wording differs,
+    // since a camper has no face to recognise.
     const media = this._crewPickerPhotos();
     const selected = String(person.reference_media_id || "");
     const selectedItem = media.find((item) => item.id === selected) || null;
@@ -226,8 +242,8 @@ export const crewMixin = {
     const to = Math.min((page + 1) * this.CREW_PHOTO_PAGE_SIZE, media.length);
     const cropSize = crop ? Math.round(crop.w * 100) : 40;
     return `<details class="form-field full crew-photo-picker" open>
-      <summary><ha-icon icon="mdi:face-recognition"></ha-icon> Reisefoto zuordnen (wer ist wer)</summary>
-      <small class="hint">Ein Foto antippen, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.</small>
+      <summary><ha-icon icon="${options.icon || "mdi:face-recognition"}"></ha-icon> ${escapeHtml(options.title || "Reisefoto zuordnen (wer ist wer)")}</summary>
+      <small class="hint">${escapeHtml(options.hint || "Ein Foto antippen, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.")}</small>
       <input type="hidden" name="reference_media_id" value="${escapeHtml(selected)}">
       <input type="hidden" name="reference_crop" value="${crop ? escapeHtml(JSON.stringify(crop)) : ""}">
       <div class="crew-photo-current" data-crew-photo-current ${selectedItem ? "" : "hidden"}>
@@ -258,7 +274,11 @@ export const crewMixin = {
   _renderCrewVehicleForm(dialog) {
     const vehicle = dialog.vehicle || {};
     const add = !dialog.vehicle;
-    return `${this._renderModalHeader(add ? "Fahrzeug hinzufügen" : "Fahrzeug bearbeiten")}<form data-form="crew-vehicle" data-mode="${add ? "add" : "edit"}" data-vehicle-id="${escapeHtml(vehicle.id || "")}" class="form-grid">${this._field("name", "Name", vehicle.name || "", "text", true, "full")}${this._textarea("description", "Beschreibung (für ein KI-Icon z.B. Farbe, Typ)", vehicle.description || "", "full")}${this._formActions(add ? "Fahrzeug hinzufügen" : "Änderungen speichern")}</form>`;
+    return `${this._renderModalHeader(add ? "Fahrzeug hinzufügen" : "Fahrzeug bearbeiten")}<form data-form="crew-vehicle" data-mode="${add ? "add" : "edit"}" data-vehicle-id="${escapeHtml(vehicle.id || "")}" class="form-grid">${this._field("name", "Name", vehicle.name || "", "text", true, "full")}${this._textarea("description", "Beschreibung (für ein KI-Icon z.B. Farbe, Typ)", vehicle.description || "", "full")}${this._renderCrewReferencePhotoPicker(vehicle, {
+      icon: "mdi:rv-truck",
+      title: "Reisefoto zuordnen",
+      hint: "Ein Foto antippen, auf dem das Fahrzeug gut zu sehen ist. Es wird als Bild im Reise-Rückblick genutzt. Der Ausschnitt lässt sich wie bei Personen setzen.",
+    })}${this._formActions(add ? "Fahrzeug hinzufügen" : "Änderungen speichern")}</form>`;
   },
 
   _renderTripCrewFields(trip) {

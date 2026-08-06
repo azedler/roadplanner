@@ -2019,6 +2019,16 @@ class RoadplannerPanel extends HTMLElement {
       const value = {
         name: cleanText(values.name),
         description: String(values.description || ""),
+        // Same picker as a person's portrait (live request: "Vielleicht
+        // auch vom Fahrzeug ein Bild?").
+        reference_media_id: cleanText(values.reference_media_id),
+        reference_crop: (() => {
+          try {
+            return values.reference_crop ? JSON.parse(String(values.reference_crop)) : null;
+          } catch (err) {
+            return null;
+          }
+        })(),
       };
       const result = mode === "add"
         ? await this._runAction("crew_vehicle_add", { value }, "Fahrzeug hinzugefügt")
