@@ -1,0 +1,18 @@
+{
+  "name": "roadplanner-renderer-poc",
+  "version": "0.1.0-poc.1",
+  "private": true,
+  "description": "Proof of concept worker for the Roadplanner renderer app. No runtime dependencies by design.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "check": "node --check src/index.mjs && node --check src/protocol.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,304 @@
+/**
+ * The renderer app's worker loop.
+ *
+ * It watches one directory, claims jobs, writes a status and produces two
+ * small artefacts. There is no Remotion here, no browser and no React —
+ * this exists to prove the *route*, and adding rendering before the route
+ * is proven would make a failure ambiguous between "the app cannot be
+ * deployed" and "the render is broken".
+ *
+ * Three properties carry the design:
+ *
+ * - **Every file is written atomically**: temp name in the same directory,
+ *   then rename. Roadplanner polls this directory and must never read half
+ *   a file.
+ * - **A job is claimed by renaming it** out of `jobs/` into `processing/`.
+ *   Rename fails for whoever loses the race, so a job cannot be picked up
+ *   twice — including by a second copy of this app started by mistake.
+ * - **Terminal is terminal.** Once a job is completed/failed/expired, this
+ *   process never writes a running status over it again.
+ *
+ * Polling rather than fs.watch: watching a directory across a container
+ * boundary is exactly where inotify is least reliable (different
+ * filesystems, bind mounts), and a 1 s poll on a directory with a handful
+ * of entries costs nothing measurable.
+ */
+import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+import {
+  ARTIFACT_IMAGE,
+  ARTIFACT_TEXT,
+  ERROR_INTERNAL,
+  ProtocolError,
+  TERMINAL_JOB_STATES,
+  buildHeartbeat,
+  buildResult,
+  buildStatus,
+  buildSvg,
+  buildText,
+  formatTime,
+  isJobId,
+  parseJob,
+  sha256,
+} from "./protocol.mjs";
+
+const APP_VERSION = process.env.ROADPLANNER_APP_VERSION || "0.0.0-dev";
+const EXCHANGE_DIR =
+  process.env.ROADPLANNER_EXCHANGE_DIR || "/share/roadplanner-renderer/poc-v1";
+const POLL_INTERVAL_MS = Number(process.env.ROADPLANNER_POLL_MS || 1000);
+const HEARTBEAT_INTERVAL_MS = 5000;
+// Anything older than this in results/ is from a previous run nobody came
+// back for. Bounded cleanup keeps a shared folder from growing forever.
+const RESULT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const MAX_JOB_FILE_BYTES = 64 * 1024;
+
+const DIRS = {
+  jobs: path.join(EXCHANGE_DIR, "jobs"),
+  processing: path.join(EXCHANGE_DIR, "processing"),
+  status: path.join(EXCHANGE_DIR, "status"),
+  results: path.join(EXCHANGE_DIR, "results"),
+};
+const HEARTBEAT_FILE = path.join(EXCHANGE_DIR, "renderer-status.json");
+
+const startedAt = new Date();
+let running = true;
+let currentState = "starting";
+/** Job ids this process has already finished — terminal stays terminal. */
+const finished = new Set();
+
+const log = (level, message, extra = {}) => {
+  process.stdout.write(
+    `${JSON.stringify({ ts: formatTime(new Date()), level, message, ...extra })}\n`,
+  );
+};
+
+/** Write via a temp file in the SAME directory, so the rename is atomic. */
+async function writeAtomic(target, contents) {
+  const temporary = `${target}.${process.pid}.part`;
+  await fs.writeFile(temporary, contents, "utf8");
+  await fs.rename(temporary, target);
+}
+
+async function writeHeartbeat() {
+  try {
+    await writeAtomic(
+      HEARTBEAT_FILE,
+      `${JSON.stringify(
+        buildHeartbeat({
+          state: currentState,
+          startedAt,
+          now: new Date(),
+          appVersion: APP_VERSION,
+        }),
+        null,
+        2,
+      )}\n`,
+    );
+  } catch (err) {
+    log("error", "heartbeat konnte nicht geschrieben werden", { detail: String(err) });
+  }
+}
+
+async function writeStatus(jobId, state, extra = {}) {
+  if (finished.has(jobId) && !TERMINAL_JOB_STATES.has(state)) {
+    // Refusing this is the whole guarantee: a late write must not
+    // resurrect a job Roadplanner already saw finish.
+    log("warn", "status nach terminalem Zustand verworfen", { job_id: jobId, state });
+    return;
+  }
+  if (TERMINAL_JOB_STATES.has(state)) finished.add(jobId);
+  await writeAtomic(
+    path.join(DIRS.status, `${jobId}.json`),
+    `${JSON.stringify(
+      buildStatus({ jobId, state, updatedAt: new Date(), ...extra }),
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+/**
+ * Read a job file, refusing anything oversized before it is parsed.
+ *
+ * `lstat`, not `stat`: `stat` follows the link and would report the target,
+ * which is exactly what a symlink check must not do. The exchange folder is
+ * writable by another container, so a link out of it is the one way a file
+ * there could reach something it should not.
+ */
+async function readJobFile(file) {
+  const stat = await fs.lstat(file);
+  if (stat.isSymbolicLink()) {
+    throw new ProtocolError("INVALID_JOB", "Symlink wird nicht verarbeitet.");
+  }
+  if (stat.size > MAX_JOB_FILE_BYTES) {
+    throw new ProtocolError("INVALID_JOB", "Auftragsdatei überschreitet die Größengrenze.");
+  }
+  return fs.readFile(file, "utf8");
+}
+
+async function produceArtifacts(jobId, message) {
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const timestamp = formatTime(new Date());
+  const files = [
+    { filename: ARTIFACT_TEXT, kind: "text", body: buildText({ jobId, message, timestamp }) },
+    { filename: ARTIFACT_IMAGE, kind: "image", body: buildSvg({ jobId, message, timestamp }) },
+  ];
+  const artifacts = [];
+  for (const file of files) {
+    await writeAtomic(path.join(folder, file.filename), file.body);
+    artifacts.push({
+      kind: file.kind,
+      filename: file.filename,
+      size_bytes: Buffer.byteLength(file.body, "utf8"),
+      sha256: sha256(Buffer.from(file.body, "utf8")),
+    });
+  }
+  // result.json is written LAST and atomically: its presence is the signal
+  // that every artefact beside it is complete.
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(buildResult({ jobId, completedAt: new Date(), artifacts }), null, 2)}\n`,
+  );
+  return artifacts;
+}
+
+async function handleJob(name) {
+  const jobId = name.replace(/\.json$/i, "");
+  if (!isJobId(jobId)) {
+    log("warn", "Dateiname ist keine Job-ID, wird ignoriert", { name });
+    return;
+  }
+  const source = path.join(DIRS.jobs, name);
+  const claimed = path.join(DIRS.processing, name);
+  try {
+    // Claim by rename. Losing this race is normal and simply means
+    // somebody else has the job.
+    await fs.rename(source, claimed);
+  } catch {
+    return;
+  }
+  log("info", "Auftrag übernommen", { job_id: jobId });
+
+  try {
+    await writeStatus(jobId, "claimed", { progress: 0 });
+    const job = parseJob(await readJobFile(claimed), { now: Date.now() });
+    await writeStatus(jobId, "running", { progress: 0.5 });
+    if (job.action === "ping") {
+      await writeStatus(jobId, "completed", { progress: 1 });
+    } else {
+      await produceArtifacts(jobId, job.message);
+      await writeStatus(jobId, "completed", { progress: 1 });
+    }
+    log("info", "Auftrag abgeschlossen", { job_id: jobId });
+  } catch (err) {
+    const isProtocol = err instanceof ProtocolError;
+    const state = isProtocol && err.code === "EXPIRED" ? "expired" : "failed";
+    await writeStatus(jobId, state, {
+      error: {
+        code: isProtocol ? err.code : ERROR_INTERNAL,
+        // Only the message, never a stack or a path: this string is shown
+        // in Home Assistant's UI.
+        message: isProtocol ? err.message : "Interner Fehler bei der Verarbeitung.",
+        retryable: false,
+      },
+    });
+    log("warn", "Auftrag fehlgeschlagen", { job_id: jobId, state, detail: String(err) });
+  } finally {
+    await fs.rm(claimed, { force: true }).catch(() => {});
+  }
+}
+
+/**
+ * A job left in processing/ when this process died is not running any more
+ * — nothing is going to finish it. Reporting it as failed on startup is
+ * what stops a Home Assistant restart from leaving a job "running" forever.
+ */
+async function recoverInterrupted() {
+  const names = await fs.readdir(DIRS.processing).catch(() => []);
+  for (const name of names) {
+    const jobId = name.replace(/\.json$/i, "");
+    if (!isJobId(jobId)) continue;
+    await writeStatus(jobId, "failed", {
+      error: {
+        code: "INTERRUPTED",
+        message: "Die Renderer-App wurde während der Verarbeitung neu gestartet.",
+        retryable: true,
+      },
+    }).catch(() => {});
+    await fs.rm(path.join(DIRS.processing, name), { force: true }).catch(() => {});
+    log("warn", "unterbrochenen Auftrag als fehlgeschlagen markiert", { job_id: jobId });
+  }
+}
+
+async function cleanupOldResults() {
+  const cutoff = Date.now() - RESULT_RETENTION_MS;
+  const names = await fs.readdir(DIRS.results).catch(() => []);
+  for (const name of names) {
+    if (!isJobId(name)) continue;
+    const folder = path.join(DIRS.results, name);
+    const stat = await fs.stat(folder).catch(() => null);
+    if (stat && stat.mtimeMs < cutoff) {
+      await fs.rm(folder, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(DIRS.status, `${name}.json`), { force: true }).catch(() => {});
+      finished.delete(name);
+      log("info", "altes Ergebnis aufgeräumt", { job_id: name });
+    }
+  }
+}
+
+async function main() {
+  for (const dir of Object.values(DIRS)) {
+    await fs.mkdir(dir, { recursive: true });
+  }
+  log("info", "Renderer-App startet", { version: APP_VERSION, exchange_dir: EXCHANGE_DIR });
+  await writeHeartbeat();
+  await recoverInterrupted();
+  await cleanupOldResults();
+
+  currentState = "ready";
+  await writeHeartbeat();
+  const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
+  // Unref so a pending heartbeat timer cannot hold the process open during
+  // shutdown; SIGTERM has to mean SIGTERM.
+  heartbeat.unref();
+
+  let sweeps = 0;
+  while (running) {
+    try {
+      const names = (await fs.readdir(DIRS.jobs)).filter((name) => name.endsWith(".json"));
+      for (const name of names.sort()) {
+        if (!running) break;
+        await handleJob(name);
+      }
+      if ((sweeps += 1) % 600 === 0) await cleanupOldResults();
+    } catch (err) {
+      // A broken directory must degrade the app, not kill it: Roadplanner
+      // can then show "degraded" instead of the app simply vanishing.
+      currentState = "degraded";
+      log("error", "Durchlauf fehlgeschlagen", { detail: String(err) });
+      await writeHeartbeat();
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+
+  clearInterval(heartbeat);
+  currentState = "stopping";
+  await writeHeartbeat();
+  log("info", "Renderer-App beendet");
+}
+
+const shutdown = (signal) => {
+  if (!running) return;
+  running = false;
+  log("info", "Signal empfangen, fahre herunter", { signal });
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+main().catch((err) => {
+  log("error", "Renderer-App abgestürzt", { detail: String(err) });
+  process.exitCode = 1;
+});

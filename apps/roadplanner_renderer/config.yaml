@@ -1,0 +1,38 @@
+# Home Assistant app configuration for the renderer proof of concept.
+#
+# The permission set is the point of this file. Everything that is NOT
+# requested here is as deliberate as what is: no ports, no ingress, no host
+# network, no privileged mode, no Supervisor or Home Assistant API, no
+# access to /config and no secrets. The app gets exactly one thing beyond a
+# plain container - a read/write mount of /share - because that shared
+# directory is the entire communication channel.
+name: Roadplanner Renderer (PoC)
+version: "0.1.0-poc.1"
+slug: roadplanner_renderer_poc
+description: >-
+  Experimenteller Machbarkeitsnachweis: beweist ausschliesslich Installation,
+  Heartbeat, Auftrag, Status und Ergebnis ueber einen gemeinsamen Ordner.
+  Kein Remotion, kein Browser, kein Videoexport.
+url: https://github.com/azedler/roadplanner/tree/main/apps/roadplanner_renderer
+# Marks the app as an experiment in the Home Assistant store, so it can
+# never be mistaken for a finished feature.
+stage: experimental
+arch:
+  - amd64
+# The worker handles SIGTERM itself and has no child processes to reap, so
+# it does not need an init wrapper.
+init: false
+startup: application
+# Manual start: an experiment must not come up by itself after a reboot.
+boot: manual
+apparmor: true
+host_network: false
+ingress: false
+map:
+  - type: share
+    read_only: false
+image: ghcr.io/azedler/roadplanner-renderer-poc-{arch}
+options:
+  log_level: info
+schema:
+  log_level: list(debug|info|warning|error)

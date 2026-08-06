@@ -39,6 +39,7 @@ import { routeMapMixin } from "./features/route-map.js";
 import { tripDayStopMixin } from "./features/trip-day-stop.js";
 import { crewMixin } from "./features/crew.js";
 import { remotionSpikeMixin } from "./features/remotion-spike.js";
+import { rendererAppMixin } from "./features/renderer-app.js";
 import { pitchesMixin } from "./features/pitches.js";
 
 // Mirror of panel.py's _PROVIDER_CALL_ACTIONS: these run shielded
@@ -52,6 +53,8 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "generate_trip_summaries",
   "remotion_diagnose",
   "remotion_test_render",
+  "renderer_app_environment",
+  "renderer_app_run",
   "park4night_lookup",
   "place_link_lookup",
 ]);
@@ -1611,6 +1614,12 @@ class RoadplannerPanel extends HTMLElement {
       this._remotionCancel();
     } else if (action === "remotion-copy-report") {
       this._copyToClipboard(this._remotionReportText(), "Diagnosebericht kopiert");
+    } else if (action === "renderer-app-probe") {
+      this._rendererAppProbe();
+    } else if (action === "renderer-app-run" && this._canEdit()) {
+      this._rendererAppRun();
+    } else if (action === "renderer-app-copy-report") {
+      this._copyToClipboard(this._rendererAppReportText(), "Bericht kopiert");
     } else if (action === "run-system-check") {
       void this._runSystemCheck();
     } else if (action === "copy-system-check") {
@@ -2608,6 +2617,7 @@ Object.assign(RoadplannerPanel.prototype, routeMapMixin);
 Object.assign(RoadplannerPanel.prototype, tripDayStopMixin);
 Object.assign(RoadplannerPanel.prototype, crewMixin);
 Object.assign(RoadplannerPanel.prototype, remotionSpikeMixin);
+Object.assign(RoadplannerPanel.prototype, rendererAppMixin);
 Object.assign(RoadplannerPanel.prototype, pitchesMixin);
 
 if (!customElements.get("roadplanner-panel")) {

@@ -1,0 +1,11 @@
+# Home Assistant app repository descriptor.
+#
+# This one repository serves two consumers that never look at the same
+# files: HACS reads hacs.json and custom_components/ to install the
+# integration, Home Assistant's Supervisor reads this file and apps/ to
+# install the renderer app. Neither is affected by the other's metadata,
+# which is what allows a single public repository and a single release
+# process to stay in place.
+name: Roadplanner
+url: https://github.com/azedler/roadplanner
+maintainer: azedler <aron.zedler@gmail.com>
