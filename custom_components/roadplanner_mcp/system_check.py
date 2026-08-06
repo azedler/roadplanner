@@ -252,6 +252,11 @@ async def async_run_system_check(
             detail = f"{int(place.get('page_bytes') or 0) // 1024} kB gelesen"
             name = str(place.get("name") or "").strip()
             detail += f", Seitentitel „{name[:60]}“" if name else ", ohne Seitentitel"
+            # The decisive distinction: a page with NO coordinates needs a
+            # different answer than one with a dozen that disagree.
+            scan = str(place.get("coordinate_scan") or "").strip()
+            if scan:
+                detail += f", {scan}"
             return WARN, f"Seite gelesen, aber ohne GPS-Angabe im Seitenquelltext ({detail})"
         return FAIL, f"Seite nicht lesbar ({read_status or 'unbekannt'})"
 

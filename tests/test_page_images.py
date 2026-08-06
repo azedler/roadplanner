@@ -334,6 +334,41 @@ def verify_a_page_without_open_graph_still_yields_its_name() -> None:
     assert "name" not in module.extract_page_place("<html><body><div id=app></div></body></html>")
 
 
+def verify_the_scan_says_why_no_position_was_taken() -> None:
+    """Live Systemcheck: a Park4Night page read fully, with a proper page
+    title, and still yielded no position. "Ohne GPS-Angabe" covers two very
+    different findings, and only one of them is worth building for.
+    """
+    # Nothing at all.
+    empty = module.scan_coordinate_report("<html><body>nur Text</body></html>")
+    assert empty["accepted"] is None
+    assert "keine Koordinaten" in empty["reason"]
+
+    # Several places on one page - refused on purpose, and it says so.
+    listing = "".join(
+        f'<div data-lat="{60 + index}.1234" data-lng="16.{index}678"></div>'
+        for index in range(4)
+    )
+    many = module.scan_coordinate_report(listing)
+    assert many["accepted"] is None
+    assert "uneinig" in many["reason"], many["reason"]
+    assert many["patterns"].get("data_attribute") == 4
+
+    # A marker shipped as data attributes IS usable when it is the only one.
+    single = module.scan_coordinate_report(
+        '<div class="marker" data-lat="60.8901" data-lng="16.7234"></div>'
+    )
+    assert single["accepted"] == (60.8901, 16.7234), single
+    assert "einig" in single["reason"]
+
+    # And it reaches the extractor, which previously matched JSON only.
+    place = module.extract_page_place(
+        '<html><body><div data-latitude="60.8901" data-longitude="16.7234">'
+        "</div></body></html>"
+    )
+    assert place.get("latitude") == 60.8901, place
+
+
 if __name__ == "__main__":
     verify_extraction_shapes_and_filters()
     verify_page_place_extraction()
@@ -345,4 +380,5 @@ if __name__ == "__main__":
     verify_source_hint_fetch_skips_covered_providers()
     verify_gallery_and_enrichment_wiring()
     verify_a_page_without_open_graph_still_yields_its_name()
+    verify_the_scan_says_why_no_position_was_taken()
     print("Shared-page image extraction tests passed.")
