@@ -79,11 +79,25 @@ TERMINAL_JOB_STATES = frozenset({JOB_COMPLETED, JOB_FAILED, JOB_EXPIRED})
 
 ACTION_PING = "ping"
 ACTION_CREATE_TEST_ARTIFACT = "create_test_artifact"
-ALLOWED_ACTIONS = (ACTION_PING, ACTION_CREATE_TEST_ARTIFACT)
+ACTION_RENDER_REMOTION_TEST = "render_remotion_test"
+ALLOWED_ACTIONS = (
+    ACTION_PING,
+    ACTION_CREATE_TEST_ARTIFACT,
+    ACTION_RENDER_REMOTION_TEST,
+)
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
 ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg"
-ALLOWED_ARTIFACTS = {ARTIFACT_TEXT: "text", ARTIFACT_IMAGE: "image"}
+ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
+ALLOWED_ARTIFACTS = {
+    ARTIFACT_TEXT: "text",
+    ARTIFACT_IMAGE: "image",
+    ARTIFACT_VIDEO: "video",
+}
+# Text artefacts are read into the panel; a video never is. Keeping the
+# limits apart means the small ones stay small - a 64 MiB text file would
+# be nonsense, and a 256 KiB cap would reject every real video.
+TEXT_ARTIFACT_KINDS = frozenset({"text", "image"})
 
 # --- limits -------------------------------------------------------------
 
@@ -99,6 +113,7 @@ JOB_TTL_SECONDS = 300
 
 MAX_JSON_BYTES = 64 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024
+MAX_VIDEO_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_MESSAGE_LENGTH = 120
 MAX_ERROR_LENGTH = 300
 
@@ -382,12 +397,14 @@ def validate_result(payload: Any, *, job_id: str) -> dict[str, Any]:
             raise RendererProtocolError(
                 f"Artefakt {filename} ohne gültige Größe"
             ) from err
-        if not 0 < size <= MAX_ARTIFACT_BYTES:
+        kind = ALLOWED_ARTIFACTS[filename]
+        limit = MAX_ARTIFACT_BYTES if kind in TEXT_ARTIFACT_KINDS else MAX_VIDEO_ARTIFACT_BYTES
+        if not 0 < size <= limit:
             raise RendererProtocolError(f"Artefakt {filename} überschreitet die Größengrenze")
         artifacts.append(
             {
                 "filename": filename,
-                "kind": ALLOWED_ARTIFACTS[filename],
+                "kind": kind,
                 "size_bytes": size,
                 "sha256": digest,
             }
@@ -400,7 +417,42 @@ def validate_result(payload: Any, *, job_id: str) -> dict[str, Any]:
         "state": JOB_COMPLETED,
         "completed_at": data.get("completed_at"),
         "artifacts": artifacts,
+        "video": _video_facts(data.get("video")),
+        "timings": _timings(data.get("timings")),
     }
+
+
+def _video_facts(raw: Any) -> dict[str, Any] | None:
+    """What ffprobe measured about the produced file, bounded and typed."""
+    if not isinstance(raw, dict):
+        return None
+    def number(key: str) -> float | None:
+        value = raw.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value)
+    return {
+        "codec": clean_text(raw.get("codec"), limit=40),
+        "container": clean_text(raw.get("container"), limit=40),
+        "width": number("width"),
+        "height": number("height"),
+        "fps": number("fps"),
+        "duration_seconds": number("duration_seconds"),
+        "size_bytes": number("size_bytes"),
+    }
+
+
+def _timings(raw: Any) -> dict[str, float]:
+    """Measured durations, in seconds. Unknown keys are dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    allowed = ("browser_start", "render", "probe", "total")
+    out: dict[str, float] = {}
+    for key in allowed:
+        value = raw.get(key)
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            out[key] = round(float(value), 3)
+    return out
 
 
 def verify_artifact(data: bytes, declared: dict[str, Any]) -> bytes:

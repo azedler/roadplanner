@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.35.0] - 2026-08-06
+
+### Added
+
+- **Remotion läuft in der Renderer-App** (`0.2.0-remotion.1`). Der neue Auftrag `render_remotion_test` erzeugt ein fünfsekündiges H.264-Testvideo (1280×720, 30 fps) im App-Container – schwarzer Hintergrund, Titel, ein Camper, der durchs Bild fährt. **Kein Produktivexport:** der bestehende PDF-Weg und die ffmpeg-Videopipeline sind unberührt und werden von hier aus nicht erreicht.
+  - **Alles liegt im Image:** gepinnte Node-Laufzeit (per SHA-256 geprüft, bevor sie ausgepackt wird), gepinnte npm-Abhängigkeiten (Remotion 4.0.506, React 19.2.0), Chromium, Schriften und ffprobe. Während eines Auftrags wird nichts geladen, beim Containerstart nichts installiert. `REMOTION_SKIP_BROWSER_DOWNLOAD=1` und der Verzicht auf `ensureBrowser` stellen sicher, dass sich der Renderer niemals selbst einen Browser holt.
+  - **Die Komposition wird einmal zur Build-Zeit gebündelt**, nicht bei jedem Render. Das spart CPU auf dem Zielsystem und verlagert einen möglichen Fehler dorthin, wo er laut auffällt.
+  - **Exit-Code 0 ist eine Behauptung, ffprobe ist die Prüfung.** Codec, Container, Auflösung, Bildrate und Dauer werden zurückgelesen; erst danach wird die Datei aus ihrem temporären Namen an die endgültige Stelle verschoben. Der Austauschordner wird abgefragt, ein halb geschriebenes MP4 unter dem Zielnamen würde als fertiges Ergebnis gelesen.
+  - Remotion wird **erst beim Rendern nachgeladen**. Der einfache Testauftrag beantwortet die Auslieferungsfrage weiterhin auch dort, wo der Renderer gar nicht laden kann.
+  - Ein Video wird auf der Home-Assistant-Seite geprüft, aber nie in den Speicher gelesen oder ins Panel gereicht: es sind Megabyte Binärdaten, die dort nichts anzeigen. Das Panel zeigt, was ffprobe gemessen hat.
+
+### Changed
+
+- Das App-Image basiert jetzt auf Debian statt Alpine. Remotion liefert zwar einen musl-Compositor, aber Chromium auf glibc ist der erprobtere Weg für kopfloses Rendern – ein Spike soll aus interessanten Gründen scheitern, nicht an der Basisdistribution.
+
 ## [4.34.1] - 2026-08-06
 
 ### Fixed
