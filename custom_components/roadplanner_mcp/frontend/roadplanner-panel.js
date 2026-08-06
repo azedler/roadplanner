@@ -1292,17 +1292,58 @@ class RoadplannerPanel extends HTMLElement {
       // version query and, thanks to the always-revalidating static view,
       // every submodule it imports too.
       const doReload = () => {
-        // A plain reload can still be answered from the frontend's service
-        // worker cache; a one-shot query parameter forces a fresh document
-        // and with it a fresh panel module URL. Falls back to a plain
-        // reload wherever that is not possible.
-        try {
-          const target = new URL(window.location.href);
-          target.searchParams.set("rp", String(Date.now()));
-          window.location.replace(target.toString());
-        } catch (err) {
-          window.location.reload();
-        }
+        // Reloading the DOCUMENT is not enough, and that is why the button
+        // did nothing (live report: "Dein Mechanismus zur Cache
+        // Aktualisierung funktioniert also nicht ... Nach 'von oben nach
+        // unten ziehen' ist jetzt der neue Check da").
+        //
+        // Home Assistant loads the panel module at runtime from a URL the
+        // backend supplies, so that URL is already correct after an update.
+        // The stale part is the FETCH: the frontend's service worker
+        // answers it from its cache, and several of its routes match while
+        // ignoring the query string - so the fresh "?v=4.32.0" is served
+        // from the entry stored for "?v=4.31.1". A cache-busting parameter
+        // on the document cannot reach that.
+        //
+        // So the Roadplanner entries are dropped from every cache first,
+        // and only then is the document replaced. Deliberately targeted:
+        // clearing all of Home Assistant's caches, or unregistering its
+        // service worker, would degrade the whole app for a problem that
+        // belongs to one panel.
+        const replaceDocument = () => {
+          try {
+            const target = new URL(window.location.href);
+            target.searchParams.set("rp", String(Date.now()));
+            window.location.replace(target.toString());
+          } catch (err) {
+            window.location.reload();
+          }
+        };
+        void (async () => {
+          try {
+            if (window.caches?.keys) {
+              const names = await window.caches.keys();
+              await Promise.all(names.map(async (name) => {
+                const cache = await window.caches.open(name);
+                const requests = await cache.keys();
+                await Promise.all(
+                  requests
+                    .filter((request) => String(request.url).includes("roadplanner"))
+                    .map((request) => cache.delete(request, { ignoreSearch: true })),
+                );
+              }));
+            }
+            // Ask the worker itself to re-check, so the next load cannot be
+            // served by a build that is about to be replaced anyway.
+            const registrations =
+              (await navigator.serviceWorker?.getRegistrations?.()) || [];
+            await Promise.all(registrations.map((registration) =>
+              registration.update().catch(() => undefined)));
+          } catch (err) {
+            // A browser without the Cache API still gets the reload.
+          }
+          replaceDocument();
+        })();
       };
       if (this._dialog) {
         this._confirm(
@@ -2366,7 +2407,7 @@ class RoadplannerPanel extends HTMLElement {
     if (!backendVersion || !LOADED_MODULE_VERSION || backendVersion === LOADED_MODULE_VERSION) return "";
     return `<div class="notice warning view-notice">
       <ha-icon icon="mdi:cellphone-arrow-down"></ha-icon>
-      <div><strong>Ältere Oberfläche geladen</strong><span>Roadplanner läuft auf ${escapeHtml(backendVersion)}, geladen ist noch ${escapeHtml(LOADED_MODULE_VERSION)}. Neue Funktionen erscheinen erst nach dem Aktualisieren.</span></div>
+      <div><strong>Ältere Oberfläche geladen</strong><span>Roadplanner läuft auf ${escapeHtml(backendVersion)}, geladen ist noch ${escapeHtml(LOADED_MODULE_VERSION)}. Neue Funktionen erscheinen erst nach dem Aktualisieren. Hilft der Knopf nicht, in der App einmal von oben nach unten ziehen - das umgeht den Cache zuverlässig.</span></div>
       <button class="primary-button compact-button" type="button" data-action="reload-app">App aktualisieren</button>
     </div>`;
   }

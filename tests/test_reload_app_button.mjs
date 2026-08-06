@@ -50,11 +50,15 @@ panel._render = () => {};
 const fakeTarget = { dataset: { action: "reload-app" }, classList: { contains: () => false } };
 const fakeEvent = { target: { closest: (selector) => (selector.includes("data-action") ? fakeTarget : null) } };
 
-// No dialog open: reload happens immediately, no confirmation needed.
+// No dialog open: the reload runs straight away, no confirmation needed.
+// It is asynchronous now because the panel's cached modules are evicted
+// first - a document reload alone was served from the service worker
+// cache and changed nothing (see test_stale_module_reload.mjs).
 reloadCalls = 0;
 panel._dialog = null;
 panel._handleClick(fakeEvent);
-assert.equal(reloadCalls, 1, "with no open dialog, the app reload must happen immediately");
+await new Promise((resolve) => setTimeout(resolve, 20));
+assert.equal(reloadCalls, 1, "with no open dialog, the app reload must happen without asking");
 
 // A dialog/form is open: reload must be gated behind a confirmation so
 // in-progress typed input isn't silently discarded.
@@ -66,6 +70,7 @@ panel._handleClick(fakeEvent);
 assert.equal(reloadCalls, 0, "reload must not happen before the user confirms");
 assert.ok(confirmed, "an open dialog must trigger a confirmation before reloading");
 confirmed.callback();
+await new Promise((resolve) => setTimeout(resolve, 20));
 assert.equal(reloadCalls, 1, "confirming must trigger exactly one reload");
 
 // The button itself must be in the topbar, distinct from the data-only
