@@ -2,8 +2,10 @@
 
 Written for an external architecture review. It describes how the two
 export paths actually work today, why each non-obvious decision was made,
-and where the known weak points are. Nothing here is aspirational — every
-statement below reflects code in `custom_components/roadplanner_mcp/`.
+where the known weak points are, and one open design question the owner
+wants settled (§6: should the PDF be a photo book rather than a document?).
+Nothing else here is aspirational — every other statement reflects code in
+`custom_components/roadplanner_mcp/`.
 
 **Context that shapes everything:** this is a Home Assistant custom
 integration. It runs inside the HA event loop, on hardware that ranges from
@@ -272,7 +274,85 @@ nothing to invalidate, and a stale portrait can never be served.
 
 ---
 
-## 6. Known weak points (for the review)
+## 6. Open design question for the review: should the PDF be a photo book?
+
+**The question the owner wants answered:** the trip summary is currently a
+document — A4 **portrait**, text-led, photos supporting the text. Should it
+instead be shaped like a **photo book** — A4 or similar **landscape**,
+image-led, text supporting the photos?
+
+This is not a rhetorical question. Both readings of "Reise-Rückblick" are
+defensible and they lead to different products:
+
+| | Document (today) | Photo book |
+|---|---|---|
+| Page | A4 portrait | A4/A5 landscape, or square |
+| Lead element | The day's facts and route | The photographs |
+| Photos per day | up to 9, in justified rows | 1–3, large, sometimes full-bleed |
+| Text | stops, distance, drive time, summary | caption-length, often one line |
+| Read as | a record you consult | an album you leaf through |
+| Printed | fine on any home printer | wants a print service |
+
+### What the current code makes cheap
+
+The renderer is pure and page-geometry is derived, not hard-coded in most
+places: `PAGE_W, PAGE_H = A4` at module level, and layout maths flows from
+those two constants plus `MARGIN`. Changing to landscape is genuinely
+`PAGE_W, PAGE_H = landscape(A4)` **plus** a review of every hard-coded
+millimetre offset — of which there are many (`PAGE_H - 34 * mm`, card
+heights, `_DAY_TOP`, the crew card grid, the closing page's stat boxes).
+Mechanically easy, visually a full redesign.
+
+The photo row layout (§2.2) already adapts to any text-column width and
+keeps each photo's aspect ratio, so it would survive a landscape page
+unchanged — it would simply produce wider rows.
+
+### What it makes expensive
+
+1. **The cover and the closing page are composed for portrait.** Both would
+   need real redesign, not reflow.
+2. **The route map is fetched at 1000×720 and framed by `fit_center_zoom`
+   for a portrait text column.** A landscape page wants a wider aspect and
+   probably a full-bleed treatment, which changes the framing maths and the
+   attribution placement (OSM requires the attribution to remain legible).
+3. **Full-bleed photography needs bleed-aware margins** and a decision about
+   whether this PDF is meant for home printing (safe margins, no bleed) or
+   for a print service (3 mm bleed, crop marks). Today it silently assumes
+   the former.
+4. **Image resolution.** Photos are fetched at `c1920x1440` thumbnails. That
+   is ample for a 60 mm tile and marginal for a half-page landscape image
+   at 300 dpi (a 140 mm wide image wants ~1650 px). A photo-book format
+   would push the fetch toward originals — which reopens the HEIC problem
+   described in §1.3, since originals are exactly the variant Pillow cannot
+   read.
+5. **Text volume.** The generated day summaries (§4) are written for 2–3
+   sentences. A photo book wants shorter, caption-like text; that is a
+   prompt change, not a layout change, but it has to be decided together
+   with the format.
+
+### The concrete questions for the reviewer
+
+- Is a **single** format the right call, or should format be an export
+  option (`document` / `album`) the way the video already has
+  `highlight` / `full`? An option doubles the layout surface to maintain —
+  is that worth it, or is one opinionated format better?
+- If one format: which reading of the artefact is primary — the record or
+  the album? The stored per-day summaries and the route page argue for
+  record; 265 personal photos on a 23-day trip argue for album.
+- Does this PDF need to survive a **print service** (bleed, CMYK, 300 dpi),
+  or is it a screen-and-home-printer artefact? That single answer decides
+  points 3 and 4 above.
+- If landscape: is the day still the unit of layout, or does a photo book
+  want spreads that ignore day boundaries? The current flow-packing
+  algorithm assumes the day is atomic.
+
+**Not yet decided, deliberately.** Nothing has been built toward either
+answer; the question is recorded here so the review can settle it before
+the layout accumulates more portrait-specific assumptions.
+
+---
+
+## 7. Known weak points (for the review)
 
 1. **"Letztes PDF"/"Letztes Video" are global, not per trip.** With more
    than one trip the newest file of *any* trip is returned.
@@ -293,7 +373,7 @@ nothing to invalidate, and a stale portrait can never be served.
 
 ---
 
-## 7. Test strategy
+## 8. Test strategy
 
 - Pure modules (`trip_pdf`, `trip_video`, `trip_summaries`, `map_snapshot`,
   `routing`) have directly executable behavioural tests: `python3

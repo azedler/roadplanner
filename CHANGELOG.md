@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.31.1] - 2026-08-05
+
+### Documentation
+
+- **Offene Gestaltungsfrage ins Export-Dokument aufgenommen** (live gewünscht: „Nimm mal die Frage mit auf ob wir das pdf mehr als Fotobücher machen sollten vom Format her und Design. Z.b. a4 quer“). Der Abschnitt stellt Dokument und Fotobuch gegenüber, benennt was der heutige Aufbau billig macht (die Seitengeometrie ist abgeleitet, die Fotoreihen überleben ein Querformat unverändert) und was teuer wird (Titel- und Schlussseite, Kartenrahmung samt Pflicht-Attribution, Anschnitt fürs Druckhaus, Bildauflösung – randabfallende Bilder verlangen Originale, und genau die sind das HEIC-Problem). Vier konkrete Entscheidungsfragen stehen darin, unter anderem ob Format eine Exportoption werden soll wie beim Video oder ob ein Format bewusst gesetzt wird.
+
 ## [4.31.0] - 2026-08-05
 
 ### Added
