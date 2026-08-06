@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.33.0] - 2026-08-06
+
+### Fixed
+
+- **Koordinaten, die als HTML-Attribute geliefert werden, werden jetzt erkannt.** Bisher wurde nur nach JSON (`"lat": …, "lng": …`) und nach Kartenlinks gesucht. Ein Marker, der als `data-lat`/`data-lng` am Element hängt – bei Kartenwidgets, die aus dem DOM starten, sehr verbreitet – wurde gar nicht betrachtet.
+
+### Changed
+
+- **Der Systemcheck sagt bei fehlenden Koordinaten, woran es liegt** (live: Die Park4Night-Seite kam vollständig an, mit sauberem Seitentitel „park4night - (816 91) Ockelbo - Unnamed Road“, und lieferte trotzdem keine Position). „Ohne GPS-Angabe im Seitenquelltext“ deckt zwei völlig verschiedene Befunde ab: eine Seite **ohne jede** Koordinate – dann hilft der Seitenabruf grundsätzlich nicht weiter – oder eine Seite mit **mehreren**, die auseinanderliegen, weil sie auch die Nachbarplätze auflistet. Im zweiten Fall verweigert Roadplanner die Auswahl bewusst, statt einen der Plätze zu raten und den Stopp kilometerweit zu verschieben. Die Meldung nennt jetzt Muster, Trefferzahl und Grund – nur der zweite Fall rechtfertigt weiteren Aufwand.
+
 ## [4.32.0] - 2026-08-06
 
 ### Experimental (ausgeliefert, aber inaktiv)

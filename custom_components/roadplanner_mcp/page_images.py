@@ -258,6 +258,16 @@ _JSON_LON_LAT_RE = re.compile(
     r'"(?:latitude|lat)"\s*:\s*"?(-?\d{1,3}\.\d{3,10})"?',
     re.IGNORECASE,
 )
+# A marker shipped as HTML data attributes rather than as JSON. Very common
+# for map widgets that are initialised from the DOM, and previously not
+# matched at all (live Systemcheck: a Park4Night page came back fully read,
+# with a proper page title, and still without a position).
+_DATA_ATTRIBUTE_COORD_RE = re.compile(
+    r'data-(?:lat|latitude)\s*=\s*["\'](-?\d{1,3}\.\d{3,10})["\']'
+    r'[^>]{0,200}?'
+    r'data-(?:lng|lon|long|longitude)\s*=\s*["\'](-?\d{1,3}\.\d{3,10})["\']',
+    re.IGNORECASE,
+)
 # Coordinates inside an embedded map link or iframe on the page.
 _MAP_LINK_COORD_RE = re.compile(
     r"(?:[@!]|[?&#](?:q|ll|center|mlat)=|/@)"
@@ -288,13 +298,56 @@ def _agreeing_coordinates(
     return first_lat, first_lon
 
 
+_COORD_PATTERNS = (
+    ("json_lat_lon", _JSON_LAT_LON_RE, False),
+    ("json_lon_lat", _JSON_LON_LAT_RE, True),
+    ("data_attribute", _DATA_ATTRIBUTE_COORD_RE, False),
+    ("map_link", _MAP_LINK_COORD_RE, False),
+)
+
+
+def scan_coordinate_report(page_html: str) -> dict[str, Any]:
+    """Say WHAT was found and why it was or was not usable.
+
+    "Ohne GPS-Angabe im Seitenquelltext" covers two very different
+    findings: a page that carries no coordinates at all, and a page that
+    carries a dozen of them - its neighbours - which the agreement rule
+    then rightly refuses to guess between. Only the second one is worth
+    building anything for, so the report has to tell them apart (live
+    Systemcheck on a Park4Night page).
+    """
+    report: dict[str, Any] = {"patterns": {}, "accepted": None, "reason": ""}
+    for name, pattern, swapped in _COORD_PATTERNS:
+        candidates: list[tuple[float, float]] = []
+        for match in pattern.finditer(page_html):
+            first, second = match.group(1), match.group(2)
+            pair = _valid_coordinates(
+                *(second, first) if swapped else (first, second)
+            )
+            if pair:
+                candidates.append(pair)
+            if len(candidates) > _MAX_SCANNED_COORDINATES:
+                break
+        if not candidates:
+            continue
+        report["patterns"][name] = len(candidates)
+        agreed = _agreeing_coordinates(candidates)
+        if agreed:
+            report["accepted"] = agreed
+            report["reason"] = f"{name}: {len(candidates)} Treffer, einig"
+            return report
+        report["reason"] = (
+            f"{name}: {len(candidates)} Treffer, aber uneinig - die Seite "
+            "listet mehrere Orte"
+        )
+    if not report["patterns"]:
+        report["reason"] = "keine Koordinaten im Seitenquelltext gefunden"
+    return report
+
+
 def _scanned_coordinates(page_html: str) -> tuple[float, float] | None:
     """Coordinates from embedded JSON / map links, only when unambiguous."""
-    for pattern, swapped in (
-        (_JSON_LAT_LON_RE, False),
-        (_JSON_LON_LAT_RE, True),
-        (_MAP_LINK_COORD_RE, False),
-    ):
+    for _name, pattern, swapped in _COORD_PATTERNS:
         candidates: list[tuple[float, float]] = []
         for match in pattern.finditer(page_html):
             first, second = match.group(1), match.group(2)
@@ -430,9 +483,15 @@ async def async_fetch_page_place(
     except ClientError as err:
         _LOGGER.debug("Shared page could not be fetched (%s): %s", url, err)
         return {"read_status": "network_error"}
-    place = extract_page_place(raw.decode("utf-8", errors="replace"))
+    text = raw.decode("utf-8", errors="replace")
+    place = extract_page_place(text)
     place["read_status"] = "ok"
     place["page_bytes"] = len(raw)
+    if "latitude" not in place:
+        # Why not, precisely: no coordinates at all, or several that
+        # disagree because the page also lists its neighbours. Those two
+        # findings call for completely different work.
+        place["coordinate_scan"] = scan_coordinate_report(text)["reason"]
     return place
 
 
