@@ -73,6 +73,22 @@ export const remotionSpikeMixin = {
     }
   },
 
+  /**
+   * "Absent" and "never looked at" are different findings, and only one of
+   * them is evidence. A field the backend did not report has to say so
+   * rather than borrow the wording for a failed check.
+   */
+  _remotionField(details, key, present, absent) {
+    if (!Object.prototype.hasOwnProperty.call(details || {}, key)) return "nicht geprüft";
+    return details[key] ? present : absent;
+  },
+
+  _remotionNodeLine(details) {
+    if (details.node_version) return details.node_version;
+    if (details.node_path) return `gefunden, aber nicht startbar (${details.node_path})`;
+    return "nicht gefunden";
+  },
+
   _remotionReportText() {
     // What the handover asks to be pasted into the write-up. Paths are
     // included here because the operator explicitly copies this; the
@@ -81,16 +97,17 @@ export const remotionSpikeMixin = {
     const status = this._remotionStatus || {};
     const details = diagnosis.details || {};
     const output = status.output || {};
+    const field = (key, present, absent) => this._remotionField(details, key, present, absent);
     return [
       "Roadplanner Remotion-Spike – Live-Ergebnis",
       `Status: ${diagnosis.status || "nicht geprüft"}`,
       `Plattform: ${details.platform || "?"} / ${details.machine || "?"}`,
-      `Node: ${details.node_version || "nicht gefunden"}`,
-      `npm: ${details.npm_path ? "vorhanden" : "nicht gefunden"}`,
-      `Browser: ${details.browser_path || "nicht gefunden"}`,
-      `Renderer: ${details.renderer_path || "nicht konfiguriert"}`,
-      `ffmpeg/ffprobe: ${details.ffmpeg_path ? "ja" : "nein"} / ${details.ffprobe_path ? "ja" : "nein"}`,
-      `Ausgabeordner beschreibbar: ${details.output_writable ? "ja" : "nein"}`,
+      `Node: ${this._remotionNodeLine(details)}`,
+      `npm: ${field("npm_path", "vorhanden", "nicht gefunden")}`,
+      `Browser: ${field("browser_path", details.browser_path, "nicht gefunden")}`,
+      `Renderer: ${field("renderer_path", details.renderer_path, "nicht konfiguriert")}`,
+      `ffmpeg: ${field("ffmpeg_path", "ja", "nein")} / ffprobe: ${field("ffprobe_path", "ja", "nein")}`,
+      `Ausgabeordner beschreibbar: ${field("output_writable", "ja", "nein")}`,
       `Testrender: ${status.status || "nicht gelaufen"}`,
       output.duration_seconds
         ? `Ergebnis: ${output.duration_seconds} s · ${output.width}x${output.height} · ${output.codec} · ${Math.round((output.size_bytes || 0) / 1024)} kB`
@@ -132,12 +149,12 @@ export const remotionSpikeMixin = {
         ${diagnosis ? `<button class="text-button" type="button" data-action="remotion-copy-report"><ha-icon icon="mdi:clipboard-text-outline"></ha-icon> Diagnosebericht kopieren</button>` : ""}
       </div>
       ${diagnosis ? `<div class="facts-grid">
-        ${line("Node", details.node_version || "nicht gefunden", Boolean(details.node_version))}
-        ${line("npm", details.npm_path ? "vorhanden" : "nicht gefunden", Boolean(details.npm_path))}
-        ${line("Browser", details.browser_path ? "vorhanden" : "nicht gefunden", Boolean(details.browser_path))}
-        ${line("Renderer", details.renderer_path ? "konfiguriert" : "nicht konfiguriert", Boolean(details.renderer_configured))}
-        ${line("ffmpeg", details.ffmpeg_path ? "vorhanden" : "nicht gefunden", Boolean(details.ffmpeg_path))}
-        ${line("Ausgabeordner", details.output_writable ? "beschreibbar" : "nicht beschreibbar", Boolean(details.output_writable))}
+        ${line("Node", this._remotionNodeLine(details), Boolean(details.node_version))}
+        ${line("npm", this._remotionField(details, "npm_path", "vorhanden", "nicht gefunden"), Boolean(details.npm_path))}
+        ${line("Browser", this._remotionField(details, "browser_path", "vorhanden", "nicht gefunden"), Boolean(details.browser_path))}
+        ${line("Renderer", this._remotionField(details, "renderer_configured", "konfiguriert", "nicht konfiguriert"), Boolean(details.renderer_configured))}
+        ${line("ffmpeg", this._remotionField(details, "ffmpeg_path", "vorhanden", "nicht gefunden"), Boolean(details.ffmpeg_path))}
+        ${line("Ausgabeordner", this._remotionField(details, "output_writable", "beschreibbar", "nicht beschreibbar"), Boolean(details.output_writable))}
       </div>
       <div class="notice ${diagnosis.ready ? "neutral" : "warning"}">${escapeHtml(diagnosis.summary_de || "")}<br><small>${escapeHtml(diagnosis.recommended_next_step_de || "")}</small></div>` : ""}
       ${result}

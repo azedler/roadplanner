@@ -141,8 +141,48 @@ arrived as a `failed` event with a code, not as a crash.
 
 **This says nothing yet about Home Assistant.** A development container is
 not a Home Assistant OS installation; it has Node, a browser and ample
-CPU. The live result has to be filled in on the real system — that is the
-whole point of the spike, and it is the section the PR leaves open.
+CPU. The live result had to be filled in on the real system — that is the
+whole point of the spike, and it is the section below.
+
+## Result of the live run on Home Assistant
+
+Reported from the operator's running installation on 2026-08-06, on the
+trip the integration is being used for:
+
+| | |
+|---|---|
+| Status | `NODE_MISSING` |
+| Platform | Linux / x86_64 |
+| Node | not found |
+| npm | not found |
+| Browser | not found |
+| Renderer | not configured |
+| Test render | never started |
+
+**Node.js is not present on this Home Assistant installation, and neither
+is a browser.** That is the answer to the one question the spike asked.
+
+Nothing was installed to reach it, which is what makes the result usable:
+the diagnosis reports the environment as it actually is, and the operator's
+system is exactly as it was before the check ran.
+
+### A correction to this report
+
+The first live report also stated `ffmpeg/ffprobe: nein / nein` and
+`Ausgabeordner beschreibbar: nein`. **Both were wrong**, and the same
+system was at that moment rendering trip videos with that very ffmpeg.
+
+The cause was in the diagnosis, not the environment: `async_diagnose`
+returned as soon as it found a blocking condition, so with Node missing no
+later check ever ran — and the report rendered every unset field as a
+confident "no". The checks are cheap, read-only and independent, so they
+now all run before any verdict is formed, and a field the backend did not
+report reads "nicht geprüft" instead of borrowing the wording of a failed
+check. A feasibility report is read as evidence; an unexamined field must
+never look like a negative finding.
+
+The verdict itself is unaffected — Node is genuinely absent — but the
+report is only worth acting on if every line of it is true.
 
 ## Go / No-Go
 
@@ -158,8 +198,35 @@ Remotion parts cannot sensibly travel through HACS, if the process
 destabilises Home Assistant or eats memory, or if package size and
 architecture dependence would wreck the simple update route.
 
-A No-Go keeps ffmpeg productive and defers Remotion to an optional add-on
-or external worker — a different question, for a different day.
+### Verdict: NO-GO
+
+The first NO-GO condition is met outright: Node is not merely unreliable
+on the target system, it is absent, and so is a browser. Neither can
+arrive through the route this spike was constrained to — HACS ships the
+files inside `custom_components/roadplanner_mcp/`, and a Node runtime plus
+a platform-specific Chromium are not files an integration can carry there.
+Installing them would mean exactly the invasive change the handover ruled
+out, on a system whose owner did not ask for a second runtime.
+
+So the honest reading is that the subprocess route fails on its
+precondition rather than on its mechanics. The supervision layer itself
+behaved correctly everywhere it could be exercised — protocol, timeout,
+process-group kill, ffprobe validation, and a browser refusal that arrived
+as a classified `failed` event rather than a crash — but "the code works"
+is not the question the spike asked, and a working supervisor with nothing
+to supervise is not a GO.
+
+**Consequences, deliberately narrow.** ffmpeg stays the only renderer that
+produces a trip video; nothing in the production path changes. Remotion
+moves to a different question — an optional add-on or an external worker,
+where a runtime can legitimately be provided — and that question is out of
+scope here. The diagnosis stays in the integration: it is small, read-only,
+installs nothing, and would answer the same question on any other
+installation, where the result may well differ.
+
+The renderer, its pinned lockfile and the separate CI workflow stay in the
+repository as the evidence that the render itself works when a runtime
+exists. They ship to nobody.
 
 ## Explicitly not built
 
