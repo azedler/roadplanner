@@ -131,6 +131,35 @@ def verify_nothing_is_installed_at_container_start() -> None:
     assert "exec node" in code, "der Worker muss das Signal selbst empfangen"
 
 
+def verify_the_reported_version_survives_a_local_build() -> None:
+    """Live finding: the heartbeat said `0.0.0-dev`, a version that does
+    not exist.
+
+    Two builders pass two different variables. CI passes APP_VERSION; the
+    Supervisor, when it builds the app on the user's own machine, passes
+    BUILD_VERSION taken from config.yaml. The Dockerfile read only the
+    former and fell back to a literal, so the field meant to identify the
+    running build identified nothing.
+    """
+    dockerfile = (APP / "Dockerfile").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in dockerfile.splitlines() if not line.strip().startswith("#")
+    )
+    assert "ARG BUILD_VERSION" in code, "der Supervisor uebergibt BUILD_VERSION"
+    assert "${APP_VERSION:-${BUILD_VERSION}}" in code, (
+        "beide Builder muessen zu einer echten Version fuehren"
+    )
+    assert "0.0.0-dev" not in code, (
+        "ein Platzhalter, der wie eine echte Version aussieht, gehoert nicht hinein"
+    )
+    # And the versions that describe the same app must agree.
+    config_version = _config()["version"].strip('"')
+    package = json.loads((APP / "package.json").read_text(encoding="utf-8"))
+    assert package["version"] == config_version, (
+        f"config.yaml sagt {config_version}, package.json sagt {package['version']}"
+    )
+
+
 def verify_the_app_has_no_runtime_dependencies() -> None:
     package = json.loads((APP / "package.json").read_text(encoding="utf-8"))
     assert package.get("dependencies") == {}, (
@@ -190,6 +219,7 @@ verify_the_production_paths_are_untouched()
 verify_the_untrusted_artifact_is_never_injected_as_markup()
 verify_the_app_asks_for_nothing_beyond_a_shared_folder()
 verify_nothing_is_installed_at_container_start()
+verify_the_reported_version_survives_a_local_build()
 verify_the_app_has_no_runtime_dependencies()
 verify_one_repository_still_serves_both_consumers()
 verify_stray_app_manifests_are_rejected_by_the_validator()

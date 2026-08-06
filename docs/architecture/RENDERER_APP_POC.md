@@ -146,15 +146,53 @@ the point of the PoC, and it is the section this document leaves open.
 
 ## Result of the live run on Home Assistant
 
-*Not yet filled in.* Required before any Remotion work begins:
+Run on the operator's installation on 2026-08-06, during the trip the
+integration is being used for.
 
-- environment probe (Supervisor present, `/share` reachable, architecture),
-- app installed from the repository and started,
-- heartbeat seen by Roadplanner,
-- test job submitted, claimed, completed, artefacts verified,
-- app restart, Home Assistant restart, app stopped,
-- CPU/RAM/disk during idle and during the job,
-- PDF and ffmpeg video still working.
+| | |
+|---|---|
+| Environment probe | `READY` |
+| Platform | Linux / x86_64 (amd64) |
+| Supervisor | present |
+| `/share` | present, writable from Home Assistant |
+| Exchange directory | `/share/roadplanner-renderer/poc-v1`, created by the probe |
+| App installed and started | yes |
+| Heartbeat seen by Roadplanner | yes, state `ready` |
+| Test job | submitted, claimed, completed |
+| Artefacts | both produced, hashes verified, SVG rendered in the panel |
+
+**The route works.** Exactly where the Remotion spike failed - the runtime
+boundary of the Home Assistant Core container - an app has no problem: it
+brings its own Node runtime, and `/share` carries the job in both
+directions.
+
+### Deviation: the image was built locally, not pulled
+
+The heartbeat reported `0.0.0-dev`, which the published image never
+carries. The GHCR package was still private at install time, so Home
+Assistant could not pull it and the Supervisor built the container **on the
+operator's own machine** instead.
+
+That is a deviation from the handover's expectation that installation only
+pulls a prebuilt image. It is worth stating plainly, and it cuts both ways:
+the local build is one more thing that demonstrably works on the target
+hardware, but it is not the deployment route the PoC set out to prove, and
+it costs the user a build they did not ask for.
+
+The `0.0.0-dev` itself was a defect in the Dockerfile, now fixed. Two
+builders pass two different variables: CI passes `APP_VERSION`, while the
+Supervisor passes `BUILD_VERSION` taken from `config.yaml`. Reading only
+the former meant a locally built image fell back to a literal - so the one
+field meant to identify the running build identified nothing. Fixed in
+app version `0.1.0-poc.2`, with a check that fails if either builder stops
+producing a real version.
+
+### Still outstanding
+
+- app restart mid-job, Home Assistant restart mid-job, app stopped,
+- CPU/RAM/disk during idle and during a job,
+- a pulled (rather than locally built) install, once the package is public,
+- confirmation that PDF and the ffmpeg video export still work.
 
 ## Explicitly not built
 

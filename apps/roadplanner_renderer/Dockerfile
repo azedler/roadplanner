@@ -12,8 +12,15 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22
 FROM ${BUILD_FROM}
 
-ARG APP_VERSION=0.0.0-dev
-ENV ROADPLANNER_APP_VERSION=${APP_VERSION} \
+# Two builders, two variables. CI passes APP_VERSION explicitly; the
+# Supervisor, when it builds the app on the user's own system, passes
+# BUILD_VERSION taken from config.yaml. Reading only APP_VERSION meant a
+# locally built image fell back to a literal and its heartbeat reported a
+# version that does not exist - the report then describes a build nobody
+# can identify.
+ARG BUILD_VERSION=0.0.0-unknown
+ARG APP_VERSION=""
+ENV ROADPLANNER_APP_VERSION=${APP_VERSION:-${BUILD_VERSION}} \
     NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false
@@ -34,7 +41,7 @@ LABEL \
   io.hass.name="Roadplanner Renderer (PoC)" \
   io.hass.description="Experimenteller Machbarkeitsnachweis ohne Remotion" \
   io.hass.type="addon" \
-  io.hass.version="${APP_VERSION}" \
+  io.hass.version="${ROADPLANNER_APP_VERSION}" \
   org.opencontainers.image.source="https://github.com/azedler/roadplanner"
 
 CMD ["/run.sh"]

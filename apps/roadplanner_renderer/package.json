@@ -1,6 +1,6 @@
 {
   "name": "roadplanner-renderer-poc",
-  "version": "0.1.0-poc.1",
+  "version": "0.1.0-poc.2",
   "private": true,
   "description": "Proof of concept worker for the Roadplanner renderer app. No runtime dependencies by design.",
   "license": "MIT",
