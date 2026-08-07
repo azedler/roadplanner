@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.37.2] - 2026-08-07
+
+### Fixed
+
+- **Ein fehlgeschlagener Job ließ einen leeren Ergebnisordner zurück** (Renderer-App 0.4.0-tripday.2). Der Ordner muss vor dem Render existieren, weil die Teildatei darin entsteht – also blieb bei jedem Fehlschlag ein leeres `results/<job-id>/` liegen. Zu lesen war dort nichts, denn `result.json` wird zuletzt geschrieben und ihr Fehlen ist genau das Kennzeichen für „unvollständig"; die Aufräumung nach Alter hätte den Ordner aber einen Tag lang behalten. Er wird jetzt bei jedem Ende ohne `result.json` entfernt, auch nach einem Neustart mitten im Job.
+- Gefunden hat das die neue CI-Probe für den Fehlerfall. Die eigentliche Zusicherung hielt dabei: Der fehlgeschlagene Job meldete `PACKAGE_INVALID`, erzeugte kein Video, und **das Renderpaket mit den Fotos war gelöscht**. Damit ist das Aufräumen jetzt in beide Richtungen belegt – nach Erfolg und nach Fehler.
+
 ## [4.37.1] - 2026-08-07
 
 ### Fixed
