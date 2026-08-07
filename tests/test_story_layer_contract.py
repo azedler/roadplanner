@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 
 ROOT = Path(".")
 INTEGRATION = ROOT / "custom_components" / "roadplanner_mcp"
@@ -39,6 +40,19 @@ def _code(path: Path) -> str:
     # other way so the expectations below can be written as they appear in
     # the source.
     return ast.unparse(tree).replace("'", '"')
+
+
+def _js_code(path: Path) -> str:
+    """JavaScript without its comments.
+
+    `_code` parses Python; handing it a .js file raises. Comments are
+    stripped for the same reason as there: a rule about a thing must not be
+    satisfied by prose describing the thing.
+    """
+    text = re.sub(r"/\*.*?\*/", " ", path.read_text(encoding="utf-8"), flags=re.S)
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("//")
+    )
 
 
 def _imports(path: Path) -> set[str]:
@@ -120,6 +134,95 @@ def verify_the_existing_exports_were_not_rebuilt() -> None:
         assert "story_context" not in source, f"{name} wurde umgebaut"
 
 
+def load_editable_fields() -> set[str]:
+    """The real constant's keys, read from the module rather than its text.
+
+    Only the keys are literals - the values are the detail-key names, which
+    are imported constants - so the keys are what is read here.
+    """
+    for node in ast.parse(
+        (INTEGRATION / "story_override_service.py").read_text(encoding="utf-8")
+    ).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "EDITABLE_FIELDS"
+            for target in node.targets
+        ):
+            return {
+                key.value
+                for key in node.value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+    raise AssertionError("EDITABLE_FIELDS nicht gefunden")
+
+
+def verify_the_story_editor_is_wired_end_to_end() -> None:
+    panel = _code(INTEGRATION / "panel.py")
+    assert '"story_set_override"' in panel and 'if action == "story_set_override"' in panel
+    edit_block = (INTEGRATION / "panel.py").read_text(encoding="utf-8").split(
+        "_EDIT_ACTIONS = {", 1
+    )[1].split("}", 1)[0]
+    assert '"story_set_override"' in edit_block, "Schreiben braucht Schreibrechte"
+
+    dispatcher = (INTEGRATION / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
+    feature = (INTEGRATION / "frontend" / "features" / "story-editor.js").read_text(
+        encoding="utf-8"
+    )
+    assert "storyEditorMixin" in dispatcher, "das Mixin muss registriert sein"
+    assert '"story"' in dispatcher and "_renderStory()" in dispatcher, "der Tab fehlt"
+    for hook in ("story-save", "story-reset", "story-select", "story-chapter-image"):
+        assert f'action === "{hook}"' in dispatcher, f"{hook} wird nicht verteilt"
+        assert f'data-action="{hook}"' in feature, f"{hook} braucht einen Knopf"
+
+
+def verify_only_two_fields_are_editable() -> None:
+    """The editorial layer's boundary, on both sides of the wire."""
+    editable = load_editable_fields()
+    assert editable == {"title", "story"}, editable
+    service = _code(INTEGRATION / "story_override_service.py")
+    # Whatever the client sends is checked against that set, not merged in.
+    assert "set(changes) - set(EDITABLE_FIELDS)" in service
+    # The editor DISPLAYS facts like distance and stops, so their names
+    # appear in it. What matters is what it sends: the set of actions it
+    # can call, and the two fields it may put in a change.
+    feature = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    called = set(re.findall(r'_runAction\(\s*"([a-z_]+)"', feature))
+    assert called <= {"story_manifest", "story_set_override", "media_update_assignment"}, (
+        f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
+    )
+    assert set(re.findall(r"changes\.([a-z_]+)\s*=", feature)) <= {"title", "story"}
+
+
+def verify_typing_does_not_re_render() -> None:
+    """A render per keystroke moves the caret to the end of the field."""
+    feature = (INTEGRATION / "frontend" / "features" / "story-editor.js").read_text(
+        encoding="utf-8"
+    )
+    handler = feature.split("_handleStoryInput(event) {", 1)[1].split("\n  },", 1)[0]
+    assert "_render(" not in handler, "Tippen darf kein Neuzeichnen auslösen"
+    assert "_storyDrafts" in handler, "der Entwurf muss ausserhalb des DOM leben"
+
+
+def verify_unsaved_work_defers_a_background_refresh() -> None:
+    """A refresh mid-sentence would replace the shadow DOM under the caret."""
+    dispatcher = (INTEGRATION / "frontend" / "roadplanner-panel.js").read_text(
+        encoding="utf-8"
+    )
+    assert "_storyAnyDirty()" in dispatcher
+    assert "this._refreshQueued && !this._dialog && !this._storyAnyDirty()" in dispatcher
+
+
+def verify_the_chapter_image_reuses_the_existing_cover() -> None:
+    """No second cover concept: Roadplanner already has one per day."""
+    feature = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "media_update_assignment" in feature, "der vorhandene Weg wird benutzt"
+    assert "is_day_cover" in feature
+    for invented in ("story_cover", "chapter_cover", "preferred_media_id"):
+        assert invented not in feature, f"{invented} waere eine zweite Coverlogik"
+    # And no new field appears on the manifest side either.
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    assert "story_cover" not in manifest
+
+
 def verify_the_manifest_carries_a_version_and_a_hash() -> None:
     manifest = _code(INTEGRATION / "travel_story_manifest.py")
     assert "MANIFEST_VERSION = 1" in manifest
@@ -134,5 +237,10 @@ verify_the_builder_only_reads()
 verify_the_manifest_module_stays_pure()
 verify_the_deferred_work_has_not_crept_in()
 verify_the_existing_exports_were_not_rebuilt()
+verify_the_story_editor_is_wired_end_to_end()
+verify_only_two_fields_are_editable()
+verify_typing_does_not_re_render()
+verify_unsaved_work_defers_a_background_refresh()
+verify_the_chapter_image_reuses_the_existing_cover()
 verify_the_manifest_carries_a_version_and_a_hash()
 print("Story layer contract tests passed.")

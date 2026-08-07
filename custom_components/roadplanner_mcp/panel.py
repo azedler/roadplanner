@@ -85,6 +85,7 @@ _ACTIONS = {
     "renderer_app_run",
     "renderer_app_render",
     "story_manifest",
+    "story_set_override",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
@@ -171,6 +172,9 @@ _EDIT_ACTIONS = {
     # Writes a package of real photos into the shared directory. Reading
     # the day list is not an edit; handing the data over is.
     "renderer_app_trip_day",
+    # Writes two fields onto a day, so it needs the same permission as any
+    # other edit - even though it touches no travel fact.
+    "story_set_override",
     "update_trip",
     "add_day",
     "update_day",
@@ -1407,6 +1411,18 @@ async def _execute_action(
                 force=data.get("force") is True,
             )
         }
+
+    if action == "story_set_override":
+        # The editorial layer. The client sends only the fields it changed;
+        # the details patch is composed server-side so a stale browser
+        # cannot replace a day's details wholesale.
+        return await runtime.story_overrides.async_set(
+            trip_id=str(data.get("trip_id") or ""),
+            day_id=str(data.get("day_id") or ""),
+            changes=dict(data.get("changes") or {}),
+            expected_revision=data.get("expected_revision"),
+            actor=actor,
+        )
 
     if action == "renderer_app_trip_days":
         # Which days could be exported, and which have no photo to export.

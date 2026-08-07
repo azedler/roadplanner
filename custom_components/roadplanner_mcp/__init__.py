@@ -186,6 +186,7 @@ from .crew_portraits import CrewPortraitStore
 from .remotion_spike import RemotionSpikeService
 from .renderer_app_client import RendererAppClient, default_exchange_dir
 from .story_context_builder import StoryContextBuilder
+from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
@@ -229,6 +230,7 @@ class RoadplannerRuntimeData:
     renderer_app: RendererAppClient
     trip_day_mini_export: TripDayMiniExporter
     story_context: StoryContextBuilder
+    story_overrides: StoryOverrideService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -718,6 +720,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # manifest. No exporter uses it yet - that is the next decision, not
     # this one.
     story_context = StoryContextBuilder(hass, manager, experience)
+    # The editorial write path: two fields, through the same
+    # revision-checked mutation layer as every other change.
+    story_overrides = StoryOverrideService(hass, manager, story_context)
 
     trip_summaries = TripSummaryService(
         hass,
@@ -755,6 +760,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         renderer_app=renderer_app,
         trip_day_mini_export=trip_day_mini_export,
         story_context=story_context,
+        story_overrides=story_overrides,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

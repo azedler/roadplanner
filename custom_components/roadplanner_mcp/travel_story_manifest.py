@@ -84,13 +84,14 @@ MEDIA_ROLES = (
 )
 
 MAX_TITLE_LENGTH = 120
-MAX_STORY_LENGTH = 420
+MAX_STORY_LENGTH = 1200
 MAX_CAPTION_LENGTH = 200
 MAX_STOPS_PER_CHAPTER = 24
 MAX_MEDIA_PER_CHAPTER = 12
 MAX_CAPTIONS_PER_CHAPTER = 12
 
 _WHITESPACE_RE = re.compile(r"\s+")
+_SPACES_RE = re.compile(r"[^\S\n]+")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -105,6 +106,29 @@ def clean_line(value: Any, *, limit: int) -> str:
     """One bounded line. Control characters become spaces, never boxes."""
     text = _WHITESPACE_RE.sub(" ", str(value or "").replace("\x00", " ")).strip()
     return text[:limit]
+
+
+def clean_story(value: Any, *, limit: int = MAX_STORY_LENGTH) -> str:
+    """Bounded prose that may have paragraphs.
+
+    A title is one line; a story someone writes by hand is not. Runs of
+    spaces still collapse and control characters still go, but a blank line
+    between two paragraphs survives, because a person who typed one meant
+    it. Three or more blank lines collapse to one - that is formatting by
+    accident, not by intent.
+    """
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(
+        character if character == "\n" or character.isprintable() else " "
+        for character in text
+    )
+    lines = [_SPACES_RE.sub(" ", line).strip() for line in text.split("\n")]
+    collapsed: list[str] = []
+    for line in lines:
+        if not line and collapsed and not collapsed[-1]:
+            continue
+        collapsed.append(line)
+    return "\n".join(collapsed).strip()[:limit]
 
 
 def _optional_number(value: Any, *, digits: int = 1) -> float | None:
@@ -227,10 +251,10 @@ def build_story(
     The order is a statement of trust: what a person wrote beats what the
     summary service generated, and both beat what this module assembled.
     """
-    typed_override = clean_line(override, limit=MAX_STORY_LENGTH)
+    typed_override = clean_story(override)
     if typed_override:
         return {"text": typed_override, "source": STORY_FROM_OVERRIDE, "tone": TONE}
-    stored = clean_line(stored_summary, limit=MAX_STORY_LENGTH)
+    stored = clean_story(stored_summary)
     if stored:
         return {"text": stored, "source": STORY_FROM_STORED, "tone": TONE}
     return {
@@ -407,10 +431,19 @@ def _story_source_counts(chapters: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+# Neither of these is part of the description. The hash is the answer, so
+# it cannot be part of the question - and ``source_revision`` is
+# provenance: it says which roadbook state the description was taken from,
+# not what the description says. Including it would make the hash change
+# on every unrelated trip edit, and the one question the hash exists to
+# answer - "did the story actually change?" - would become unanswerable.
+_UNHASHED_KEYS = frozenset({"content_hash", "source_revision"})
+
+
 def canonical_json(payload: dict[str, Any]) -> str:
     """One spelling of a manifest, so two of them can be compared as text."""
     return json.dumps(
-        {key: value for key, value in payload.items() if key != "content_hash"},
+        {key: value for key, value in payload.items() if key not in _UNHASHED_KEYS},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -484,6 +517,7 @@ __all__ = [
     "build_story",
     "canonical_json",
     "clean_line",
+    "clean_story",
     "compose_story",
     "content_hash",
     "validate_manifest",

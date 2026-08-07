@@ -40,6 +40,7 @@ import { tripDayStopMixin } from "./features/trip-day-stop.js";
 import { crewMixin } from "./features/crew.js";
 import { remotionSpikeMixin } from "./features/remotion-spike.js";
 import { rendererAppMixin } from "./features/renderer-app.js";
+import { storyEditorMixin } from "./features/story-editor.js";
 import { pitchesMixin } from "./features/pitches.js";
 
 // Mirror of panel.py's _PROVIDER_CALL_ACTIONS: these run shielded
@@ -190,6 +191,9 @@ class RoadplannerPanel extends HTMLElement {
     for (const endEvent of ["pointerup", "pointercancel"]) {
       this.shadowRoot.addEventListener(endEvent, () => { this._crewCropFrame = null; });
     }
+    // Scoped to the story editor: typing must not re-render, or the
+    // caret would jump to the end of the field on every keystroke.
+    this.shadowRoot.addEventListener("input", (event) => this._handleStoryInput(event));
     this.shadowRoot.addEventListener("change", (event) => this._handleChange(event));
     this.shadowRoot.addEventListener("submit", (event) => this._handleSubmit(event));
     this.shadowRoot.addEventListener("error", (event) => {
@@ -452,7 +456,7 @@ class RoadplannerPanel extends HTMLElement {
           9000,
         );
         window.setTimeout(() => {
-          if (this._dialog) this._refreshQueued = true;
+          if (this._dialog || this._storyAnyDirty()) this._refreshQueued = true;
           else void this._loadData({ silent: true, force: true });
         }, 5000);
         return null;
@@ -471,7 +475,7 @@ class RoadplannerPanel extends HTMLElement {
         // root and rebuild the form from stale data, wiping typed input
         // right when the user needs it to retry - queue instead; the
         // refresh flushes when the dialog closes.
-        if (this._dialog) this._refreshQueued = true;
+        if (this._dialog || this._storyAnyDirty()) this._refreshQueued = true;
         else await this._loadData({ silent: true, force: true });
       }
       return null;
@@ -482,7 +486,7 @@ class RoadplannerPanel extends HTMLElement {
       // detaching the form element mid-interaction (the Park4Night
       // prefill then wrote into detached DOM while the toast claimed
       // success). _closeDialog flushes the queue instead.
-      if (this._refreshQueued && !this._dialog) {
+      if (this._refreshQueued && !this._dialog && !this._storyAnyDirty()) {
         this._refreshQueued = false;
         await this._loadData({ silent: true, force: true });
       }
@@ -1624,6 +1628,20 @@ class RoadplannerPanel extends HTMLElement {
       this._rendererAppRun();
     } else if (action === "renderer-app-render" && this._canEdit()) {
       this._rendererAppRun("renderer_app_render");
+    } else if (action === "story-load" || action === "story-reload") {
+      void this._storyLoad({ force: action === "story-reload" });
+    } else if (action === "story-select") {
+      this._storySelectChapter(cleanText(target.dataset.chapterId));
+    } else if (action === "story-prev") {
+      this._storyStep(-1);
+    } else if (action === "story-next") {
+      this._storyStep(1);
+    } else if (action === "story-save" && this._canEdit()) {
+      void this._storySave();
+    } else if (action === "story-reset" && this._canEdit()) {
+      void this._storyReset();
+    } else if (action === "story-chapter-image" && this._canEdit()) {
+      void this._storySetChapterImage(cleanText(target.dataset.mediaId));
     } else if (action === "renderer-app-load-days") {
       this._rendererAppLoadDays();
     } else if (action === "renderer-app-trip-day" && this._canEdit()) {
@@ -2374,6 +2392,7 @@ class RoadplannerPanel extends HTMLElement {
       ["decisions", "mdi:cards-playing-outline", "Entscheidungen", decisionCount, "info"],
       ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten", todoTiming.urgent || todoTiming.upcoming, todoTiming.urgent ? "" : "warning"],
       ["pitches", "mdi:caravan", "Stellplätze", 0, ""],
+      ["story", "mdi:book-open-page-variant-outline", "Reisegeschichte", 0, ""],
       ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
       ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
       // "mdi:map-multiple-outline" does not exist in Material Design Icons,
@@ -2416,6 +2435,7 @@ class RoadplannerPanel extends HTMLElement {
     if (this._activeTab === "import") return this._renderUniversalImport();
     if (this._activeTab === "decisions") return this._renderDecisions();
     if (this._activeTab === "pitches") return this._renderPitches();
+    if (this._activeTab === "story") return this._renderStory();
     if (this._activeTab === "media") return this._renderMedia();
     if (this._activeTab === "archive") return this._renderArchive();
     if (this._activeTab === "day-route") return this._renderDayRoute();
@@ -2662,6 +2682,7 @@ Object.assign(RoadplannerPanel.prototype, crewMixin);
 Object.assign(RoadplannerPanel.prototype, remotionSpikeMixin);
 Object.assign(RoadplannerPanel.prototype, rendererAppMixin);
 Object.assign(RoadplannerPanel.prototype, pitchesMixin);
+Object.assign(RoadplannerPanel.prototype, storyEditorMixin);
 
 if (!customElements.get("roadplanner-panel")) {
   customElements.define("roadplanner-panel", RoadplannerPanel);

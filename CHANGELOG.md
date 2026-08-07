@@ -6,6 +6,31 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.39.0] - 2026-08-07
+
+### Added
+
+- **Der Story-Editor: eine kleine Reiseredaktion im Panel.** Neuer Bereich **Reisegeschichte** (unter „Mehr"). Er zeigt die Reise so, wie das TravelStoryManifest sie beschreibt – ein Kapitel je Tag – und lässt genau zwei Dinge umschreiben: **Kapiteltitel und Storytext**. Alles andere auf der Seite sind Fakten: Datum, Strecke, Fahrzeit, Stopps, Fotoanzahl, die kuratierten Bilder. Sie werden gezeigt, damit man weiß, worüber man schreibt, und sind hier nicht änderbar.
+- **Die Herkunft des Texts ist immer sichtbar** – „von Hand geschrieben", „aus der Tageszusammenfassung" oder „aus den Fakten des Tages". Darüber steht eine Übersicht, wie viele Kapitel bereits von Hand bearbeitet sind.
+- **Navigierbar bei 30 Tagen.** Eine waagerecht scrollende Kapitelleiste statt einer Knopfwand, dazu Vor/Zurück. Bearbeitete Kapitel tragen einen Punkt, ungespeicherte einen andersfarbigen.
+- **Kapitelbild setzen** – über die **bereits vorhandene** Logik „Titelbild dieses Reisetags", die pro Tag eindeutig ist und Vorrang vor der automatischen Auswahl hat. Es wurde bewusst keine zweite Coverlogik erfunden: Dasselbe Foto darf nicht zwei Bedeutungen bekommen, die sich widersprechen können.
+
+### Changed
+
+- `content_hash` deckt **nicht mehr** die `source_revision` ab. Die Revision ist Herkunft, nicht Inhalt – solange sie mitgehasht wurde, konnte der Hash die einzige Frage, für die es ihn gibt („hat sich die Geschichte geändert?"), gar nicht beantworten: Jede beliebige Änderung an der Reise ließ ihn springen. Gefunden hat das der Test für den exakten Rückfall nach dem Entfernen eines Overrides.
+- Storytexte dürfen jetzt Absätze enthalten (Titel bleiben einzeilig). Die Obergrenze steigt von 420 auf 1200 Zeichen – ein zusammengesetzter Text bleibt von sich aus kurz, ein von Hand geschriebener darf es nicht müssen.
+
+### Fixed
+
+- Ein Hintergrund-Neuladen wartet jetzt auch, solange im Story-Editor etwas Ungespeichertes steht – bisher galt das nur bei offenen Dialogen. Ein Neuzeichnen mitten im Satz hätte den Text ersetzt.
+
+### Security
+
+- Der Story-Editor schreibt ausschließlich über die vorhandene **revisionsgeprüfte** Mutationsschicht. Ein Browser, der die Reise vor der Bearbeitung eines anderen geladen hat, wird abgewiesen statt zu überschreiben.
+- **Der Browser sendet nie ein `details`-Objekt.** Die Mutationsschicht *ersetzt* `details`, statt zu mischen – ein clientseitig zusammengebautes Objekt könnte also eine Tageszusammenfassung löschen, die dieser Tab nie geladen hat. Der Patch entsteht deshalb serverseitig aus den aktuellen Details plus höchstens zwei Schlüsseln.
+- **Ein entfernter Override löscht den Schlüssel**, nicht seinen Wert. Nur so ist der Rückfall exakt: Die Tagesdetails sind danach byteweise wieder wie zuvor, und das neu gebaute Manifest hat denselben Inhalts-Hash wie vor der Bearbeitung.
+- Das Manifest wird weiterhin **nirgends gespeichert**. Nach einem Schreibvorgang wird die zwischengespeicherte Beschreibung verworfen und aus den kanonischen Daten neu erzeugt.
+
 ## [4.38.0] - 2026-08-07
 
 ### Added
