@@ -200,6 +200,9 @@ def verify_only_two_fields_are_editable() -> None:
         "story_director_status",
         "story_director_run",
         "story_director_discard",
+        # Fetching the finished film where it was started. "It is in the
+        # other card" is a signpost, not an answer.
+        "renderer_app_download",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.
@@ -457,6 +460,10 @@ def verify_the_finished_video_can_be_fetched() -> None:
     assert "_rendererAppDownload" in renderer
     dispatcher = _js_code(INTEGRATION / "frontend" / "roadplanner-panel.js")
     assert '"renderer-app-download"' in dispatcher
+    # And reachable from the card the film was started in, not only from
+    # the one behind a menu.
+    editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert 'data-action="renderer-app-download"' in editor
 
 
 verify_the_story_layer_is_reachable()

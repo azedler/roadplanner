@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.43.2] - 2026-08-07
+
+### Changed
+
+- **Der fertige Reisefilm lässt sich dort herunterladen, wo er gestartet wurde.** Bisher stand in der Reisegeschichte nur „Er liegt in der Karte ‚Renderer-App'" – ein Wegweiser statt einer Antwort, und auf dem Handy liegt diese Karte hinter dem Menü, zwei Tipps und einem Scrollweg. Der Knopf steht jetzt neben der Meldung.
+
 ## [4.43.1] - 2026-08-07
 
 ### Fixed
