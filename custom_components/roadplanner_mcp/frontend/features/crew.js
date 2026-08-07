@@ -22,9 +22,9 @@ export const crewMixin = {
     const canEdit = this._canEdit();
     return `<section class="toolbar-card"><div><span class="eyebrow">Stammdaten</span><h2>Crew &amp; Fahrzeuge</h2><p>Personen und Fahrzeuge werden einmal gepflegt und dann pro Reise nur noch ausgewählt. Stillgelegte Einträge bleiben für vergangene Reisen erhalten, tauchen aber bei neuen Reisen nicht mehr zur Auswahl auf.</p></div>${canEdit ? `<div class="button-row"><button class="secondary-button" type="button" data-action="add-crew-person"><ha-icon icon="mdi:account-plus-outline"></ha-icon> Person hinzufügen</button><button class="secondary-button" type="button" data-action="add-crew-vehicle"><ha-icon icon="mdi:rv-truck"></ha-icon> Fahrzeug hinzufügen</button></div>` : ""}</section>
       <section class="crew-section"><h3>Personen</h3>${activePeople.length ? `<ul class="crew-list">${activePeople.map((person) => this._renderCrewPersonRow(person, canEdit)).join("")}</ul>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:account-outline"></ha-icon><h2>Noch keine Personen angelegt</h2></div>`}
-      ${retiredPeople.length ? `<details class="crew-retired"><summary>Stillgelegte Personen (${retiredPeople.length})</summary><ul class="crew-list">${retiredPeople.map((person) => this._renderCrewPersonRow(person, canEdit)).join("")}</ul></details>` : ""}</section>
+      ${retiredPeople.length ? `<details data-section="crew-1" class="crew-retired"><summary>Stillgelegte Personen (${retiredPeople.length})</summary><ul class="crew-list">${retiredPeople.map((person) => this._renderCrewPersonRow(person, canEdit)).join("")}</ul></details>` : ""}</section>
       <section class="crew-section"><h3>Fahrzeuge</h3>${activeVehicles.length ? `<ul class="crew-list">${activeVehicles.map((vehicle) => this._renderCrewVehicleRow(vehicle, canEdit)).join("")}</ul>` : `<div class="empty-state compact-empty"><ha-icon icon="mdi:rv-truck"></ha-icon><h2>Noch kein Fahrzeug angelegt</h2></div>`}
-      ${retiredVehicles.length ? `<details class="crew-retired"><summary>Stillgelegte Fahrzeuge (${retiredVehicles.length})</summary><ul class="crew-list">${retiredVehicles.map((vehicle) => this._renderCrewVehicleRow(vehicle, canEdit)).join("")}</ul></details>` : ""}</section>`;
+      ${retiredVehicles.length ? `<details data-section="crew-2" class="crew-retired"><summary>Stillgelegte Fahrzeuge (${retiredVehicles.length})</summary><ul class="crew-list">${retiredVehicles.map((vehicle) => this._renderCrewVehicleRow(vehicle, canEdit)).join("")}</ul></details>` : ""}</section>`;
   },
 
   _crewPersonAvatar(person) {
@@ -241,7 +241,7 @@ export const crewMixin = {
     const from = page * this.CREW_PHOTO_PAGE_SIZE + 1;
     const to = Math.min((page + 1) * this.CREW_PHOTO_PAGE_SIZE, media.length);
     const cropSize = crop ? Math.round(crop.w * 100) : 40;
-    return `<details class="form-field full crew-photo-picker" open>
+    return `<details data-section="crew-3" class="form-field full crew-photo-picker" open>
       <summary><ha-icon icon="${options.icon || "mdi:face-recognition"}"></ha-icon> ${escapeHtml(options.title || "Reisefoto zuordnen (wer ist wer)")}</summary>
       <small class="hint">${escapeHtml(options.hint || "Ein Foto antippen, auf dem die Person gut zu erkennen ist. Es wird als Porträt im Reise-Rückblick genutzt und hilft dem Reisebegleiter, die Person auf den übrigen Fotos zu erkennen - ohne dass Bilder beschriftet werden müssen.")}</small>
       <input type="hidden" name="reference_media_id" value="${escapeHtml(selected)}">

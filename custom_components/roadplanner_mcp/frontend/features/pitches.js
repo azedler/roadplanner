@@ -251,7 +251,7 @@ export const pitchesMixin = {
         ${[1, 2, 3, 4, 5].map((value) => `<option value="${value}" ${!isRequired && weight === value ? "selected" : ""}>Wichtig (${value})</option>`).join("")}
         <option value="required" ${isRequired ? "selected" : ""}>Muss</option>`;
     };
-    return `<details class="panel-card pitch-preferences"><summary><ha-icon icon="mdi:tune-variant"></ha-icon> Stellplatz-Präferenzen (für Suche und spätere Bewertung)</summary>
+    return `<details data-section="pitches-1" class="panel-card pitch-preferences"><summary><ha-icon icon="mdi:tune-variant"></ha-icon> Stellplatz-Präferenzen (für Suche und spätere Bewertung)</summary>
       <form data-form="pitch-preferences" class="form-grid">
         ${PITCH_FEATURES.map(([key, label]) => `<label class="form-field"><span>${escapeHtml(label)}</span><select name="feature_${key}" ${canEdit ? "" : "disabled"}>${weightOptions(key)}</select></label>`).join("")}
         <label class="form-field"><span>Max. Preis/Nacht (€)</span><input type="number" name="max_price_per_night" min="0" step="1" value="${limits.max_price_per_night ?? ""}" ${canEdit ? "" : "disabled"}></label>
@@ -331,7 +331,7 @@ export const pitchesMixin = {
         ? `<h3 class="pitch-options-heading"><ha-icon icon="mdi:format-list-bulleted"></ha-icon> Backup-Optionen (${backups.length})</h3>
           <ul class="crew-list pitch-option-list">${backups.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul>`
         : `<p class="hint">Noch keine Backup-Option für diesen Tag${stop ? " - wenn der Platz voll ist, gibt es keinen Plan B" : ""}.</p>`}
-      ${rejected.length ? `<details class="crew-retired"><summary>Verworfene Optionen (${rejected.length})</summary><ul class="crew-list pitch-option-list">${rejected.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul></details>` : ""}
+      ${rejected.length ? `<details data-section="pitches-2" class="crew-retired"><summary>Verworfene Optionen (${rejected.length})</summary><ul class="crew-list pitch-option-list">${rejected.map((option) => this._renderPitchOptionRow(day, option, canEdit)).join("")}</ul></details>` : ""}
       ${canEdit ? `<div class="button-row"><button class="secondary-button" type="button" data-action="pitch-add-option" data-day-id="${escapeHtml(day.id)}"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Option hinzufügen</button></div>` : ""}
     </section>`;
   },

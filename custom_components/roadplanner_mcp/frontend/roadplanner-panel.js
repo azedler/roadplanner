@@ -2253,12 +2253,40 @@ class RoadplannerPanel extends HTMLElement {
     }
   }
 
+  /**
+   * Which expandable sections are open right now.
+   *
+   * Rendering replaces the whole shadow DOM, so a <details> comes back
+   * closed unless it is reopened. Live report: "nach Drücken auf einen der
+   * Tests schließt sich der Test immer und man muss ihn neu öffnen und
+   * runterscrollen." Restoring the scroll position alone cannot help - the
+   * collapsed section is shorter than the offset it was measured against.
+   */
+  _openSections() {
+    const open = new Set();
+    this.shadowRoot?.querySelectorAll("details[data-section]").forEach((node) => {
+      if (node.open) open.add(node.dataset.section);
+    });
+    return open;
+  }
+
+  _restoreOpenSections(open) {
+    if (!open?.size) return;
+    this.shadowRoot?.querySelectorAll("details[data-section]").forEach((node) => {
+      if (open.has(node.dataset.section)) node.open = true;
+    });
+  }
+
   _render({ preserveScroll = false } = {}) {
     if (!this.shadowRoot) return;
     const content = this.shadowRoot.querySelector(".content");
     const scrollTop = preserveScroll ? content?.scrollTop || 0 : 0;
+    const openSections = preserveScroll ? this._openSections() : null;
     this._mapModels = new Map();
     this.shadowRoot.innerHTML = `${PANEL_STYLES}${this._renderApp()}`;
+    // Reopen BEFORE restoring the scroll offset: the page has to be its
+    // full height again before that offset means anything.
+    this._restoreOpenSections(openSections);
     const nextContent = this.shadowRoot.querySelector(".content");
     if (preserveScroll && nextContent) nextContent.scrollTop = scrollTop;
     this._renderToastHost();
@@ -2362,7 +2390,7 @@ class RoadplannerPanel extends HTMLElement {
           </button>
         `).join("")}
       </nav>
-      <details class="tool-tabs">
+      <details data-section="panel-2" class="tool-tabs">
         <summary><ha-icon icon="mdi:dots-horizontal-circle-outline"></ha-icon><span>${activeTool ? escapeHtml(activeTool[2]) : "Mehr"}</span></summary>
         <nav class="tool-tab-grid" aria-label="Roadplanner Werkzeuge">
           ${tools.map(([id, icon, label, count, badgeClass]) => `<button type="button" class="tool-tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span>${count ? `<span class="count-badge ${badgeClass || ""}">${count}</span>` : ""}</button>`).join("")}
@@ -2548,7 +2576,7 @@ class RoadplannerPanel extends HTMLElement {
       ? `<div class="action-error-request"><span>Anfrage</span><code>${escapeHtml(dialog.requestId)}</code></div>`
       : "";
     const technicalDetails = dialog.technicalMessage && dialog.technicalMessage !== dialog.message
-      ? `<details class="action-error-details"><summary>Technische Details</summary><code>${escapeHtml(dialog.technicalMessage)}</code></details>`
+      ? `<details data-section="action-error" class="action-error-details"><summary>Technische Details</summary><code>${escapeHtml(dialog.technicalMessage)}</code></details>`
       : "";
     return `${this._renderModalHeader(dialog.title || "Roadplanner-Aktion fehlgeschlagen", "Die Meldung bleibt geöffnet, bis du sie schließt.")}
       <div class="action-error-body">

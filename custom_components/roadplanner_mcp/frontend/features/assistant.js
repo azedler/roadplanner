@@ -577,7 +577,7 @@ export const assistantMixin = {
         </aside>
       </section>
 
-      <details class="assistant-technical panel-card">
+      <details data-section="assistant-details" class="assistant-technical panel-card">
         <summary><span><ha-icon icon="mdi:tools"></ha-icon>Technik & Diagnose</span><small>Providerstatus, Nutzung, Plugins und Fehlerdetails</small></summary>
         <div class="assistant-technical-content">
           <div class="assistant-technical-actions">
