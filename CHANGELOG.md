@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.40.1] - 2026-08-07
+
+### Fixed
+
+- **Ein Test, der gegen die Uhr geprüft hat, statt gegen das Verhalten.** Der End-to-End-Test der Renderer-App verlangte, dass der übernommene Auftrag in `processing/` *in dem Moment* verschwunden ist, in dem das Ergebnis auftaucht. Der Worker schreibt den Endstatus aber absichtlich vor dem Aufräumen: Die zurückgelassene Datei ist genau das, woran der Neustart einen abgestürzten Auftrag erkennt. Der Test wartet jetzt darauf, dass der Ordner leer wird – geprüft wird damit dasselbe, nur nicht mehr gegen einen Zufall. Dieselbe Stelle im Test für abgestürzte Worker ebenso.
+
 ## [4.40.0] - 2026-08-07
 
 ### Added

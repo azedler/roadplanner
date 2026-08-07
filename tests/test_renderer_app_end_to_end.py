@@ -97,6 +97,25 @@ def wait_for(predicate, *, what: str, timeout: float = 15.0):
     raise AssertionError(f"Zeitüberschreitung beim Warten auf {what}")
 
 
+def drained(folder: Path):
+    """A predicate for a folder that has to become empty.
+
+    The worker writes the terminal status *before* it removes the claimed
+    file, and that order is deliberate: the file left in `processing/` is
+    exactly what lets the orphan sweep fail a job whose worker died. So a
+    test that proceeds the moment a result appears can legitimately catch
+    the file still lying there - the emptiness is eventual, not immediate,
+    and asserting it on the spot is a race, not a check.
+    """
+
+    def empty():
+        # A truthy return value is what wait_for treats as success, so the
+        # empty list cannot be returned directly.
+        return not list(folder.iterdir()) or None
+
+    return empty
+
+
 def read_json(path: Path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -190,7 +209,7 @@ def verify_a_job_travels_all_the_way_and_back() -> None:
 
             # The job file is gone: nothing is left to be picked up twice.
             assert not (exchange / "jobs" / f"{job_id}.json").exists()
-            assert not list((exchange / "processing").iterdir())
+            wait_for(drained(exchange / "processing"), what="geleertes processing/")
 
             assert worker.stop() == 0, "sauberes Ende auf SIGTERM"
 
@@ -273,8 +292,11 @@ def verify_a_restart_does_not_leave_a_job_running_forever() -> None:
             parsed = wait_for_terminal(exchange, job_id)
             assert parsed["terminal"] is True, parsed
             assert parsed["error"]["code"] == "INTERRUPTED", parsed
-            assert not list((exchange / "processing").iterdir()), (
-                "der übernommene Auftrag muss aufgeräumt sein"
+            # Same order as in the normal path: the status is written
+            # first, the claimed file disappears a moment later.
+            wait_for(
+                drained(exchange / "processing"),
+                what="aufgeräumten übernommenen Auftrag",
             )
             assert worker.stop() == 0
 
