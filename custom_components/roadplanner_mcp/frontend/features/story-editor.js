@@ -202,6 +202,71 @@ export const storyEditorMixin = {
     await this._storyLoad({ force: true });
   },
 
+  /**
+   * The film: the manifest's first consumer.
+   *
+   * Deliberately placed here rather than beside the renderer experiments -
+   * this is what the story layer is FOR, and the preview shows how much of
+   * the trip the film would actually be able to say.
+   */
+  async _storyFilmPreview() {
+    const result = await this._runAction(
+      "story_film_preview",
+      { trip_id: this._selectedTripId },
+      "",
+      { refresh: false, blockUi: false, errorTitle: "Die Filmvorschau ist fehlgeschlagen" },
+    ).catch(() => null);
+    if (result?.story_film_preview) {
+      this._storyFilm = result.story_film_preview;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  async _storyFilmRender() {
+    const result = await this._runAction(
+      "story_film_render",
+      { trip_id: this._selectedTripId },
+      "Reisefilm wird gerendert",
+      { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    this._rendererAppKind = "trip_film";
+    this._rendererAppPackage = {
+      package_bytes: result.renderer_app_job.package_bytes,
+      image_count: result.renderer_app_job.image_count,
+      stop_count: result.renderer_app_job.chapter_count,
+      day_title: `${result.renderer_app_job.chapter_count} Kapitel`,
+      day_date: `${result.renderer_app_job.chapters_without_photos} ohne Fotos`,
+    };
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
+  _renderStoryFilm() {
+    const film = this._storyFilm;
+    const canEdit = this._canEdit();
+    const online = Boolean(this._rendererAppStatus?.online);
+    const job = this._rendererAppJob;
+    const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
+    return `<div class="notice neutral"><div>
+      <strong>Reisefilm aus dieser Geschichte</strong>
+      <small>Ein Film über die ganze Reise, ein Kapitel je Tag, aus genau diesen Titeln, Texten und Bildern. Tage ohne Fotos werden als solche gezeigt und nicht übersprungen.</small>
+      ${
+        film
+          ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>`
+          : ""
+      }
+      ${online ? "" : '<small>Die Renderer-App ist nicht erreichbar - der Film braucht sie.</small>'}
+      <div class="button-row">
+        <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
+      </div>
+      ${running ? `<small>Der Film läuft - das dauert bei einer ganzen Reise viele Minuten. Der Fortschritt steht in der Karte „Renderer-App".</small>` : ""}
+    </div></div>`;
+  },
+
   // --- rendering -------------------------------------------------------
 
   _storyMediaItems(chapter) {
@@ -303,6 +368,7 @@ export const storyEditorMixin = {
         <span><strong>${escapeHtml(String(edited))}</strong> von Hand bearbeitet</span>
         <span><strong>${escapeHtml(String(Number(sources.stored || 0)))}</strong> aus Zusammenfassungen</span>
       </div>
+      ${this._renderStoryFilm()}
       ${this._renderStoryChapterStrip(chapters, chapter)}
 
       <article class="story-chapter">

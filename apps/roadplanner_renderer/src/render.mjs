@@ -20,6 +20,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { statfsSync } from "node:fs";
+import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -28,9 +29,13 @@ import { promisify } from "node:util";
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
 import {
+  FILM_MANIFEST_FILENAME,
+  MAX_FILM_IMAGE_BYTES,
+  MAX_FILM_JSON_BYTES,
   MAX_JSON_BYTES,
   MAX_PACKAGE_IMAGE_BYTES,
   PACKAGE_FILENAME,
+  parseFilmPackage,
   parsePackage,
 } from "./protocol.mjs";
 
@@ -49,6 +54,21 @@ export const TRIP_DAY_COMPOSITION_ID = "roadplanner-trip-day";
 // outside them has a bug, and rendering it would only hide that.
 export const TRIP_DAY_MIN_SECONDS = 6;
 export const TRIP_DAY_MAX_SECONDS = 25;
+
+export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
+// A whole trip is minutes, not seconds. The bounds are wide because the
+// length follows the number of days, and narrow enough that a runaway
+// composition is still caught before it renders for an hour.
+export const TRIP_FILM_MIN_SECONDS = 15;
+export const TRIP_FILM_MAX_SECONDS = 900;
+export const FILM_LIMITS = {
+  // Twenty-five days at roughly eight seconds each is about three and a
+  // half minutes of video, which takes ten to thirteen minutes to render
+  // on a Home Assistant box. The ceiling is set well above that so it only
+  // ever catches something genuinely stuck.
+  renderTimeoutMs: Number(process.env.ROADPLANNER_FILM_TIMEOUT_MS || 1_500_000),
+  maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 512 * 1024 * 1024),
+};
 
 /**
  * Hard limits.
@@ -257,6 +277,102 @@ export async function renderTripDayVideo({ outputPath, inputsDir, onProgress }) 
   return result;
 }
 
+/**
+ * Render a whole trip from its film package.
+ *
+ * The photos are served as files rather than embedded. Seventy pictures as
+ * data URIs would be one serialised blob the browser has to hold whole; as
+ * files the browser fetches each one when the frame needs it and lets it go
+ * again. Remotion serves a local `serveUrl` directory over HTTP, so the
+ * job gets its own copy of the bundle with a `photos/` folder beside it -
+ * a copy rather than a shared folder, because two jobs sharing one
+ * directory is a way for one trip's pictures to appear in another's film.
+ */
+export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress }) {
+  const started = Date.now();
+  const manifestRaw = await readBounded(
+    path.join(inputsDir, FILM_MANIFEST_FILENAME),
+    MAX_FILM_JSON_BYTES,
+  );
+  if (manifestRaw === null) {
+    throw new RenderError("PACKAGE_MISSING", "Zum Auftrag fehlt das Filmpaket.");
+  }
+  const parsed = parseFilmPackage(manifestRaw.toString("utf8"));
+
+  const stage = await fs.mkdtemp(path.join(os.tmpdir(), "roadplanner-film-"));
+  try {
+    // The photos are verified and written FIRST, before the bundle is
+    // copied. Copying a bundle for a package that turns out to be broken
+    // is work nobody asked for, and it would also hide the real error
+    // behind whatever the copy failed on.
+    let photoBytes = 0;
+    for (const chapter of parsed.chapters) {
+      for (const photo of chapter.photos) {
+        const bytes = await readBounded(
+          path.join(inputsDir, photo.path),
+          MAX_FILM_IMAGE_BYTES,
+        );
+        if (bytes === null) {
+          throw new RenderError(
+            "PACKAGE_MISSING",
+            `Im Filmpaket fehlt ein angekündigtes Bild (${photo.path}).`,
+          );
+        }
+        if (bytes.length !== photo.sizeBytes) {
+          throw new RenderError(
+            "PACKAGE_INVALID",
+            `${photo.path}: Größe weicht von der Ankündigung ab.`,
+          );
+        }
+        if (createHash("sha256").update(bytes).digest("hex") !== photo.sha256) {
+          throw new RenderError("PACKAGE_INVALID", `${photo.path}: SHA-256 stimmt nicht.`);
+        }
+        const target = path.join(stage, photo.path);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, bytes);
+        photoBytes += bytes.length;
+      }
+    }
+    await fs.cp(BUNDLE_DIR, stage, { recursive: true });
+    const prepareSeconds = (Date.now() - started) / 1000;
+
+    const result = await renderComposition({
+      outputPath,
+      compositionId: TRIP_FILM_COMPOSITION_ID,
+      serveUrl: stage,
+      inputProps: { trip: parsed.trip, chapters: parsed.chapters },
+      limits: FILM_LIMITS,
+      expected: (composition) => {
+        const seconds = composition.durationInFrames / EXPECTED.fps;
+        if (seconds < TRIP_FILM_MIN_SECONDS || seconds > TRIP_FILM_MAX_SECONDS) {
+          throw new RenderError(
+            "OUTPUT_INVALID",
+            `Der Film ergibt ${Math.round(seconds)} s - das liegt ausserhalb des erwarteten Rahmens.`,
+          );
+        }
+        return { ...EXPECTED, durationSeconds: seconds, durationToleranceSeconds: 0.25 };
+      },
+      onProgress,
+    });
+    result.timings.prepare = prepareSeconds;
+    result.timings.total += prepareSeconds;
+    result.facts.chapter_count = parsed.chapters.length;
+    result.facts.photo_count = parsed.chapters.reduce(
+      (sum, chapter) => sum + chapter.photos.length,
+      0,
+    );
+    result.facts.chapters_without_photos = parsed.chapters.filter(
+      (chapter) => !chapter.photos.length,
+    ).length;
+    result.facts.package_bytes = photoBytes;
+    return result;
+  } finally {
+    // The stage holds a copy of somebody's photos. It goes whether the
+    // render succeeded or not.
+    await fs.rm(stage, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /** Read a file, refusing an oversized one and never following a symlink. */
 async function readBounded(file, limit) {
   let stat;
@@ -284,6 +400,8 @@ async function renderComposition({
   inputProps,
   expected,
   onProgress,
+  serveUrl = BUNDLE_DIR,
+  limits = LIMITS,
 }) {
   const timings = {};
   const startedAt = Date.now();
@@ -309,7 +427,7 @@ async function renderComposition({
   }
 
   try {
-    await fs.access(BUNDLE_DIR);
+    await fs.access(serveUrl);
   } catch (err) {
     throw new RenderError("RENDER_FAILED", "Das Remotion-Bundle fehlt im Image.", err?.message);
   }
@@ -333,7 +451,7 @@ async function renderComposition({
   const partial = `${outputPath.replace(/\.mp4$/i, "")}.part.mp4`;
   try {
     const composition = await selectComposition({
-      serveUrl: BUNDLE_DIR,
+      serveUrl,
       id: compositionId,
       inputProps,
       puppeteerInstance: browser,
@@ -350,15 +468,15 @@ async function renderComposition({
           reject(
             new RenderError(
               "RENDER_TIMEOUT",
-              `Der Render hat die Zeitgrenze von ${Math.round(LIMITS.renderTimeoutMs / 1000)} s überschritten.`,
+              `Der Render hat die Zeitgrenze von ${Math.round(limits.renderTimeoutMs / 1000)} s überschritten.`,
             ),
           ),
-        LIMITS.renderTimeoutMs,
+        limits.renderTimeoutMs,
       );
     });
     const render = renderMedia({
       composition,
-      serveUrl: BUNDLE_DIR,
+      serveUrl,
       codec: "h264",
       outputLocation: partial,
       inputProps,
@@ -380,7 +498,7 @@ async function renderComposition({
     // A file larger than the channel will carry is a failure here, not a
     // surprise on the Home Assistant side.
     const written = await fs.stat(partial);
-    if (written.size > LIMITS.maxOutputBytes) {
+    if (written.size > limits.maxOutputBytes) {
       throw new RenderError(
         "OUTPUT_INVALID",
         `Das Ergebnis ist mit ${Math.round(written.size / 1024 / 1024)} MB zu gross.`,

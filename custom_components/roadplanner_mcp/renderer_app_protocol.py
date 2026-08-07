@@ -109,22 +109,28 @@ ACTION_RENDER_REMOTION_TEST = "render_remotion_test"
 # from the job id it already has. A directory named by a server-generated
 # UUID is the only kind of path either side ever builds.
 ACTION_RENDER_TRIP_DAY = "render_trip_day"
+# A whole trip. Minutes of video rather than seconds, which is why it has
+# its own limits further down rather than borrowing the day video's.
+ACTION_RENDER_TRIP_FILM = "render_trip_film"
 ALLOWED_ACTIONS = (
     ACTION_PING,
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_REMOTION_TEST,
     ACTION_RENDER_TRIP_DAY,
+    ACTION_RENDER_TRIP_FILM,
 )
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
 ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg"
 ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
 ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4"
+ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4"
 ALLOWED_ARTIFACTS = {
     ARTIFACT_TEXT: "text",
     ARTIFACT_IMAGE: "image",
     ARTIFACT_VIDEO: "video",
     ARTIFACT_TRIP_DAY_VIDEO: "video",
+    ARTIFACT_TRIP_FILM_VIDEO: "video",
 }
 # Where a job's input package lives. Named after the job, never after
 # anything a user typed.
@@ -149,6 +155,14 @@ JOB_TTL_SECONDS = 300
 MAX_JSON_BYTES = 64 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024
 MAX_VIDEO_ARTIFACT_BYTES = 64 * 1024 * 1024
+# Three minutes of 720p is several times a fifteen-second clip. Kept as its
+# own number so raising it for the film cannot silently raise it for the
+# day video, which has no business being this large.
+MAX_FILM_ARTIFACT_BYTES = 512 * 1024 * 1024
+# A whole trip takes minutes to render on a home box, not seconds. This is
+# the job TTL the film is submitted with; the app has its own matching
+# ceilings.
+FILM_JOB_TTL_SECONDS = 3600
 MAX_MESSAGE_LENGTH = 120
 MAX_ERROR_LENGTH = 300
 
@@ -433,7 +447,7 @@ def validate_result(payload: Any, *, job_id: str) -> dict[str, Any]:
                 f"Artefakt {filename} ohne gültige Größe"
             ) from err
         kind = ALLOWED_ARTIFACTS[filename]
-        limit = MAX_ARTIFACT_BYTES if kind in TEXT_ARTIFACT_KINDS else MAX_VIDEO_ARTIFACT_BYTES
+        limit = artifact_limit(filename)
         if not 0 < size <= limit:
             raise RendererProtocolError(f"Artefakt {filename} überschreitet die Größengrenze")
         artifacts.append(
@@ -457,6 +471,20 @@ def validate_result(payload: Any, *, job_id: str) -> dict[str, Any]:
     }
 
 
+def artifact_limit(filename: str) -> int:
+    """The size ceiling for one artefact, by what it is.
+
+    A film is allowed to be large; a text artefact is not, and the day
+    video sits between them. One function so the three cannot drift.
+    """
+    kind = ALLOWED_ARTIFACTS.get(filename)
+    if kind in TEXT_ARTIFACT_KINDS:
+        return MAX_ARTIFACT_BYTES
+    if filename == ARTIFACT_TRIP_FILM_VIDEO:
+        return MAX_FILM_ARTIFACT_BYTES
+    return MAX_VIDEO_ARTIFACT_BYTES
+
+
 def _video_facts(raw: Any) -> dict[str, Any] | None:
     """What ffprobe measured about the produced file, bounded and typed."""
     if not isinstance(raw, dict):
@@ -478,6 +506,10 @@ def _video_facts(raw: Any) -> dict[str, Any] | None:
         # package actually made it into the picture.
         "photo_count": number("photo_count"),
         "stop_count": number("stop_count"),
+        # Only a whole-trip film reports these. The second one is the
+        # finding the film exists to surface, so it is carried, not dropped.
+        "chapter_count": number("chapter_count"),
+        "chapters_without_photos": number("chapters_without_photos"),
     }
 
 
@@ -485,7 +517,7 @@ def _timings(raw: Any) -> dict[str, float]:
     """Measured durations, in seconds. Unknown keys are dropped."""
     if not isinstance(raw, dict):
         return {}
-    allowed = ("package", "browser_start", "render", "probe", "total")
+    allowed = ("package", "browser_start", "render", "probe", "total", "prepare")
     out: dict[str, float] = {}
     for key in allowed:
         value = raw.get(key)

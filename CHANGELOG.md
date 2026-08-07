@@ -6,6 +6,26 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.40.0] - 2026-08-07
+
+### Added
+
+- **Reisefilm v0 – der erste manifestgesteuerte Film.** Eine ganze Reise, ein Kapitel je Tag, gebaut ausschließlich aus dem TravelStoryManifest: Titel, Storytext, Tagesfakten und die kuratierten Bilder. Der Film ist eine **Übersetzung, keine zweite Story-Ebene** – es wird hier kein Wort verfasst und nichts nachgeschlagen. Zu finden im Bereich **Reisegeschichte**: erst „Was käme in den Film?", dann „Reisefilm erzeugen".
+- **Anfang, Mittelteil, Ende aus echten Fakten**: Eröffnungskarte mit Reisetitel, Zeitraum, Tagen und Kilometern; je Tag eine Tageskarte (Nummer, Datum, Titel, Strecke, Fahrzeit, Stopps), der Storytext über dem ersten Bild und bis zu zwei weitere Bilder; Abschlusskarte mit Tagen, Kilometern und Bildern. Es wurde keine Dramaturgie erfunden, denn dafür hätte man das Material erfinden müssen.
+- **Lücken werden gezeigt, nicht übersprungen.** Ein Tag ohne Fotos bekommt eine Karte, die das sagt – und nennt, wie viele Fotos der Tag *hat*. Ein Tag ohne Fahrtdaten zeigt „Keine Fahrtdaten hinterlegt" statt einer Null. Genau diese Lücken sind das Ergebnis des Versuchs; ein Film, der sie glättet, wäre hübscher und wertlos.
+- **Gegen Monotonie hilft nur, was die Daten hergeben:** Die Tageskarte wechselt die Seite, der Akzent läuft durch vier Farben, die langsame Kamerafahrt wechselt die Richtung – alles eine reine Funktion des Kapitelindex, damit dasselbe Paket immer denselben Film ergibt.
+- **Die Fotos reisen als Dateien, nicht eingebettet.** Remotion bedient ein lokales Verzeichnis über HTTP; jeder Job bekommt eine eigene Kopie des Bundles mit einem `photos/`-Ordner daneben. Siebzig Bilder als Data-URIs wären ein einziger Block, den der Browser am Stück halten müsste. Die Kopie ist bewusst je Job – ein gemeinsames Verzeichnis wäre ein Weg, auf dem die Bilder einer Reise im Film einer anderen auftauchen.
+- **Eigene Grenzen für den Film**, statt die des Tagesvideos anzuheben: höchstens 90 Bilder à 280 kB, 24 MB je Paket, 45 Kapitel, 25 min Renderzeit, 30 min Jobdauer, 512 MB Ergebnis. Die Bilder je Kapitel werden aus dem Gesamtbudget **gerechnet** – eine längere Reise ergibt einen dünneren Film, kein größeres Paket.
+
+### Changed
+
+- Renderer-App 0.5.0-film.1: neue Aktion `render_trip_film`, neue Komposition und ein eigenes Zeitlimit für den Film.
+- Bildpfade werden jetzt nur noch aus **echten Ganzzahlen** gebaut. Bisher hätte `int(1.5)` einen gültigen Dateinamen ergeben – ein Float wurde stillschweigend abgeschnitten. Betrifft Tages- und Filmpaket.
+
+### Fixed
+
+- Im Filmrender wurden die Bilder erst **nach** dem Kopieren des Bundles geprüft. Ein Paket mit falschem Hash kostete damit erst die Kopie und verbarg den echten Fehler hinter dem, woran die Kopie scheiterte. Geprüft wird jetzt zuerst.
+
 ## [4.39.0] - 2026-08-07
 
 ### Added

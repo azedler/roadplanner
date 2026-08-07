@@ -86,6 +86,8 @@ _ACTIONS = {
     "renderer_app_render",
     "story_manifest",
     "story_set_override",
+    "story_film_preview",
+    "story_film_render",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
@@ -175,6 +177,8 @@ _EDIT_ACTIONS = {
     # Writes two fields onto a day, so it needs the same permission as any
     # other edit - even though it touches no travel fact.
     "story_set_override",
+    # Writes a package of real photos into the shared directory.
+    "story_film_render",
     "update_trip",
     "add_day",
     "update_day",
@@ -273,6 +277,9 @@ _PROVIDER_CALL_ACTIONS = {
     # seconds on a phone connection, and being cancelled halfway would
     # leave a half-written package in the shared directory.
     "renderer_app_trip_day",
+    # The same, for a whole trip: up to ninety photos and minutes of work
+    # that must survive a phone locking its screen.
+    "story_film_render",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1423,6 +1430,25 @@ async def _execute_action(
             expected_revision=data.get("expected_revision"),
             actor=actor,
         )
+
+    if action == "story_film_preview":
+        # What a film would contain, counted from the cached manifest.
+        # Nothing is downloaded and nothing is written.
+        return {
+            "story_film_preview": await runtime.trip_film.async_preview(
+                str(data.get("trip_id") or "")
+            )
+        }
+
+    if action == "story_film_render":
+        # The whole trip. Minutes of render, so it is submitted and polled
+        # exactly like the day video rather than awaited here.
+        try:
+            return {"renderer_app_job": await runtime.trip_film.async_submit(
+                str(data.get("trip_id") or "")
+            )}
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
 
     if action == "renderer_app_trip_days":
         # Which days could be exported, and which have no photo to export.

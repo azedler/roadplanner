@@ -188,6 +188,7 @@ from .renderer_app_client import RendererAppClient, default_exchange_dir
 from .story_context_builder import StoryContextBuilder
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
+from .trip_film_export import TripFilmExporter
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -231,6 +232,7 @@ class RoadplannerRuntimeData:
     trip_day_mini_export: TripDayMiniExporter
     story_context: StoryContextBuilder
     story_overrides: StoryOverrideService
+    trip_film: TripFilmExporter
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -723,6 +725,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # The editorial write path: two fields, through the same
     # revision-checked mutation layer as every other change.
     story_overrides = StoryOverrideService(hass, manager, story_context)
+    # The first consumer of the manifest. It reads the description and
+    # translates it; it never decides what a day is about.
+    trip_film = TripFilmExporter(
+        hass, manager, experience, story_context, renderer_app, media_cache=media_cache
+    )
 
     trip_summaries = TripSummaryService(
         hass,
@@ -761,6 +768,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         trip_day_mini_export=trip_day_mini_export,
         story_context=story_context,
         story_overrides=story_overrides,
+        trip_film=trip_film,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

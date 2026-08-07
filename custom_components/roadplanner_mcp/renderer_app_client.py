@@ -39,6 +39,10 @@ from homeassistant.core import HomeAssistant
 from .renderer_app_protocol import (
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_TRIP_DAY,
+    ACTION_RENDER_TRIP_FILM,
+    ARTIFACT_TRIP_FILM_VIDEO,
+    FILM_JOB_TTL_SECONDS,
+    artifact_limit,
     ARTIFACT_IMAGE,
     ARTIFACT_TEXT,
     ARTIFACT_TRIP_DAY_VIDEO,
@@ -67,6 +71,10 @@ from .trip_day_render_package import (
     PACKAGE_FILENAME,
     image_filename,
     validate_package,
+)
+from .trip_film_package import (
+    FILM_MANIFEST_FILENAME,
+    validate_film_package,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -296,6 +304,74 @@ class RendererAppClient:
         self._write_job(job)
         return total
 
+    async def async_submit_trip_film_job(
+        self,
+        *,
+        package: dict[str, Any],
+        files: dict[str, bytes],
+        title: str,
+    ) -> dict[str, Any]:
+        """Hand over a whole trip: its photos first, the job last.
+
+        Same ordering argument as the day video, and it matters more here:
+        seventy files take a moment to write, and a worker that found the
+        job file first would start on half a trip.
+        """
+        validate_film_package(package)
+        job_id = new_job_id()
+        package = {**package, "job_id": job_id}
+        job = build_job(
+            job_id=job_id,
+            action=ACTION_RENDER_TRIP_FILM,
+            message=title or "Reisefilm",
+            now=utc_now(),
+            # A trip takes minutes. The default five-minute TTL would mark
+            # the job stale while it was still being rendered.
+            ttl_seconds=FILM_JOB_TTL_SECONDS,
+        )
+        written = await self._hass.async_add_executor_job(
+            self._write_trip_film_job, job, package, files
+        )
+        return {
+            "job_id": job_id,
+            "state": JOB_QUEUED,
+            "submitted_at": job["created_at"],
+            "package_bytes": written,
+            "image_count": len(files),
+        }
+
+    def _write_trip_film_job(
+        self, job: dict[str, Any], package: dict[str, Any], files: dict[str, bytes]
+    ) -> int:
+        folder = self._dir / INPUTS_DIR / validate_job_id(job["job_id"])
+        folder.mkdir(parents=True, exist_ok=True)
+        total = 0
+        for relative, blob in files.items():
+            target = self._safe_child(folder, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._write_atomic(target, blob)
+            total += len(blob)
+        manifest = json.dumps(package, ensure_ascii=False).encode("utf-8")
+        self._write_atomic(folder / FILM_MANIFEST_FILENAME, manifest)
+        total += len(manifest)
+        self._write_job(job)
+        return total
+
+    @staticmethod
+    def _safe_child(folder: Path, relative: str) -> Path:
+        """Resolve a package-relative path, refusing anything that escapes.
+
+        The paths are built from integers by ``photo_filename`` and cannot
+        contain anything else. This checks it anyway: the cost is one
+        comparison, and the failure it prevents is writing outside the job
+        directory.
+        """
+        candidate = (folder / relative).resolve()
+        root = folder.resolve()
+        if not str(candidate).startswith(f"{root}/"):
+            raise RendererProtocolError(f"Pfad verlässt den Auftragsordner: {relative!r}")
+        return candidate
+
     async def async_discard_job_inputs(self, job_id: str) -> None:
         """Remove a job's package.
 
@@ -312,10 +388,9 @@ class RendererAppClient:
         try:
             if folder.is_symlink() or not folder.is_dir():
                 return
-            for child in folder.iterdir():
-                if child.is_file() or child.is_symlink():
-                    child.unlink(missing_ok=True)
-            folder.rmdir()
+            # A film package has a photos/ subdirectory, so this has to go
+            # a level deeper than the day video's flat folder did.
+            shutil.rmtree(folder)
         except OSError as err:
             _LOGGER.debug("Renderpaket %s nicht aufräumbar: %s", job_id, err)
 
@@ -382,8 +457,9 @@ class RendererAppClient:
             # The filename came from a fixed whitelist in validate_result,
             # so this join cannot be steered anywhere.
             is_text = declared["kind"] in TEXT_ARTIFACT_KINDS
-            limit = MAX_ARTIFACT_BYTES if is_text else MAX_VIDEO_ARTIFACT_BYTES
-            data = self._read_bounded(folder / declared["filename"], limit)
+            data = self._read_bounded(
+                folder / declared["filename"], artifact_limit(declared["filename"])
+            )
             if data is None:
                 raise RendererProtocolError(
                     f"Angekündigtes Artefakt fehlt: {declared['filename']}"
@@ -399,7 +475,7 @@ class RendererAppClient:
         # render produce different filenames and the panel shows whichever
         # one this job actually made.
         video_path = ""
-        for candidate in (ARTIFACT_TRIP_DAY_VIDEO, ARTIFACT_VIDEO):
+        for candidate in (ARTIFACT_TRIP_FILM_VIDEO, ARTIFACT_TRIP_DAY_VIDEO, ARTIFACT_VIDEO):
             if (folder / candidate).is_file():
                 video_path = str(folder / candidate)
                 break

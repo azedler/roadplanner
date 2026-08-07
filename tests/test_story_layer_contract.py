@@ -186,9 +186,23 @@ def verify_only_two_fields_are_editable() -> None:
     # can call, and the two fields it may put in a change.
     feature = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
     called = set(re.findall(r'_runAction\(\s*"([a-z_]+)"', feature))
-    assert called <= {"story_manifest", "story_set_override", "media_update_assignment"}, (
-        f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
-    )
+    # The film lives here because it is what the story layer is FOR, but
+    # the list stays closed: an action that appears without being named
+    # here is a boundary being crossed quietly.
+    assert called <= {
+        "story_manifest",
+        "story_set_override",
+        "media_update_assignment",
+        "story_film_preview",
+        "story_film_render",
+    }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
+    # The film takes a trip and nothing else - it cannot carry an edit.
+    film_calls = re.findall(r'"story_film_\w+",\s*\{([^}]*)\}', feature)
+    assert film_calls, "die Filmaufrufe wurden nicht gefunden"
+    for payload in film_calls:
+        assert "trip_id" in payload
+        for forbidden in ("changes", "day_id", "patch"):
+            assert forbidden not in payload, f"der Filmaufruf darf {forbidden} nicht senden"
     assert set(re.findall(r"changes\.([a-z_]+)\s*=", feature)) <= {"title", "story"}
 
 
