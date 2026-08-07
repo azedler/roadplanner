@@ -40,4 +40,56 @@ assert "crewMixin" in PANEL_JS or "crew.js" in PANEL_JS
 assert "crew_person_add" in PANEL_JS
 assert "crew_vehicle_add" in PANEL_JS
 
+
+def verify_an_image_view_can_be_loaded_by_an_image_tag() -> None:
+    """A browser does not attach a bearer token to <img src>.
+
+    The crew portrait view required session authentication on exactly
+    that premise, and so answered 401 to every picture. The portraits
+    stayed blank - and Home Assistant counts a 401 from any endpoint as a
+    failed login, so a crew page with four people banned the household
+    from its own Home Assistant after a few visits.
+
+    Every view here whose bytes are fetched by the browser as a plain URL
+    has to be reachable without a header the browser will never send.
+    """
+    for name in (
+        "crew_portrait_http.py",
+        "experience_http.py",
+        "google_photo_http.py",
+        "trip_pdf_http.py",
+        "trip_pdf_library_http.py",
+        "trip_video_library_http.py",
+        "frontend_static_http.py",
+    ):
+        source = (ROOT / name).read_text(encoding="utf-8")
+        assert "requires_auth = False" in source, (
+            f"{name}: ein <img> oder ein Downloadlink sendet kein Token - "
+            "diese Ansicht wuerde 401 antworten und IP-Sperren ausloesen"
+        )
+        # The capability has to be something, and it is the unguessable
+        # path. A view that dropped auth without saying why would be the
+        # actually dangerous version of this fix.
+        named = any(
+            word in source
+            for word in (
+                "Dateiname",
+                "filename",
+                "capability",
+                "HMAC",
+                "uuid4",
+                "unguessable",
+                "erratbar",
+                "public-ish",
+            )
+        )
+        assert named, (
+            f"{name}: was an die Stelle der Authentifizierung tritt, muss "
+            "benannt sein - eine Ansicht, die sie kommentarlos ablegt, waere "
+            "die wirklich gefaehrliche Fassung dieses Fixes"
+        )
+
+
+verify_an_image_view_can_be_loaded_by_an_image_tag()
+
 print("Crew management contract tests passed.")

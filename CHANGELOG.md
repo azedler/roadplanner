@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.1] - 2026-08-07
+
+### Fixed
+
+- **Ein Besuch der Crew-Seite hat die eigene IP-Adresse aus dem eigenen Home Assistant ausgesperrt.** Die Porträt-Route verlangte Home Assistants Sitzungsauthentifizierung, mit der Begründung: „ein Porträt wird im Panel von einem angemeldeten Browser angezeigt". Die Annahme ist falsch – **ein Browser hängt an eine `<img src>`-Anfrage kein Token an.** Das JavaScript des Panels tut es, ein Bild-Element nie. Jedes Porträt antwortete also mit 401, und Home Assistant wertet einen 401 von **jeder** Route als fehlgeschlagenen Anmeldeversuch: Eine Crew-Seite mit vier Personen sind vier Fehlversuche je Besuch. Deshalb blieben die Kreise leer, und deshalb kam die Sperre.
+- Die Zugriffsberechtigung ist jetzt – wie bei jeder anderen dateiliefernden Ansicht dieser Integration – der nicht erratbare Dateiname: ein SHA-1 über Personen-ID, Medien-ID und Bildausschnitt, die alle nur aus einem authentifizierten Panel-Payload stammen können.
+- Ein Kontrakttest prüft das für **alle** Ansichten, deren Bytes der Browser als schlichte URL holt – und verlangt zusätzlich, dass benannt wird, was an die Stelle der Authentifizierung tritt. Eine Ansicht, die sie kommentarlos ablegt, wäre die wirklich gefährliche Fassung dieses Fixes.
+
+**Zum Aufheben einer bestehenden Sperre:** den Eintrag in `/config/ip_bans.yaml` löschen und Home Assistant neu starten.
+
 ## [4.44.0] - 2026-08-07
 
 ### Added
