@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.35.1] - 2026-08-07
+
+### Fixed
+
+- **Aufgeklappte Bereiche bleiben nach jedem Knopfdruck offen** (live: „nach Drücken auf einen der Tests schließt sich der Test immer und man muss ihn neu öffnen und runterscrollen"). Das Neuzeichnen ersetzt den gesamten Shadow-DOM, und ein `<details>` kam dabei immer zugeklappt zurück. Die erhaltene Scrollposition konnte das nicht ausgleichen – eine zugeklappte Seite ist kürzer als der Offset, der an der aufgeklappten gemessen wurde, also landete man oben in einem geschlossenen Bereich. Da jeder Knopf in einem solchen Bereich ein Neuzeichnen auslöst, waren die Karten „Renderer-App" und „Remotion-Unterprozess" praktisch unbedienbar: Knopf drücken hieß Karte verlieren. Jede aufklappbare Sektion hat jetzt eine stabile Kennung; der offene Zustand wird vor dem Neuzeichnen erfasst und **vor** dem Wiederherstellen der Scrollposition zurückgesetzt.
+- **Die Karten passen wieder ins Bild** (live: „aktuell passt das Fenster auch nicht ins Bild"). Werte ohne Leerzeichen – ein vollständiger Austauschpfad, ein Dateiname – brachen nicht um und schoben das dreispaltige Raster über den Bildschirmrand, sodass die ganze Karte seitlich scrollte. Zusätzlich brachte das Testartefakt seine Eigenbreite von 640 px mit und war nie begrenzt worden. Lange Werte brechen jetzt um, das Artefakt ist auf die Kartenbreite begrenzt, und auf schmalen Schirmen hat das Raster zwei statt drei Spalten.
+- **Der Remotion-Render war aus der Oberfläche gar nicht auslösbar.** Die Aktion, der Worker und die Prüfung waren vollständig, aber „Testauftrag senden" schickte weiterhin den einfachen Auftrag – ein Renderer, den niemand starten kann, ist kein Feature. Die Karte „Renderer-App" hat jetzt einen eigenen Knopf **„Testvideo rendern"**, und ein Vertragstest prüft, dass Aktion, Panel-Zweig, Knopf und Verteiler zusammenpassen.
+- Die Statusabfrage im Panel überdauert jetzt einen Render. Sie war auf zwei Minuten ausgelegt, was für die kleinen Testartefakte reichte, für einen Render aber knapp gewesen wäre.
+- Das fertige Video wird mit dem angezeigt, was ffprobe gemessen hat – Codec, Auflösung, Dauer, Größe und die Zeiten für Browserstart, Render und Prüfung. Die Datei selbst bleibt im Austauschordner und wird bewusst nicht ins Panel geladen.
+
 ## [4.35.0] - 2026-08-06
 
 ### Added

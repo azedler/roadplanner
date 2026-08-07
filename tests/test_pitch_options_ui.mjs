@@ -235,8 +235,15 @@ assert.equal(panel._pitchCurrentDayId(), "day-3");
 // actual content on mobile.
 panel._activeTab = "pitches";
 const tabsHtml = panel._renderTabs();
-assert.match(tabsHtml, /<details class="tool-tabs">/, "the tool-tabs tray must start collapsed regardless of the active tab");
-assert.doesNotMatch(tabsHtml, /<details class="tool-tabs" open>/);
+// Matched on the attribute that carries the meaning rather than on the
+// exact tag text: the element also carries a data-section id so its open
+// state survives a re-render, and that must not break this check.
+assert.match(tabsHtml, /<details[^>]*class="tool-tabs"/, "the tool-tabs tray must be rendered");
+assert.doesNotMatch(
+  tabsHtml,
+  /<details[^>]*class="tool-tabs"[^>]*\sopen[\s>]/,
+  "the tool-tabs tray must start collapsed regardless of the active tab",
+);
 
 // Planning images for backup options: a saved option gallery (keyed
 // "option:<id>") must surface as the row's thumbnail and on the Plan-B
