@@ -56,6 +56,12 @@ SCENE_COLLAGE = "collage"
 SCENE_TEXT = "text"
 SCENE_OUTRO = "outro"
 SCENE_OUTRO_COLLAGE = "outro_collage"
+# The map. Three scenes rather than one, because the map does three
+# different jobs: it opens the journey, it carries a travelling day, and
+# it closes the whole thing.
+SCENE_MAP_START = "map_start"
+SCENE_MAP_LEG = "map_leg"
+SCENE_MAP_FULL = "map_full"
 SCENE_TYPES = (
     SCENE_INTRO,
     SCENE_CHAPTER_CARD,
@@ -65,6 +71,9 @@ SCENE_TYPES = (
     SCENE_TEXT,
     SCENE_OUTRO,
     SCENE_OUTRO_COLLAGE,
+    SCENE_MAP_START,
+    SCENE_MAP_LEG,
+    SCENE_MAP_FULL,
 )
 
 IMPORTANCE_TRANSITION = "transition"
@@ -124,6 +133,28 @@ PHOTO_WEIGHTS = {
     IMPORTANCE_HIGHLIGHT: 3,
     IMPORTANCE_MAJOR: 4,
 }
+
+# How long the map gets, per importance. This is the heart of the brief:
+# a transfer day is where the map EARNS its place, because the day is
+# the journey; a major highlight wants to arrive and then be about the
+# place, so the approach is only as long as it has to be.
+_MAP_FRAMES = {
+    IMPORTANCE_TRANSITION: 165,
+    IMPORTANCE_NORMAL: 105,
+    IMPORTANCE_HIGHLIGHT: 75,
+    IMPORTANCE_MAJOR: 60,
+}
+# map_focus is the one style where the map is the act rather than the
+# introduction to it, so it overrides the table above.
+MAP_FOCUS_FRAMES = 225
+
+# The map replaces part of the chapter rather than being added to it -
+# the brief is explicit that the film must not simply grow. A day whose
+# map runs long gives back photo time, down to a floor of one picture.
+MAP_TIME_TAKEN_BACK = 0.6
+
+MAP_START_FRAMES = 120
+MAP_FULL_FRAMES = 165
 
 INTRO_FRAMES = 135
 OUTRO_FRAMES = 135
@@ -324,7 +355,7 @@ def _caption(chapter: dict[str, Any]) -> str:
 
 
 def _chapter_scenes(
-    chapter: dict[str, Any], *, photo_count: int, index: int
+    chapter: dict[str, Any], *, photo_count: int, index: int, has_map: bool = False
 ) -> list[dict[str, Any]]:
     """The shots for one day. Style picks the shape, importance the size."""
     importance = _importance(chapter)
@@ -344,6 +375,24 @@ def _chapter_scenes(
         }
     ]
 
+    map_frames = 0
+    if has_map:
+        # map_focus is the one style where the map is the act. Everywhere
+        # else it is the approach, and how long an approach may take is
+        # exactly what importance says: a transfer day IS the journey, a
+        # major highlight wants to arrive and then be about the place.
+        map_frames = MAP_FOCUS_FRAMES if style == "map_focus" else _MAP_FRAMES[importance]
+        scenes.append(
+            {
+                "type": SCENE_MAP_LEG,
+                "chapter_id": chapter_id,
+                "chapter_index": index,
+                "frames": map_frames,
+                "enter": enter,
+                "photos": [],
+            }
+        )
+
     def photo_scene(kind: str, indices: list[int], frames: int) -> dict[str, Any]:
         return {
             "type": kind,
@@ -357,19 +406,41 @@ def _chapter_scenes(
     if photo_count <= 0:
         # Not "keine Fotos vorhanden" on screen - that is a diagnostic and
         # belongs in a log. The day gets a written page instead, which is
-        # also what makes a photo-less last day flow into the outro.
-        scenes.append(photo_scene(SCENE_TEXT, [], _TEXT_FRAMES[importance]))
+        # also what makes a photo-less last day flow into the outro. With
+        # a map, that page is shorter: the map has already carried the day.
+        text_frames = _TEXT_FRAMES[importance]
+        if has_map:
+            text_frames = max(60, int(text_frames * 0.7))
+        scenes.append(photo_scene(SCENE_TEXT, [], text_frames))
         return scenes
+
+    # The map replaces chapter time rather than being added to it. A day
+    # keeps at least one picture: a map that ate the last photograph
+    # would have turned a travel film into an atlas.
+    photo_frames = _PHOTO_FRAMES[importance]
+    if map_frames:
+        given_back = int(map_frames * MAP_TIME_TAKEN_BACK)
+        droppable = max(0, photo_count - 1)
+        while droppable and given_back >= photo_frames:
+            photo_count -= 1
+            droppable -= 1
+            given_back -= photo_frames
+        if given_back > 0 and photo_count:
+            photo_frames = max(60, photo_frames - given_back // photo_count)
+
+    if style == "map_focus":
+        # The map was the act; one picture closes the day and that is all.
+        photo_count = 1
 
     remaining = list(range(photo_count))
     if style == "collage" and photo_count >= 2:
         scenes.append(photo_scene(SCENE_COLLAGE, remaining, _COLLAGE_FRAMES[importance]))
         return scenes
-    # map_focus has no map yet. Rather than a placeholder nobody asked
-    # for, it becomes the strongest single-image form available - and
-    # says so in the plan, so the substitution is visible rather than
-    # silently identical to "hero".
-    if style in {"hero", "map_focus"} or (
+    # map_focus no longer borrows the hero image: it now has its own map
+    # scene above, which is the whole point of this step. Without map
+    # data it still falls back, because a style is a wish and geography
+    # is a fact.
+    if style == "hero" or (style == "map_focus" and not has_map) or (
         style == "collage" and photo_count == 1
     ):
         scenes.append(photo_scene(SCENE_HERO, [remaining[0]], _HERO_FRAMES[importance]))
@@ -377,12 +448,10 @@ def _chapter_scenes(
     if style == "compact":
         # One picture, one line, move on.
         if remaining:
-            scenes.append(
-                photo_scene(SCENE_PHOTO, [remaining[0]], _PHOTO_FRAMES[importance])
-            )
+            scenes.append(photo_scene(SCENE_PHOTO, [remaining[0]], photo_frames))
         return scenes
     for position in remaining:
-        scenes.append(photo_scene(SCENE_PHOTO, [position], _PHOTO_FRAMES[importance]))
+        scenes.append(photo_scene(SCENE_PHOTO, [position], photo_frames))
 
     if not caption:
         # Nothing to read anywhere in this chapter: the card carries it.
@@ -396,6 +465,7 @@ def build_scene_plan(
     chapters: list[dict[str, Any]],
     narrative: dict[str, Any] | None = None,
     outro_photos: list[dict[str, Any]] | None = None,
+    map_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The whole film as an ordered list of scenes with frame counts.
 
@@ -407,6 +477,12 @@ def build_scene_plan(
         raise FilmPlanError("Ein Film ohne Kapitel kann nicht geplant werden")
 
     arc = narrative if isinstance(narrative, dict) else {}
+    mapped = {
+        str(entry.get("chapter_id") or "")
+        for entry in ((map_context or {}).get("chapters") or [])
+    }
+    mapped.discard("")
+
     scenes: list[dict[str, Any]] = [
         {
             "type": SCENE_INTRO,
@@ -418,13 +494,42 @@ def build_scene_plan(
             "photos": [],
         }
     ]
+    if mapped:
+        # "Here is where it begins." The starting point and the camper,
+        # and deliberately NOT the route ahead: a film that shows the
+        # whole journey in its first ten seconds has spent the one thing
+        # a map can give it.
+        scenes.append(
+            {
+                "type": SCENE_MAP_START,
+                "chapter_id": "",
+                "chapter_index": -1,
+                "frames": MAP_START_FRAMES,
+                "enter": "rise",
+                "photos": [],
+            }
+        )
     for index, chapter in enumerate(chapters):
         scenes.extend(
             _chapter_scenes(
                 chapter,
                 photo_count=len(chapter.get("images") or []),
                 index=index,
+                has_map=str(chapter.get("chapter_id") or "") in mapped,
             )
+        )
+    if mapped:
+        # The whole route at last. Everything before this showed only how
+        # far the journey had got by that day.
+        scenes.append(
+            {
+                "type": SCENE_MAP_FULL,
+                "chapter_id": "",
+                "chapter_index": -1,
+                "frames": MAP_FULL_FRAMES,
+                "enter": "settle",
+                "photos": [],
+            }
         )
 
     scenes.append(

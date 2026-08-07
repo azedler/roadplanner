@@ -6,6 +6,25 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.0] - 2026-08-07
+
+### Added
+
+- **Der Reisefilm hat jetzt eine Karte, und auf ihr fährt ein Wohnmobil.** Tag für Tag bewegt es sich die tatsächlich gefahrene Strecke entlang; das bereits Zurückgelegte bleibt sichtbar und wächst mit, das noch Kommende wird nicht vorweggenommen. Am Anfang steht der Startpunkt, am Ende einmal die ganze Route.
+- **Fährstrecken sehen anders aus als Straßen** – gestrichelt und in einer anderen Farbe. Das ist keine Schätzung: Roadplanner schreibt bei jeder Streckenberechnung mit, welcher Abschnitt eine Fähre war. Wo nichts berechnet wurde, wird eine Luftlinie zwischen den Stopps gezogen und als das gezeichnet, was sie ist – nie als Straße.
+- **Die Karte kommt ohne Kartendienst aus.** Küstenlinien und Grenzen sind Natural Earth und liegen im Image. Kein Kachelserver, kein API-Schlüssel, keine Anfrage während eines Renderlaufs, keine laufenden Kosten.
+
+### Changed
+
+- **Hochkantfotos werden nicht mehr beschnitten.** Sie stehen vollständig im Bild, der Platz daneben wird mit demselben Foto unscharf und abgedunkelt gefüllt. Vorher schnitt das 16:9-Format oben den Himmel und unten die Person ab.
+- **Die Collage ist eine Fotowand statt einer Tabelle.** Die Bilder überlappen sich, haben unterschiedliche Größen und behalten ihre eigenen Seitenverhältnisse.
+- **Weniger Text über den Bildern.** Der Tagessatz steht einmal pro Tag über dem ersten Foto, zweizeilig und kleiner – vorher lag derselbe Satz dreizeilig über jedem Bild des Tages.
+- **Die Karte verlängert den Film nicht.** Die Zeit, die ein Tag für seine Karte bekommt, nimmt er sich von seiner Bilderzeit – bis auf ein Foto, das immer bleibt.
+
+### Fixed
+
+- **`visual_style` erreichte den Film überhaupt nicht.** Die Reiseredaktion entscheidet je Tag zwischen Hero, Collage, kompakt und kartenbetont – beim Übersetzen in das Filmpaket ging das Feld verloren, und jeder Tag wurde als „normal" gebaut. Zwei der drei Entscheidungen der Redaktion kamen an, die dritte nie. Der eigene Testlauf hatte das nicht gefunden, weil er den Planer direkt mit selbst gebauten Kapiteln fütterte und damit genau die Stelle übersprang, an der das Feld verschwand.
+
 ## [4.44.6] - 2026-08-07
 
 ### Changed

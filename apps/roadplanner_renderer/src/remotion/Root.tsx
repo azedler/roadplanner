@@ -113,10 +113,12 @@ export const RemotionRoot: React.FC = () => (
             },
           ],
           narrative: null,
+          mapContext: null,
           scenes: [
             {
               type: "chapter_card",
               chapterIndex: 0,
+              chapterId: "vorschau",
               frames: 90,
               enter: "fade",
               photos: [],

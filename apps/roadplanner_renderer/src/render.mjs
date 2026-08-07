@@ -347,6 +347,7 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
         chapters: parsed.chapters,
         narrative: parsed.narrative,
         scenes: parsed.scenes,
+        mapContext: parsed.mapContext,
       },
       limits: FILM_LIMITS,
       expected: (composition) => {
@@ -372,6 +373,7 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
       (chapter) => !chapter.photos.length,
     ).length;
     result.facts.package_bytes = photoBytes;
+    result.facts.mapped_chapters = parsed.mapContext?.chapters.length ?? 0;
     return result;
   } finally {
     // The stage holds a copy of somebody's photos. It goes whether the

@@ -38,6 +38,7 @@ from .trip_film_package import (
     shrink_film_photo,
 )
 from .trip_film_plan import allocate_photos
+from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +63,10 @@ class TripFilmExporter:
         self._story_context = story_context
         self._renderer_app = renderer_app
         self._media_cache = media_cache
+        # The manifest carries no coordinates and is not going to start.
+        # Where the trip happened is asked for separately, by chapter id,
+        # from the canonical routing data.
+        self._map = MapContextBuilder(hass, manager)
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -138,11 +143,14 @@ class TripFilmExporter:
                     missing_media += 1
             photos_by_chapter[str(chapter.get("chapter_id") or "")] = prepared
 
+        map_context = await self._map.async_build(trip_id, manifest)
+
         try:
             package, files = build_film_package(
                 job_id="00000000-0000-0000-0000-000000000000",
                 manifest=manifest,
                 photos_by_chapter=photos_by_chapter,
+                map_context=map_context,
             )
         except RenderPackageError as err:
             raise ValidationError(str(err)) from err
@@ -169,6 +177,8 @@ class TripFilmExporter:
             # that could not be fetched is a gap the film will show.
             "unavailable_media": missing_media,
             "manifest_content_hash": manifest.get("content_hash") or "",
+            "mapped_chapters": (map_context or {}).get("chapter_count", 0),
+            "has_ferry": bool((map_context or {}).get("has_ferry")),
         }
 
     async def _async_media_records(self, trip_id: str) -> dict[str, dict[str, Any]]:
