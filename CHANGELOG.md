@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.41.1] - 2026-08-07
+
+### Fixed
+
+- **Die Renderer-App-Karte hat nicht nach dem eigenen Auftrag gesucht.** Das Wiederfinden eines laufenden oder fertigen Auftrags hing an der Umgebungsprüfung – einem Knopf, den niemand drückt, wenn er sein Video sucht. Die Karte, die Aufträge anzeigt, fragt jetzt selbst danach, genau wie die Reisegeschichte-Karte es schon tat. Ein fertiger Reisefilm samt Download steht damit sofort da, wenn man die Seite öffnet.
+
 ## [4.41.0] - 2026-08-07
 
 ### Added
