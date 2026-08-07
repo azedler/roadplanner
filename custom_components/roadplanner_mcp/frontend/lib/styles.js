@@ -109,6 +109,43 @@ export const PANEL_STYLES = `<style>
       .facts-grid > div, .next-day-grid > div, .preview-grid > div { min-width: 0; }
       /* An artefact from the renderer arrives at its own intrinsic size
          (640px wide), which is wider than a phone. */
+      /* --- Story editor -------------------------------------------------
+         Built to survive a 30-day trip on a phone: the chapter strip
+         scrolls horizontally instead of wrapping into a wall of buttons,
+         and every element that could bring its own width is bounded. */
+      .story-card { display: grid; gap: 14px; }
+      .story-overview { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--secondary-text-color); font-size: 13px; }
+      .story-overview strong { color: var(--primary-text-color); font-size: 16px; margin-right: 4px; }
+      .story-strip { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; scrollbar-width: thin; }
+      .story-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border: 1px solid var(--divider-color); border-radius: 999px; background: var(--card-background-color); color: var(--secondary-text-color); cursor: pointer; }
+      .story-chip.active { border-color: var(--primary-color); color: var(--primary-text-color); font-weight: 700; }
+      .story-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary-color); }
+      .story-dot.unsaved { background: var(--warning-color, #e0a030); }
+      .story-chapter { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--divider-color); border-radius: 18px; background: var(--card-background-color); min-width: 0; }
+      .story-chapter-head { display: flex; align-items: center; gap: 12px; }
+      .story-chapter-head > div { flex: 1 1 auto; min-width: 0; display: grid; gap: 5px; }
+      .story-source { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary-text-color); }
+      .story-source.override { color: var(--primary-color); }
+      .story-lead { margin: 0; border-radius: 14px; overflow: hidden; background: var(--secondary-background-color); }
+      .story-lead img { display: block; width: 100%; max-height: min(46vh, 420px); object-fit: cover; }
+      .story-lead figcaption { padding: 9px 12px; font-size: 13px; color: var(--secondary-text-color); }
+      .story-thumbs { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; }
+      .story-thumb { position: relative; flex: 0 0 auto; width: 92px; height: 68px; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--secondary-background-color); cursor: pointer; }
+      .story-thumb.is-cover { border-color: var(--primary-color); }
+      .story-thumb img { width: 100%; height: 100%; object-fit: cover; }
+      .story-thumb-badge { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--primary-color); color: #fff; }
+      .story-thumb-badge ha-icon { --mdc-icon-size: 14px; }
+      .story-hint { margin: 0; }
+      .story-facts { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--secondary-text-color); font-size: 13px; }
+      .story-facts span { display: inline-flex; align-items: center; gap: 6px; }
+      .story-title-field, .story-text-field { display: grid; gap: 6px; min-width: 0; color: var(--secondary-text-color); font-size: 12px; }
+      .story-title-field input, .story-text-field textarea { width: 100%; max-width: 100%; min-width: 0; border: 1px solid var(--divider-color); border-radius: 12px; padding: 12px; background: var(--primary-background-color); color: var(--primary-text-color); outline: 0; }
+      .story-title-field input { min-height: 46px; font-size: 18px; font-weight: 700; }
+      .story-text-field textarea { line-height: 1.5; resize: vertical; font-size: 16px; }
+      .story-actions { align-items: center; }
+      .story-dirty-hint { color: var(--warning-color, #e0a030); font-size: 13px; }
+      .story-empty-media { display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: 12px; background: var(--secondary-background-color); color: var(--secondary-text-color); font-size: 13px; }
+
       /* Sized by the card, never by the longest day title. */
       .renderer-app-day-select { max-width: 100%; min-width: 0; flex: 1 1 220px; min-height: 44px; border: 1px solid var(--divider-color); border-radius: 12px; padding: 0 12px; background: var(--card-background-color); color: var(--primary-text-color); }
       .renderer-app-artifact { display: block; width: 100%; max-width: 100%; height: auto; margin-top: 12px; border-radius: 12px; }

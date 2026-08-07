@@ -87,6 +87,18 @@ def verify_the_order_chapters_arrive_in_does_not_matter() -> None:
     assert [chapter["index"] for chapter in shuffled["chapters"]] == [0, 1, 2]
 
 
+def verify_the_revision_is_provenance_not_content() -> None:
+    """The hash answers "did the story change?", so an unrelated edit to the
+    trip - which bumps the revision - must leave it alone. Otherwise the
+    question cannot be asked at all."""
+    seven = _manifest(revision=7)
+    nine = _manifest(revision=9)
+    assert seven["content_hash"] == nine["content_hash"]
+    assert seven["source_revision"] == 7 and nine["source_revision"] == 9
+    # It is still checked on read: the hash covers everything else.
+    story.validate_manifest(nine)
+
+
 def verify_a_changed_trip_produces_a_different_hash() -> None:
     """Otherwise a cache would serve a stale description forever."""
     before = _manifest()
@@ -275,6 +287,7 @@ def verify_a_duplicate_chapter_is_refused() -> None:
 
 verify_the_same_trip_produces_the_same_bytes()
 verify_the_order_chapters_arrive_in_does_not_matter()
+verify_the_revision_is_provenance_not_content()
 verify_a_changed_trip_produces_a_different_hash()
 verify_a_tampered_manifest_is_refused()
 verify_the_story_prefers_what_a_person_wrote()
