@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.35.1] - 2026-08-07
+
+### Fixed
+
+- **Der Remotion-Render war aus der Oberfläche gar nicht auslösbar.** Die Aktion, der Worker und die Prüfung waren vollständig, aber „Testauftrag senden" schickte weiterhin den einfachen Auftrag – ein Renderer, den niemand starten kann, ist kein Feature. Die Karte „Renderer-App" hat jetzt einen eigenen Knopf **„Testvideo rendern"**, und ein Vertragstest prüft, dass Aktion, Panel-Zweig, Knopf und Verteiler zusammenpassen.
+- Die Statusabfrage im Panel überdauert jetzt einen Render. Sie war auf zwei Minuten ausgelegt, was für die kleinen Testartefakte reichte, für einen Render aber knapp gewesen wäre.
+- Das fertige Video wird mit dem angezeigt, was ffprobe gemessen hat – Codec, Auflösung, Dauer, Größe und die Zeiten für Browserstart, Render und Prüfung. Die Datei selbst bleibt im Austauschordner und wird bewusst nicht ins Panel geladen.
+
 ## [4.35.0] - 2026-08-06
 
 ### Added

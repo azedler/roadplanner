@@ -37,11 +37,17 @@ def verify_the_poc_is_reachable_from_the_panel() -> None:
         "renderer_app_environment",
         "renderer_app_status",
         "renderer_app_run",
+        "renderer_app_render",
         "renderer_app_job_status",
     ):
         assert f'"{action}"' in panel, f"{action} muss registriert sein"
         assert f'if action == "{action}"' in panel, f"{action} braucht einen Zweig"
-    for click in ("renderer-app-probe", "renderer-app-run", "renderer-app-copy-report"):
+    for click in (
+        "renderer-app-probe",
+        "renderer-app-run",
+        "renderer-app-render",
+        "renderer-app-copy-report",
+    ):
         assert f'action === "{click}"' in frontend, f"{click} muss verteilt werden"
         assert f'data-action="{click}"' in feature, f"{click} braucht einen Knopf"
     assert "rendererAppMixin" in frontend, "das Mixin muss registriert sein"
@@ -53,9 +59,10 @@ def verify_the_poc_is_reachable_from_the_panel() -> None:
 def verify_submitting_a_job_needs_edit_rights() -> None:
     panel = (INTEGRATION / "panel.py").read_text(encoding="utf-8")
     edit_block = panel.split("_EDIT_ACTIONS = {", 1)[1].split("}", 1)[0]
-    assert '"renderer_app_run"' in edit_block, (
-        "einen Auftrag schreiben ist eine Änderung, kein Lesevorgang"
-    )
+    for action in ('"renderer_app_run"', '"renderer_app_render"'):
+        assert action in edit_block, (
+            f"{action}: einen Auftrag schreiben ist eine Änderung, kein Lesevorgang"
+        )
 
 
 def verify_the_production_paths_are_untouched() -> None:
@@ -220,6 +227,29 @@ def verify_the_render_is_validated_before_it_counts() -> None:
     assert ".part.mp4" in render, "das Ergebnis wird erst nach der Prüfung sichtbar"
 
 
+def verify_the_render_can_actually_be_triggered() -> None:
+    """A renderer nobody can start is not a feature.
+
+    The action, the panel branch, the button and the dispatcher have to
+    line up; each half looks fine alone while the render stays
+    unreachable.
+    """
+    panel = (INTEGRATION / "panel.py").read_text(encoding="utf-8")
+    assert "ACTION_RENDER_REMOTION_TEST" in panel, (
+        "der Panel-Zweig muss den Render-Auftrag anfordern, nicht den einfachen"
+    )
+    feature = (INTEGRATION / "frontend" / "features" / "renderer-app.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-action="renderer-app-render"' in feature
+    frontend = (INTEGRATION / "frontend" / "roadplanner-panel.js").read_text(encoding="utf-8")
+    assert '_rendererAppRun("renderer_app_render")' in frontend, (
+        "der Knopf muss die Render-Aktion senden"
+    )
+    # A render takes about twelve seconds; the poll has to outlast it.
+    assert "attempt < 150" in feature, "die Abfrage muss den Render überdauern"
+
+
 def verify_one_repository_still_serves_both_consumers() -> None:
     """HACS and the Supervisor read different files and must not collide."""
     assert (ROOT / "hacs.json").is_file(), "HACS bleibt unverändert"
@@ -275,6 +305,7 @@ verify_the_reported_version_survives_a_local_build()
 verify_every_dependency_is_pinned_exactly()
 verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()
+verify_the_render_can_actually_be_triggered()
 verify_one_repository_still_serves_both_consumers()
 verify_stray_app_manifests_are_rejected_by_the_validator()
 verify_the_app_ci_is_a_separate_workflow()

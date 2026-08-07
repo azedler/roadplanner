@@ -55,6 +55,7 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "remotion_test_render",
   "renderer_app_environment",
   "renderer_app_run",
+  "renderer_app_render",
   "park4night_lookup",
   "place_link_lookup",
 ]);
@@ -1618,6 +1619,8 @@ class RoadplannerPanel extends HTMLElement {
       this._rendererAppProbe();
     } else if (action === "renderer-app-run" && this._canEdit()) {
       this._rendererAppRun();
+    } else if (action === "renderer-app-render" && this._canEdit()) {
+      this._rendererAppRun("renderer_app_render");
     } else if (action === "renderer-app-copy-report") {
       this._copyToClipboard(this._rendererAppReportText(), "Bericht kopiert");
     } else if (action === "run-system-check") {
