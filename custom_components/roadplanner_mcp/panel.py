@@ -91,6 +91,8 @@ _ACTIONS = {
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
+    "renderer_app_recent_jobs",
+    "renderer_app_download",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
     "propose_day_calendar_repair",
@@ -280,6 +282,9 @@ _PROVIDER_CALL_ACTIONS = {
     # The same, for a whole trip: up to ninety photos and minutes of work
     # that must survive a phone locking its screen.
     "story_film_render",
+    # Verifies and copies tens of megabytes. Being cancelled halfway would
+    # leave a partial file where a download expects a whole one.
+    "renderer_app_download",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1472,6 +1477,45 @@ async def _execute_action(
             }
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+
+    if action == "renderer_app_download":
+        # A film that renders perfectly and cannot be fetched is not a
+        # film. The result lives in the exchange folder, which nothing in
+        # Home Assistant can serve; this copies it into the library that
+        # already exists for exactly this and hands back its link.
+        job_id = str(data.get("job_id") or "")
+        try:
+            result = await runtime.renderer_app.async_result(job_id)
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+        video_path = str((result or {}).get("video_path") or "")
+        if not video_path:
+            raise ValidationError("Dieser Auftrag hat kein Video erzeugt")
+        url = await runtime.trip_video.async_adopt_video(Path(video_path))
+        return {"renderer_app_download_url": url}
+
+    if action == "renderer_app_recent_jobs":
+        # Read-only, and the answer to "what is this box doing right now?"
+        # after the browser forgot. A render outlives the page that started
+        # it; without this the panel could never find it again.
+        try:
+            jobs = await runtime.renderer_app.async_recent_jobs()
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+        active = next((job for job in jobs if not job.get("terminal")), None)
+        result = None
+        if active is None and jobs and jobs[0].get("state") == "completed":
+            try:
+                result = await runtime.renderer_app.async_result(jobs[0]["job_id"])
+            except RendererProtocolError:
+                # The list is still worth returning; only the artefacts of
+                # the newest job could not be read.
+                result = None
+        return {
+            "renderer_app_recent_jobs": jobs,
+            "renderer_app_active_job": active,
+            "renderer_app_result": result,
+        }
 
     if action == "renderer_app_job_status":
         job_id = str(data.get("job_id") or "")

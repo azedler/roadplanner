@@ -1650,6 +1650,8 @@ class RoadplannerPanel extends HTMLElement {
       this._rendererAppLoadDays();
     } else if (action === "renderer-app-trip-day" && this._canEdit()) {
       this._rendererAppMiniExport();
+    } else if (action === "renderer-app-download" && this._canEdit()) {
+      void this._rendererAppDownload();
     } else if (action === "renderer-app-copy-report") {
       this._copyToClipboard(this._rendererAppReportText(), "Bericht kopiert");
     } else if (action === "run-system-check") {

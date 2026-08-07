@@ -354,8 +354,12 @@ def verify_the_render_can_actually_be_triggered() -> None:
     assert '_rendererAppRun("renderer_app_render")' in frontend, (
         "der Knopf muss die Render-Aktion senden"
     )
-    # A render takes about twelve seconds; the poll has to outlast it.
-    assert "attempt < 150" in feature, "die Abfrage muss den Render überdauern"
+    # The poll has to outlast the render. This used to be pinned as
+    # "attempt < 150", which pinned the disguise rather than the property:
+    # a count is a duration, and that duration turned out to be five
+    # minutes against a film that needs fourteen. What matters is that the
+    # loop ends on a clock it can be reasoned about.
+    assert "Date.now() < deadline" in feature, "die Abfrage muss den Render überdauern"
 
 
 def verify_the_mini_export_is_wired_end_to_end() -> None:

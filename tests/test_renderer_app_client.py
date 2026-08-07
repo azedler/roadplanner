@@ -225,6 +225,76 @@ def verify_a_symlink_in_the_exchange_folder_is_not_followed() -> None:
     raise AssertionError("Einem Symlink wurde gefolgt")
 
 
+def _write_status(client, job_id: str, state: str, updated_at: str) -> None:
+    folder = client.exchange_dir / "status"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{job_id}.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "protocol_version": 1,
+                "job_id": job_id,
+                "state": state,
+                "updated_at": updated_at,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def verify_a_running_job_can_be_found_again_without_the_browser() -> None:
+    """The render outlives the page that started it.
+
+    A trip film takes a quarter of an hour. If the only record of it lives
+    in a browser tab, locking the phone loses it - the job runs on, and
+    nothing in Home Assistant can say so. This is the way back.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        job = asyncio.run(
+            client.async_submit_test_job(action=protocol.ACTION_RENDER_TRIP_FILM)
+        )
+        job_id = job["job_id"]
+        _write_status(client, job_id, "running", "2026-08-07T15:00:00Z")
+
+        found = asyncio.run(client.async_recent_jobs())
+    assert [item["job_id"] for item in found] == [job_id], found
+    assert found[0]["terminal"] is False, found
+    # The kind is read from the job file, never guessed: announcing a trip
+    # film as a test render would be worse than saying nothing.
+    assert found[0]["kind"] == "trip_film", found
+
+
+def verify_the_newest_job_is_reported_first() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        older, newer = protocol.new_job_id(), protocol.new_job_id()
+        _write_status(client, older, "completed", "2026-08-07T10:00:00Z")
+        _write_status(client, newer, "failed", "2026-08-07T12:00:00Z")
+        found = asyncio.run(client.async_recent_jobs())
+    assert [item["job_id"] for item in found] == [newer, older], found
+    # Nothing produced these, so no kind may be invented for them.
+    assert [item["kind"] for item in found] == ["", ""], found
+
+
+def verify_one_unreadable_status_does_not_hide_the_others() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        good = protocol.new_job_id()
+        _write_status(client, good, "running", "2026-08-07T09:00:00Z")
+        (client.exchange_dir / "status" / f"{protocol.new_job_id()}.json").write_text(
+            "{kaputt", encoding="utf-8"
+        )
+        # And something that is not a job id at all - the folder is written
+        # by another container and may contain anything.
+        (client.exchange_dir / "status" / "nonsense.json").write_text("{}", encoding="utf-8")
+        found = asyncio.run(client.async_recent_jobs())
+    assert [item["job_id"] for item in found] == [good], found
+
+
 verify_no_supervisor_is_the_answer_not_a_fault()
 verify_a_writable_exchange_folder_reports_ready()
 verify_a_missing_app_is_not_an_error()
@@ -233,4 +303,7 @@ verify_a_job_is_written_atomically_and_only_once()
 verify_an_unknown_job_is_reported_as_unknown()
 verify_a_forged_artifact_is_refused()
 verify_a_symlink_in_the_exchange_folder_is_not_followed()
+verify_a_running_job_can_be_found_again_without_the_browser()
+verify_the_newest_job_is_reported_first()
+verify_one_unreadable_status_does_not_hide_the_others()
 print("Renderer app client tests passed.")

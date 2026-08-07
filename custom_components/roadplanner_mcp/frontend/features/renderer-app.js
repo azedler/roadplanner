@@ -66,6 +66,10 @@ export const rendererAppMixin = {
       this._rendererAppProbing = false;
       this._render({ preserveScroll: true });
     }
+    // After the probe, not before: adopting a job re-renders, and doing
+    // that while the probe is still writing its own fields would show a
+    // half-filled card.
+    await this._rendererAppAdoptRunningJob();
   },
 
   /**
@@ -128,6 +132,8 @@ export const rendererAppMixin = {
     };
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
+    // A link to the previous video would be a lie about this one.
+    this._rendererAppDownloadUrl = "";
     this._render({ preserveScroll: true });
     this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
@@ -148,15 +154,67 @@ export const rendererAppMixin = {
     this._rendererAppPackage = null;
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
+    // A link to the previous video would be a lie about this one.
+    this._rendererAppDownloadUrl = "";
     this._render({ preserveScroll: true });
     this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
 
+  /**
+   * Find a job that is already running, and take it over.
+   *
+   * The browser is not where a render lives. A trip film takes a quarter
+   * of an hour, and in that time a phone locks and Home Assistant reloads
+   * its page - at which point every variable this card kept is gone while
+   * the job runs on in another container. Asking the exchange folder is
+   * the only way back to it, and it is also how a result that finished
+   * while nobody was looking becomes reachable again.
+   */
+  _rendererAppAdoptOnce() {
+    // Called from render, so it has to be free after the first time and
+    // must never make the render wait on a network round trip.
+    if (this._rendererAppAdoptTried) return;
+    this._rendererAppAdoptTried = true;
+    void this._rendererAppAdoptRunningJob();
+  },
+
+  async _rendererAppAdoptRunningJob() {
+    if (this._rendererAppJob || this._rendererAppPolling) return;
+    const result = await this._runAction("renderer_app_recent_jobs", {}, "", {
+      refresh: false,
+      blockUi: false,
+      errorTitle: "",
+    }).catch(() => null);
+    const active = result?.renderer_app_active_job;
+    const recent = result?.renderer_app_recent_jobs || [];
+    const adopted = active || recent[0];
+    if (!adopted?.job_id) return;
+    this._rendererAppJob = adopted;
+    this._rendererAppKind = adopted.kind || "";
+    // The package facts were only ever in the browser that submitted the
+    // job. Rather than invent them, the card shows the job without them.
+    this._rendererAppPackage = null;
+    this._rendererAppResult = active ? null : result?.renderer_app_result || null;
+    this._render({ preserveScroll: true });
+    if (active) this._pollRendererAppJob(active.job_id);
+  },
+
+  /**
+   * Poll until the job settles, bounded by wall-clock time rather than by
+   * a number of attempts.
+   *
+   * A count is a duration in disguise, and the disguise is what makes it
+   * wrong: 150 attempts sounded generous until a trip film took fourteen
+   * minutes and the card stopped watching after five, leaving a render
+   * that was going perfectly well looking abandoned.
+   */
   async _pollRendererAppJob(jobId) {
     if (this._rendererAppPolling) return;
     this._rendererAppPolling = true;
+    const deadline =
+      Date.now() + (this._rendererAppKind === "trip_film" ? 45 : 15) * 60 * 1000;
     try {
-      for (let attempt = 0; attempt < 150; attempt += 1) {
+      while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
         if (!this.isConnected) return;
         const result = await this._runAction(
@@ -166,9 +224,20 @@ export const rendererAppMixin = {
           { refresh: false, blockUi: false, errorTitle: "" },
         ).catch(() => null);
         if (!result?.renderer_app_job) continue;
+        const before = this._rendererAppJob;
         this._rendererAppJob = result.renderer_app_job;
         if (result.renderer_app_result) this._rendererAppResult = result.renderer_app_result;
-        this._render({ preserveScroll: true });
+        // A percentage that ticked up is not a reason to rebuild the page.
+        // The whole shadow DOM is replaced on render, and the scroll
+        // offset is restored against a document that has not finished
+        // laying out - so every two seconds the view jumped back to the
+        // top while the render was still going (live report). Structural
+        // change earns a render; a number does not.
+        const structural =
+          !before || Boolean(before.terminal) !== Boolean(result.renderer_app_job.terminal);
+        if (structural || !this._rendererAppPatchProgress()) {
+          this._render({ preserveScroll: true });
+        }
         if (result.renderer_app_job.terminal) {
           // The App line otherwise keeps showing whatever the last
           // environment probe saw - which is stale after an app update.
@@ -187,6 +256,65 @@ export const rendererAppMixin = {
     } finally {
       this._rendererAppPolling = false;
     }
+  },
+
+  /**
+   * Make the finished video fetchable.
+   *
+   * The result sits in the exchange folder, which no Home Assistant view
+   * serves - so a film that rendered perfectly was still only reachable
+   * with a file browser. This copies it into the video library that
+   * already exists, and hands back the same kind of unguessable link the
+   * other exports use rather than inventing a second way in.
+   */
+  async _rendererAppDownload() {
+    const jobId = this._rendererAppJob?.job_id;
+    if (!jobId || this._rendererAppDownloading) return;
+    this._rendererAppDownloading = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction(
+        "renderer_app_download",
+        { job_id: jobId },
+        "",
+        {
+          refresh: false,
+          blockUi: false,
+          errorTitle: "Das Video konnte nicht bereitgestellt werden",
+        },
+      );
+      this._rendererAppDownloadUrl = result?.renderer_app_download_url || "";
+    } finally {
+      this._rendererAppDownloading = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  _rendererAppProgressPercent() {
+    return Math.round((Number(this._rendererAppJob?.progress) || 0) * 100);
+  },
+
+  /**
+   * Write the new percentage into the nodes that already show it.
+   *
+   * Returns false when no such node is on screen - the caller then falls
+   * back to a full render, so a card that appeared meanwhile still gets
+   * drawn. Nothing else in the page is touched, which is the point: the
+   * user may be reading, scrolling or typing while a render runs, and a
+   * progress tick has no business interrupting any of that.
+   */
+  _rendererAppPatchProgress() {
+    const job = this._rendererAppJob;
+    const nodes = this.shadowRoot?.querySelectorAll("[data-renderer-progress]");
+    if (!job || !nodes?.length) return false;
+    const percent = this._rendererAppProgressPercent();
+    nodes.forEach((node) => {
+      node.textContent =
+        node.dataset.rendererProgress === "story"
+          ? `${job.state || "läuft"} · ${percent} %`
+          : `${percent} %`;
+    });
+    return true;
   },
 
   _rendererAppReportText() {
@@ -309,7 +437,9 @@ export const rendererAppMixin = {
           : this._rendererAppKind === "render"
             ? "Testvideo wird gerendert"
             : "Testauftrag läuft";
-      jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>${label} … ${percent} %</span></div>`;
+      // The percentage sits in its own node so a tick can be written into
+      // it without rebuilding the page around it.
+      jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>${label} … <span data-renderer-progress="card">${percent} %</span></span></div>`;
     } else if (job?.state === "completed" && result?.video) {
       const v = result.video;
       const t = result.timings || {};
@@ -326,7 +456,14 @@ export const rendererAppMixin = {
         }
         <span>${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB</span>
         <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small>
-        <small>Die Datei liegt im Austauschordner; sie wird bewusst nicht ins Panel geladen.</small>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : "Video herunterladen"}</button>
+        </div>
+        ${
+          this._rendererAppDownloadUrl
+            ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download>Bereit – hier speichern</a>`
+            : "<small>Die Datei liegt im Austauschordner der App. Das Herunterladen legt eine Kopie in der Videobibliothek ab.</small>"
+        }
       </div></div>`;
     } else if (job?.state === "completed" && result) {
       jobBlock = `<div class="notice neutral"><div>

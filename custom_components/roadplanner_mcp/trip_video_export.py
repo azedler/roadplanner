@@ -21,8 +21,10 @@ import asyncio
 from datetime import datetime, timezone
 import hashlib
 import logging
+import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 from typing import Any
 import uuid
@@ -597,6 +599,39 @@ class TripVideoExporter:
             _LOGGER.debug("Trip video narrative generation failed: %s", type(err).__name__)
             return ""
         return str(getattr(result, "text", "") or "").strip()
+
+    async def async_adopt_video(self, source: Path) -> str:
+        """Take a finished MP4 from elsewhere into the library, return its URL.
+
+        The renderer app writes its film into the exchange folder, where
+        nothing in Home Assistant can reach it - which made a film that
+        rendered perfectly still unreachable unless you went looking with
+        a file browser. Rather than build a second download path with its
+        own capability rules, the file is copied into the library that
+        already exists and already knows how to hand a video out safely:
+        an unguessable uuid4 name, a view that serves nothing else, and a
+        cap on how many are kept.
+
+        Copied, not moved. The exchange folder is the renderer's, and the
+        result there is what lets the panel still report what was made.
+        """
+        filename = await self.hass.async_add_executor_job(self._adopt_file, source)
+        return f"/api/roadplanner/trip_video_library/{filename}"
+
+    def _adopt_file(self, source: Path) -> str:
+        """Blocking copy - executor only."""
+        if not source.is_file():
+            raise RoadplannerError("Das Video wurde nicht gefunden")
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}.mp4"
+        target = self.library_dir / filename
+        # Same directory for the temporary, so the rename is atomic: a
+        # download must never catch a half-copied file.
+        temporary = target.with_suffix(".mp4.part")
+        shutil.copyfile(source, temporary)
+        os.replace(temporary, target)
+        self._prune_library()
+        return filename
 
     def _save_to_library(self, video_bytes: bytes) -> str:
         """Write the video to the durable library and prune old entries.
