@@ -59,7 +59,7 @@ import json
 import re
 from typing import Any
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 SCHEMA_ID = "roadplanner.travel_story"
 
 # The register the composed sentences aim for. Recorded in the manifest so
@@ -68,9 +68,60 @@ SCHEMA_ID = "roadplanner.travel_story"
 TONE = "warm-personal-playful"
 
 STORY_FROM_OVERRIDE = "override"
+# What the Gemini story director edited. Deliberately its own source and
+# never written into the override fields: a reader has to be able to tell
+# at a glance whether a sentence was written by a person or by a model,
+# and a machine text stored where a human one belongs makes that question
+# permanently unanswerable.
+STORY_FROM_DIRECTED = "directed"
 STORY_FROM_STORED = "stored"
 STORY_FROM_COMPOSED = "composed"
-STORY_SOURCES = (STORY_FROM_OVERRIDE, STORY_FROM_STORED, STORY_FROM_COMPOSED)
+STORY_SOURCES = (
+    STORY_FROM_OVERRIDE,
+    STORY_FROM_DIRECTED,
+    STORY_FROM_STORED,
+    STORY_FROM_COMPOSED,
+)
+
+# How much a day matters to the trip as a whole. Four steps because three
+# could not separate "a good day" from "the reason we went".
+IMPORTANCE_TRANSITION = "transition"
+IMPORTANCE_NORMAL = "normal"
+IMPORTANCE_HIGHLIGHT = "highlight"
+IMPORTANCE_MAJOR_HIGHLIGHT = "major_highlight"
+IMPORTANCE_LEVELS = (
+    IMPORTANCE_TRANSITION,
+    IMPORTANCE_NORMAL,
+    IMPORTANCE_HIGHLIGHT,
+    IMPORTANCE_MAJOR_HIGHLIGHT,
+)
+DEFAULT_IMPORTANCE = IMPORTANCE_NORMAL
+
+# Where a day sits in the arc. Importance says how much it matters, this
+# says what it does - and they are not the same: a quiet transfer can be
+# the hinge of a trip.
+ROLE_OPENING = "opening"
+ROLE_JOURNEY = "journey"
+ROLE_TRANSITION = "transition"
+ROLE_HIGHLIGHT = "highlight"
+ROLE_FINALE = "finale"
+STORY_ROLES = (ROLE_OPENING, ROLE_JOURNEY, ROLE_TRANSITION, ROLE_HIGHLIGHT, ROLE_FINALE)
+DEFAULT_STORY_ROLE = ROLE_JOURNEY
+
+# A suggestion about weight, not a layout. A renderer that has no collage
+# may read "collage" as "this day has a lot to show" and do its own thing;
+# one that ignores the field entirely still produces a correct film.
+VISUAL_COMPACT = "compact"
+VISUAL_NORMAL = "normal"
+VISUAL_HERO = "hero"
+VISUAL_COLLAGE = "collage"
+VISUAL_MAP_FOCUS = "map_focus"
+VISUAL_STYLES = (VISUAL_COMPACT, VISUAL_NORMAL, VISUAL_HERO, VISUAL_COLLAGE, VISUAL_MAP_FOCUS)
+DEFAULT_VISUAL_STYLE = VISUAL_NORMAL
+
+MAX_VIDEO_CAPTION_LENGTH = 180
+MAX_MOTIFS = 5
+MAX_MOTIF_LENGTH = 80
 
 MEDIA_ROLE_TRIP_COVER = "trip_cover"
 MEDIA_ROLE_DAY_COVER = "day_cover"
@@ -245,15 +296,26 @@ def build_story(
     stop_names: list[str],
     stored_summary: str = "",
     override: str = "",
+    directed: str = "",
 ) -> dict[str, Any]:
     """Pick the story text and record where it came from.
 
-    The order is a statement of trust: what a person wrote beats what the
-    summary service generated, and both beat what this module assembled.
+    The order is a statement of trust, and it is the whole reason this
+    function exists rather than four ``if`` blocks scattered around the
+    codebase: what a person wrote beats what the model edited, which beats
+    what the summary service once generated, which beats what this module
+    assembled out of numbers.
+
+    The model sits below the person and above the machinery on purpose. It
+    can write better prose than a template, and it must never quietly
+    replace a sentence somebody chose.
     """
     typed_override = clean_story(override)
     if typed_override:
         return {"text": typed_override, "source": STORY_FROM_OVERRIDE, "tone": TONE}
+    edited = clean_story(directed)
+    if edited:
+        return {"text": edited, "source": STORY_FROM_DIRECTED, "tone": TONE}
     stored = clean_story(stored_summary)
     if stored:
         return {"text": stored, "source": STORY_FROM_STORED, "tone": TONE}
@@ -262,6 +324,12 @@ def build_story(
         "source": STORY_FROM_COMPOSED,
         "tone": TONE,
     }
+
+
+def _one_of(value: Any, allowed: tuple[str, ...], fallback: str) -> str:
+    """An enum value, or the fallback. Never something a caller invented."""
+    text = clean_line(value, limit=40)
+    return text if text in allowed else fallback
 
 
 # --- chapters -----------------------------------------------------------
@@ -280,6 +348,7 @@ def build_chapter(
     overrides: dict[str, Any] | None = None,
     captions: list[dict[str, Any]] | None = None,
     map_hint: dict[str, Any] | None = None,
+    direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One day, described. Ids stay ids; nothing is resolved or fetched."""
     chapter_id = clean_line(day_id, limit=200)
@@ -287,10 +356,21 @@ def build_chapter(
         raise StoryManifestError("Ein Kapitel ohne Tages-ID kann nicht gebaut werden")
     override = overrides or {}
 
+    edit = direction or {}
+    # A readable name for a stop whose canonical name is a full address or
+    # a Park4Night code. It sits BESIDE the canonical name and never
+    # replaces it: the roadbook keeps the name you can navigate to, the
+    # story gets the name you would say out loud.
+    story_names = {
+        clean_line(key, limit=200): clean_line(value, limit=MAX_TITLE_LENGTH)
+        for key, value in (edit.get("stop_story_names") or {}).items()
+        if clean_line(key, limit=200) and clean_line(value, limit=MAX_TITLE_LENGTH)
+    }
     clean_stops = [
         {
             "stop_id": clean_line(stop.get("stop_id"), limit=200),
             "name": clean_line(stop.get("name"), limit=MAX_TITLE_LENGTH),
+            "story_name": story_names.get(clean_line(stop.get("stop_id"), limit=200)) or None,
             "kind": clean_line(stop.get("kind"), limit=40),
             "arrival_time": clean_line(stop.get("arrival_time"), limit=10),
         }
@@ -319,8 +399,20 @@ def build_chapter(
         "photo_count": _optional_int(given.get("photo_count")) or 0,
     }
 
+    base_title = clean_line(title, limit=MAX_TITLE_LENGTH)
+    base_stored = clean_story(stored_summary)
     title_override = clean_line(override.get("title"), limit=MAX_TITLE_LENGTH)
-    resolved_title = title_override or clean_line(title, limit=MAX_TITLE_LENGTH)
+    directed_title = clean_line(edit.get("title"), limit=MAX_TITLE_LENGTH)
+    resolved_title = title_override or directed_title or base_title
+    story = build_story(
+        facts=resolved_facts,
+        index=index,
+        title=resolved_title,
+        stop_names=[stop["story_name"] or stop["name"] for stop in clean_stops],
+        stored_summary=stored_summary,
+        override=str(override.get("story") or ""),
+        directed=str(edit.get("story") or ""),
+    )
 
     return {
         "chapter_id": chapter_id,
@@ -328,14 +420,28 @@ def build_chapter(
         "date": clean_line(date, limit=40),
         "title": resolved_title,
         "title_overridden": bool(title_override),
-        "story": build_story(
-            facts=resolved_facts,
-            index=index,
-            title=resolved_title,
-            stop_names=[stop["name"] for stop in clean_stops],
-            stored_summary=stored_summary,
-            override=str(override.get("story") or ""),
+        "title_source": STORY_FROM_OVERRIDE
+        if title_override
+        else STORY_FROM_DIRECTED
+        if directed_title
+        else STORY_FROM_COMPOSED,
+        "story": story,
+        # What the chapter is without anyone's edits. It is here so that
+        # "reset to the automatic version" can be shown before it is
+        # pressed, and - more importantly - so the hash that decides
+        # whether the director has to run again can be computed from
+        # material that an override does not move. Without it, typing a
+        # title would invalidate the cache and cost money.
+        "base": {"title": base_title, "stored_summary": base_stored},
+        # The film's version of the story: one or two sentences that fit on
+        # a card. A long text is right for an album and wrong on screen,
+        # and shortening prose mechanically produces neither.
+        "video_caption": clean_line(
+            edit.get("video_caption"), limit=MAX_VIDEO_CAPTION_LENGTH
         ),
+        "importance": _one_of(edit.get("importance"), IMPORTANCE_LEVELS, DEFAULT_IMPORTANCE),
+        "story_role": _one_of(edit.get("story_role"), STORY_ROLES, DEFAULT_STORY_ROLE),
+        "visual_style": _one_of(edit.get("visual_style"), VISUAL_STYLES, DEFAULT_VISUAL_STYLE),
         "facts": resolved_facts,
         "stops": clean_stops,
         "media": clean_media,
@@ -376,6 +482,8 @@ def build_manifest(
     chapters: list[dict[str, Any]],
     trip_facts: dict[str, Any] | None = None,
     trip_cover_media_id: str = "",
+    narrative: dict[str, Any] | None = None,
+    crew: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the manifest and stamp it with the hash of its content.
 
@@ -410,10 +518,66 @@ def build_manifest(
             "distance_km": _optional_number(facts.get("distance_km")),
         },
         "story_sources": _story_source_counts(ordered),
+        # The arc, when somebody has written one. Absent rather than empty
+        # when nobody has: a renderer must be able to tell "no arc" from
+        # "an arc that says nothing".
+        "narrative": _narrative(narrative),
+        # Who the trip was with, in the smallest form that makes a story
+        # personal: display names and a vehicle name. No notes, no
+        # portraits, no summaries, no ids that lead back to a person's
+        # record - a story does not need them and a story context that
+        # carries them is a person's file leaving the house.
+        "crew": _crew(crew),
         "chapters": ordered,
     }
     manifest["content_hash"] = content_hash(manifest)
+    # Deliberately computed AFTER the content hash and kept separate from
+    # it. They answer different questions: the content hash asks "did this
+    # description change?", the context hash asks "does the editor have to
+    # run again?" - and the second must stay still while somebody types a
+    # title, or every edit would cost a Gemini call.
+    manifest["story_context_hash"] = story_context_hash(manifest)
     return manifest
+
+
+def _narrative(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The trip-level arc, bounded and normalised, or nothing."""
+    if not isinstance(value, dict):
+        return None
+    motifs = [
+        clean_line(motif, limit=MAX_MOTIF_LENGTH)
+        for motif in (value.get("motifs") or [])[:MAX_MOTIFS]
+        if clean_line(motif, limit=MAX_MOTIF_LENGTH)
+    ]
+    narrative = {
+        "title_variant": clean_line(value.get("title_variant"), limit=MAX_TITLE_LENGTH),
+        "subtitle": clean_line(value.get("subtitle"), limit=MAX_TITLE_LENGTH),
+        "opening": clean_story(value.get("opening")),
+        "closing": clean_story(value.get("closing")),
+        "motifs": motifs,
+        "source": STORY_FROM_DIRECTED,
+    }
+    if not any(
+        (narrative["title_variant"], narrative["subtitle"], narrative["opening"],
+         narrative["closing"], narrative["motifs"])
+    ):
+        return None
+    return narrative
+
+
+def _crew(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Names only. See the comment where this is called."""
+    if not isinstance(value, dict):
+        return None
+    people = [
+        clean_line(name, limit=MAX_TITLE_LENGTH)
+        for name in (value.get("people") or [])[:12]
+        if clean_line(name, limit=MAX_TITLE_LENGTH)
+    ]
+    vehicle = clean_line(value.get("vehicle"), limit=MAX_TITLE_LENGTH)
+    if not people and not vehicle:
+        return None
+    return {"people": people, "vehicle": vehicle or None}
 
 
 def _story_source_counts(chapters: list[dict[str, Any]]) -> dict[str, int]:
@@ -437,7 +601,59 @@ def _story_source_counts(chapters: list[dict[str, Any]]) -> dict[str, int]:
 # not what the description says. Including it would make the hash change
 # on every unrelated trip edit, and the one question the hash exists to
 # answer - "did the story actually change?" - would become unanswerable.
-_UNHASHED_KEYS = frozenset({"content_hash", "source_revision"})
+_UNHASHED_KEYS = frozenset({"content_hash", "source_revision", "story_context_hash"})
+
+
+def story_context_hash(manifest: dict[str, Any]) -> str:
+    """What the editor would be looking at, hashed.
+
+    This is the cache key for the story director, and everything about it
+    follows from one requirement: **typing must not cost money**. So it is
+    computed from the material an editor works FROM - dates, canonical
+    titles, stops, facts, which photos exist, what the summary service
+    once wrote - and never from anything an editor produces. A human
+    override does not move it. The director's own output does not move it,
+    which is what stops the second run from invalidating the first.
+
+    It is also not the content hash. The content hash changes whenever the
+    description changes, including when somebody types one character;
+    using it here would rebuild the whole trip's prose on every keystroke.
+    Two hashes because there are genuinely two questions.
+    """
+    trip = manifest.get("trip") or {}
+    projection = {
+        "trip": {
+            "title": trip.get("title") or "",
+            "start_date": trip.get("start_date") or "",
+            "end_date": trip.get("end_date") or "",
+        },
+        "facts": manifest.get("facts") or {},
+        "crew": manifest.get("crew"),
+        "chapters": [
+            {
+                "chapter_id": chapter.get("chapter_id") or "",
+                "index": chapter.get("index"),
+                "date": chapter.get("date") or "",
+                # The canonical title and the stored summary, NOT the
+                # resolved ones - those carry the edits.
+                "title": (chapter.get("base") or {}).get("title") or "",
+                "stored_summary": (chapter.get("base") or {}).get("stored_summary") or "",
+                "facts": chapter.get("facts") or {},
+                "stops": [
+                    {
+                        "stop_id": stop.get("stop_id") or "",
+                        "name": stop.get("name") or "",
+                        "kind": stop.get("kind") or "",
+                    }
+                    for stop in chapter.get("stops") or []
+                ],
+                "media": [item.get("media_id") or "" for item in chapter.get("media") or []],
+            }
+            for chapter in manifest.get("chapters") or []
+        ],
+    }
+    payload = json.dumps(projection, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def canonical_json(payload: dict[str, Any]) -> str:
@@ -507,11 +723,17 @@ __all__ = [
     "MEDIA_ROLE_TRIP_COVER",
     "SCHEMA_ID",
     "STORY_FROM_COMPOSED",
+    "STORY_FROM_DIRECTED",
     "STORY_FROM_OVERRIDE",
     "STORY_FROM_STORED",
+    "STORY_ROLES",
     "STORY_SOURCES",
+    "IMPORTANCE_LEVELS",
+    "VISUAL_STYLES",
+    "MAX_VIDEO_CAPTION_LENGTH",
     "TONE",
     "StoryManifestError",
+    "story_context_hash",
     "build_chapter",
     "build_manifest",
     "build_story",

@@ -1640,6 +1640,10 @@ class RoadplannerPanel extends HTMLElement {
       void this._storySave();
     } else if (action === "story-reset" && this._canEdit()) {
       void this._storyReset();
+    } else if (action === "story-direct" && this._canEdit()) {
+      void this._storyDirectorRun({ force: true });
+    } else if (action === "story-direct-discard" && this._canEdit()) {
+      void this._storyDirectorDiscard();
     } else if (action === "story-film-preview") {
       void this._storyFilmPreview();
     } else if (action === "story-film-render" && this._canEdit()) {

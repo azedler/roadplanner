@@ -251,6 +251,29 @@ verify_the_photo_budget_shrinks_as_the_trip_grows()
 verify_a_film_photo_carries_no_metadata()
 verify_every_word_comes_from_the_manifest()
 verify_a_day_without_photos_travels_as_a_day_without_photos()
+
+def verify_the_film_takes_the_caption_when_there_is_one() -> None:
+    """A card is on screen for three seconds. A paragraph is not readable
+    there, however good it is - so the manifest carries a second, shorter
+    version written for exactly this, and the film prefers it.
+
+    Falls back to the story, so a trip nobody has edited renders exactly
+    as it did before this field existed.
+    """
+    manifest = _manifest(2)
+    manifest["chapters"][0]["video_caption"] = "Kurz, fuer den Film."
+    manifest["chapters"][0]["importance"] = "major_highlight"
+    package, _files = film.build_film_package(
+        job_id="job", manifest=manifest, photos_by_chapter=_photos_for(manifest, 2)
+    )
+    assert package["chapters"][0]["story"] == "Kurz, fuer den Film."
+    assert package["chapters"][0]["importance"] == "major_highlight"
+    # The unedited chapter keeps the long text.
+    assert package["chapters"][1]["story"] == "Am Tag 2 ging es weiter."
+    assert package["chapters"][1]["importance"] == "normal"
+
+
+verify_the_film_takes_the_caption_when_there_is_one()
 verify_the_paths_are_built_from_numbers_only()
 verify_a_whole_trip_fits_and_a_bigger_one_is_refused()
 verify_a_trip_without_chapters_is_refused()

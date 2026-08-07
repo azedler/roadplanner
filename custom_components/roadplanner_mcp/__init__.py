@@ -186,6 +186,8 @@ from .crew_portraits import CrewPortraitStore
 from .remotion_spike import RemotionSpikeService
 from .renderer_app_client import RendererAppClient, default_exchange_dir
 from .story_context_builder import StoryContextBuilder
+from .story_direction_store import StoryDirectionStore
+from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
 from .trip_film_export import TripFilmExporter
@@ -231,6 +233,7 @@ class RoadplannerRuntimeData:
     renderer_app: RendererAppClient
     trip_day_mini_export: TripDayMiniExporter
     story_context: StoryContextBuilder
+    story_director: StoryDirectorService
     story_overrides: StoryOverrideService
     trip_film: TripFilmExporter
 
@@ -721,10 +724,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # revision, so constructing it costs nothing until something asks for a
     # manifest. No exporter uses it yet - that is the next decision, not
     # this one.
-    story_context = StoryContextBuilder(hass, manager, experience)
+    # Where one Gemini editing pass is kept so it is paid for once. The
+    # store is read by the builder and written only by the director.
+    story_direction_store = StoryDirectionStore(archive_root / "story_direction")
+    await hass.async_add_executor_job(story_direction_store.initialize)
+    story_context = StoryContextBuilder(
+        hass,
+        manager,
+        experience,
+        direction_store=story_direction_store,
+        crew=crew,
+    )
     # The editorial write path: two fields, through the same
     # revision-checked mutation layer as every other change.
     story_overrides = StoryOverrideService(hass, manager, story_context)
+    # The editor. It writes prose into its own store and has no path to
+    # the roadbook at all - it is not given the manager.
+    story_director = StoryDirectorService(
+        hass,
+        provider=provider,
+        story_context=story_context,
+        store=story_direction_store,
+        crew=crew,
+    )
     # The first consumer of the manifest. It reads the description and
     # translates it; it never decides what a day is about.
     trip_film = TripFilmExporter(
@@ -767,6 +789,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         renderer_app=renderer_app,
         trip_day_mini_export=trip_day_mini_export,
         story_context=story_context,
+        story_director=story_director,
         story_overrides=story_overrides,
         trip_film=trip_film,
     )
