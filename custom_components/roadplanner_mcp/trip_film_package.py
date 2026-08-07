@@ -190,6 +190,47 @@ def image_shape(data: bytes) -> tuple[int, int, str]:
     return int(width), int(height), orientation
 
 
+# What a picture is made of, in two colours. The film shows an upright
+# photograph whole and has to fill the space beside it with something.
+#
+# The obvious answer - the same photograph, blurred and darkened - was
+# the first one built, and it was measured at 210 ms per frame against
+# 46 ms for the same picture shown landscape. A full-frame blur is
+# re-rasterised for every frame in a software renderer, and on the CI
+# film that one effect was most of the reason the render ran past its
+# time limit.
+#
+# Sampling the colours here instead costs a few milliseconds ONCE, in
+# the process that already has the pixels open. The surround is still
+# derived from the photograph rather than invented, and drawing it is a
+# gradient, which is free.
+_BACKDROP_DARKEN = 0.42
+
+
+def image_palette(data: bytes) -> tuple[str, str]:
+    """Two darkened colours: the top half of the picture, then the bottom."""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as image:
+            small = image.convert("RGB").resize((8, 8))
+            pixels = list(small.getdata())
+    except Exception:  # noqa: BLE001 - a picture nobody can read gets the default
+        return "#161d29", "#0d121a"
+
+    def average(values: list[tuple[int, int, int]]) -> str:
+        if not values:
+            return "#161d29"
+        count = len(values)
+        channels = [
+            min(255, max(0, int(sum(pixel[band] for pixel in values) / count * _BACKDROP_DARKEN)))
+            for band in range(3)
+        ]
+        return "#{:02x}{:02x}{:02x}".format(*channels)
+
+    return average(pixels[:32]), average(pixels[32:])
+
+
 def build_film_package(
     *,
     job_id: str,
@@ -228,6 +269,7 @@ def build_film_package(
             files[path] = blob
             total_bytes += len(blob)
             width, height, orientation = image_shape(blob)
+            top, bottom = image_palette(blob)
             images.append(
                 {
                     "path": path,
@@ -236,6 +278,10 @@ def build_film_package(
                     "width": width,
                     "height": height,
                     "orientation": orientation,
+                    # Sampled once here so the composition never has to
+                    # filter a full frame. See image_palette.
+                    "color_top": top,
+                    "color_bottom": bottom,
                 }
             )
         facts = source.get("facts") or {}

@@ -450,6 +450,11 @@ export function parseFilmPackage(raw) {
         orientation: FILM_ORIENTATIONS.has(image.orientation)
           ? image.orientation
           : "landscape",
+        // Two colours sampled from the picture itself, so the space
+        // beside an upright photograph can be filled without filtering
+        // a full frame thirty times a second.
+        colorTop: filmColour(image.color_top, "#161d29"),
+        colorBottom: filmColour(image.color_bottom, "#0d121a"),
       };
     });
     return {
@@ -498,6 +503,14 @@ export function parseFilmPackage(raw) {
 }
 
 export const FILM_ORIENTATIONS = new Set(["landscape", "portrait", "square"]);
+
+const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
+
+/** A colour, or the fallback. It reaches a stylesheet, so it is matched. */
+function filmColour(value, fallback) {
+  const text = String(value ?? "").toLowerCase();
+  return HEX_COLOUR_RE.test(text) ? text : fallback;
+}
 
 // --- the map context ----------------------------------------------------
 

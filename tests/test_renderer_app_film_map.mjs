@@ -134,6 +134,8 @@ const filmPackage = (overrides = {}) => ({
           width: 600,
           height: 900,
           orientation: "portrait",
+          color_top: "#3a4b5c",
+          color_bottom: "#101820",
         },
       ],
     },
@@ -163,6 +165,15 @@ assert.equal(film.scenes[0].chapterId, "");
 // be cropped to its middle third in a 16:9 frame.
 assert.equal(film.chapters[0].photos[0].orientation, "portrait");
 assert.equal(film.chapters[0].photos[0].width, 600);
+// The surround colours reach a stylesheet, so anything that is not a
+// plain hex colour is replaced rather than passed through.
+assert.equal(film.chapters[0].photos[0].colorTop, "#3a4b5c");
+const painted = filmPackage();
+painted.chapters[0].images[0].color_top = "red; background: url(x)";
+assert.equal(
+  parseFilmPackage(JSON.stringify(painted)).chapters[0].photos[0].colorTop,
+  "#161d29",
+);
 
 // An unknown orientation falls back rather than reaching the composition.
 const odd = filmPackage();

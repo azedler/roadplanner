@@ -53,6 +53,8 @@ export type FilmPhoto = {
   width: number;
   height: number;
   orientation: string;
+  colorTop: string;
+  colorBottom: string;
 };
 
 export type FilmChapter = {
@@ -306,25 +308,24 @@ const PhotoScene: React.FC<{
   if (!photo) return <TextScene chapter={chapter} scene={scene} />;
   // A portrait photograph filled into a 16:9 frame loses its top and its
   // bottom - which is where the sky and the person are. So it is shown
-  // whole, and the space beside it is filled with the same picture,
-  // blurred and darkened. Nothing is cropped away and nothing foreign is
-  // introduced: the backdrop is the photograph itself.
+  // whole, and the space beside it is filled with colours taken from the
+  // picture itself. Nothing is cropped away and nothing foreign is
+  // introduced.
+  //
+  // It was the photograph again, blurred, at first. That looked slightly
+  // better and cost 210 ms a frame against 46 ms for the same picture
+  // shown landscape - a full-frame blur is re-rasterised every frame in a
+  // software renderer, and it was most of the reason the 25-day film ran
+  // past its render limit. The colours are sampled once, in the package.
   const upright = photo.orientation === "portrait";
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000", opacity }}>
       {upright ? (
-        <AbsoluteFill>
-          <Img
-            src={`/${photo.path}`}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              filter: "blur(38px) brightness(0.42) saturate(0.8)",
-              transform: "scale(1.16)",
-            }}
-          />
-        </AbsoluteFill>
+        <AbsoluteFill
+          style={{
+            background: `linear-gradient(160deg, ${photo.colorTop}, ${photo.colorBottom})`,
+          }}
+        />
       ) : null}
       <AbsoluteFill style={{ transform: `scale(${scale})` }}>
         <Img
@@ -359,27 +360,35 @@ const PhotoScene: React.FC<{
  * The positions are a fixed table, not a random arrangement. The same
  * package has to render to the same film, and "artfully scattered" and
  * "reproducible" are only compatible if the scattering is written down.
+ *
+ * The tiles were slightly tilted at first, which looked a little better
+ * and cost 76 ms per frame - a rotated image is resampled on every frame
+ * in a software renderer, and four of them nearly doubled the price of
+ * the scene. The overlapping sizes and the kept aspect ratios are what
+ * make this read as a wall rather than a grid; the tilt was decoration
+ * on top of that, and decoration does not get to be the most expensive
+ * thing in the film.
  */
-type Tile = { left: number; top: number; width: number; tilt: number };
+type Tile = { left: number; top: number; width: number };
 
 const COLLAGE_LAYOUTS: Tile[][] = [
   // two
   [
-    { left: 4, top: 10, width: 50, tilt: -1.4 },
-    { left: 50, top: 30, width: 46, tilt: 1.6 },
+    { left: 4, top: 10, width: 50 },
+    { left: 50, top: 30, width: 46 },
   ],
   // three
   [
-    { left: 3, top: 8, width: 45, tilt: -1.6 },
-    { left: 45, top: 4, width: 36, tilt: 1.2 },
-    { left: 38, top: 48, width: 42, tilt: -0.8 },
+    { left: 3, top: 8, width: 45 },
+    { left: 45, top: 4, width: 36 },
+    { left: 38, top: 48, width: 42 },
   ],
   // four
   [
-    { left: 2, top: 12, width: 42, tilt: -1.8 },
-    { left: 40, top: 3, width: 34, tilt: 1.1 },
-    { left: 68, top: 26, width: 30, tilt: -1.1 },
-    { left: 30, top: 50, width: 38, tilt: 1.7 },
+    { left: 2, top: 12, width: 42 },
+    { left: 40, top: 3, width: 34 },
+    { left: 68, top: 26, width: 30 },
+    { left: 30, top: 50, width: 38 },
   ],
 ];
 
@@ -434,8 +443,8 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
               // photograph in this wall stays a portrait photograph.
               aspectRatio: `${photo.width || 4} / ${photo.height || 3}`,
               opacity: appear,
-              transform: `translateY(${drift + (1 - appear) * 18}px) rotate(${tile.tilt}deg)`,
-              boxShadow: "0 22px 48px rgba(0,0,0,0.55)",
+              transform: `translateY(${drift + (1 - appear) * 18}px)`,
+              boxShadow: "0 10px 22px rgba(0,0,0,0.5)",
               borderRadius: 8,
               overflow: "hidden",
               backgroundColor: "#000000",
