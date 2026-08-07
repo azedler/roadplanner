@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.6] - 2026-08-07
+
+### Changed
+
+- **Auf der geschlossenen Reisegeschichte-Karte steht „Reisegeschichte öffnen" wieder oben.** Der Hinweis auf den letzten Film samt Downloadknopf hatte sich davorgeschoben – ein Nachsatz über etwas Vergangenes stand damit vor der Sache, für die die Karte da ist. Er sitzt jetzt darunter.
+
 ## [4.44.5] - 2026-08-07
 
 ### Fixed

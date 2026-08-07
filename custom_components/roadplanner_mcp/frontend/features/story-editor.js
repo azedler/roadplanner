@@ -525,8 +525,14 @@ export const storyEditorMixin = {
       return `<section class="panel-card">
         <div class="section-heading compact"><div><span class="eyebrow">Redaktion</span><h2>Reisegeschichte</h2></div></div>
         <p class="hint">Die Kapitel entstehen aus dem Roadbook, den Tageszusammenfassungen und den zugeordneten Fotos. Bearbeitet werden nur Titel und Text – Stopps, Zeiten und Strecken bleiben unberührt.</p>
-        ${this._renderStoryFilmJobLine()}
         <div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:book-open-page-variant-outline"></ha-icon> ${this._storyLoading ? "Lädt …" : "Reisegeschichte öffnen"}</button></div>
+        ${
+          // Below the primary action, not above it. On the closed card
+          // this block is a footnote about the last film; putting it
+          // first pushed "Reisegeschichte öffnen" - the thing the card
+          // exists for - underneath a download link (live screenshot).
+          this._renderStoryFilmJobLine()
+        }
       </section>`;
     }
     const chapters = this._storyChapters();
