@@ -282,6 +282,47 @@ def verify_the_poll_outlasts_a_whole_film() -> None:
     assert "trip_film" in poll, "der Film braucht die laengere Frist"
 
 
+def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
+    """Live report: the view flew back to the top every two seconds.
+
+    The panel replaces its whole shadow DOM on render and restores the
+    scroll offset against a document that has not finished laying out, so
+    a percentage that ticked up threw the reader back to the top of a long
+    settings page. A number changing is not a structural change and must
+    be written into the node that already shows it.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    poll = renderer.split("_pollRendererAppJob(jobId) {", 1)[1].split("\n  },", 1)[0]
+    assert "_rendererAppPatchProgress()" in poll, "der Fortschritt muss punktuell gesetzt werden"
+    assert "structural" in poll, "nur ein Zustandswechsel rechtfertigt ein Neuzeichnen"
+    # The nodes the patch writes into have to exist in both cards.
+    assert 'data-renderer-progress="card"' in renderer
+    editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert 'data-renderer-progress="story"' in editor
+
+
+def verify_the_finished_video_can_be_fetched() -> None:
+    """A film that renders and cannot be downloaded is not a film.
+
+    The result lives in the exchange folder, which no Home Assistant view
+    serves. It is copied into the existing video library rather than given
+    a second download path with its own capability rules.
+    """
+    panel = _code(INTEGRATION / "panel.py")
+    assert '"renderer_app_download"' in panel
+    assert "async_adopt_video" in panel
+    exporter = _code(INTEGRATION / "trip_video_export.py")
+    assert "def async_adopt_video" in exporter
+    # The atomic rename is what keeps a download from catching half a file.
+    adopt = exporter.split("def _adopt_file", 1)[1].split("\n    def ", 1)[0]
+    assert "os.replace" in adopt, "eine halb kopierte Datei darf nicht abholbar sein"
+    assert "_prune_library()" in adopt, "die Bibliothek muss begrenzt bleiben"
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    assert "_rendererAppDownload" in renderer
+    dispatcher = _js_code(INTEGRATION / "frontend" / "roadplanner-panel.js")
+    assert '"renderer-app-download"' in dispatcher
+
+
 verify_the_story_layer_is_reachable()
 verify_reading_a_manifest_is_not_an_edit()
 verify_the_builder_only_reads()
@@ -296,4 +337,6 @@ verify_the_chapter_image_reuses_the_existing_cover()
 verify_the_manifest_carries_a_version_and_a_hash()
 verify_a_running_film_survives_a_page_reload()
 verify_the_poll_outlasts_a_whole_film()
+verify_a_progress_tick_does_not_rebuild_the_page()
+verify_the_finished_video_can_be_fetched()
 print("Story layer contract tests passed.")

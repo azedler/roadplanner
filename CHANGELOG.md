@@ -8,8 +8,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [4.41.0] - 2026-08-07
 
+### Added
+
+- **Das fertige Video lässt sich jetzt herunterladen.** Es lag im Austauschordner der App, den keine Home-Assistant-Ansicht ausliefert – ein Film, der einwandfrei gerendert hatte, war damit nur mit einem Dateibrowser erreichbar. Der Knopf legt eine Kopie in der vorhandenen Videobibliothek ab und gibt denselben nicht erratbaren Link zurück, den die anderen Exporte benutzen. Bewusst kein zweiter Downloadweg mit eigenen Zugriffsregeln, und bewusst eine Kopie: Das Ergebnis der App bleibt liegen, damit das Panel weiter berichten kann, was entstanden ist.
+
 ### Fixed
 
+- **Der Fortschritt hat die Seite alle zwei Sekunden nach oben geworfen.** Das Panel ersetzt beim Zeichnen sein gesamtes Shadow DOM und stellt die Scrollposition danach gegen ein Dokument wieder her, dessen Layout noch nicht fertig ist – bei einer langen Einstellungsseite landet man dann oben. Eine Zahl, die hochzählt, ist keine strukturelle Änderung: Der Prozentwert wird jetzt in den Knoten geschrieben, der ihn ohnehin schon anzeigt. Neu gezeichnet wird nur noch beim Übergang in einen Endzustand.
 - **Ein laufender Reisefilm war nur in genau dem Browser-Tab sichtbar, der ihn gestartet hat.** Ein Film über eine ganze Reise braucht eine Viertelstunde. In der Zeit sperrt ein Handy den Bildschirm und Home Assistant lädt seine Seite neu – und damit war alles weg, was die Karte über den Auftrag wusste, während der Auftrag selbst im anderen Container unbeirrt weiterlief. Der Renderer wird jetzt gefragt, was er gerade tut: Roadplanner liest den Zustand aus dem Austauschordner, findet einen laufenden Film wieder und zeigt ihn – auch auf einer Seite, die selbst nie etwas gestartet hat. Ein Ergebnis, das fertig wurde, während niemand hinsah, ist damit ebenfalls wieder erreichbar.
 - **Die Fortschrittsabfrage gab nach fünf Minuten auf.** Sie zählte 150 Versuche à zwei Sekunden – eine Dauer in Verkleidung, großzügig bemessen für einen Testrender von zwölf Sekunden und zu knapp für einen Film von vierzehn Minuten. Ein Render, der bestens lief, sah dadurch aus wie abgebrochen. Die Schleife hängt jetzt an der Uhr statt an einem Zähler, mit einer eigenen, längeren Frist für den Film.
 - **Die Art des Auftrags wird gelesen, nicht geraten.** Wer einen Auftrag wiederfindet, den er nicht selbst gestartet hat, weiß nicht, was er ist. Sie steht in der Auftragsdatei, solange er läuft, und danach in den Namen der erzeugten Dateien – einen Reisefilm als Testrender anzukündigen wäre schlimmer, als nichts zu sagen.

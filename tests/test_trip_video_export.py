@@ -242,6 +242,43 @@ def verify_save_to_library_writes_a_valid_filename() -> None:
         assert (exporter.library_dir / filename).read_bytes() == b"fake-mp4-bytes"
 
 
+def verify_a_rendered_film_can_be_taken_into_the_library() -> None:
+    """The renderer app writes where no Home Assistant view can serve.
+
+    Its film was therefore only reachable with a file browser. Copying it
+    into the library reuses the download path that already exists instead
+    of opening a second one - and copies rather than moves, so the app's
+    own result folder stays intact.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "exchange" / "trip-film.mp4"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"fake-film-bytes")
+        exporter = _exporter(library_dir=root / "library")
+        url = asyncio.run(exporter.async_adopt_video(source))
+
+        name = url.rsplit("/", 1)[-1]
+        assert export_module.VIDEO_FILENAME_RE.match(name), url
+        assert url.startswith("/api/roadplanner/trip_video_library/"), url
+        assert (exporter.library_dir / name).read_bytes() == b"fake-film-bytes"
+        # The renderer's own result is untouched.
+        assert source.is_file()
+        # No half-copied leftover may survive to be handed out.
+        assert not list(exporter.library_dir.glob("*.part"))
+
+
+def verify_a_missing_film_is_refused_not_invented() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        exporter = _exporter(library_dir=Path(tmp) / "library")
+        try:
+            asyncio.run(exporter.async_adopt_video(Path(tmp) / "weg.mp4"))
+        except export_module.RoadplannerError as err:
+            assert "nicht gefunden" in str(err), err
+            return
+    raise AssertionError("Ein fehlendes Video wurde nicht gemeldet")
+
+
 def verify_library_prunes_beyond_the_retention_limit() -> None:
     import os
 
@@ -438,6 +475,8 @@ verify_no_provider_means_no_narrative_attempt()
 verify_empty_music_folder_returns_none_gracefully()
 verify_music_pick_is_deterministic_per_trip()
 verify_save_to_library_writes_a_valid_filename()
+verify_a_rendered_film_can_be_taken_into_the_library()
+verify_a_missing_film_is_refused_not_invented()
 verify_library_prunes_beyond_the_retention_limit()
 verify_notify_ready_calls_persistent_notification_with_the_link()
 verify_notify_ready_failure_does_not_raise()

@@ -240,6 +240,8 @@ export const storyEditorMixin = {
     };
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
+    // A link to the previous video would be a lie about this one.
+    this._rendererAppDownloadUrl = "";
     this._render({ preserveScroll: true });
     this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
@@ -279,9 +281,8 @@ export const storyEditorMixin = {
     const job = this._rendererAppJob;
     if (!job || this._rendererAppKind !== "trip_film") return "";
     if (!job.terminal) {
-      const percent =
-        typeof job.progress === "number" ? ` · ${Math.round(job.progress * 100)} %` : "";
-      return `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (${escapeHtml(String(job.state || "läuft"))}${percent}). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
+      const percent = Math.round((Number(job.progress) || 0) * 100);
+      return `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
     }
     if (job.state === "completed") {
       return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig. Er liegt in der Karte „Renderer-App".</small>`;

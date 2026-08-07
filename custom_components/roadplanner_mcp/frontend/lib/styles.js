@@ -149,6 +149,8 @@ export const PANEL_STYLES = `<style>
       /* Sized by the card, never by the longest day title. */
       .renderer-app-day-select { max-width: 100%; min-width: 0; flex: 1 1 220px; min-height: 44px; border: 1px solid var(--divider-color); border-radius: 12px; padding: 0 12px; background: var(--card-background-color); color: var(--primary-text-color); }
       .renderer-app-artifact { display: block; width: 100%; max-width: 100%; height: auto; margin-top: 12px; border-radius: 12px; }
+      .renderer-app-download { display: inline-block; margin-top: 6px; font-weight: 700; word-break: break-word; }
+      .story-film-job { display: block; margin-top: 6px; }
       .settings-list { display: grid; gap: 0; margin-bottom: 16px; }
       .setting-row { min-height: 50px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--divider-color); }
       .setting-row:last-child { border-bottom: 0; }
