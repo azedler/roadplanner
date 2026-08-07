@@ -61,8 +61,11 @@ jobs:
       - name: End-to-end through a real exchange folder
         run: python3 tests/test_renderer_app_end_to_end.py
 
+      # Pillow reaches the other workflows only as a transitive dependency
+      # of reportlab, which is not a thing to rely on for an image test.
       - name: Render package rules
         run: |
+          python3 -m pip install --quiet pillow
           node tests/test_renderer_app_trip_day_package.mjs
           python3 tests/test_trip_film_package.py
 
