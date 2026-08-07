@@ -260,7 +260,11 @@ export const storyEditorMixin = {
         this._showToast(
           run.reused
             ? "Die vorhandene Fassung passt noch - es wurde nichts neu erzeugt."
-            : `${run.directed_chapters} Kapitel redigiert (${run.calls} Gemini-Aufrufe).`,
+            : `${run.directed_chapters} Kapitel redigiert (${run.calls} Gemini-Aufrufe).${
+                run.chapters_without_edit
+                  ? ` ${run.chapters_without_edit} Kapitel blieben bei der automatischen Fassung.`
+                  : ""
+              }`,
           "success",
         );
         await this._storyLoad({ force: true });
@@ -309,7 +313,7 @@ export const storyEditorMixin = {
     const state = !status
       ? ""
       : status.current
-        ? `<small>Die Redaktion ist auf dem Stand dieser Reise – ${escapeHtml(String(status.directed_chapters))} Kapitel, ${escapeHtml(String(status.calls))} Gemini-Aufrufe.</small>`
+        ? `<small>Die Redaktion ist auf dem Stand dieser Reise – ${escapeHtml(String(status.directed_chapters))} von ${escapeHtml(String(status.chapter_count))} Kapiteln, ${escapeHtml(String(status.calls))} Gemini-Aufrufe.${status.directed_chapters < status.chapter_count ? " Die übrigen blieben bei der automatischen Fassung." : ""}</small>`
         : status.has_direction
           ? "<small>Die Reise hat sich seit der letzten Redaktion verändert. Ein neuer Durchgang würde die Texte auffrischen.</small>"
           : "<small>Noch nicht redigiert. Ein Durchgang liest die ganze Reise, legt den Reisebogen fest und schreibt danach die Tageskapitel – rund fünf Gemini-Aufrufe für eine dreiwöchige Reise.</small>";
@@ -381,7 +385,11 @@ export const storyEditorMixin = {
   _renderStoryFilm() {
     const film = this._storyFilm;
     const canEdit = this._canEdit();
-    const online = Boolean(this._rendererAppStatus?.online);
+    // Three states, not two. "Nobody has asked yet" must not be reported
+    // as "the app is down" - that claim disabled the film button on every
+    // freshly loaded page while the app was running fine.
+    const status = this._rendererAppStatus;
+    const online = Boolean(status?.online);
     const job = this._rendererAppJob;
     const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
     return `<div class="notice neutral"><div>
@@ -392,10 +400,16 @@ export const storyEditorMixin = {
           ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>`
           : ""
       }
-      ${online ? "" : '<small>Die Renderer-App ist nicht erreichbar - der Film braucht sie.</small>'}
+      ${
+        online
+          ? ""
+          : status
+            ? `<small>Die Renderer-App ist nicht erreichbar (${escapeHtml(String(status.reason || status.state || "kein Lebenszeichen"))}) - der Film braucht sie.</small>`
+            : "<small>Der Zustand der Renderer-App ist noch nicht bekannt.</small>"
+      }
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
-        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
       </div>
       ${this._renderStoryFilmJobLine()}
     </div></div>`;

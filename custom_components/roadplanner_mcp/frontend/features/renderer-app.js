@@ -175,7 +175,38 @@ export const rendererAppMixin = {
     // must never make the render wait on a network round trip.
     if (this._rendererAppAdoptTried) return;
     this._rendererAppAdoptTried = true;
+    void this._rendererAppEnsureStatus();
     void this._rendererAppAdoptRunningJob();
+  },
+
+  /**
+   * Ask whether the app is alive, once, before anybody claims it is not.
+   *
+   * The story card read `_rendererAppStatus?.online` and said "die
+   * Renderer-App ist nicht erreichbar" when it was false - but that field
+   * was only ever filled by pressing "Umgebung prüfen" in a different
+   * card. So on any freshly loaded page the card announced the app as
+   * unreachable and disabled the film button, while the app was running
+   * perfectly well and had just finished a film. Not knowing is not the
+   * same as knowing it is down, and only one of the two may be said out
+   * loud.
+   */
+  async _rendererAppEnsureStatus() {
+    if (this._rendererAppStatus || this._rendererAppStatusLoading) return;
+    this._rendererAppStatusLoading = true;
+    try {
+      const status = await this._runAction("renderer_app_status", {}, "", {
+        refresh: false,
+        blockUi: false,
+        errorTitle: "",
+      });
+      if (status?.renderer_app_status) {
+        this._rendererAppStatus = status.renderer_app_status;
+        this._render({ preserveScroll: true });
+      }
+    } finally {
+      this._rendererAppStatusLoading = false;
+    }
   },
 
   async _rendererAppAdoptRunningJob() {

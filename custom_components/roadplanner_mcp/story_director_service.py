@@ -61,6 +61,11 @@ _LOGGER = logging.getLogger(__name__)
 # hundred-day trip in Roadplanner yet - so this is a guard, not a policy.
 MAX_DIRECTED_CHAPTERS = 60
 
+# How many unedited chapters still justify a second round. A trip where
+# most days came back empty has a different problem than a dropped day,
+# and asking again would just pay twice for it.
+RETRY_CHAPTER_LIMIT = 12
+
 ARC_MAX_TOKENS = 3000
 CHAPTERS_MAX_TOKENS = 4000
 # Warm rather than wild. The tone asked for is playful, and at 0.2 the
@@ -210,7 +215,10 @@ class StoryDirectorService:
 
         edited: dict[str, dict[str, Any]] = {}
         failed_batches = 0
-        for batch in chapter_batches(chapters):
+
+        async def edit_batch(batch: list[dict[str, Any]]) -> bool:
+            """One editing call. True when its answer could be read."""
+            nonlocal calls, failed_batches
             payload = {
                 "reisebogen": arc["narrative"],
                 "rollen": {
@@ -236,7 +244,7 @@ class StoryDirectorService:
                 # over it would throw away the calls that succeeded.
                 failed_batches += 1
                 _LOGGER.debug("Kapitelredaktion fehlgeschlagen: %s", type(err).__name__)
-                continue
+                return False
             calls += 1
             try:
                 edited.update(
@@ -250,6 +258,39 @@ class StoryDirectorService:
                 # An unreadable answer costs this batch, like a failed call.
                 failed_batches += 1
                 _LOGGER.debug("Kapitelantwort unlesbar")
+                return False
+            return True
+
+        for batch in chapter_batches(chapters):
+            await edit_batch(batch)
+
+        # A batch of six can come back with five. The call succeeded, the
+        # schema was honoured, and one day is simply not in the answer -
+        # which on a real trip left three of twenty-three chapters sitting
+        # on the template text with nothing to show that anything had gone
+        # wrong. The gap is silent by nature, so it is looked for rather
+        # than waited for.
+        missing = [
+            chapter
+            for chapter in chapters
+            if str(chapter.get("chapter_id") or "") not in edited
+        ]
+        retried = 0
+        # Only when every call actually worked. A batch that errored is an
+        # outage, not an omission, and asking again inside the same run
+        # spends money on a state we already know is bad.
+        if missing and not failed_batches and len(missing) <= RETRY_CHAPTER_LIMIT:
+            _LOGGER.debug("Kapitel ohne Redaktion, ein Nachlauf: %s", len(missing))
+            # One extra round only. If the model will not write a day
+            # twice, asking a third time is spending money on a habit.
+            for batch in chapter_batches(missing):
+                if await edit_batch(batch):
+                    retried += 1
+        still_missing = sum(
+            1
+            for chapter in chapters
+            if str(chapter.get("chapter_id") or "") not in edited
+        )
 
         direction = build_direction(
             context_hash=context_hash,
@@ -273,6 +314,10 @@ class StoryDirectorService:
             "calls": calls,
             "directed_chapters": len(edited),
             "failed_batches": failed_batches,
+            "retried_batches": retried,
+            # Reported rather than hidden: these chapters keep the
+            # composed text, and the manifest marks them as such.
+            "chapters_without_edit": still_missing,
             "story_context_hash": context_hash,
         }
 

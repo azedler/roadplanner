@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.43.1] - 2026-08-07
+
+### Fixed
+
+- **„Die Renderer-App ist nicht erreichbar" stand da, obwohl niemand gefragt hatte.** Die Reisegeschichte-Karte las ein Feld, das ausschließlich durch den Knopf „Umgebung prüfen" in einer *anderen* Karte gefüllt wird. Auf jeder frisch geladenen Seite war es leer – und die Karte machte daraus die Aussage, die App sei tot, und sperrte den Filmknopf. Währenddessen lief die App einwandfrei und hatte gerade einen Film fertiggestellt. **Nichts zu wissen ist nicht dasselbe wie zu wissen, dass etwas kaputt ist**, und nur eines von beidem darf man aussprechen. Die Karte fragt jetzt selbst, unterscheidet drei Zustände statt zwei, und ein Schweigen sperrt keinen Knopf mehr.
+- Ist die App wirklich nicht erreichbar, nennt die Karte jetzt den Grund statt nur die Tatsache.
+
+## [4.43.0] - 2026-08-07
+
+### Added
+
+- **Ein übergangenes Kapitel wird noch einmal angefragt.** Erster echter Lauf: 23 Kapitel, fünf Aufrufe, kein Fehler – und trotzdem nur **20 redigiert**. Ein Bündel von sechs kann mit fünf zurückkommen; der Aufruf war erfolgreich, das Schema eingehalten, ein Tag steht einfach nicht in der Antwort. Er blieb dann auf dem Schablonentext sitzen, ohne dass irgendetwas darauf hingewiesen hätte. Diese Lücke ist ihrer Natur nach still, also wird jetzt nach ihr gesucht statt auf sie gewartet: Nach den Bündeln wird geprüft, welche Kapitel keine Fassung bekommen haben, und **genau die** werden in einem Nachlauf erneut angefragt.
+- **Genau ein Nachlauf, und nur nach fehlerfreien Aufrufen.** Wer einen Tag zweimal nicht schreibt, schreibt ihn auch beim dritten Mal nicht – das wäre Geld für eine Angewohnheit. Und ein Bündel, das mit einem Fehler abgebrochen ist, ist eine Störung und keine Auslassung: Danach wird nicht nachgefragt, weil der Zustand schon als schlecht bekannt ist. Höchstens zwölf offene Kapitel rechtfertigen einen Nachlauf; wenn fast nichts ankam, hat die Reise ein anderes Problem.
+
+### Changed
+
+- **Die Karte sagt jetzt „20 von 23 Kapiteln"** statt nur „20 Kapitel", und nennt ausdrücklich, dass die übrigen bei der automatischen Fassung geblieben sind. Eine Zahl ohne Bezugsgröße sieht aus wie ein Erfolg, auch wenn drei Tage fehlen.
+
 ## [4.42.1] - 2026-08-07
 
 ### Fixed
