@@ -146,6 +146,37 @@ def verify_the_image_is_built_slim() -> None:
     assert "@remotion/bundler" not in package["dependencies"]
 
 
+def verify_the_paths_reach_the_process_that_needs_them() -> None:
+    """A Dockerfile ENV is not enough: s6 does not pass it to the service.
+
+    The worker fell back to /usr/bin/chromium and reported a missing
+    browser for a browser that was in the image. Every path the runtime
+    depends on has to be set by the script that execs it, and checked
+    there, so a broken image says so at startup instead of at the first
+    render.
+    """
+    run_sh = (APP / "run.sh").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in run_sh.splitlines() if not line.strip().startswith("#")
+    )
+    for variable in (
+        "ROADPLANNER_BROWSER",
+        "ROADPLANNER_FFPROBE",
+        "ROADPLANNER_BUNDLE_DIR",
+        "LD_LIBRARY_PATH",
+    ):
+        assert f"export {variable}=" in code, (
+            f"{variable} muss im Startskript gesetzt werden, nicht nur als ENV"
+        )
+    assert "/opt/roadplanner-renderer/browser/chrome-headless-shell" in code
+    assert "/opt/ffprobe/lib" in code, "ffprobe findet seine Bibliotheken sonst nicht"
+    assert "nicht ausführbar" in code, "fehlende Programme brechen den Start ab"
+
+    # The same defaults, in the module the worker actually imports.
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    assert "ROADPLANNER_BROWSER" in render and "ROADPLANNER_FFPROBE" in render
+
+
 def verify_the_app_asks_for_nothing_beyond_a_shared_folder() -> None:
     # Comments are prose - this file's own commentary names the permissions
     # it deliberately does NOT request. Scan what takes effect, not what
@@ -379,6 +410,7 @@ verify_the_untrusted_artifact_is_never_injected_as_markup()
 verify_the_channel_is_documented_as_trust_not_security()
 verify_the_worker_has_hard_limits()
 verify_the_image_is_built_slim()
+verify_the_paths_reach_the_process_that_needs_them()
 verify_the_app_asks_for_nothing_beyond_a_shared_folder()
 verify_nothing_is_installed_at_container_start()
 verify_the_reported_version_survives_a_local_build()
