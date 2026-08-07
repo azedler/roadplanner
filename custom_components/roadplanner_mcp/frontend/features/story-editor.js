@@ -260,7 +260,11 @@ export const storyEditorMixin = {
         this._showToast(
           run.reused
             ? "Die vorhandene Fassung passt noch - es wurde nichts neu erzeugt."
-            : `${run.directed_chapters} Kapitel redigiert (${run.calls} Gemini-Aufrufe).`,
+            : `${run.directed_chapters} Kapitel redigiert (${run.calls} Gemini-Aufrufe).${
+                run.chapters_without_edit
+                  ? ` ${run.chapters_without_edit} Kapitel blieben bei der automatischen Fassung.`
+                  : ""
+              }`,
           "success",
         );
         await this._storyLoad({ force: true });
@@ -309,7 +313,7 @@ export const storyEditorMixin = {
     const state = !status
       ? ""
       : status.current
-        ? `<small>Die Redaktion ist auf dem Stand dieser Reise – ${escapeHtml(String(status.directed_chapters))} Kapitel, ${escapeHtml(String(status.calls))} Gemini-Aufrufe.</small>`
+        ? `<small>Die Redaktion ist auf dem Stand dieser Reise – ${escapeHtml(String(status.directed_chapters))} von ${escapeHtml(String(status.chapter_count))} Kapiteln, ${escapeHtml(String(status.calls))} Gemini-Aufrufe.${status.directed_chapters < status.chapter_count ? " Die übrigen blieben bei der automatischen Fassung." : ""}</small>`
         : status.has_direction
           ? "<small>Die Reise hat sich seit der letzten Redaktion verändert. Ein neuer Durchgang würde die Texte auffrischen.</small>"
           : "<small>Noch nicht redigiert. Ein Durchgang liest die ganze Reise, legt den Reisebogen fest und schreibt danach die Tageskapitel – rund fünf Gemini-Aufrufe für eine dreiwöchige Reise.</small>";

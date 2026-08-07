@@ -259,6 +259,68 @@ def verify_an_unreadable_arc_is_reported_not_crashed() -> None:
     assert manifest["story_sources"]["composed"] == 8
 
 
+def verify_a_dropped_chapter_is_asked_for_again() -> None:
+    """Live report: 20 of 23 chapters edited, five calls, nothing failed.
+
+    A batch of six can come back with five. The call succeeded and the
+    schema was honoured; one day is simply not in the answer, and it then
+    sits on the template text with nothing to say anything went wrong.
+    The gap is silent by nature, so it has to be looked for.
+    """
+
+    class ForgetfulProvider(FakeProvider):
+        """Drops one chapter from its first chapter answer, then behaves."""
+
+        def __init__(self):
+            super().__init__()
+            self._dropped = False
+
+        async def async_generate_json_result(self, **kwargs):
+            answer = await super().async_generate_json_result(**kwargs)
+            is_arc = "title_variant" in (kwargs["schema"].get("properties") or {})
+            if is_arc or self._dropped:
+                return answer
+            self._dropped = True
+            return FakeAnswer({"chapters": answer.value["chapters"][:-1]})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        provider = ForgetfulProvider()
+        service, context, _trip, _store = make(
+            day_count=12, provider=provider, root=Path(tmp)
+        )
+        result = run(service.async_run("trip-1"))
+        manifest = run(context.async_manifest("trip-1"))
+
+    # Arc, two batches, one retry for the single dropped day.
+    assert provider.calls == ["arc", "chapters", "chapters", "chapters"], provider.calls
+    assert result["retried_batches"] == 1
+    assert result["chapters_without_edit"] == 0
+    assert result["directed_chapters"] == 12
+    assert manifest["story_sources"]["directed"] == 12
+
+
+def verify_a_run_that_mostly_came_back_empty_is_not_paid_for_twice() -> None:
+    """A trip where nearly nothing landed has a different problem."""
+
+    class SilentProvider(FakeProvider):
+        async def async_generate_json_result(self, **kwargs):
+            answer = await super().async_generate_json_result(**kwargs)
+            is_arc = "title_variant" in (kwargs["schema"].get("properties") or {})
+            return answer if is_arc else FakeAnswer({"chapters": []})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        provider = SilentProvider()
+        service, _context, _trip, _store = make(
+            day_count=18, provider=provider, root=Path(tmp)
+        )
+        result = run(service.async_run("trip-1"))
+
+    # Arc plus three batches. No retry: 18 missing is past the limit.
+    assert provider.calls == ["arc"] + ["chapters"] * 3, provider.calls
+    assert result["retried_batches"] == 0
+    assert result["chapters_without_edit"] == 18
+
+
 def verify_opening_the_panel_costs_nothing() -> None:
     """The status is read on every panel open. It must be free."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -391,6 +453,10 @@ def verify_one_failed_batch_does_not_lose_the_others() -> None:
         manifest = run(context.async_manifest("trip-1"))
     assert result["failed_batches"] == 2
     assert result["directed_chapters"] == 6
+    # No retry: a batch that errored is an outage, not an omission, and
+    # asking again inside the same run pays for a known-bad state.
+    assert result["retried_batches"] == 0
+    assert result["chapters_without_edit"] == 12
     sources = manifest["story_sources"]
     assert sources["directed"] == 6
     assert sources["composed"] == 12, sources
@@ -475,6 +541,8 @@ def verify_a_corrupt_store_costs_the_story_and_not_the_trip() -> None:
 
 verify_the_answer_is_read_from_the_field_the_provider_actually_uses()
 verify_an_unreadable_arc_is_reported_not_crashed()
+verify_a_dropped_chapter_is_asked_for_again()
+verify_a_run_that_mostly_came_back_empty_is_not_paid_for_twice()
 verify_opening_the_panel_costs_nothing()
 verify_a_whole_trip_is_a_handful_of_calls()
 verify_an_unchanged_trip_is_not_edited_twice()
