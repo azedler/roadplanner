@@ -16,4 +16,4 @@ if ! mkdir -p "${EXCHANGE_DIR}"; then
   exit 1
 fi
 
-exec node /opt/roadplanner-renderer/src/index.mjs
+exec /opt/node/bin/node /opt/roadplanner-renderer/src/index.mjs

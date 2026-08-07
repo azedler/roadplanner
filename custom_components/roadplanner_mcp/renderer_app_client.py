@@ -40,6 +40,9 @@ from .renderer_app_protocol import (
     ACTION_CREATE_TEST_ARTIFACT,
     ARTIFACT_IMAGE,
     ARTIFACT_TEXT,
+    ARTIFACT_VIDEO,
+    MAX_VIDEO_ARTIFACT_BYTES,
+    TEXT_ARTIFACT_KINDS,
     JOB_QUEUED,
     JOB_TTL_SECONDS,
     MAX_ARTIFACT_BYTES,
@@ -209,12 +212,17 @@ class RendererAppClient:
 
     # --- jobs -----------------------------------------------------------
 
-    async def async_submit_test_job(self, *, message: str = "Hallo Renderer") -> dict[str, Any]:
+    async def async_submit_test_job(
+        self,
+        *,
+        message: str = "Hallo Renderer",
+        action: str = ACTION_CREATE_TEST_ARTIFACT,
+    ) -> dict[str, Any]:
         """Write one job atomically and return what was written."""
         job_id = new_job_id()
         job = build_job(
             job_id=job_id,
-            action=ACTION_CREATE_TEST_ARTIFACT,
+            action=action,
             message=message,
             now=utc_now(),
             ttl_seconds=JOB_TTL_SECONDS,
@@ -278,17 +286,26 @@ class RendererAppClient:
         for declared in result["artifacts"]:
             # The filename came from a fixed whitelist in validate_result,
             # so this join cannot be steered anywhere.
-            data = self._read_bounded(folder / declared["filename"], MAX_ARTIFACT_BYTES)
+            is_text = declared["kind"] in TEXT_ARTIFACT_KINDS
+            limit = MAX_ARTIFACT_BYTES if is_text else MAX_VIDEO_ARTIFACT_BYTES
+            data = self._read_bounded(folder / declared["filename"], limit)
             if data is None:
                 raise RendererProtocolError(
                     f"Angekündigtes Artefakt fehlt: {declared['filename']}"
                 )
             verify_artifact(data, declared)
-            contents[declared["filename"]] = data.decode("utf-8", errors="replace")
+            # A video is verified but never decoded: it is megabytes of
+            # binary, it is not displayable as text, and pushing it through
+            # the websocket would stall the panel for no benefit. The panel
+            # shows what ffprobe measured; the file stays on disk.
+            if is_text:
+                contents[declared["filename"]] = data.decode("utf-8", errors="replace")
+        video_path = folder / ARTIFACT_VIDEO
         return {
             **result,
             "text": contents.get(ARTIFACT_TEXT, ""),
             "svg": contents.get(ARTIFACT_IMAGE, ""),
+            "video_path": str(video_path) if video_path.is_file() else "",
         }
 
     # --- shared plumbing ------------------------------------------------
