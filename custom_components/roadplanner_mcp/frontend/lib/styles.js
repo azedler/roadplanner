@@ -109,6 +109,8 @@ export const PANEL_STYLES = `<style>
       .facts-grid > div, .next-day-grid > div, .preview-grid > div { min-width: 0; }
       /* An artefact from the renderer arrives at its own intrinsic size
          (640px wide), which is wider than a phone. */
+      /* Sized by the card, never by the longest day title. */
+      .renderer-app-day-select { max-width: 100%; min-width: 0; flex: 1 1 220px; min-height: 44px; border: 1px solid var(--divider-color); border-radius: 12px; padding: 0 12px; background: var(--card-background-color); color: var(--primary-text-color); }
       .renderer-app-artifact { display: block; width: 100%; max-width: 100%; height: auto; margin-top: 12px; border-radius: 12px; }
       .settings-list { display: grid; gap: 0; margin-bottom: 16px; }
       .setting-row { min-height: 50px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--divider-color); }
@@ -119,7 +121,10 @@ export const PANEL_STYLES = `<style>
       .status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--disabled-color); }
       .status-dot.success { background: var(--success-color, #2e7d32); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success-color, #2e7d32) 14%, transparent); }
       .notice { border-radius: 16px; padding: 14px 16px; margin: 12px 0; display: flex; align-items: center; gap: 12px; }
-      .notice > div { display: flex; flex-direction: column; gap: 3px; }
+      /* min-width: 0 - a flex item refuses to shrink below its content's
+         own width by default, so one wide child (a <select> is as wide as
+         its longest option) pushes the whole card past the screen edge. */
+      .notice > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
       .notice span { color: var(--secondary-text-color); }
       .notice.info { background: color-mix(in srgb, var(--info-color, #0288d1) 12%, transparent); }
       .notice.warning { background: color-mix(in srgb, var(--warning-color, #f57c00) 13%, transparent); }

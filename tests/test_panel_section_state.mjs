@@ -88,6 +88,25 @@ assert.match(
   /\.renderer-app-artifact \{[^}]*max-width: 100%/,
   "ein Artefakt bringt seine Eigenbreite mit und muss begrenzt werden",
 );
+// A flex item does not shrink below its content's own width unless it is
+// told to. A <select> is as wide as its LONGEST option, so one day called
+// "Tag 7 - 2026-07-23 - Nuuksio Nationalpark - 81 Fotos" pushed the whole
+// card past the edge of the phone.
+assert.match(
+  styles,
+  /\.notice > div \{[^}]*min-width: 0/,
+  "der Inhalt eines Hinweises muss schrumpfen dürfen",
+);
+assert.match(
+  styles,
+  /\.renderer-app-day-select \{[^}]*max-width: 100%/,
+  "die Tagesauswahl darf sich nicht an ihrer längsten Option ausrichten",
+);
+assert.match(
+  read("frontend/features/renderer-app.js"),
+  /<select class="renderer-app-day-select"/,
+  "ein Auswahlfeld ohne Klasse bekommt keine Breitenbegrenzung",
+);
 
 // --- notices stack, they do not become columns -------------------------
 /**

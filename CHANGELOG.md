@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.37.1] - 2026-08-07
+
+### Fixed
+
+- **Die Karte „Renderer-App" passte nach dem Mini-Export nicht mehr ins Bild** (live: „Testauftrag senden" und „Tagesvideo erzeugen" rechts abgeschnitten, die Seite seitlich verschoben). Zwei Ursachen, die sich addierten: `.notice > div` ist ein Flex-Element und schrumpft ohne `min-width: 0` nicht unter die Eigenbreite seines Inhalts – und ein `<select>` ist so breit wie seine **längste** Option. Ein Tag namens „Tag 7 · 2026-07-23 · Nuuksio Nationalpark · 81 Fotos" hat damit die ganze Karte über den Bildschirmrand geschoben. Die Tagesauswahl ist jetzt auf die Kartenbreite begrenzt, und Hinweisinhalte dürfen schrumpfen. Ein Test hält beides fest.
+
 ## [4.37.0] - 2026-08-07
 
 ### Added
