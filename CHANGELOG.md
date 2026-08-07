@@ -19,7 +19,7 @@ The project follows Semantic Versioning for public releases.
 - **Hochkantfotos werden nicht mehr beschnitten.** Sie stehen vollständig im Bild, der Platz daneben wird mit demselben Foto unscharf und abgedunkelt gefüllt. Vorher schnitt das 16:9-Format oben den Himmel und unten die Person ab.
 - **Die Collage ist eine Fotowand statt einer Tabelle.** Die Bilder überlappen sich, haben unterschiedliche Größen und behalten ihre eigenen Seitenverhältnisse.
 - **Weniger Text über den Bildern.** Der Tagessatz steht einmal pro Tag über dem ersten Foto, zweizeilig und kleiner – vorher lag derselbe Satz dreizeilig über jedem Bild des Tages.
-- **Die Karte verlängert den Film nicht.** Die Zeit, die ein Tag für seine Karte bekommt, nimmt er sich von seiner Bilderzeit – bis auf ein Foto, das immer bleibt.
+- **Die Karte verlängert den Film nur wenig.** Wie lang die Karte eines Tages läuft, ist ein Anteil dieses Tages – ein Überführungstag darf die Hälfte dafür verwenden, ein großer Höhepunkt ein Viertel –, und drei Viertel davon holt der Tag sich aus seiner eigenen Bildzeit zurück. Gemessen am 25-Tage-Testfilm: 239 s werden 279 s. Ein fester Zeitwert stand zuerst dort, und der war falsch: ein Tag mit einem einzigen Foto läuft fünf Sekunden und wurde von fünfeinhalb Sekunden Karte mehr als verdoppelt.
 
 ### Fixed
 

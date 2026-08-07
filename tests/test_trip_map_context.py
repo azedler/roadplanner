@@ -223,35 +223,66 @@ def verify_the_map_is_optional_for_the_plan() -> None:
 def verify_the_map_takes_time_rather_than_adding_it() -> None:
     """The brief is explicit: the film must not simply grow.
 
-    A day's map is paid for out of that day's photo time, down to a floor
-    of one picture - it is a different way of spending the same minute,
-    not an extra one.
+    Most of a map's length is taken back out of the same day. Not all of
+    it - a day keeps recognisable pictures - so a mapped day is a little
+    longer, and that residue is the price of having a map at all.
+
+    The first version of this failed the brief badly and the check did
+    not notice: the reclaim only reached plain photo scenes, so a day
+    whose style was a hero or a collage paid nothing back. Measured on
+    the 25-day test film, the whole thing grew by 36 %. Every style is
+    therefore checked here, not just the one that happened to work.
     """
-    chapter = {
-        "chapter_id": "day-1",
-        "index": 0,
-        "title": "Tag",
-        "story": "Eine Zeile.",
-        "importance": "transition",
-        "story_role": "transition",
-        "visual_style": "normal",
-        "images": [{"path": f"photos/c00-{position}.jpg"} for position in range(1, 5)],
-    }
     context = {
         "map_context_version": 1,
         "chapters": [{"chapter_id": "day-1", "index": 0}],
     }
-    without = plan.build_scene_plan(trip={}, chapters=[chapter])
-    with_map = plan.build_scene_plan(trip={}, chapters=[chapter], map_context=context)
-    day_without = sum(
-        scene["frames"] for scene in without["scenes"] if scene["chapter_id"] == "day-1"
-    )
-    day_with = sum(
-        scene["frames"] for scene in with_map["scenes"] if scene["chapter_id"] == "day-1"
-    )
-    assert day_with <= day_without * 1.35, (day_without, day_with)
-    # And a picture always survives: an atlas is not a travel film.
-    assert any(scene["type"] in {"photo", "hero", "collage"} for scene in with_map["scenes"])
+    for style in ("normal", "hero", "collage", "compact", "map_focus"):
+        for importance in ("transition", "normal", "highlight", "major_highlight"):
+            for photos in (0, 1, 4):
+                chapter = {
+                    "chapter_id": "day-1",
+                    "index": 0,
+                    "title": "Tag",
+                    "story": "Eine Zeile.",
+                    "importance": importance,
+                    "story_role": "journey",
+                    "visual_style": style,
+                    "images": [
+                        {"path": f"photos/c00-{position}.jpg"}
+                        for position in range(1, photos + 1)
+                    ],
+                }
+                without = plan.build_scene_plan(trip={}, chapters=[chapter])
+                with_map = plan.build_scene_plan(
+                    trip={}, chapters=[chapter], map_context=context
+                )
+                day_without = sum(
+                    scene["frames"]
+                    for scene in without["scenes"]
+                    if scene["chapter_id"] == "day-1"
+                )
+                day_with = sum(
+                    scene["frames"]
+                    for scene in with_map["scenes"]
+                    if scene["chapter_id"] == "day-1"
+                )
+                # map_focus is the one style that says the map IS the day,
+                # so it is allowed to be more than the introduction.
+                limit = 1.4 if style == "map_focus" else 1.25
+                assert day_with <= day_without * limit, (
+                    style,
+                    importance,
+                    photos,
+                    day_without,
+                    day_with,
+                )
+                if photos:
+                    # A picture always survives: an atlas is not a travel film.
+                    assert any(
+                        scene["type"] in {"photo", "hero", "collage"}
+                        for scene in with_map["scenes"]
+                    )
 
 
 verify_a_ferry_is_a_fact_and_not_a_guess()
