@@ -33,11 +33,13 @@ export const ACTIONS = [
   "create_test_artifact",
   "render_remotion_test",
   "render_trip_day",
+  "render_trip_film",
 ];
 export const ARTIFACT_TEXT = "roadplanner-renderer-poc.txt";
 export const ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg";
 export const ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4";
 export const ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4";
+export const ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4";
 
 export const MAX_JSON_BYTES = 64 * 1024;
 export const MAX_MESSAGE_LENGTH = 120;
@@ -327,4 +329,134 @@ export function buildHeartbeat({ state, startedAt, now, appVersion }) {
     heartbeat_at: formatTime(now),
     capabilities: [...ACTIONS],
   });
+}
+
+
+// --- the film package ---------------------------------------------------
+
+export const FILM_PACKAGE_VERSION = 1;
+export const FILM_MANIFEST_FILENAME = "film.json";
+export const MAX_FILM_JSON_BYTES = 512 * 1024;
+export const MAX_FILM_CHAPTERS = 45;
+export const MAX_FILM_PHOTOS_PER_CHAPTER = 3;
+export const MAX_FILM_IMAGES = 90;
+export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
+
+const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-3])\.jpg$/;
+
+/**
+ * The one place a film photo path is accepted.
+ *
+ * It is matched against a pattern that only integers can satisfy, and the
+ * numbers in it are checked against the chapter it claims to belong to.
+ * A path is the one thing in a package that could reach outside the job
+ * directory, so it is the one thing that is never taken on trust.
+ */
+export function filmPhotoPath(value, chapterIndex, position) {
+  const text = String(value ?? "");
+  const match = FILM_PHOTO_RE.exec(text);
+  if (!match) {
+    throw new ProtocolError(ERROR_INVALID_JOB, `Ungültiger Bildpfad: ${text.slice(0, 60)}`);
+  }
+  if (Number(match[1]) !== chapterIndex || Number(match[2]) !== position) {
+    throw new ProtocolError(
+      ERROR_INVALID_JOB,
+      "Bildpfad passt nicht zu seiner Kapitelposition.",
+    );
+  }
+  return text;
+}
+
+/** Validate a whole-trip film package with this app's own rules. */
+export function parseFilmPackage(raw) {
+  if (Buffer.byteLength(raw) > MAX_FILM_JSON_BYTES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket überschreitet die Größengrenze.");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket ist kein gültiges JSON.");
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket ist kein Objekt.");
+  }
+  if (payload.film_package_version !== FILM_PACKAGE_VERSION) {
+    throw new ProtocolError(
+      ERROR_UNSUPPORTED_PROTOCOL,
+      "Nicht unterstützte Version des Filmpakets.",
+    );
+  }
+  const chapters = payload.chapters;
+  if (!Array.isArray(chapters) || !chapters.length || chapters.length > MAX_FILM_CHAPTERS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket ohne gültige Kapitelliste.");
+  }
+  let images = 0;
+  const parsed = chapters.map((chapter, index) => {
+    if (chapter === null || typeof chapter !== "object" || Array.isArray(chapter)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kapitel ist kein Objekt.");
+    }
+    if (chapter.index !== index) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kapitel steht nicht an seiner Position.");
+    }
+    const rawImages = Array.isArray(chapter.images) ? chapter.images : [];
+    if (rawImages.length > MAX_FILM_PHOTOS_PER_CHAPTER) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kapitel mit zu vielen Bildern.");
+    }
+    const photos = rawImages.map((image, position) => {
+      if (image === null || typeof image !== "object") {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag ist kein Objekt.");
+      }
+      const size = image.size_bytes;
+      if (!Number.isInteger(size) || size <= 0 || size > MAX_FILM_IMAGE_BYTES) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag mit ungültiger Größe.");
+      }
+      if (!/^[0-9a-f]{64}$/.test(String(image.sha256 ?? ""))) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag ohne gültigen SHA-256.");
+      }
+      images += 1;
+      return {
+        path: filmPhotoPath(image.path, index, position + 1),
+        sizeBytes: size,
+        sha256: image.sha256,
+      };
+    });
+    return {
+      chapterId: cleanText(chapter.chapter_id, 200),
+      index,
+      date: cleanText(chapter.date, 40),
+      title: cleanText(chapter.title, 120),
+      // Not cleanText: a hand-written story may have paragraphs, and
+      // collapsing them here would silently undo the editor.
+      story: String(chapter.story ?? "").slice(0, 1200),
+      storySource: cleanText(chapter.story_source, 20) || "composed",
+      dayNumber: Number.isInteger(chapter.day_number) ? chapter.day_number : index + 1,
+      distanceKm: typeof chapter.distance_km === "number" ? chapter.distance_km : null,
+      durationMinutes:
+        typeof chapter.duration_minutes === "number" ? chapter.duration_minutes : null,
+      stopCount: Number.isInteger(chapter.stop_count) ? chapter.stop_count : 0,
+      photoCount: Number.isInteger(chapter.photo_count) ? chapter.photo_count : 0,
+      stops: (Array.isArray(chapter.stops) ? chapter.stops : [])
+        .map((stop) => cleanText(stop, 80))
+        .filter(Boolean)
+        .slice(0, 6),
+      photos,
+    };
+  });
+  if (images > MAX_FILM_IMAGES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket enthält zu viele Bilder.");
+  }
+  const trip = payload.trip ?? {};
+  return {
+    manifestContentHash: cleanText(payload.manifest_content_hash, 64),
+    trip: {
+      title: cleanText(trip.title, 120),
+      startDate: cleanText(trip.start_date, 40),
+      endDate: cleanText(trip.end_date, 40),
+      chapterCount: Number.isInteger(trip.chapter_count) ? trip.chapter_count : parsed.length,
+      distanceKm: typeof trip.distance_km === "number" ? trip.distance_km : null,
+      photoCount: Number.isInteger(trip.photo_count) ? trip.photo_count : 0,
+    },
+    chapters: parsed,
+  };
 }

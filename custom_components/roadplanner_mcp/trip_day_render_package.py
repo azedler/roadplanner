@@ -292,10 +292,11 @@ def _optional_number(value: Any) -> float | None:
 
 def image_filename(index: Any) -> str:
     """The one place an image filename is built, from a number only."""
-    try:
-        position = int(index)
-    except (TypeError, ValueError) as err:
-        raise RenderPackageError("Bildindex ist keine Zahl") from err
+    # `int(1.5)` is 1, so accepting anything int() swallows would let a
+    # float become a valid filename.
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise RenderPackageError("Bildindex ist keine Ganzzahl")
+    position = index
     if not 1 <= position <= MAX_IMAGES:
         raise RenderPackageError("Bildindex liegt außerhalb des erlaubten Bereichs")
     return f"photo-{position}.jpg"

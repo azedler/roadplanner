@@ -35,6 +35,7 @@ import {
   ARTIFACT_IMAGE,
   ARTIFACT_TEXT,
   ARTIFACT_TRIP_DAY_VIDEO,
+  ARTIFACT_TRIP_FILM_VIDEO,
   ARTIFACT_VIDEO,
   ERROR_INTERNAL,
   ProtocolError,
@@ -78,6 +79,12 @@ const MAX_JOB_FILE_BYTES = 64 * 1024;
 const MAX_CONCURRENT_JOBS = 1;
 // A whole job, not just its render: claim, parse, render, probe, hash.
 const MAX_JOB_DURATION_MS = Number(process.env.ROADPLANNER_MAX_JOB_MS || 420_000);
+// A whole-trip film is minutes of video and therefore many minutes of
+// render. It gets its own ceiling rather than raising everyone's: a
+// fifteen-second clip that runs for half an hour is still broken.
+const MAX_FILM_JOB_DURATION_MS = Number(
+  process.env.ROADPLANNER_MAX_FILM_JOB_MS || 1_800_000,
+);
 // Anything left in results/ beyond this is from a run nobody came back
 // for; the shared folder must not grow without bound.
 const MAX_RESULT_BYTES = Number(
@@ -331,6 +338,45 @@ async function discardIncompleteResult(jobId) {
   }
 }
 
+/**
+ * Render a whole trip from its film package.
+ *
+ * Same shape as the other producers. The difference is scale: this one can
+ * run for ten minutes and read seventy photos, so the job deadline it runs
+ * under is the film's, not the clip's.
+ */
+async function produceTripFilm(jobId, onProgress) {
+  const { renderTripFilmVideo } = await import("./render.mjs");
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const target = path.join(folder, ARTIFACT_TRIP_FILM_VIDEO);
+
+  const { facts, timings } = await renderTripFilmVideo({
+    outputPath: target,
+    inputsDir: path.join(DIRS.inputs, jobId),
+    onProgress,
+  });
+
+  const bytes = await fs.readFile(target);
+  const artifacts = [
+    {
+      kind: "video",
+      filename: ARTIFACT_TRIP_FILM_VIDEO,
+      size_bytes: bytes.length,
+      sha256: sha256(bytes),
+    },
+  ];
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(
+      buildResult({ jobId, completedAt: new Date(), artifacts, video: facts, timings }),
+      null,
+      2,
+    )}\n`,
+  );
+  return { facts, timings };
+}
+
 async function handleJob(name) {
   const jobId = name.replace(/\.json$/i, "");
   if (!isJobId(jobId)) {
@@ -355,13 +401,23 @@ async function handleJob(name) {
 
   activeJobs += 1;
   const jobStarted = Date.now();
-  const jobDeadline = setTimeout(() => {
+  // Set from the file's own action before parsing, so a film is not
+  // reported as overrunning a limit that was never meant for it.
+  let jobLimitMs = MAX_JOB_DURATION_MS;
+  let jobDeadline = setTimeout(() => {
     log("error", "Auftrag überschreitet die Gesamtdauer", { job_id: jobId });
-  }, MAX_JOB_DURATION_MS);
+  }, jobLimitMs);
 
   try {
     await writeStatus(jobId, "claimed", { progress: 0 });
     const job = parseJob(await readJobFile(claimed), { now: Date.now() });
+    if (job.action === "render_trip_film") {
+      clearTimeout(jobDeadline);
+      jobLimitMs = MAX_FILM_JOB_DURATION_MS;
+      jobDeadline = setTimeout(() => {
+        log("error", "Auftrag überschreitet die Gesamtdauer", { job_id: jobId });
+      }, jobLimitMs);
+    }
     await writeStatus(jobId, "running", { progress: 0.5 });
     if (job.action === "ping") {
       await writeStatus(jobId, "completed", { progress: 1 });
@@ -397,6 +453,26 @@ async function handleJob(name) {
         seconds: timings.total,
         size_bytes: facts.size_bytes,
         photos: facts.photo_count,
+      });
+    } else if (job.action === "render_trip_film") {
+      let lastReported = 0;
+      const { facts, timings } = await produceTripFilm(jobId, (progress) => {
+        // Finer steps than the clip: ten minutes at 5 % granularity would
+        // look frozen for half a minute at a time.
+        const rounded = Math.floor(progress * 100) / 100;
+        if (rounded > lastReported) {
+          lastReported = rounded;
+          void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+        }
+      });
+      await writeStatus(jobId, "completed", { progress: 1 });
+      log("info", "Reisefilm abgeschlossen", {
+        job_id: jobId,
+        seconds: timings.total,
+        size_bytes: facts.size_bytes,
+        chapters: facts.chapter_count,
+        photos: facts.photo_count,
+        chapters_without_photos: facts.chapters_without_photos,
       });
     } else {
       await produceArtifacts(jobId, job.message);
@@ -436,7 +512,7 @@ async function handleJob(name) {
     clearTimeout(jobDeadline);
     activeJobs -= 1;
     const seconds = (Date.now() - jobStarted) / 1000;
-    if (seconds * 1000 > MAX_JOB_DURATION_MS) {
+    if (seconds * 1000 > jobLimitMs) {
       log("warn", "Auftrag hat die Gesamtdauer überschritten", {
         job_id: jobId,
         seconds,

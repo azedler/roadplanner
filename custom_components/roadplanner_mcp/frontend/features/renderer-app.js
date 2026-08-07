@@ -302,8 +302,10 @@ export const rendererAppMixin = {
     if (running) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
       const label =
-        this._rendererAppKind === "trip_day"
-          ? "Tagesvideo wird gerendert"
+        this._rendererAppKind === "trip_film"
+          ? "Reisefilm wird gerendert"
+          : this._rendererAppKind === "trip_day"
+            ? "Tagesvideo wird gerendert"
           : this._rendererAppKind === "render"
             ? "Testvideo wird gerendert"
             : "Testauftrag läuft";
@@ -315,7 +317,7 @@ export const rendererAppMixin = {
       // child div - text with <br> would become one column per element.
       const pack = this._rendererAppPackage;
       jobBlock = `<div class="notice neutral"><div>
-        <strong>${this._rendererAppKind === "trip_day" ? "Tagesvideo erzeugt" : "Testvideo erzeugt"}</strong>
+        <strong>${this._rendererAppKind === "trip_film" ? "Reisefilm erzeugt" : this._rendererAppKind === "trip_day" ? "Tagesvideo erzeugt" : "Testvideo erzeugt"}</strong>
         ${
           pack
             ? `<span>${escapeHtml([pack.day_date, pack.day_title].filter(Boolean).join(" · "))}</span>

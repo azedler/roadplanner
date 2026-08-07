@@ -61,8 +61,13 @@ jobs:
       - name: End-to-end through a real exchange folder
         run: python3 tests/test_renderer_app_end_to_end.py
 
+      # Pillow reaches the other workflows only as a transitive dependency
+      # of reportlab, which is not a thing to rely on for an image test.
       - name: Render package rules
-        run: node tests/test_renderer_app_trip_day_package.mjs
+        run: |
+          python3 -m pip install --quiet pillow
+          node tests/test_renderer_app_trip_day_package.mjs
+          python3 tests/test_trip_film_package.py
 
       # Everything the renderer refuses BEFORE a browser starts: a missing
       # package, changed bytes, a symlink. Lives beside the app because it
@@ -367,6 +372,141 @@ jobs:
           assert not inputs.exists(), "Das Renderpaket blieb nach dem Fehlschlag liegen"
           assert not (exchange / "results" / job_id).exists(), "Es gibt ein Ergebnis, obwohl der Job scheiterte"
           print("Fehlgeschlagener Job: Renderpaket aufgeraeumt, kein Ergebnis erzeugt")
+          INNER
+
+      # The whole point of the film: twenty-five days in one render. If the
+      # manifest cannot carry a trip, this is where it shows - and it shows
+      # here rather than on somebody's Home Assistant.
+      - name: Render a whole 25-day trip film
+        run: |
+          set -euo pipefail
+          python3 - <<'INNER'
+          import hashlib, io, json, os, pathlib, time, uuid
+          from PIL import Image
+
+          DAYS = 25
+          PER_DAY = 3
+          exchange = pathlib.Path(os.environ["RUNNER_TEMP"]) / "exchange"
+          job_id = str(uuid.uuid4())
+          inputs = exchange / "inputs" / job_id
+          (inputs / "photos").mkdir(parents=True, exist_ok=True)
+
+          chapters = []
+          total = 0
+          for day in range(DAYS):
+              images = []
+              # Day 7 gets no photos on purpose: the film has to show that
+              # gap rather than skip the day.
+              count = 0 if day == 6 else PER_DAY
+              for slot in range(1, count + 1):
+                  picture = Image.new("RGB", (900, 600))
+                  for x in range(0, 900, 20):
+                      for y in range(0, 600, 20):
+                          picture.paste(
+                              ((x + day * 9) % 256, (y + slot * 40) % 256, (x + y) % 256),
+                              (x, y, x + 20, y + 20),
+                          )
+                  buffer = io.BytesIO()
+                  picture.save(buffer, format="JPEG", quality=76, optimize=True)
+                  blob = buffer.getvalue()
+                  relative = f"photos/c{day:02d}-{slot}.jpg"
+                  (inputs / relative).write_bytes(blob)
+                  total += len(blob)
+                  images.append(
+                      {
+                          "path": relative,
+                          "size_bytes": len(blob),
+                          "sha256": hashlib.sha256(blob).hexdigest(),
+                      }
+                  )
+              chapters.append(
+                  {
+                      "chapter_id": f"day-{day + 1}",
+                      "index": day,
+                      "date": "2026-07-17",
+                      "title": f"Etappe {day + 1}",
+                      "story": (
+                          f"Tag {day + 1} fuehrt weiter nach Norden. "
+                          "215 Kilometer und 3 Stunden liegen dazwischen."
+                      ),
+                      "story_source": "composed",
+                      "day_number": day + 1,
+                      "distance_km": 180.0 + day,
+                      "duration_minutes": 150 + day,
+                      "stop_count": 2,
+                      "photo_count": 40,
+                      "stops": ["Tampere", "Vaasa"],
+                      "images": images,
+                  }
+              )
+
+          package = {
+              "film_package_version": 1,
+              "job_id": job_id,
+              "manifest_content_hash": "a" * 64,
+              "manifest_version": 1,
+              "trip": {
+                  "title": "Finnland 2026",
+                  "start_date": "2026-07-17",
+                  "end_date": "2026-08-10",
+                  "chapter_count": DAYS,
+                  "distance_km": 4500.0,
+                  "photo_count": 812,
+              },
+              "chapters": chapters,
+              "total_image_bytes": total,
+          }
+          (inputs / "film.json").write_text(json.dumps(package, ensure_ascii=False))
+
+          now = time.time()
+          job = {
+              "schema_version": 1,
+              "protocol_version": 1,
+              "job_id": job_id,
+              "action": "render_trip_film",
+              "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+              "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 3600)),
+              "input": {"message": "Finnland 2026"},
+          }
+          target = exchange / "jobs" / f"{job_id}.json"
+          temporary = target.with_suffix(".json.part")
+          temporary.write_text(json.dumps(job))
+          temporary.replace(target)
+          print(f"Filmpaket: {total} B in {sum(len(c['images']) for c in chapters)} Bildern")
+
+          result_file = exchange / "results" / job_id / "result.json"
+          deadline = time.time() + 2400
+          while time.time() < deadline and not result_file.is_file():
+              status = exchange / "status" / f"{job_id}.json"
+              if status.is_file():
+                  state = json.loads(status.read_text()).get("state")
+                  if state in ("failed", "expired"):
+                      print(status.read_text())
+                      raise SystemExit("Reisefilm fehlgeschlagen")
+              time.sleep(5)
+          if not result_file.is_file():
+              raise SystemExit("Reisefilm lief in eine Zeitueberschreitung")
+
+          payload = json.loads(result_file.read_text())
+          print(json.dumps({k: payload.get(k) for k in ("video", "timings")}, indent=2))
+          video = payload["video"]
+          frames = 105 + 105
+          for chapter in chapters:
+              count = len(chapter["images"])
+              frames += 66 + 84 + max(0, count - 1) * 42
+          assert abs(video["duration_seconds"] - frames / 30) < 0.3, (video, frames)
+          assert (video["width"], video["height"]) == (1280, 720), video
+          assert video["chapter_count"] == DAYS, video
+          assert video["chapters_without_photos"] == 1, video
+          assert payload["artifacts"][0]["filename"] == "roadplanner-trip-film.mp4"
+          assert not inputs.exists(), "Das Filmpaket wurde nicht aufgeraeumt"
+          pathlib.Path(os.environ["RUNNER_TEMP"], "film.json").write_text(
+              json.dumps(payload, indent=2)
+          )
+          print(
+              f"Film: {video['duration_seconds']} s, {video['size_bytes']} B, "
+              f"{video['chapter_count']} Kapitel, {video['photo_count']} Bilder"
+          )
           INNER
 
       # The status file carries the message a user is meant to read, which

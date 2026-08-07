@@ -19,9 +19,15 @@ import {
   type RoadplannerTripDayProps,
   tripDayDurationInFrames,
 } from "./RoadplannerTripDay";
+import {
+  RoadplannerTripFilm,
+  type RoadplannerTripFilmProps,
+  filmDurationInFrames,
+} from "./RoadplannerTripFilm";
 
 export const COMPOSITION_ID = "roadplanner-remotion-test";
 export const TRIP_DAY_COMPOSITION_ID = "roadplanner-trip-day";
+export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -62,6 +68,46 @@ export const RemotionRoot: React.FC = () => (
           stops: [],
           photos: [],
         } satisfies RoadplannerTripDayProps
+      }
+    />
+    <Composition
+      id={TRIP_FILM_COMPOSITION_ID}
+      component={RoadplannerTripFilm}
+      durationInFrames={filmDurationInFrames([{ photos: [] }])}
+      fps={30}
+      width={1280}
+      height={720}
+      calculateMetadata={({ props }: { props: RoadplannerTripFilmProps }) => ({
+        durationInFrames: filmDurationInFrames(props.chapters ?? []),
+      })}
+      defaultProps={
+        {
+          trip: {
+            title: "Roadplanner",
+            startDate: "",
+            endDate: "",
+            chapterCount: 1,
+            distanceKm: null,
+            photoCount: 0,
+          },
+          chapters: [
+            {
+              chapterId: "vorschau",
+              index: 0,
+              date: "",
+              title: "Reisetag",
+              story: "",
+              storySource: "composed",
+              dayNumber: 1,
+              distanceKm: null,
+              durationMinutes: null,
+              stopCount: 0,
+              photoCount: 0,
+              stops: [],
+              photos: [],
+            },
+          ],
+        } satisfies RoadplannerTripFilmProps
       }
     />
   </>
