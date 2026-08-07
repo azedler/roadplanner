@@ -160,6 +160,16 @@ def verify_the_reported_version_survives_a_local_build() -> None:
     assert "${APP_VERSION:-${BUILD_VERSION}}" in code, (
         "beide Builder muessen zu einer echten Version fuehren"
     )
+    # Resolved by a shell, not by Dockerfile substitution: ENV supports
+    # ${var:-default} but a nested ${...} inside that default is not
+    # something to bet the reported version on.
+    assert 'printf' in code and "/VERSION" in code, (
+        "die Version wird beim Bauen in eine Datei geschrieben"
+    )
+    run = (APP / "run.sh").read_text(encoding="utf-8")
+    assert "/opt/roadplanner-renderer/VERSION" in run, (
+        "und beim Start von dort gelesen"
+    )
     assert "0.0.0-dev" not in code, (
         "ein Platzhalter, der wie eine echte Version aussieht, gehoert nicht hinein"
     )
