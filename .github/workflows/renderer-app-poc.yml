@@ -381,11 +381,27 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'INNER'
-          import hashlib, io, json, os, pathlib, time, uuid
+          import hashlib, importlib.util, io, json, os, pathlib, sys, time, uuid
           from PIL import Image
 
+          # The REAL planner, not a hand-written imitation of one. A fake
+          # whose shape the test author chooses can only confirm what they
+          # already believed - which is exactly how a wrong field name
+          # shipped earlier in this project.
+          sys.dont_write_bytecode = True
+          spec = importlib.util.spec_from_file_location(
+              "trip_film_plan",
+              "custom_components/roadplanner_mcp/trip_film_plan.py",
+          )
+          plan_module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(plan_module)
+
           DAYS = 25
-          PER_DAY = 3
+          # The film has to look different from day to day, so the CI film
+          # exercises every importance and every style rather than one.
+          WEIGHTS = ["transition", "normal", "highlight", "major_highlight"]
+          STYLES = ["normal", "compact", "hero", "collage", "map_focus"]
+          ROLES = ["opening", "journey", "transition", "highlight", "finale"]
           exchange = pathlib.Path(os.environ["RUNNER_TEMP"]) / "exchange"
           job_id = str(uuid.uuid4())
           inputs = exchange / "inputs" / job_id
@@ -397,7 +413,8 @@ jobs:
               images = []
               # Day 7 gets no photos on purpose: the film has to show that
               # gap rather than skip the day.
-              count = 0 if day == 6 else PER_DAY
+              importance = WEIGHTS[day % len(WEIGHTS)]
+              count = 0 if day == 6 else plan_module.PHOTO_WEIGHTS[importance]
               for slot in range(1, count + 1):
                   picture = Image.new("RGB", (900, 600))
                   for x in range(0, 900, 20):
@@ -429,7 +446,10 @@ jobs:
                           f"Tag {day + 1} fuehrt weiter nach Norden. "
                           "215 Kilometer und 3 Stunden liegen dazwischen."
                       ),
-                      "story_source": "composed",
+                      "story_source": "directed",
+                      "importance": importance,
+                      "visual_style": STYLES[day % len(STYLES)],
+                      "story_role": ROLES[day % len(ROLES)],
                       "day_number": day + 1,
                       "distance_km": 180.0 + day,
                       "duration_minutes": 150 + day,
@@ -453,9 +473,26 @@ jobs:
                   "distance_km": 4500.0,
                   "photo_count": 812,
               },
+              "narrative": {
+                  "title_variant": "Drei Wochen Norden",
+                  "subtitle": "Ein Sommer mit zu wenig Schlaf",
+                  "opening": "Es begann mit einem verpassten Kaffee.",
+                  "closing": "Und endete mit Sand im Auto.",
+                  "motifs": ["Wasser", "lange Abende"],
+              },
               "chapters": chapters,
               "total_image_bytes": total,
           }
+          package["scene_plan"] = plan_module.build_scene_plan(
+              trip=package["trip"],
+              chapters=chapters,
+              narrative=package["narrative"],
+              outro_photos=[c["images"][0] for c in chapters if c["images"]][:6],
+          )
+          seconds = plan_module.plan_seconds(package["scene_plan"])
+          print(
+              f"Szenenplan: {len(package['scene_plan']['scenes'])} Szenen, {seconds} s"
+          )
           (inputs / "film.json").write_text(json.dumps(package, ensure_ascii=False))
 
           now = time.time()

@@ -6,6 +6,23 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.0] - 2026-08-07
+
+### Added
+
+- **Reisefilm v1 – der Film liest jetzt, was die Redaktion entschieden hat.** Gemini bestimmte seit 4.42.0 `importance`, `story_role` und `visual_style`, und der Film ignorierte alle drei: 23 gleich lange Tage, jeder mit derselben Karte und derselben Diashow. Neu dazwischen liegt ein **Szenenplan** – eine deterministische Ableitung aus dem Manifest, die in Python entsteht, im Renderpaket mitreist und nie ins Manifest zurückwandert. Bildzahlen haben in der Beschreibung einer Reise nichts verloren.
+- **Die Tageslänge folgt der Bedeutung.** Überführungstag rund 5 s, normaler Tag rund 9 s, Höhepunkt rund 15 s, großer Höhepunkt rund 22 s. **Ein dünner Tag wird nicht künstlich gestreckt**: Ein Höhepunkt mit einem einzigen Foto bleibt kurz, denn Bildschirmzeit ist auch eine Behauptung.
+- **Eine endliche Szenenbibliothek.** Intro, Tageskarte, Foto, Leitbild, Collage, Textseite, Abschluss, Abschlusscollage – und sonst nichts. `visual_style` wählt darin aus; es kann kein Layout beschreiben. Ein Modell, das Formen erfinden könnte, erfände irgendwann eine, die sich nicht zeichnen lässt. `map_focus` fällt bis zur Camper-Karte sichtbar auf das Leitbild zurück.
+- **`story_role` bestimmt, wie eine Szene ankommt** – und ausschließlich das. Ein zweites Größensystem neben `importance` wäre ein Regelwerk, das mit sich selbst streitet.
+- **Der Bildhaushalt ist gewichtet statt flach.** Ein Überführungstag bekommt ein Bild, ein großer Höhepunkt vier. Das Gesamtbudget bleibt bei 90 – ein reicher Tag nimmt einem Fahrtag etwas weg, nicht dem Paket.
+- **Intro und Abschluss benutzen endlich den Reisebogen**: Titelvariante, Untertitel, Auftakt, Motive, Schlusssatz. Der Film endet mit einer Abschlusscollage aus über die Reise verteilten Bildern – das letzte Bild ist damit die Reise und nicht ihr letzter Tag.
+
+### Fixed
+
+- **Technische Stoppnamen erscheinen nicht mehr auf Titelkarten.** „park4night - (595 50) Mjölby - 24 Vetagatan" stand wortwörtlich im Film und las sich wie ein Datenbankauszug. Der Story-Name der Redaktion gewinnt; sonst wird der kanonische Name behutsam gekürzt. **Im Roadbook ändert sich nichts** – dort steht der Name, zu dem man navigiert.
+- **„Für diesen Tag gibt es keine Fotos" ist aus dem Film verschwunden.** Das war eine Diagnosemeldung an das falsche Publikum. Ein Tag ohne Bilder bekommt jetzt eine gestaltete Textseite – womit ein fotoloser letzter Reisetag elegant ins Outro übergeht. Auch „Keine Fahrtdaten hinterlegt" ist weg.
+- **Captions bleiben lesbar**: höchstens drei Zeilen, mit Verlauf hinterlegt. Ein Leitbild darf ganz ohne Text stehen – das stärkste Foto eines Tages braucht keinen Satz quer darüber.
+
 ## [4.43.2] - 2026-08-07
 
 ### Changed

@@ -73,12 +73,15 @@ export const RemotionRoot: React.FC = () => (
     <Composition
       id={TRIP_FILM_COMPOSITION_ID}
       component={RoadplannerTripFilm}
-      durationInFrames={filmDurationInFrames([{ photos: [] }])}
+      durationInFrames={filmDurationInFrames([{ frames: 90 }])}
       fps={30}
       width={1280}
       height={720}
       calculateMetadata={({ props }: { props: RoadplannerTripFilmProps }) => ({
-        durationInFrames: filmDurationInFrames(props.chapters ?? []),
+        // The plan carries the length. The renderer reads it back from
+        // the selected composition rather than recomputing it, so there
+        // is exactly one place a frame count comes from.
+        durationInFrames: Math.max(1, filmDurationInFrames(props.scenes ?? [])),
       })}
       defaultProps={
         {
@@ -103,8 +106,21 @@ export const RemotionRoot: React.FC = () => (
               durationMinutes: null,
               stopCount: 0,
               photoCount: 0,
+              importance: "normal",
+              storyRole: "journey",
               stops: [],
               photos: [],
+            },
+          ],
+          narrative: null,
+          scenes: [
+            {
+              type: "chapter_card",
+              chapterIndex: 0,
+              frames: 90,
+              enter: "fade",
+              photos: [],
+              paths: [],
             },
           ],
         } satisfies RoadplannerTripFilmProps

@@ -1,0 +1,312 @@
+"""The dramaturgy, checked as behaviour rather than as taste.
+
+Whether a film is beautiful is not testable. Whether a major highlight
+gets more screen time than a transfer day is - and so is every rule that
+would quietly stop being true: the fixed scene library, the fallbacks for
+values nobody implemented, the promise that a thin day is not padded, and
+the one that a day without photographs never shows a diagnostic message.
+
+Determinism is checked too, because the whole reason the plan lives in
+Python is that the same package must render to the same film.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+sys.dont_write_bytecode = True
+
+PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
+
+
+def load(name: str):
+    spec = importlib.util.spec_from_file_location(
+        f"roadplanner_{name}", PACKAGE_ROOT / f"{name}.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+plan_module = load("trip_film_plan")
+
+
+def _chapter(index=0, *, importance="normal", style="normal", role="journey", photos=2, story="Ein Satz."):
+    return {
+        "chapter_id": f"day-{index + 1}",
+        "index": index,
+        "date": "2026-07-23",
+        "title": f"Tag {index + 1}",
+        "story": story,
+        "importance": importance,
+        "visual_style": style,
+        "story_role": role,
+        "images": [{"path": f"photos/c{index:02d}-{n + 1}.jpg"} for n in range(photos)],
+    }
+
+
+def _plan(chapters, **kwargs):
+    return plan_module.build_scene_plan(
+        trip={"title": "Finnland", "chapter_count": len(chapters)},
+        chapters=chapters,
+        **kwargs,
+    )
+
+
+def _chapter_frames(plan, index):
+    return sum(
+        scene["frames"] for scene in plan["scenes"] if scene["chapter_index"] == index
+    )
+
+
+def verify_importance_decides_how_long_a_day_lasts() -> None:
+    """The monotony finding, expressed as a number.
+
+    Film v0 gave every day the same length, so a transfer and the reason
+    for the whole trip were indistinguishable on screen.
+    """
+    chapters = [
+        _chapter(0, importance="transition", photos=1),
+        _chapter(1, importance="normal", photos=2),
+        _chapter(2, importance="highlight", style="hero", photos=3),
+        _chapter(3, importance="major_highlight", style="hero", photos=4),
+    ]
+    plan = _plan(chapters)
+    seconds = [_chapter_frames(plan, index) / plan_module.FILM_FPS for index in range(4)]
+    assert seconds[0] < seconds[1] < seconds[2] < seconds[3], seconds
+    # And inside the ranges the brief asked for.
+    assert 4 <= seconds[0] <= 7, seconds[0]
+    assert 8 <= seconds[1] <= 13, seconds[1]
+    assert 15 <= seconds[2] <= 22, seconds[2]
+    assert 20 <= seconds[3] <= 30, seconds[3]
+
+
+def verify_a_thin_day_is_not_padded_to_look_important() -> None:
+    """A highlight with one photo stays short. Inflating it would be a lie
+    told with screen time."""
+    rich = _plan([_chapter(0, importance="major_highlight", style="hero", photos=4)])
+    thin = _plan([_chapter(0, importance="major_highlight", style="hero", photos=1)])
+    assert _chapter_frames(thin, 0) < _chapter_frames(rich, 0)
+
+
+def verify_visual_style_picks_only_scenes_that_exist() -> None:
+    for style in ("compact", "normal", "hero", "collage", "map_focus", "erfunden"):
+        plan = _plan([_chapter(0, style=style, photos=3)])
+        types = {scene["type"] for scene in plan["scenes"]}
+        assert types <= set(plan_module.SCENE_TYPES), (style, types)
+    # And each real style produces a recognisably different shape.
+    shapes = {
+        style: [scene["type"] for scene in _plan([_chapter(0, style=style, photos=3)])["scenes"]]
+        for style in ("compact", "normal", "hero", "collage")
+    }
+    assert shapes["compact"].count("photo") == 1, shapes["compact"]
+    assert shapes["normal"].count("photo") == 3, shapes["normal"]
+    assert "hero" in shapes["hero"], shapes["hero"]
+    assert "collage" in shapes["collage"], shapes["collage"]
+
+
+def verify_an_unknown_style_or_importance_falls_back_quietly() -> None:
+    """A value the model invented must not be able to break a render."""
+    plan = _plan([_chapter(0, style="kinoformat", importance="weltbewegend", role="prolog")])
+    normal = _plan([_chapter(0)])
+    assert [scene["type"] for scene in plan["scenes"]] == [
+        scene["type"] for scene in normal["scenes"]
+    ]
+    assert _chapter_frames(plan, 0) == _chapter_frames(normal, 0)
+
+
+def verify_map_focus_falls_back_visibly_rather_than_silently() -> None:
+    """There is no map yet. The substitution is a hero image, on purpose."""
+    plan = _plan([_chapter(0, style="map_focus", photos=3)])
+    types = [scene["type"] for scene in plan["scenes"]]
+    assert "hero" in types, types
+
+
+def verify_a_day_without_photos_is_written_not_reported() -> None:
+    """"Für diesen Tag gibt es keine Fotos" is a diagnostic. It reached a
+    real film, and it must not be able to again."""
+    plan = _plan([_chapter(0, photos=0, story="Ein ruhiger Tag am See.")])
+    types = [scene["type"] for scene in plan["scenes"]]
+    assert "text" in types, types
+    assert "photo" not in types, types
+    # Nothing anywhere in the plan talks about missing photographs.
+    serialised = json.dumps(plan, ensure_ascii=False).casefold()
+    for forbidden in ("keine fotos", "kein foto", "nicht vorhanden", "fehlt"):
+        assert forbidden not in serialised, forbidden
+
+
+def verify_story_role_changes_the_arrival_and_nothing_else() -> None:
+    """Two sizing systems fighting over the same thing is unexplainable."""
+    lengths = set()
+    enters = set()
+    for role in ("opening", "journey", "transition", "highlight", "finale"):
+        plan = _plan([_chapter(0, role=role, photos=2)])
+        lengths.add(_chapter_frames(plan, 0))
+        enters.update(scene["enter"] for scene in plan["scenes"] if scene["chapter_index"] == 0)
+    assert len(lengths) == 1, f"story_role darf keine Laenge veraendern: {lengths}"
+    assert len(enters) >= 4, enters
+
+
+def verify_the_intro_and_outro_use_the_arc_only_when_there_is_one() -> None:
+    bare = _plan([_chapter(0)])
+    assert bare["scenes"][0]["type"] == "intro"
+    assert bare["scenes"][-1]["type"] == "outro"
+
+    with_arc = _plan(
+        [_chapter(0)],
+        narrative={"opening": "Es begann mit einem verpassten Kaffee.", "closing": "Sand im Auto."},
+    )
+    # A sentence to read needs longer than a title.
+    assert with_arc["scenes"][0]["frames"] > bare["scenes"][0]["frames"]
+    assert with_arc["scenes"][-1]["frames"] > bare["scenes"][-1]["frames"]
+
+
+def verify_the_film_ends_rather_than_stopping() -> None:
+    chapters = [_chapter(index, photos=2) for index in range(6)]
+    photos = [{"path": f"photos/c0{index}-1.jpg"} for index in range(4)]
+    plan = _plan(chapters, outro_photos=photos)
+    assert plan["scenes"][-1]["type"] == "outro_collage"
+    assert len(plan["scenes"][-1]["paths"]) == 4
+    # With fewer than two pictures there is no collage to make.
+    assert _plan(chapters, outro_photos=photos[:1])["scenes"][-1]["type"] == "outro"
+
+
+def verify_a_manifest_without_any_direction_still_plans() -> None:
+    """Nobody has run the editor. The film must still be a film."""
+    plain = [
+        {
+            "chapter_id": "day-1",
+            "index": 0,
+            "date": "2026-07-17",
+            "title": "Tag 1",
+            "story": "Ein zusammengesetzter Satz.",
+            "images": [{"path": "photos/c00-1.jpg"}],
+        }
+    ]
+    plan = plan_module.validate_scene_plan(_plan(plain))
+    assert plan["total_frames"] > 0
+    assert [scene["type"] for scene in plan["scenes"]][:2] == ["intro", "chapter_card"]
+
+
+def verify_the_same_input_produces_the_same_plan() -> None:
+    chapters = [
+        _chapter(0, importance="transition", photos=1),
+        _chapter(1, importance="major_highlight", style="collage", photos=4),
+        _chapter(2, photos=0),
+    ]
+    first = json.dumps(_plan(chapters), sort_keys=True)
+    second = json.dumps(_plan(chapters), sort_keys=True)
+    assert first == second
+
+
+def verify_the_photo_budget_is_weighted_not_flat() -> None:
+    """A transfer day and a major highlight used to get the same three."""
+    chapters = [
+        {"chapter_id": "a", "importance": "transition", "media": [1, 2, 3, 4]},
+        {"chapter_id": "b", "importance": "normal", "media": [1, 2, 3, 4]},
+        {"chapter_id": "c", "importance": "highlight", "media": [1, 2, 3, 4]},
+        {"chapter_id": "d", "importance": "major_highlight", "media": [1, 2, 3, 4]},
+    ]
+    budget = plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=4)
+    assert budget == {"a": 1, "b": 2, "c": 3, "d": 4}, budget
+
+
+def verify_a_day_is_never_given_more_pictures_than_it_has() -> None:
+    chapters = [{"chapter_id": "a", "importance": "major_highlight", "media": [1]}]
+    assert plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=4) == {"a": 1}
+
+
+def verify_a_tight_budget_takes_from_the_least_important_first() -> None:
+    chapters = [
+        {"chapter_id": f"t{n}", "importance": "transition", "media": [1, 2]} for n in range(4)
+    ] + [
+        {"chapter_id": "big", "importance": "major_highlight", "media": [1, 2, 3, 4]},
+    ]
+    budget = plan_module.allocate_photos(chapters, total_budget=6, per_chapter_cap=4)
+    assert sum(budget.values()) <= 6, budget
+    assert budget["big"] >= max(budget[f"t{n}"] for n in range(4)), budget
+
+
+def verify_the_whole_trip_stays_inside_the_photo_budget() -> None:
+    chapters = [
+        {"chapter_id": f"d{n}", "importance": "major_highlight", "media": [1, 2, 3, 4]}
+        for n in range(45)
+    ]
+    budget = plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=4)
+    assert sum(budget.values()) <= 90, sum(budget.values())
+
+
+def verify_a_technical_stop_name_does_not_reach_a_title_card() -> None:
+    """The real string that reached a real film."""
+    assert (
+        plan_module.readable_place({"name": "park4night - (595 50) Mjölby - 24 Vetagatan"})
+        == "Mjölby"
+    )
+    # A name that is already fine is left alone.
+    assert plan_module.readable_place({"name": "Nuuksio Nationalpark"}) == "Nuuksio Nationalpark"
+    # The editor's name wins outright.
+    assert (
+        plan_module.readable_place(
+            {"name": "park4night - (595 50) Mjölby", "story_name": "unser Waldsee"}
+        )
+        == "unser Waldsee"
+    )
+    # A trailing house number says nothing on screen.
+    assert plan_module.readable_place({"name": "Krumhermsdorf Neuhäuser 40"}) == (
+        "Krumhermsdorf Neuhäuser"
+    )
+    assert plan_module.readable_place({"name": ""}) == ""
+
+
+def verify_the_route_line_is_short_and_without_repeats() -> None:
+    stops = [
+        {"name": "Tampere"},
+        {"name": "Tampere"},
+        {"name": "park4night - Vaasa - 12 Hamngatan"},
+        {"name": "Oulu"},
+        {"name": "Rovaniemi"},
+    ]
+    assert plan_module.readable_places(stops, limit=3) == ["Tampere", "Vaasa", "Oulu"]
+
+
+def verify_a_broken_plan_is_refused() -> None:
+    good = _plan([_chapter(0)])
+    cases = [
+        "kein Objekt",
+        {**good, "plan_version": 99},
+        {**good, "fps": 25},
+        {**good, "scenes": []},
+        {**good, "total_frames": 1},
+        {**good, "scenes": [{"type": "kinoformat", "frames": 30}]},
+        {**good, "scenes": [{"type": "intro", "frames": 0}]},
+    ]
+    for case in cases:
+        try:
+            plan_module.validate_scene_plan(case)
+        except plan_module.FilmPlanError:
+            continue
+        raise AssertionError(f"Ungueltiger Plan akzeptiert: {case!r:.60}")
+
+
+verify_importance_decides_how_long_a_day_lasts()
+verify_a_thin_day_is_not_padded_to_look_important()
+verify_visual_style_picks_only_scenes_that_exist()
+verify_an_unknown_style_or_importance_falls_back_quietly()
+verify_map_focus_falls_back_visibly_rather_than_silently()
+verify_a_day_without_photos_is_written_not_reported()
+verify_story_role_changes_the_arrival_and_nothing_else()
+verify_the_intro_and_outro_use_the_arc_only_when_there_is_one()
+verify_the_film_ends_rather_than_stopping()
+verify_a_manifest_without_any_direction_still_plans()
+verify_the_same_input_produces_the_same_plan()
+verify_the_photo_budget_is_weighted_not_flat()
+verify_a_day_is_never_given_more_pictures_than_it_has()
+verify_a_tight_budget_takes_from_the_least_important_first()
+verify_the_whole_trip_stays_inside_the_photo_budget()
+verify_a_technical_stop_name_does_not_reach_a_title_card()
+verify_the_route_line_is_short_and_without_repeats()
+verify_a_broken_plan_is_refused()
+print("Trip film plan tests passed.")

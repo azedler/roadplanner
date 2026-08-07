@@ -11,10 +11,25 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 ROOT = Path(".")
 INTEGRATION = ROOT / "custom_components" / "roadplanner_mcp"
 APP = ROOT / "apps" / "roadplanner_renderer"
+
+
+def _js_code(path: Path) -> str:
+    """JavaScript or TypeScript without its comments.
+
+    A rule about a thing must not be satisfied - or broken - by prose
+    describing the thing. The composition explains in a comment which
+    sentence film v0 wrongly put on screen; scanning the raw file would
+    make that explanation fail the check it belongs to.
+    """
+    text = re.sub(r"/\*.*?\*/", " ", path.read_text(encoding="utf-8"), flags=re.S)
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("//")
+    )
 
 
 def _config() -> dict:
@@ -362,6 +377,62 @@ def verify_the_render_can_actually_be_triggered() -> None:
     assert "Date.now() < deadline" in feature, "die Abfrage muss den Render überdauern"
 
 
+def verify_every_planned_scene_type_has_a_component() -> None:
+    """The one thing neither side can check alone.
+
+    The plan is written in Python and drawn in TypeScript. A scene type
+    added on one side and forgotten on the other is a package that
+    validates, renders, and shows a blank frame for a quarter of the
+    film - the kind of failure that only shows up when somebody watches
+    the result.
+
+    So the library is compared across the language boundary: Python's
+    list, the protocol's allowlist, and the composition's branches.
+    """
+    plan = (INTEGRATION / "trip_film_plan.py").read_text(encoding="utf-8")
+    types = set(re.findall(r'^SCENE_[A-Z_]+ = "([a-z_]+)"$', plan, re.M))
+    assert types, "keine Szenentypen gefunden"
+
+    protocol = (APP / "src" / "protocol.mjs").read_text(encoding="utf-8")
+    allowlist = protocol.split("FILM_SCENE_TYPES = new Set([", 1)[1].split("]);", 1)[0]
+    declared = set(re.findall(r'"([a-z_]+)"', allowlist))
+    assert declared == types, f"Protokoll und Plan sind uneinig: {declared ^ types}"
+
+    composition = _js_code(APP / "src" / "remotion" / "RoadplannerTripFilm.tsx")
+    drawn = set(re.findall(r'scene\.type === "([a-z_]+)"', composition))
+    # "photo" is the else branch rather than a named comparison - the
+    # workhorse needs no test of its own to be reached.
+    missing = types - drawn - {"photo"}
+    assert not missing, f"Szenentypen ohne Komponente: {sorted(missing)}"
+
+
+def verify_the_film_gets_the_plan_rather_than_deriving_one() -> None:
+    """Two places computing a length is one place computing it wrong."""
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    assert "scenes: parsed.scenes" in render
+    root = (APP / "src" / "remotion" / "Root.tsx").read_text(encoding="utf-8")
+    assert "filmDurationInFrames(props.scenes" in root, (
+        "die Laenge muss aus dem Plan kommen"
+    )
+
+
+def verify_no_diagnostic_text_reaches_the_film() -> None:
+    """A real film said "Für diesen Tag gibt es keine Fotos" on screen.
+
+    True, and addressed to the wrong audience. A day without pictures is
+    a written page now, so the sentence itself must be gone.
+    """
+    composition = _js_code(APP / "src" / "remotion" / "RoadplannerTripFilm.tsx")
+    for forbidden in (
+        "keine Fotos",
+        "kein Foto",
+        "keines im Film",
+        "Keine Fahrtdaten",
+        "nicht hinterlegt",
+    ):
+        assert forbidden not in composition, f"{forbidden!r} gehoert nicht in den Film"
+
+
 def verify_the_mini_export_is_wired_end_to_end() -> None:
     """Every half of the data path, checked where only a file can see it.
 
@@ -498,6 +569,9 @@ verify_every_dependency_is_pinned_exactly()
 verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()
 verify_the_render_can_actually_be_triggered()
+verify_every_planned_scene_type_has_a_component()
+verify_the_film_gets_the_plan_rather_than_deriving_one()
+verify_no_diagnostic_text_reaches_the_film()
 verify_the_mini_export_is_wired_end_to_end()
 verify_real_travel_data_is_minimised_before_it_leaves()
 verify_one_repository_still_serves_both_consumers()

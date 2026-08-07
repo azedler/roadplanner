@@ -32,10 +32,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
 from .trip_film_package import (
+    MAX_FILM_IMAGES,
+    MAX_PHOTOS_PER_CHAPTER,
     build_film_package,
-    photos_per_chapter,
     shrink_film_photo,
 )
+from .trip_film_plan import allocate_photos
 from .trip_day_render_package import RenderPackageError
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,11 +71,12 @@ class TripFilmExporter:
         """
         manifest = await self._story_context.async_manifest(trip_id)
         chapters = manifest.get("chapters") or []
-        per_chapter = photos_per_chapter(len(chapters))
-        with_photos = sum(1 for chapter in chapters if (chapter.get("media") or []))
-        planned = sum(
-            min(per_chapter, len(chapter.get("media") or [])) for chapter in chapters
+        budget = allocate_photos(
+            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
         )
+        with_photos = sum(1 for chapter in chapters if (chapter.get("media") or []))
+        planned = sum(budget.values())
+        per_chapter = max(budget.values()) if budget else 0
         return {
             "trip_title": (manifest.get("trip") or {}).get("title") or "",
             "manifest_content_hash": manifest.get("content_hash") or "",
@@ -97,7 +100,12 @@ class TripFilmExporter:
             raise ValidationError("Diese Reise hat noch keine Kapitel")
 
         media_by_id = await self._async_media_records(trip_id)
-        per_chapter = photos_per_chapter(len(chapters))
+        # Weighted, not flat. A transfer day and the reason for the whole
+        # trip used to get the same three pictures, which is most of why
+        # film v0 felt like a contact sheet.
+        budget = allocate_photos(
+            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
+        )
         session = async_get_clientsession(self._hass)
 
         photos_by_chapter: dict[str, list[bytes]] = {}
@@ -106,7 +114,8 @@ class TripFilmExporter:
             prepared: list[bytes] = []
             # The manifest already chose and ordered these. Taking the first
             # N is the only decision made here, and it is the budget.
-            for entry in (chapter.get("media") or [])[:per_chapter]:
+            wanted = budget.get(str(chapter.get("chapter_id") or ""), 0)
+            for entry in (chapter.get("media") or [])[:wanted]:
                 record = media_by_id.get(str(entry.get("media_id") or ""))
                 if record is None:
                     missing_media += 1

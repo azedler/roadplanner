@@ -340,7 +340,14 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
       outputPath,
       compositionId: TRIP_FILM_COMPOSITION_ID,
       serveUrl: stage,
-      inputProps: { trip: parsed.trip, chapters: parsed.chapters },
+      // The scene plan travels with the package and decides the length,
+      // so the composition receives it rather than deriving one.
+      inputProps: {
+        trip: parsed.trip,
+        chapters: parsed.chapters,
+        narrative: parsed.narrative,
+        scenes: parsed.scenes,
+      },
       limits: FILM_LIMITS,
       expected: (composition) => {
         const seconds = composition.durationInFrames / EXPECTED.fps;

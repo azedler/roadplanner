@@ -1,23 +1,22 @@
 /**
- * A whole trip, as a film, from the TravelStoryManifest and nothing else.
+ * The trip film, cut from a scene plan.
  *
- * The arc is deliberately plain: an opening card that says which trip this
- * is, one chapter per day, a closing card that adds up what happened. That
- * is a real beginning, middle and end built from facts the manifest
- * already holds - no dramaturgy was invented, because inventing one would
- * mean inventing the material to fill it.
+ * Film v0 gave every day the same card and the same slideshow, so a
+ * three-week journey came out as twenty-three interchangeable blocks.
+ * The story director now decides which days matter; this composition is
+ * where that judgement becomes something you can see.
  *
- * **A gap is drawn as a gap.** A day with no photos gets a card that says
- * so. A day with no distance shows no distance. The point of this film is
- * to find out where the manifest is too thin, and a composition that
- * quietly skipped thin days would hide exactly the answer we are after.
+ * **It decides nothing.** The plan arrives in the package with every
+ * scene, its type, its length in frames and which photos it uses. This
+ * file owns a fixed library of scene components and looks each one up by
+ * name. Two consequences, both wanted: the same package renders to the
+ * same film down to the frame, and a scene type nobody implemented is a
+ * refused package rather than a broken video.
  *
- * Monotony is the real risk over twenty-five days, and it is fought with
- * the only material available: the chapter index. The day card alternates
- * which side it is anchored to, the accent colour walks through a small
- * palette, and the slow push on a photo alternates direction. All of it is
- * a pure function of the index, so the film stays reproducible - the same
- * package always renders to the same video.
+ * The library is deliberately small - card, photo, hero, collage, text,
+ * intro, outro, closing collage. `visual_style` chooses between them; it
+ * cannot describe a layout. A model that could invent shapes would
+ * eventually invent one that cannot be drawn.
  */
 import React from "react";
 import {
@@ -30,11 +29,6 @@ import {
 } from "remotion";
 
 export const FILM_FPS = 30;
-export const INTRO_FRAMES = 105;
-export const CHAPTER_CARD_FRAMES = 66;
-export const STORY_FRAMES = 84;
-export const EXTRA_PHOTO_FRAMES = 42;
-export const OUTRO_FRAMES = 105;
 
 export type FilmPhoto = { path: string; sizeBytes: number; sha256: string };
 
@@ -45,6 +39,8 @@ export type FilmChapter = {
   title: string;
   story: string;
   storySource: string;
+  importance: string;
+  storyRole: string;
   dayNumber: number;
   distanceKm: number | null;
   durationMinutes: number | null;
@@ -63,25 +59,38 @@ export type FilmTrip = {
   photoCount: number;
 };
 
+export type FilmNarrative = {
+  titleVariant: string;
+  subtitle: string;
+  opening: string;
+  closing: string;
+  motifs: string[];
+};
+
+export type FilmScene = {
+  type: string;
+  chapterIndex: number;
+  frames: number;
+  enter: string;
+  photos: number[];
+  paths: string[];
+};
+
 export type RoadplannerTripFilmProps = {
   trip: FilmTrip;
   chapters: FilmChapter[];
+  narrative: FilmNarrative | null;
+  scenes: FilmScene[];
 };
 
-export const chapterFrames = (photoCount: number): number =>
-  CHAPTER_CARD_FRAMES + STORY_FRAMES + Math.max(0, photoCount - 1) * EXTRA_PHOTO_FRAMES;
-
-export const filmDurationInFrames = (chapters: { photos: unknown[] }[]): number =>
-  INTRO_FRAMES +
-  chapters.reduce((sum, chapter) => sum + chapterFrames(chapter.photos.length), 0) +
-  OUTRO_FRAMES;
+export const filmDurationInFrames = (scenes: { frames: number }[]): number =>
+  scenes.reduce((sum, scene) => sum + scene.frames, 0);
 
 const INK = "#f5f7fa";
 const MUTED = "#9fb3c8";
 const BACKDROP = "#101725";
-// Four accents rather than one. Twenty-five identical cards is the
-// monotony this film is being built to detect, so the one dimension that
-// can vary without inventing content does.
+// Four accents rather than one, keyed to the chapter, so consecutive days
+// do not look like reprints of each other.
 const ACCENTS = ["#e07a3f", "#3d9a8b", "#c2607f", "#5f7fc4"];
 
 const base: React.CSSProperties = {
@@ -98,6 +107,34 @@ const useFade = (length: number): number => {
   );
 };
 
+/**
+ * How a scene arrives, from `story_role`.
+ *
+ * This is the entire job of that field, on purpose. Letting it also
+ * change durations would put it in a fight with `importance`, and two
+ * systems sizing the same thing is how a rule set becomes unexplainable.
+ */
+const useEnter = (enter: string, length: number): React.CSSProperties => {
+  const frame = useCurrentFrame();
+  const opacity = useFade(length);
+  const eased = interpolate(frame, [0, 18], [0, 1], { extrapolateRight: "clamp" });
+  if (enter === "rise") {
+    return { opacity, transform: `translateY(${(1 - eased) * 46}px)` };
+  }
+  if (enter === "push") {
+    return { opacity, transform: `translateX(${(1 - eased) * 60}px)` };
+  }
+  if (enter === "settle") {
+    return { opacity, transform: `scale(${0.97 + eased * 0.03})` };
+  }
+  if (enter === "cut") {
+    // No movement at all - a transfer day should feel like a beat, not a
+    // production number.
+    return { opacity: Math.min(1, opacity * 1.6) };
+  }
+  return { opacity };
+};
+
 const formatDuration = (minutes: number): string => {
   const hours = Math.floor(minutes / 60);
   const rest = Math.round(minutes % 60);
@@ -105,138 +142,234 @@ const formatDuration = (minutes: number): string => {
   return rest ? `${hours} h ${rest} min` : `${hours} h`;
 };
 
-const Intro: React.FC<{ trip: FilmTrip }> = ({ trip }) => {
-  const opacity = useFade(INTRO_FRAMES);
-  const frame = useCurrentFrame();
-  const rule = interpolate(frame, [10, 45], [0, 220], { extrapolateRight: "clamp" });
-  const span = [trip.startDate, trip.endDate].filter(Boolean).join(" – ");
+/** Two lines, three at the very most - a card is not a page. */
+const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPhoto }) => {
+  if (!text) return null;
   return (
-    <AbsoluteFill style={{ ...base, justifyContent: "center", padding: 120, opacity }}>
-      <div style={{ fontSize: 30, color: MUTED, letterSpacing: 5 }}>ROADPLANNER</div>
-      <div style={{ fontSize: 76, fontWeight: 700, marginTop: 22, lineHeight: 1.08 }}>
-        {trip.title || "Eine Reise"}
-      </div>
-      <div style={{ height: 6, width: rule, backgroundColor: ACCENTS[0], margin: "26px 0" }} />
-      <div style={{ fontSize: 30, color: MUTED }}>
-        {[span, `${trip.chapterCount} Tage`, trip.distanceKm ? `${Math.round(trip.distanceKm)} km` : ""]
-          .filter(Boolean)
-          .join("   ·   ")}
+    <AbsoluteFill style={{ justifyContent: "flex-end" }}>
+      <div
+        style={{
+          // A scrim rather than a box: the picture stays visible and the
+          // text stays readable over whatever happens to be underneath.
+          background: overPhoto
+            ? "linear-gradient(transparent, rgba(0,0,0,0.72) 55%, rgba(0,0,0,0.88))"
+            : "transparent",
+          padding: overPhoto ? "170px 92px 66px" : "0 110px 0",
+          fontFamily: "sans-serif",
+          color: INK,
+          fontSize: 34,
+          lineHeight: 1.38,
+          display: "-webkit-box",
+          WebkitBoxOrient: "vertical",
+          WebkitLineClamp: 3,
+          overflow: "hidden",
+        }}
+      >
+        {text}
       </div>
     </AbsoluteFill>
   );
 };
 
-const ChapterCard: React.FC<{ chapter: FilmChapter }> = ({ chapter }) => {
-  const opacity = useFade(CHAPTER_CARD_FRAMES);
-  const accent = ACCENTS[chapter.index % ACCENTS.length];
-  // Alternating anchor: the only layout variation the data supports.
-  const right = chapter.index % 2 === 1;
-  const facts = [
-    chapter.distanceKm ? `${Math.round(chapter.distanceKm)} km` : "",
-    chapter.durationMinutes ? formatDuration(chapter.durationMinutes) : "",
-    chapter.stopCount ? `${chapter.stopCount} Stopps` : "",
-  ].filter(Boolean);
+const IntroScene: React.FC<{
+  trip: FilmTrip;
+  narrative: FilmNarrative | null;
+  scene: FilmScene;
+}> = ({ trip, narrative, scene }) => {
+  const style = useEnter(scene.enter, scene.frames);
+  const frame = useCurrentFrame();
+  const rule = interpolate(frame, [10, 45], [0, 220], { extrapolateRight: "clamp" });
+  const span = [trip.startDate, trip.endDate].filter(Boolean).join(" – ");
+  // The editor's title when there is one. It is the same trip either way,
+  // so this is a variant and not a second name.
+  const headline = narrative?.titleVariant || trip.title || "Eine Reise";
   return (
-    <AbsoluteFill
-      style={{
-        ...base,
-        justifyContent: "center",
-        alignItems: right ? "flex-end" : "flex-start",
-        textAlign: right ? "right" : "left",
-        padding: 110,
-        opacity,
-      }}
-    >
-      <div style={{ fontSize: 28, color: MUTED, letterSpacing: 3 }}>
-        {[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
+    <AbsoluteFill style={{ ...base, justifyContent: "center", padding: 120, ...style }}>
+      <div style={{ fontSize: 28, color: MUTED, letterSpacing: 5 }}>ROADPLANNER</div>
+      <div style={{ fontSize: 74, fontWeight: 700, marginTop: 20, lineHeight: 1.06 }}>
+        {headline}
       </div>
-      <div style={{ fontSize: 58, fontWeight: 700, marginTop: 16, maxWidth: 960, lineHeight: 1.12 }}>
-        {chapter.title || "Ohne Titel"}
+      {narrative?.subtitle ? (
+        <div style={{ fontSize: 36, color: MUTED, marginTop: 14, fontStyle: "italic" }}>
+          {narrative.subtitle}
+        </div>
+      ) : null}
+      <div style={{ height: 6, width: rule, backgroundColor: ACCENTS[0], margin: "26px 0" }} />
+      {narrative?.opening ? (
+        <div style={{ fontSize: 34, lineHeight: 1.4, maxWidth: 1180 }}>{narrative.opening}</div>
+      ) : null}
+      <div style={{ fontSize: 27, color: MUTED, marginTop: 26 }}>
+        {[span, `${trip.chapterCount} Tage`, trip.distanceKm ? `${Math.round(trip.distanceKm)} km` : ""]
+          .filter(Boolean)
+          .join("   ·   ")}
       </div>
-      <div style={{ height: 5, width: 120, backgroundColor: accent, margin: "22px 0" }} />
-      {facts.length ? (
-        <div style={{ fontSize: 30, color: accent }}>{facts.join("   ·   ")}</div>
-      ) : (
-        // Said out loud rather than left blank: this is a finding about the
-        // manifest, and the film is how it becomes visible.
-        <div style={{ fontSize: 24, color: MUTED }}>Keine Fahrtdaten hinterlegt</div>
-      )}
-      {chapter.stops.length ? (
-        <div style={{ fontSize: 26, color: MUTED, marginTop: 14, maxWidth: 940 }}>
-          {chapter.stops.slice(0, 4).join("  ›  ")}
+      {narrative?.motifs?.length ? (
+        <div style={{ fontSize: 25, color: ACCENTS[1], marginTop: 16 }}>
+          {narrative.motifs.slice(0, 4).join("  ·  ")}
         </div>
       ) : null}
     </AbsoluteFill>
   );
 };
 
-/** A photo with a slow push, or an honest note that there is none. */
-const PhotoStage: React.FC<{
-  photo: FilmPhoto | undefined;
-  chapter: FilmChapter;
-  length: number;
-  children?: React.ReactNode;
-}> = ({ photo, chapter, length, children }) => {
-  const frame = useCurrentFrame();
-  const opacity = useFade(length);
-  const forward = chapter.index % 2 === 0;
-  const scale = interpolate(frame, [0, length], forward ? [1.0, 1.06] : [1.06, 1.0]);
-  if (!photo) {
-    return (
-      <AbsoluteFill style={{ ...base, justifyContent: "center", padding: 110, opacity }}>
-        <div style={{ fontSize: 26, color: MUTED, letterSpacing: 3 }}>
-          {`TAG ${chapter.dayNumber}`}
-        </div>
-        <div style={{ fontSize: 34, color: MUTED, marginTop: 18 }}>
-          {chapter.photoCount
-            ? `${chapter.photoCount} Fotos an diesem Tag, keines im Film`
-            : "Für diesen Tag gibt es keine Fotos"}
-        </div>
-        {children}
-      </AbsoluteFill>
-    );
-  }
+const ChapterCardScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
+  chapter,
+  scene,
+}) => {
+  const style = useEnter(scene.enter, scene.frames);
+  const accent = ACCENTS[chapter.index % ACCENTS.length];
+  const anchor = chapter.index % 2 === 0 ? "flex-start" : "flex-end";
+  const facts = [
+    chapter.distanceKm ? `${Math.round(chapter.distanceKm)} km` : "",
+    chapter.durationMinutes ? formatDuration(chapter.durationMinutes) : "",
+  ].filter(Boolean);
   return (
-    <AbsoluteFill style={{ backgroundColor: "#000000", opacity }}>
-      <AbsoluteFill style={{ transform: `scale(${scale})` }}>
-        {/* An absolute path so it resolves against the served bundle root
-            regardless of which page URL Remotion is on. */}
-        <Img src={`/${photo.path}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      </AbsoluteFill>
-      {children}
+    <AbsoluteFill
+      style={{
+        ...base,
+        justifyContent: "center",
+        alignItems: anchor,
+        textAlign: anchor === "flex-end" ? "right" : "left",
+        padding: 120,
+        ...style,
+      }}
+    >
+      <div style={{ fontSize: 26, color: MUTED, letterSpacing: 4 }}>
+        {[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
+      </div>
+      <div style={{ fontSize: 62, fontWeight: 700, marginTop: 16, maxWidth: 1240, lineHeight: 1.1 }}>
+        {chapter.title || `Tag ${chapter.dayNumber}`}
+      </div>
+      <div style={{ height: 5, width: 150, backgroundColor: accent, margin: "24px 0" }} />
+      {facts.length ? (
+        <div style={{ fontSize: 30, color: MUTED }}>{facts.join("   ·   ")}</div>
+      ) : null}
+      {chapter.stops.length ? (
+        <div style={{ fontSize: 28, color: MUTED, marginTop: 14, maxWidth: 1100 }}>
+          {chapter.stops.join("  ›  ")}
+        </div>
+      ) : null}
     </AbsoluteFill>
   );
 };
 
-const StoryOverlay: React.FC<{ chapter: FilmChapter; overPhoto: boolean }> = ({
-  chapter,
-  overPhoto,
-}) => {
-  if (!chapter.story) return null;
+/** One photograph with a slow push. The workhorse. */
+const PhotoScene: React.FC<{
+  chapter: FilmChapter;
+  scene: FilmScene;
+  hero?: boolean;
+}> = ({ chapter, scene, hero = false }) => {
+  const frame = useCurrentFrame();
+  const opacity = useFade(scene.frames);
+  const photo = chapter.photos[scene.photos[0] ?? 0];
+  const forward = (chapter.index + (scene.photos[0] ?? 0)) % 2 === 0;
+  const span = hero ? 0.09 : 0.06;
+  const scale = interpolate(
+    frame,
+    [0, scene.frames],
+    forward ? [1, 1 + span] : [1 + span, 1],
+  );
+  if (!photo) return <TextScene chapter={chapter} scene={scene} />;
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end" }}>
+    <AbsoluteFill style={{ backgroundColor: "#000000", opacity }}>
+      <AbsoluteFill style={{ transform: `scale(${scale})` }}>
+        <Img src={`/${photo.path}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      </AbsoluteFill>
+      {/* A hero image is allowed to stand alone: the strongest picture of
+          a day does not need a sentence written across it. */}
+      {hero ? null : <Caption text={chapter.story} overPhoto />}
+    </AbsoluteFill>
+  );
+};
+
+/** Several pictures at once, for a day that had a lot going on. */
+const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
+  chapter,
+  scene,
+}) => {
+  const frame = useCurrentFrame();
+  const opacity = useFade(scene.frames);
+  const photos = scene.photos
+    .map((position) => chapter.photos[position])
+    .filter(Boolean) as FilmPhoto[];
+  if (!photos.length) return <TextScene chapter={chapter} scene={scene} />;
+  const columns = photos.length >= 3 ? 2 : photos.length;
+  return (
+    <AbsoluteFill style={{ ...base, opacity, padding: 44 }}>
       <div
         style={{
-          background: overPhoto
-            ? "linear-gradient(transparent, rgba(0,0,0,0.78))"
-            : "transparent",
-          padding: overPhoto ? "150px 90px 60px" : "0 110px 0",
-          fontFamily: "sans-serif",
-          color: INK,
-          fontSize: 32,
-          lineHeight: 1.42,
-          whiteSpace: "pre-wrap",
+          display: "grid",
+          gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          gap: 18,
+          width: "100%",
+          height: "100%",
         }}
       >
-        {chapter.story}
+        {photos.map((photo, position) => {
+          // Each tile drifts a little, and each starts at a different
+          // moment, so the grid breathes instead of pulsing as one block.
+          const offset = interpolate(
+            frame,
+            [0, scene.frames],
+            position % 2 === 0 ? [0, -14] : [-14, 0],
+          );
+          return (
+            <div key={photo.path} style={{ overflow: "hidden", borderRadius: 10 }}>
+              <Img
+                src={`/${photo.path}`}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transform: `translateY(${offset}px) scale(1.05)`,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <Caption text={chapter.story} overPhoto />
+    </AbsoluteFill>
+  );
+};
+
+/**
+ * A day with no pictures, written rather than reported.
+ *
+ * Film v0 put "Für diesen Tag gibt es keine Fotos" on screen. That is a
+ * diagnostic - true, and addressed to the wrong audience. The day still
+ * happened and the editor still wrote about it, so it gets a page.
+ */
+const TextScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
+  chapter,
+  scene,
+}) => {
+  const style = useEnter(scene.enter, scene.frames);
+  const accent = ACCENTS[chapter.index % ACCENTS.length];
+  return (
+    <AbsoluteFill
+      style={{ ...base, justifyContent: "center", padding: "0 150px", ...style }}
+    >
+      <div style={{ fontSize: 24, color: MUTED, letterSpacing: 4 }}>
+        {[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
+      </div>
+      <div style={{ height: 5, width: 110, backgroundColor: accent, margin: "22px 0 30px" }} />
+      <div style={{ fontSize: 42, lineHeight: 1.45, maxWidth: 1320 }}>
+        {chapter.story || chapter.title || `Tag ${chapter.dayNumber}`}
       </div>
     </AbsoluteFill>
   );
 };
 
-const Outro: React.FC<{ trip: FilmTrip; chapters: FilmChapter[] }> = ({ trip, chapters }) => {
-  const opacity = useFade(OUTRO_FRAMES);
+const OutroScene: React.FC<{
+  trip: FilmTrip;
+  chapters: FilmChapter[];
+  narrative: FilmNarrative | null;
+  scene: FilmScene;
+}> = ({ trip, chapters, narrative, scene }) => {
+  const style = useEnter(scene.enter, scene.frames);
   const shown = chapters.reduce((sum, chapter) => sum + chapter.photos.length, 0);
+  // Only figures Roadplanner already holds. Nothing here is estimated.
   const entries = [
     [`${trip.chapterCount}`, trip.chapterCount === 1 ? "Tag" : "Tage"],
     trip.distanceKm ? [`${Math.round(trip.distanceKm)}`, "Kilometer"] : null,
@@ -244,12 +377,26 @@ const Outro: React.FC<{ trip: FilmTrip; chapters: FilmChapter[] }> = ({ trip, ch
   ].filter(Boolean) as [string, string][];
   return (
     <AbsoluteFill
-      style={{ ...base, alignItems: "center", justifyContent: "center", opacity }}
+      style={{ ...base, alignItems: "center", justifyContent: "center", ...style }}
     >
-      <div style={{ fontSize: 46, fontWeight: 600, textAlign: "center", maxWidth: 980 }}>
-        {trip.title || "Eine Reise"}
-      </div>
-      <div style={{ height: 5, width: 120, backgroundColor: ACCENTS[1], margin: "26px 0" }} />
+      {narrative?.closing ? (
+        <div
+          style={{
+            fontSize: 40,
+            lineHeight: 1.42,
+            textAlign: "center",
+            maxWidth: 1180,
+            marginBottom: 40,
+          }}
+        >
+          {narrative.closing}
+        </div>
+      ) : (
+        <div style={{ fontSize: 46, fontWeight: 600, textAlign: "center", maxWidth: 980 }}>
+          {narrative?.titleVariant || trip.title || "Eine Reise"}
+        </div>
+      )}
+      <div style={{ height: 5, width: 120, backgroundColor: ACCENTS[1], margin: "8px 0 30px" }} />
       <div style={{ display: "flex", gap: 56 }}>
         {entries.map(([value, label]) => (
           <div key={label} style={{ textAlign: "center" }}>
@@ -265,68 +412,100 @@ const Outro: React.FC<{ trip: FilmTrip; chapters: FilmChapter[] }> = ({ trip, ch
   );
 };
 
-export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({ trip, chapters }) => {
+/** The last image of the film is the journey, not its final day. */
+const OutroCollageScene: React.FC<{ scene: FilmScene }> = ({ scene }) => {
+  const frame = useCurrentFrame();
+  const opacity = useFade(scene.frames);
+  const paths = scene.paths.filter(Boolean);
+  if (!paths.length) return <AbsoluteFill style={{ ...base, opacity }} />;
+  const columns = paths.length >= 4 ? 3 : paths.length;
+  return (
+    <AbsoluteFill style={{ ...base, opacity, padding: 40 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          gap: 14,
+          width: "100%",
+          height: "100%",
+        }}
+      >
+        {paths.map((path, position) => {
+          // They arrive one after another rather than all at once, which
+          // is what makes this read as an ending.
+          const appear = interpolate(
+            frame,
+            [position * 6, position * 6 + 22],
+            [0, 1],
+            { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+          );
+          return (
+            <div
+              key={path}
+              style={{ overflow: "hidden", borderRadius: 10, opacity: appear }}
+            >
+              <Img
+                src={`/${path}`}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
+  trip,
+  chapters,
+  narrative,
+  scenes,
+}) => {
   const { fps } = useVideoConfig();
   if (fps !== FILM_FPS) {
     throw new Error(`Der Film erwartet ${FILM_FPS} fps, bekommen hat er ${fps}.`);
   }
-  const scenes: React.ReactNode[] = [];
   let cursor = 0;
-
-  scenes.push(
-    <Sequence key="intro" from={cursor} durationInFrames={INTRO_FRAMES}>
-      <Intro trip={trip} />
-    </Sequence>,
-  );
-  cursor += INTRO_FRAMES;
-
-  chapters.forEach((chapter) => {
-    scenes.push(
-      <Sequence
-        key={`card-${chapter.chapterId}`}
-        from={cursor}
-        durationInFrames={CHAPTER_CARD_FRAMES}
-      >
-        <ChapterCard chapter={chapter} />
-      </Sequence>,
-    );
-    cursor += CHAPTER_CARD_FRAMES;
-
-    // The story sits over the day's first picture - or on its own, when
-    // there is none. Either way it is shown; a day without a photo is
-    // still a day of the trip.
-    scenes.push(
-      <Sequence
-        key={`story-${chapter.chapterId}`}
-        from={cursor}
-        durationInFrames={STORY_FRAMES}
-      >
-        <PhotoStage photo={chapter.photos[0]} chapter={chapter} length={STORY_FRAMES}>
-          <StoryOverlay chapter={chapter} overPhoto={Boolean(chapter.photos[0])} />
-        </PhotoStage>
-      </Sequence>,
-    );
-    cursor += STORY_FRAMES;
-
-    chapter.photos.slice(1).forEach((photo, position) => {
-      scenes.push(
-        <Sequence
-          key={`photo-${chapter.chapterId}-${position}`}
-          from={cursor}
-          durationInFrames={EXTRA_PHOTO_FRAMES}
-        >
-          <PhotoStage photo={photo} chapter={chapter} length={EXTRA_PHOTO_FRAMES} />
-        </Sequence>,
+  const rendered: React.ReactNode[] = [];
+  scenes.forEach((scene, position) => {
+    const chapter = chapters[scene.chapterIndex];
+    let body: React.ReactNode = null;
+    if (scene.type === "intro") {
+      body = <IntroScene trip={trip} narrative={narrative} scene={scene} />;
+    } else if (scene.type === "outro") {
+      body = (
+        <OutroScene trip={trip} chapters={chapters} narrative={narrative} scene={scene} />
       );
-      cursor += EXTRA_PHOTO_FRAMES;
-    });
+    } else if (scene.type === "outro_collage") {
+      body = <OutroCollageScene scene={scene} />;
+    } else if (!chapter) {
+      // A scene pointing at a chapter that is not there. The plan is
+      // validated before it gets here, so this is unreachable - and
+      // skipping beats rendering a blank frame nobody can explain.
+      cursor += scene.frames;
+      return;
+    } else if (scene.type === "chapter_card") {
+      body = <ChapterCardScene chapter={chapter} scene={scene} />;
+    } else if (scene.type === "hero") {
+      body = <PhotoScene chapter={chapter} scene={scene} hero />;
+    } else if (scene.type === "collage") {
+      body = <CollageScene chapter={chapter} scene={scene} />;
+    } else if (scene.type === "text") {
+      body = <TextScene chapter={chapter} scene={scene} />;
+    } else {
+      body = <PhotoScene chapter={chapter} scene={scene} />;
+    }
+    rendered.push(
+      <Sequence
+        key={`${scene.type}-${position}`}
+        from={cursor}
+        durationInFrames={scene.frames}
+      >
+        {body}
+      </Sequence>,
+    );
+    cursor += scene.frames;
   });
-
-  scenes.push(
-    <Sequence key="outro" from={cursor} durationInFrames={OUTRO_FRAMES}>
-      <Outro trip={trip} chapters={chapters} />
-    </Sequence>,
-  );
-
-  return <AbsoluteFill style={{ backgroundColor: BACKDROP }}>{scenes}</AbsoluteFill>;
+  return <AbsoluteFill style={{ backgroundColor: BACKDROP }}>{rendered}</AbsoluteFill>;
 };
