@@ -198,3 +198,41 @@ No Remotion, no Chromium, no React, no TravelStoryManifest, no camper
 animation, no PDF or video changes, no cloud rendering, no general renderer
 API, no migration of Roadplanner modules into the app, no second
 repository, no production release of the app.
+
+---
+
+## Since the PoC: the film, and then the map
+
+The list above ("Explicitly not built") describes the deployment proof of
+concept and is left standing as the record of that step. Remotion, the
+TravelStoryManifest, the scene plan and the camper animation have all
+since been built on top of it. What has *not* changed is the shape: the
+app still receives a directory and a JSON file over `/share`, still has
+no ports, no ingress and no Home Assistant API, and still installs
+nothing at runtime.
+
+### Where the map comes from
+
+The film draws a reduced travel map — land, water, borders, the route, a
+few place names, a camper — and three decisions are worth stating because
+each one was a fork:
+
+- **The geography is not in the story manifest.** The manifest answers
+  *what is told*; it carries no coordinates and still must not. A
+  separate `MapContextBuilder` asks for the canonical routing data using
+  the manifest's own `chapter_id`, and the result travels beside the
+  story in the render package as `map_context`.
+- **There is no second geography.** The route is Roadplanner's stored
+  `details.routing.segments`, reduced (Douglas–Peucker, budgeted per
+  chapter and per trip) and nothing else. A ferry is drawn as a ferry
+  because the router recorded `mode: ferry`; a day nobody calculated
+  gets a straight line between its stops, marked `direct` and drawn as
+  the guess it is. Nothing here re-derives a route or guesses a crossing.
+- **No map platform was introduced.** Coastlines and borders are Natural
+  Earth (`world-atlas`, public domain), bundled into the image at build
+  time. No tile server, no API key, no request during a render, no bill.
+
+The camera is fitted once per scene rather than animated, so the world
+outline is projected once and only the route, the camper and a CSS drift
+change per frame. That is why a map scene costs about what a photo scene
+costs.

@@ -452,6 +452,40 @@ def verify_the_map_is_built_beside_the_manifest_and_not_inside_it() -> None:
     assert "map_context" in package
 
 
+def verify_a_portrait_url_never_leaves_the_panel() -> None:
+    """An unguessable filename is a bearer secret, not a session.
+
+    It is a fine trade for a picture inside the household's own panel and
+    a bad one everywhere else, because it does not expire and anyone
+    holding it can fetch the face. So the four places it must never reach
+    are checked here rather than remembered: a model context, a render
+    package, a log line and exported story data.
+    """
+    # The story layer takes names. Not entries, not payloads - names.
+    builder = _code(INTEGRATION / "story_context_builder.py")
+    assert "portrait" not in builder, "die Story-Ebene darf kein Portrait sehen"
+    for consumer in ("story_director.py", "story_director_service.py"):
+        source = _code(INTEGRATION / consumer)
+        assert "portrait" not in source, f"{consumer} darf kein Portrait an ein Modell geben"
+    # The manifest is what a model and an export both read.
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    assert "portrait" not in manifest
+
+    # The film package has no crew section at all, so nothing to leak.
+    # Checked on the URL and the store rather than on the word: the
+    # package legitimately calls an upright photograph a portrait, and a
+    # rule that tripped over that would be deleted by the next reader.
+    for consumer in ("trip_film_package.py", "trip_film_export.py", "trip_map_builder.py"):
+        source = _code(INTEGRATION / consumer)
+        for forbidden in ("portrait_url", "crew_portrait", "PORTRAIT_URL"):
+            assert forbidden not in source, f"{consumer} darf {forbidden} nicht mitschicken"
+
+    # And the route itself does not log the name it was asked for.
+    view = (INTEGRATION / "crew_portrait_http.py").read_text(encoding="utf-8")
+    body = view.split('"""', 2)[-1]
+    assert "_LOGGER" not in body, "die Portraitroute darf keinen Dateinamen protokollieren"
+
+
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     """Live report: the view flew back to the top every two seconds.
 
@@ -546,4 +580,5 @@ verify_the_builder_still_cannot_spend_money()
 verify_an_ai_text_is_never_stored_where_a_human_one_belongs()
 verify_the_manifest_still_carries_no_coordinates()
 verify_the_map_is_built_beside_the_manifest_and_not_inside_it()
+verify_a_portrait_url_never_leaves_the_panel()
 print("Story layer contract tests passed.")
