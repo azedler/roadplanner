@@ -7,12 +7,12 @@
 # plain container - a read/write mount of /share - because that shared
 # directory is the entire communication channel.
 name: Roadplanner Renderer (PoC)
-version: "0.1.0-poc.2"
+version: "0.2.0-remotion.1"
 slug: roadplanner_renderer_poc
 description: >-
-  Experimenteller Machbarkeitsnachweis: beweist ausschliesslich Installation,
-  Heartbeat, Auftrag, Status und Ergebnis ueber einen gemeinsamen Ordner.
-  Kein Remotion, kein Browser, kein Videoexport.
+  Experimenteller Renderer. Enthaelt Remotion und Chromium und erzeugt auf
+  Anforderung ein fuenfsekuendiges Testvideo. Kein Produktivexport: der
+  bestehende PDF- und ffmpeg-Weg von Roadplanner bleibt unberuehrt.
 url: https://github.com/azedler/roadplanner/tree/main/apps/roadplanner_renderer
 # Marks the app as an experiment in the Home Assistant store, so it can
 # never be mistaken for a finished feature.

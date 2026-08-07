@@ -1,11 +1,15 @@
 /**
  * The renderer app's worker loop.
  *
- * It watches one directory, claims jobs, writes a status and produces two
- * small artefacts. There is no Remotion here, no browser and no React —
- * this exists to prove the *route*, and adding rendering before the route
- * is proven would make a failure ambiguous between "the app cannot be
- * deployed" and "the render is broken".
+ * It watches one directory, claims jobs, writes a status and produces the
+ * artefacts a job asks for: two small files for the plain test, or a
+ * five-second H.264 video rendered with Remotion.
+ *
+ * The route was proven first, deliberately, with no renderer involved at
+ * all — so that when Remotion was added, a failure could only mean "the
+ * render is broken" and never "the app cannot be deployed". Both jobs
+ * still exist for exactly that reason: `create_test_artifact` keeps
+ * answering the deployment question without touching a browser.
  *
  * Three properties carry the design:
  *
@@ -30,6 +34,7 @@ import process from "node:process";
 import {
   ARTIFACT_IMAGE,
   ARTIFACT_TEXT,
+  ARTIFACT_VIDEO,
   ERROR_INTERNAL,
   ProtocolError,
   TERMINAL_JOB_STATES,
@@ -165,6 +170,49 @@ async function produceArtifacts(jobId, message) {
   return artifacts;
 }
 
+/**
+ * Render the Remotion test video and describe what was produced.
+ *
+ * The mp4 is hashed like every other artefact, but it is never read back
+ * into memory beyond that: it is megabytes of binary that nothing on the
+ * Home Assistant side displays.
+ */
+async function produceRemotionVideo(jobId, message, onProgress) {
+  // Loaded only when a render is actually asked for. The plain test job
+  // must keep working - and keep answering the deployment question - even
+  // where the renderer cannot load at all.
+  const { renderTestVideo } = await import("./render.mjs");
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const target = path.join(folder, ARTIFACT_VIDEO);
+
+  const { facts, timings } = await renderTestVideo({
+    outputPath: target,
+    title: message,
+    onProgress,
+  });
+
+  const bytes = await fs.readFile(target);
+  const artifacts = [
+    {
+      kind: "video",
+      filename: ARTIFACT_VIDEO,
+      size_bytes: bytes.length,
+      sha256: sha256(bytes),
+    },
+  ];
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(
+      buildResult({ jobId, completedAt: new Date(), artifacts, video: facts, timings }),
+      null,
+      2,
+    )}\n`,
+  );
+  return { facts, timings };
+}
+
+
 async function handleJob(name) {
   const jobId = name.replace(/\.json$/i, "");
   if (!isJobId(jobId)) {
@@ -188,20 +236,43 @@ async function handleJob(name) {
     await writeStatus(jobId, "running", { progress: 0.5 });
     if (job.action === "ping") {
       await writeStatus(jobId, "completed", { progress: 1 });
+    } else if (job.action === "render_remotion_test") {
+      // A render takes tens of seconds, so progress is reported while it
+      // runs - otherwise Home Assistant cannot tell it apart from a hang.
+      let lastReported = 0;
+      const { facts, timings } = await produceRemotionVideo(jobId, job.message, (progress) => {
+        const rounded = Math.floor(progress * 20) / 20;
+        if (rounded > lastReported) {
+          lastReported = rounded;
+          void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+        }
+      });
+      await writeStatus(jobId, "completed", { progress: 1 });
+      log("info", "Remotion-Render abgeschlossen", {
+        job_id: jobId,
+        seconds: timings.total,
+        size_bytes: facts.size_bytes,
+      });
     } else {
       await produceArtifacts(jobId, job.message);
       await writeStatus(jobId, "completed", { progress: 1 });
     }
     log("info", "Auftrag abgeschlossen", { job_id: jobId });
   } catch (err) {
-    const isProtocol = err instanceof ProtocolError;
-    const state = isProtocol && err.code === "EXPIRED" ? "expired" : "failed";
+    // RenderError is not imported at module level (see above), so it is
+    // recognised by the shape it promises rather than by identity.
+    const classified =
+      err instanceof ProtocolError || (typeof err?.code === "string" && err.code !== "");
+    const state = classified && err.code === "EXPIRED" ? "expired" : "failed";
     await writeStatus(jobId, state, {
       error: {
-        code: isProtocol ? err.code : ERROR_INTERNAL,
+        // A classified failure keeps its own code - "BROWSER_MISSING" and
+        // "OUTPUT_INVALID" are results worth reporting, and flattening them
+        // to INTERNAL would throw away the finding.
+        code: classified ? err.code : ERROR_INTERNAL,
         // Only the message, never a stack or a path: this string is shown
         // in Home Assistant's UI.
-        message: isProtocol ? err.message : "Interner Fehler bei der Verarbeitung.",
+        message: classified ? err.message : "Interner Fehler bei der Verarbeitung.",
         retryable: false,
       },
     });

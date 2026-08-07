@@ -28,9 +28,10 @@ export const JOB_STATES = [
 ];
 export const TERMINAL_JOB_STATES = new Set(["completed", "failed", "expired"]);
 
-export const ACTIONS = ["ping", "create_test_artifact"];
+export const ACTIONS = ["ping", "create_test_artifact", "render_remotion_test"];
 export const ARTIFACT_TEXT = "roadplanner-renderer-poc.txt";
 export const ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg";
+export const ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4";
 
 export const MAX_JSON_BYTES = 64 * 1024;
 export const MAX_MESSAGE_LENGTH = 120;
@@ -185,13 +186,18 @@ export function buildText({ jobId, message, timestamp }) {
   ].join("\n");
 }
 
-export function buildResult({ jobId, completedAt, artifacts }) {
-  return envelope({
+export function buildResult({ jobId, completedAt, artifacts, video, timings }) {
+  const result = envelope({
     job_id: jobId,
     state: "completed",
     completed_at: formatTime(completedAt),
     artifacts,
   });
+  // Only present for a render job. What ffprobe measured, not what the job
+  // asked for - the difference is the whole point of validating.
+  if (video) result.video = video;
+  if (timings) result.timings = timings;
+  return result;
 }
 
 export function buildHeartbeat({ state, startedAt, now, appVersion }) {

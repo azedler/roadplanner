@@ -127,8 +127,12 @@ def verify_nothing_is_installed_at_container_start() -> None:
     code = "\n".join(line for line in run.splitlines() if not line.strip().startswith("#"))
     for forbidden in ("npm install", "npm ci", "apk add", "apt-get", "curl ", "wget "):
         assert forbidden not in code, f"run.sh darf {forbidden} nicht ausführen"
-    # exec, or Home Assistant's SIGTERM never reaches the worker.
-    assert "exec node" in code, "der Worker muss das Signal selbst empfangen"
+    # exec, or the shell stays the process Home Assistant signals and the
+    # worker never sees SIGTERM - which reads as a crash in the restart
+    # tests rather than as the clean shutdown it is.
+    assert "exec " in code and "index.mjs" in code, (
+        "der Worker muss das Signal selbst empfangen"
+    )
 
 
 def verify_the_reported_version_survives_a_local_build() -> None:
@@ -160,12 +164,60 @@ def verify_the_reported_version_survives_a_local_build() -> None:
     )
 
 
-def verify_the_app_has_no_runtime_dependencies() -> None:
+def verify_every_dependency_is_pinned_exactly() -> None:
+    """A spike is only worth anything if the same image can be rebuilt.
+
+    Remotion, React and the compositor all ship native binaries; a floating
+    range would make a later "it worked yesterday" impossible to
+    investigate.
+    """
     package = json.loads((APP / "package.json").read_text(encoding="utf-8"))
-    assert package.get("dependencies") == {}, (
-        "der PoC kommt ohne Fremdcode aus - die billigste Lieferkette, die es gibt"
-    )
+    versions = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
+    assert versions, "die App hat Abhängigkeiten"
+    for name, spec in versions.items():
+        assert spec[0].isdigit(), f"{name} ist nicht exakt gepinnt: {spec}"
+    remotion = {
+        spec
+        for name, spec in versions.items()
+        if name == "remotion" or name.startswith("@remotion/")
+    }
+    assert len(remotion) == 1, f"alle Remotion-Pakete müssen eine Version teilen: {remotion}"
     assert (APP / "package-lock.json").is_file(), "die Sperrdatei macht den Build reproduzierbar"
+
+
+def verify_the_image_brings_its_own_runtime_and_browser() -> None:
+    """Nothing may be fetched while a job runs, or at container start."""
+    dockerfile = (APP / "Dockerfile").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in dockerfile.splitlines() if not line.strip().startswith("#")
+    )
+    for needed in ("chromium", "ffmpeg", "fonts-", "npm ci", "scripts/bundle.mjs"):
+        assert needed in code, f"das Image muss {needed} enthalten"
+    # Pinned base and a checksum-verified Node tarball.
+    assert "amd64-base-debian:bookworm-" in code, "das Basis-Image muss exakt gepinnt sein"
+    assert "sha256sum -c -" in code, "die Node-Laufzeit wird vor dem Auspacken geprüft"
+    assert "REMOTION_SKIP_BROWSER_DOWNLOAD=1" in code, (
+        "der Renderer darf sich niemals selbst einen Browser holen"
+    )
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    render_code = "\n".join(
+        line for line in render.splitlines() if not line.strip().startswith("*")
+    )
+    assert "ensureBrowser" not in render_code, (
+        "ein fehlender Browser ist ein Befund, kein Anlass zum Nachladen"
+    )
+
+
+def verify_the_render_is_validated_before_it_counts() -> None:
+    """Exit code 0 is a claim; ffprobe is the check."""
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    assert "ffprobe" in render
+    assert "assertExpected" in render
+    for expected in ("h264", "1280", "720", "30"):
+        assert expected in render, f"die Erwartung {expected} muss geprüft werden"
+    # Written to a temporary name first: the folder is polled, and a
+    # half-written mp4 under its final name would read as a finished result.
+    assert ".part.mp4" in render, "das Ergebnis wird erst nach der Prüfung sichtbar"
 
 
 def verify_one_repository_still_serves_both_consumers() -> None:
@@ -220,7 +272,9 @@ verify_the_untrusted_artifact_is_never_injected_as_markup()
 verify_the_app_asks_for_nothing_beyond_a_shared_folder()
 verify_nothing_is_installed_at_container_start()
 verify_the_reported_version_survives_a_local_build()
-verify_the_app_has_no_runtime_dependencies()
+verify_every_dependency_is_pinned_exactly()
+verify_the_image_brings_its_own_runtime_and_browser()
+verify_the_render_is_validated_before_it_counts()
 verify_one_repository_still_serves_both_consumers()
 verify_stray_app_manifests_are_rejected_by_the_validator()
 verify_the_app_ci_is_a_separate_workflow()

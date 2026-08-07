@@ -1,8 +1,7 @@
-# CI for the renderer-app proof of concept.
+# CI for the renderer app.
 #
 # Its own workflow on purpose: this is an experiment, and it must never be
-# able to slow down or block an ordinary Roadplanner release. Nothing here
-# publishes anything by itself.
+# able to slow down or block an ordinary Roadplanner release.
 name: Renderer app PoC
 
 on:
@@ -35,15 +34,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install pinned dependencies
         working-directory: apps/roadplanner_renderer
         run: npm ci
 
-      - name: Syntax check
+      - name: Syntax and types
         working-directory: apps/roadplanner_renderer
-        run: npm run check
+        run: |
+          npm run check
+          npx tsc --noEmit
 
       - uses: actions/setup-python@v5
         with:
@@ -64,65 +65,155 @@ jobs:
         run: python3 tests/test_renderer_app_contract.py
 
   image:
-    name: Container image
+    name: Container image and Remotion render
     runs-on: ubuntu-latest
     needs: worker
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build the app image for the target architecture
-        run: |
-          docker build \
-            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22 \
-            --build-arg APP_VERSION=0.1.0-poc.1 \
-            --tag roadplanner-renderer-poc:ci \
-            apps/roadplanner_renderer
-
-      # Starting the container is the only way to learn that the image can
-      # actually run - a build that succeeds and an image that comes up are
-      # different claims.
-      - name: Start it and wait for a heartbeat
+      - name: Build the app image
+        id: build
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/exchange"
+          VERSION=$(grep '^version:' apps/roadplanner_renderer/config.yaml | cut -d'"' -f2)
+          START=$(date +%s)
+          docker build \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:bookworm-2026.02.0 \
+            --build-arg APP_VERSION="${VERSION}" \
+            --tag roadplanner-renderer:ci \
+            apps/roadplanner_renderer
+          echo "build_seconds=$(( $(date +%s) - START ))" >> "${GITHUB_OUTPUT}"
+          SIZE=$(docker image inspect roadplanner-renderer:ci --format '{{.Size}}')
+          echo "image_bytes=${SIZE}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      # Starting the container is a different claim from building it.
+      - name: Start it and wait for a ready heartbeat
+        run: |
+          set -euo pipefail
+          # The container runs as root and would otherwise create these
+          # directories root-owned, leaving the runner user unable to write
+          # a job into them. Creating them here first is what keeps both
+          # sides able to use the shared folder - the same question the
+          # real deployment answers with a /share mount.
+          mkdir -p "${RUNNER_TEMP}/exchange"/{jobs,processing,status,results}
+          chmod -R 777 "${RUNNER_TEMP}/exchange"
+          START=$(date +%s%3N)
           docker run --rm --detach \
-            --name renderer-poc \
+            --name renderer \
             --volume "${RUNNER_TEMP}/exchange:/share/roadplanner-renderer/poc-v1" \
-            roadplanner-renderer-poc:ci
-          for _ in $(seq 1 30); do
-            if [ -f "${RUNNER_TEMP}/exchange/renderer-status.json" ]; then
-              echo "Heartbeat:"
+            roadplanner-renderer:ci
+          for _ in $(seq 1 60); do
+            if grep -q '"state": "ready"' "${RUNNER_TEMP}/exchange/renderer-status.json" 2>/dev/null; then
+              echo "startup_ms=$(( $(date +%s%3N) - START ))" >> "${GITHUB_ENV}"
               cat "${RUNNER_TEMP}/exchange/renderer-status.json"
               exit 0
             fi
             sleep 1
           done
-          echo "Kein Heartbeat innerhalb von 30 s" >&2
-          docker logs renderer-poc >&2 || true
+          echo "Kein einsatzbereiter Heartbeat innerhalb von 60 s" >&2
+          docker logs renderer >&2 || true
           exit 1
 
-      - name: Stop it and prove SIGTERM is honoured
+      # Two renders: the first pays for a cold browser and cold page cache,
+      # the second is what a second job on a warm container actually costs.
+      # Reporting only one of them would misrepresent both.
+      - name: Render twice and validate
         run: |
           set -euo pipefail
-          # A container that ignores SIGTERM gets killed after the grace
-          # period; that shows up here as a non-zero exit or a slow stop.
-          start=$(date +%s)
-          docker stop --timeout 15 renderer-poc
-          echo "Stop dauerte $(( $(date +%s) - start )) s"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, time, uuid
+          exchange = pathlib.Path(os.environ["RUNNER_TEMP"]) / "exchange"
+          for name in ("jobs", "results", "status"):
+              (exchange / name).mkdir(parents=True, exist_ok=True)
+          results = []
+          for label in ("kalt", "warm"):
+              job_id = str(uuid.uuid4())
+              now = time.time()
+              job = {
+                  "schema_version": 1,
+                  "protocol_version": 1,
+                  "job_id": job_id,
+                  "action": "render_remotion_test",
+                  "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                  "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 1800)),
+                  "input": {"message": "Roadplanner Remotion Test"},
+              }
+              target = exchange / "jobs" / f"{job_id}.json"
+              tmp = target.with_suffix(".json.part")
+              tmp.write_text(json.dumps(job))
+              tmp.replace(target)
+
+              result_file = exchange / "results" / job_id / "result.json"
+              deadline = time.time() + 900
+              while time.time() < deadline and not result_file.is_file():
+                  status = exchange / "status" / f"{job_id}.json"
+                  if status.is_file():
+                      state = json.loads(status.read_text()).get("state")
+                      if state in ("failed", "expired"):
+                          print(status.read_text())
+                          raise SystemExit(f"Render {label} fehlgeschlagen")
+                  time.sleep(2)
+              if not result_file.is_file():
+                  raise SystemExit(f"Render {label} lief in eine Zeitüberschreitung")
+              payload = json.loads(result_file.read_text())
+              print(f"--- {label} ---")
+              print(json.dumps({"video": payload.get("video"), "timings": payload.get("timings")}, indent=2))
+              results.append({"label": label, **payload})
+          pathlib.Path(os.environ["RUNNER_TEMP"], "renders.json").write_text(json.dumps(results, indent=2))
+          PY
+
+      - name: Resource use and measurement summary
+        if: always()
+        run: |
+          set -euo pipefail
+          docker stats --no-stream --format '{{.Name}}: CPU {{.CPUPerc}} RAM {{.MemUsage}}' renderer || true
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = ["### Renderer-App: Messungen", ""]
+          size = int(os.environ.get("IMAGE_BYTES", "0") or 0)
+          out.append(f"- Containergröße: {round(size / 1024 / 1024)} MB")
+          out.append(f"- Build: {os.environ.get('BUILD_SECONDS', '?')} s")
+          out.append(f"- Start bis einsatzbereit: {os.environ.get('startup_ms', '?')} ms")
+          path = pathlib.Path(os.environ["RUNNER_TEMP"], "renders.json")
+          if path.is_file():
+              for entry in json.loads(path.read_text()):
+                  t = entry.get("timings", {})
+                  v = entry.get("video", {})
+                  out.append(
+                      f"- Render {entry['label']}: gesamt {t.get('total')} s "
+                      f"(Browser {t.get('browser_start')} s, Render {t.get('render')} s, "
+                      f"ffprobe {t.get('probe')} s), {v.get('size_bytes')} B, "
+                      f"{v.get('duration_seconds')} s, {v.get('codec')} "
+                      f"{int(v.get('width') or 0)}x{int(v.get('height') or 0)}"
+                  )
+          pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(out) + "\n")
+          print("\n".join(out))
+          PY
+        env:
+          IMAGE_BYTES: ${{ steps.build.outputs.image_bytes }}
+          BUILD_SECONDS: ${{ steps.build.outputs.build_seconds }}
+
+      - name: Stop it and prove SIGTERM is honoured
+        if: always()
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          docker stop --timeout 15 renderer || true
+          echo "Stop dauerte $(( $(date +%s) - START )) s"
 
       - name: Clean up
         if: always()
-        run: docker rm --force renderer-poc 2>/dev/null || true
+        run: docker rm --force renderer 2>/dev/null || true
 
   publish:
-    name: Publish PoC image
+    name: Publish image
     runs-on: ubuntu-latest
     needs: image
-    # Only on a real push, never on a pull request from elsewhere. Home
-    # Assistant installs the app by PULLING this image, so without it the
-    # device test cannot happen at all - but it stays an experiment: no
-    # `latest`, an explicit -poc tag, and no involvement in the Roadplanner
-    # release workflow.
+    # Never from a pull request. Home Assistant installs the app by PULLING
+    # this image, so without it the device test cannot happen - but it stays
+    # an experiment: no `latest`, and nothing in the Roadplanner release
+    # workflow refers to it.
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
@@ -135,24 +226,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        id: push
         run: |
           set -euo pipefail
           IMAGE=ghcr.io/${{ github.repository_owner }}/roadplanner-renderer-poc-amd64
           VERSION=$(grep '^version:' apps/roadplanner_renderer/config.yaml | cut -d'"' -f2)
-          echo "Version aus config.yaml: ${VERSION}"
           docker build \
-            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22 \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:bookworm-2026.02.0 \
             --build-arg APP_VERSION="${VERSION}" \
             --tag "${IMAGE}:${VERSION}" \
             apps/roadplanner_renderer
           docker push "${IMAGE}:${VERSION}"
-          # The digest is what the report has to carry: a tag can move, a
-          # digest cannot.
+          # A tag can move, a digest cannot - the report carries the digest.
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}:${VERSION}")
-          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
           {
-            echo "### Renderer-App-PoC-Image"
+            echo "### Renderer-App-Image"
             echo ""
             echo "- Tag: \`${IMAGE}:${VERSION}\`"
             echo "- Digest: \`${DIGEST}\`"
