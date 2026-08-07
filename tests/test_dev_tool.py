@@ -34,6 +34,11 @@ with tempfile.TemporaryDirectory() as directory:
     command(repository, "git", "init", "-q")
     command(repository, "git", "config", "user.name", "Roadplanner Test")
     command(repository, "git", "config", "user.email", "test@example.invalid")
+    # Same reason as the identity above: this throwaway repository must not
+    # depend on the developer's setup. A machine that signs commits through
+    # an external helper made this test fail for a reason that has nothing
+    # to do with what it checks.
+    command(repository, "git", "config", "commit.gpgsign", "false")
     target = repository / "example.txt"
     target.write_text("baseline\n", encoding="utf-8")
     command(repository, "git", "add", "example.txt")
