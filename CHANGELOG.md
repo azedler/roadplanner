@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.3] - 2026-08-07
+
+### Fixed
+
+- **Derselbe Wettlauf im End-to-End-Test, eine Zeile höher.** Ein Auftrag durchläuft mehrere Meilensteine, und sie sind nicht derselbe Augenblick: Erst wird die Ergebnisdatei geschrieben, dann kippt der Status auf „completed", dann verschwindet die übernommene Datei aus `processing/`. Der Test wartete auf den einen und las sofort den anderen. In 4.40.1 hatte ich das für die dritte Stelle behoben – **das Exemplar, nicht die Klasse**, weil der Lauf, der es zeigte, zufällig an jener Stelle gescheitert war. Jetzt wird auf jeden Meilenstein einzeln gewartet.
+
 ## [4.44.2] - 2026-08-07
 
 ### Fixed
