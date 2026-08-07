@@ -1,6 +1,6 @@
 {
   "name": "roadplanner-renderer-poc",
-  "version": "0.2.0-remotion.1",
+  "version": "0.2.0-remotion.2",
   "private": true,
   "description": "Renderer app for Roadplanner. Remotion spike: proves a five-second H.264 test render inside the app container.",
   "license": "MIT",

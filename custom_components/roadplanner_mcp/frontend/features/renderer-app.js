@@ -78,6 +78,9 @@ export const rendererAppMixin = {
           : "Der Testauftrag konnte nicht übergeben werden",
     });
     if (!result?.renderer_app_job?.job_id) return;
+    // The status file carries no action, so the kind of job is remembered
+    // here - otherwise a render would be announced as a plain test.
+    this._rendererAppKind = action === "renderer_app_render" ? "render" : "test";
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
     this._render({ preserveScroll: true });
@@ -101,7 +104,20 @@ export const rendererAppMixin = {
         this._rendererAppJob = result.renderer_app_job;
         if (result.renderer_app_result) this._rendererAppResult = result.renderer_app_result;
         this._render({ preserveScroll: true });
-        if (result.renderer_app_job.terminal) return;
+        if (result.renderer_app_job.terminal) {
+          // The App line otherwise keeps showing whatever the last
+          // environment probe saw - which is stale after an app update.
+          const status = await this._runAction("renderer_app_status", {}, "", {
+            refresh: false,
+            blockUi: false,
+            errorTitle: "",
+          }).catch(() => null);
+          if (status?.renderer_app_status) {
+            this._rendererAppStatus = status.renderer_app_status;
+            this._render({ preserveScroll: true });
+          }
+          return;
+        }
       }
     } finally {
       this._rendererAppPolling = false;
@@ -179,23 +195,33 @@ export const rendererAppMixin = {
     let jobBlock = "";
     if (running) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
-      jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Testauftrag läuft … ${escapeHtml(job.state)} ${percent} %</span></div>`;
+      const label =
+        this._rendererAppKind === "render" ? "Testvideo wird gerendert" : "Testauftrag läuft";
+      jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>${label} … ${percent} %</span></div>`;
     } else if (job?.state === "completed" && result?.video) {
       const v = result.video;
       const t = result.timings || {};
-      jobBlock = `<div class="notice neutral"><strong>Testvideo erzeugt</strong><br>
-        ${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB<br>
-        <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small><br>
-        <small>Die Datei liegt im Austauschordner; sie wird bewusst nicht ins Panel geladen.</small></div>`;
+      // .notice is a flex row and stacks only what sits inside a single
+      // child div - text with <br> would become one column per element.
+      jobBlock = `<div class="notice neutral"><div>
+        <strong>Testvideo erzeugt</strong>
+        <span>${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB</span>
+        <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small>
+        <small>Die Datei liegt im Austauschordner; sie wird bewusst nicht ins Panel geladen.</small>
+      </div></div>`;
     } else if (job?.state === "completed" && result) {
-      jobBlock = `<div class="notice neutral"><strong>Testauftrag erfolgreich</strong><br>${result.artifacts
-        .map((item) => `${escapeHtml(item.filename)} · ${escapeHtml(String(item.size_bytes))} B`)
-        .join("<br>")}</div>
-        ${result.svg ? inertSvgTag(result.svg) : ""}`;
+      jobBlock = `<div class="notice neutral"><div>
+        <strong>Testauftrag erfolgreich</strong>
+        ${result.artifacts
+          .map((item) => `<span>${escapeHtml(item.filename)} · ${escapeHtml(String(item.size_bytes))} B</span>`)
+          .join("")}
+      </div></div>
+      ${result.svg ? inertSvgTag(result.svg) : ""}`;
     } else if (job?.state && job.terminal) {
-      jobBlock = `<div class="notice warning"><strong>Testauftrag ${escapeHtml(job.state)}</strong>${
-        job.error ? `<br>${escapeHtml(job.error.code)}: ${escapeHtml(job.error.message)}` : ""
-      }</div>`;
+      jobBlock = `<div class="notice warning"><div>
+        <strong>Testauftrag ${escapeHtml(job.state)}</strong>
+        ${job.error ? `<span>${escapeHtml(job.error.code)}: ${escapeHtml(job.error.message)}</span>` : ""}
+      </div></div>`;
     }
 
     return `<section class="panel-card">
@@ -218,7 +244,10 @@ export const rendererAppMixin = {
         ${line("Architektur", details.arch || "?", Boolean(details.arch))}
         ${line("App", appLine, appOk)}
       </div>
-      <div class="notice ${environment.ready ? "neutral" : "warning"}">${escapeHtml(environment.summary_de || "")}<br><small>${escapeHtml(environment.recommended_next_step_de || "")}</small></div>`
+      <div class="notice ${environment.ready ? "neutral" : "warning"}"><div>
+        <strong>${escapeHtml(environment.summary_de || "")}</strong>
+        <small>${escapeHtml(environment.recommended_next_step_de || "")}</small>
+      </div></div>`
           : ""
       }
       ${jobBlock}

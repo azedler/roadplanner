@@ -133,9 +133,9 @@ export const remotionSpikeMixin = {
         ${canEdit ? `<div class="button-row"><button class="text-button danger-text" type="button" data-action="remotion-cancel">Abbrechen</button></div>` : ""}`;
     } else if (status?.state === "ready" && status.output) {
       const out = status.output;
-      result = `<div class="notice neutral"><strong>Remotion-Test erfolgreich</strong><br>${escapeHtml(String(out.duration_seconds))} s · ${escapeHtml(String(out.width))} × ${escapeHtml(String(out.height))} · ${escapeHtml(out.codec)} · ${escapeHtml(String(Math.round((out.size_bytes || 0) / 1024)))} kB</div>`;
+      result = `<div class="notice neutral"><div><strong>Remotion-Test erfolgreich</strong><span>${escapeHtml(String(out.duration_seconds))} s · ${escapeHtml(String(out.width))} × ${escapeHtml(String(out.height))} · ${escapeHtml(out.codec)} · ${escapeHtml(String(Math.round((out.size_bytes || 0) / 1024)))} kB</span></div></div>`;
     } else if (status?.state === "error") {
-      result = `<div class="notice warning"><strong>Remotion kann in dieser Umgebung noch nicht lokal ausgeführt werden.</strong><br>Grund: ${escapeHtml(status.error || "unbekannt")}<br>Es wurde nichts installiert oder verändert.</div>`;
+      result = `<div class="notice warning"><div><strong>Remotion kann in dieser Umgebung noch nicht lokal ausgeführt werden.</strong><span>Grund: ${escapeHtml(status.error || "unbekannt")}</span><span>Es wurde nichts installiert oder verändert.</span></div></div>`;
     }
 
     return `<section class="panel-card">
@@ -156,7 +156,7 @@ export const remotionSpikeMixin = {
         ${line("ffmpeg", this._remotionField(details, "ffmpeg_path", "vorhanden", "nicht gefunden"), Boolean(details.ffmpeg_path))}
         ${line("Ausgabeordner", this._remotionField(details, "output_writable", "beschreibbar", "nicht beschreibbar"), Boolean(details.output_writable))}
       </div>
-      <div class="notice ${diagnosis.ready ? "neutral" : "warning"}">${escapeHtml(diagnosis.summary_de || "")}<br><small>${escapeHtml(diagnosis.recommended_next_step_de || "")}</small></div>` : ""}
+      <div class="notice ${diagnosis.ready ? "neutral" : "warning"}"><div><strong>${escapeHtml(diagnosis.summary_de || "")}</strong><small>${escapeHtml(diagnosis.recommended_next_step_de || "")}</small></div></div>` : ""}
       ${result}
     </section>`;
   },

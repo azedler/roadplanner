@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.35.2] - 2026-08-07
+
+### Fixed
+
+- **Ergebnisblöcke standen in schmalen Spalten nebeneinander statt untereinander** (live nach dem ersten echten Render sichtbar: „Testvideo erzeugt", Auflösung, Zeiten und Hinweis in vier Streifen). `.notice` ist ein Flex-Container und stapelt nur, was in einem einzelnen Kind-`<div>` liegt – Text mit `<br>` direkt darin macht aus jedem Element eine eigene Spalte. Betroffen waren beide Experimentkarten; beide stapeln ihre Inhalte jetzt korrekt.
+- Der Fortschritt eines Renders heißt jetzt „Testvideo wird gerendert" statt „Testauftrag läuft … running"; das englische Wort stammte aus dem rohen Jobzustand.
+- Die Zeile **App** wird nach einem abgeschlossenen Auftrag aktualisiert. Sie zeigte sonst weiter die Version aus der letzten Umgebungsprüfung – nach einem App-Update also eine veraltete.
+- Doppelter Punkt in der App-Beschreibung entfernt.
+
 ## [4.35.1] - 2026-08-07
 
 ### Fixed
