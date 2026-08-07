@@ -29,13 +29,23 @@ import { escapeHtml } from "../lib/core-helpers.js";
 
 const SOURCE_LABELS = {
   override: "von Hand geschrieben",
+  directed: "von Gemini redigiert",
   stored: "aus der Tageszusammenfassung",
   composed: "aus den Fakten des Tages",
 };
 const SOURCE_ICONS = {
   override: "mdi:account-edit-outline",
+  directed: "mdi:auto-awesome",
   stored: "mdi:text-box-outline",
   composed: "mdi:auto-fix",
+};
+
+/** How a day is weighted, in words rather than in an enum. */
+const IMPORTANCE_LABELS = {
+  transition: "Überführungstag",
+  normal: "normaler Tag",
+  highlight: "Höhepunkt",
+  major_highlight: "großer Höhepunkt",
 };
 
 export const storyEditorMixin = {
@@ -97,6 +107,9 @@ export const storyEditorMixin = {
       this._storyLoading = false;
       this._render({ preserveScroll: true });
     }
+    // Free, and it is what lets the card say whether a run would change
+    // anything. Fetched after the manifest so both land in one render.
+    if (!this._storyDirector) await this._storyDirectorStatus();
   },
 
   _storySelectChapter(chapterId) {
@@ -200,6 +213,120 @@ export const storyEditorMixin = {
       { refresh: true, errorTitle: "Das Kapitelbild konnte nicht gesetzt werden" },
     );
     await this._storyLoad({ force: true });
+  },
+
+  /**
+   * The story director: the editorial pass, and what it cost.
+   *
+   * The status is read whenever the section opens and is deliberately
+   * free - it compares two hashes and calls nobody. Only the button
+   * spends anything, and the card says so before it is pressed rather
+   * than afterwards.
+   */
+  async _storyDirectorStatus() {
+    const result = await this._runAction(
+      "story_director_status",
+      { trip_id: this._selectedTripId },
+      "",
+      { refresh: false, blockUi: false, errorTitle: "" },
+    );
+    if (result?.story_director) {
+      this._storyDirector = result.story_director;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  async _storyDirectorRun({ force = false } = {}) {
+    if (this._storyDirecting) return;
+    this._storyDirecting = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction(
+        "story_director_run",
+        { trip_id: this._selectedTripId, force },
+        "",
+        {
+          refresh: false,
+          blockUi: false,
+          errorTitle: "Die Reiseredaktion ist fehlgeschlagen",
+        },
+      );
+      if (result?.story_director_run) {
+        const run = result.story_director_run;
+        this._showToast(
+          run.reused
+            ? "Die vorhandene Fassung passt noch - es wurde nichts neu erzeugt."
+            : `${run.directed_chapters} Kapitel redigiert (${run.calls} Gemini-Aufrufe).`,
+          "success",
+        );
+        await this._storyLoad({ force: true });
+        await this._storyDirectorStatus();
+      }
+    } finally {
+      this._storyDirecting = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  async _storyDirectorDiscard() {
+    if (this._storyDirecting) return;
+    this._storyDirecting = true;
+    this._render({ preserveScroll: true });
+    try {
+      await this._runAction(
+        "story_director_discard",
+        { trip_id: this._selectedTripId },
+        "Redaktion verworfen",
+        { refresh: false, blockUi: false, errorTitle: "Die Redaktion konnte nicht verworfen werden" },
+      );
+      await this._storyLoad({ force: true });
+      await this._storyDirectorStatus();
+    } finally {
+      this._storyDirecting = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  _renderStoryDirector(manifest) {
+    const status = this._storyDirector;
+    const canEdit = this._canEdit();
+    const narrative = manifest?.narrative;
+    if (status && !status.available) {
+      return `<div class="notice neutral"><div>
+        <strong>Reiseredaktion</strong>
+        <small>Für die Redaktion ist kein Gemini-Zugang eingerichtet. Die Kapitel bleiben bei den automatisch zusammengesetzten Texten.</small>
+      </div></div>`;
+    }
+    const busy = Boolean(this._storyDirecting);
+    // "Up to date" is a real answer here, not a hedge: the stored pass
+    // records which version of the trip it was written about, so the card
+    // can promise that pressing the button again would cost money and
+    // change nothing.
+    const state = !status
+      ? ""
+      : status.current
+        ? `<small>Die Redaktion ist auf dem Stand dieser Reise – ${escapeHtml(String(status.directed_chapters))} Kapitel, ${escapeHtml(String(status.calls))} Gemini-Aufrufe.</small>`
+        : status.has_direction
+          ? "<small>Die Reise hat sich seit der letzten Redaktion verändert. Ein neuer Durchgang würde die Texte auffrischen.</small>"
+          : "<small>Noch nicht redigiert. Ein Durchgang liest die ganze Reise, legt den Reisebogen fest und schreibt danach die Tageskapitel – rund fünf Gemini-Aufrufe für eine dreiwöchige Reise.</small>";
+    return `<div class="notice neutral"><div>
+      <strong>Reiseredaktion mit Gemini</strong>
+      <small>Gemini arbeitet als Redakteur, nicht als Faktenquelle: Es formuliert aus den vorhandenen Daten und darf nichts hinzuerfinden. Von Hand geschriebene Kapitel bleiben unangetastet.</small>
+      ${state}
+      ${
+        narrative
+          ? `<small class="story-arc">${escapeHtml([narrative.subtitle, (narrative.motifs || []).join(" · ")].filter(Boolean).join(" — "))}</small>`
+          : ""
+      }
+      ${
+        canEdit
+          ? `<div class="button-row">
+        <button class="secondary-button" type="button" data-action="story-direct"${busy ? " disabled" : ""}><ha-icon icon="mdi:auto-awesome"></ha-icon> ${busy ? "Redigiert …" : status?.has_direction ? "Redaktion auffrischen" : "Reise redigieren lassen"}</button>
+        ${status?.has_direction ? `<button class="text-button" type="button" data-action="story-direct-discard"${busy ? " disabled" : ""}><ha-icon icon="mdi:backup-restore"></ha-icon> Redaktion verwerfen</button>` : ""}
+      </div>`
+          : ""
+      }
+    </div></div>`;
   },
 
   /**
@@ -393,8 +520,10 @@ export const storyEditorMixin = {
       <div class="story-overview">
         <span><strong>${escapeHtml(String(chapters.length))}</strong> Kapitel</span>
         <span><strong>${escapeHtml(String(edited))}</strong> von Hand bearbeitet</span>
+        <span><strong>${escapeHtml(String(Number(sources.directed || 0)))}</strong> von Gemini redigiert</span>
         <span><strong>${escapeHtml(String(Number(sources.stored || 0)))}</strong> aus Zusammenfassungen</span>
       </div>
+      ${this._renderStoryDirector(manifest)}
       ${this._renderStoryFilm()}
       ${this._renderStoryChapterStrip(chapters, chapter)}
 
@@ -404,6 +533,7 @@ export const storyEditorMixin = {
           <div>
             <span class="eyebrow">${escapeHtml([chapter.date, `Tag ${chapter.facts?.day_number || position + 1} von ${chapters.length}`].filter(Boolean).join(" · "))}</span>
             <span class="story-source ${escapeHtml(source)}"><ha-icon icon="${SOURCE_ICONS[source] || SOURCE_ICONS.composed}"></ha-icon>${escapeHtml(SOURCE_LABELS[source] || source)}</span>
+            ${chapter.importance && chapter.importance !== "normal" ? `<span class="story-weight">${escapeHtml(IMPORTANCE_LABELS[chapter.importance] || chapter.importance)}</span>` : ""}
           </div>
           <button class="icon-button" type="button" data-action="story-next" ${position >= chapters.length - 1 ? "disabled" : ""} aria-label="Nächstes Kapitel"><ha-icon icon="mdi:chevron-right"></ha-icon></button>
         </div>
@@ -420,6 +550,8 @@ export const storyEditorMixin = {
           <span>Story</span>
           <textarea data-story-field="story" rows="7" maxlength="1200" placeholder="Was war an diesem Tag los?" ${canEdit ? "" : "readonly"}>${escapeHtml(draft.story)}</textarea>
         </label>
+
+        ${chapter.video_caption ? `<p class="story-caption"><span>Im Film</span>${escapeHtml(chapter.video_caption)}</p>` : ""}
 
         ${canEdit ? `<div class="button-row story-actions">
           <button class="primary-button" type="button" data-action="story-save"${dirty && !this._storySaving ? "" : " disabled"}><ha-icon icon="mdi:content-save-outline"></ha-icon> ${this._storySaving ? "Speichert …" : "Speichern"}</button>

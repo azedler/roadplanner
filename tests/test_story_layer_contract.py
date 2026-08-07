@@ -195,7 +195,20 @@ def verify_only_two_fields_are_editable() -> None:
         "media_update_assignment",
         "story_film_preview",
         "story_film_render",
+        # The editorial pass: read its state, run it, throw it away. None
+        # of the three can carry a roadbook change.
+        "story_director_status",
+        "story_director_run",
+        "story_director_discard",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
+    # And the director calls take a trip and a force flag - nothing that
+    # could reach a day, a stop or a text somebody typed.
+    director_calls = re.findall(r'"story_director_\w+",\s*\{([^}]*)\}', feature)
+    assert director_calls, "die Redaktionsaufrufe wurden nicht gefunden"
+    for payload in director_calls:
+        assert "trip_id" in payload
+        for forbidden in ("changes", "day_id", "patch", "story"):
+            assert forbidden not in payload, f"der Redaktionsaufruf darf {forbidden} nicht senden"
     # The film takes a trip and nothing else - it cannot carry an edit.
     film_calls = re.findall(r'"story_film_\w+",\s*\{([^}]*)\}', feature)
     assert film_calls, "die Filmaufrufe wurden nicht gefunden"
@@ -239,7 +252,9 @@ def verify_the_chapter_image_reuses_the_existing_cover() -> None:
 
 def verify_the_manifest_carries_a_version_and_a_hash() -> None:
     manifest = _code(INTEGRATION / "travel_story_manifest.py")
-    assert "MANIFEST_VERSION = 1" in manifest
+    # The number moves with the schema; what has to stay true is that
+    # there IS one and that it is an integer, not that it is still 1.
+    assert re.search(r"^MANIFEST_VERSION = \d+$", manifest, re.M), manifest[:200]
     assert "def content_hash" in manifest and "def validate_manifest" in manifest
     # A version that nothing refuses is not a version.
     assert "Nicht unterstützte Manifestversion" in manifest
@@ -285,6 +300,71 @@ def verify_the_poll_outlasts_a_whole_film() -> None:
     assert "Date.now() < deadline" in poll, "die Schleife muss an der Uhr haengen"
     assert "attempt" not in poll, "ein Versuchszaehler ist keine Dauer"
     assert "trip_film" in poll, "der Film braucht die laengere Frist"
+
+
+def verify_the_director_has_no_route_to_the_roadbook() -> None:
+    """It edits prose. It must not be able to move a stop.
+
+    Checked structurally rather than by intent: the service is never given
+    the trip manager, so there is no object in it that could write a day -
+    and it imports no store but its own.
+    """
+    source = _code(INTEGRATION / "story_director_service.py")
+    for forbidden in ("async_update_day", "async_update_stop", "async_add_stop", "manager"):
+        assert forbidden not in source, f"der Redakteur darf {forbidden} nicht kennen"
+    imported = _imports(INTEGRATION / "story_director_service.py")
+    assert "experience_store" not in imported
+    assert "trip_summary_service" not in imported
+
+
+def verify_the_director_module_stays_testable_without_home_assistant() -> None:
+    """The rules about what may come back must be provable offline."""
+    allowed = {"__future__", "typing", "travel_story_manifest"}
+    actual = _imports(INTEGRATION / "story_director.py")
+    assert actual <= allowed, f"unerlaubte Importe: {sorted(actual - allowed)}"
+
+
+def verify_the_builder_still_cannot_spend_money() -> None:
+    """A panel refresh rebuilds the manifest. It must never call a model."""
+    source = _code(INTEGRATION / "story_context_builder.py")
+    for forbidden in ("async_generate_text", "async_generate_json", "provider"):
+        assert forbidden not in source, f"der Builder darf {forbidden} nicht enthalten"
+    # And the status action, which the panel calls on every open, must be
+    # answered from stored hashes rather than from the model.
+    status = _code(INTEGRATION / "story_director_service.py").split(
+        "async def async_status", 1
+    )[1].split("\n    async def ", 1)[0]
+    assert "async_generate" not in status
+
+
+def verify_an_ai_text_is_never_stored_where_a_human_one_belongs() -> None:
+    """Otherwise "who wrote this?" becomes permanently unanswerable."""
+    service = _code(INTEGRATION / "story_director_service.py")
+    # The keys are constants, so the literal only lives in the builder;
+    # what matters is that the director knows neither the names nor the
+    # constants that carry them.
+    for override_key in (
+        "story_override",
+        "story_title_override",
+        "OVERRIDE_STORY_KEY",
+        "OVERRIDE_TITLE_KEY",
+    ):
+        assert override_key not in service, (
+            f"der Redakteur darf {override_key} nicht schreiben"
+        )
+    # The service that DOES write them still does, or the editor is broken.
+    editor = _code(INTEGRATION / "story_override_service.py")
+    assert "OVERRIDE_STORY_KEY" in editor and "OVERRIDE_TITLE_KEY" in editor
+    # And the director's own output lands under its own source name.
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    assert 'STORY_FROM_DIRECTED = "directed"' in manifest
+
+
+def verify_the_manifest_still_carries_no_coordinates() -> None:
+    """The map is a later decision, and half of it must not be made here."""
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    for forbidden in ('"lat"', '"lon"', '"latitude"', '"longitude"'):
+        assert forbidden not in manifest, f"{forbidden} gehoert nicht ins Manifest"
 
 
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
@@ -344,4 +424,9 @@ verify_a_running_film_survives_a_page_reload()
 verify_the_poll_outlasts_a_whole_film()
 verify_a_progress_tick_does_not_rebuild_the_page()
 verify_the_finished_video_can_be_fetched()
+verify_the_director_has_no_route_to_the_roadbook()
+verify_the_director_module_stays_testable_without_home_assistant()
+verify_the_builder_still_cannot_spend_money()
+verify_an_ai_text_is_never_stored_where_a_human_one_belongs()
+verify_the_manifest_still_carries_no_coordinates()
 print("Story layer contract tests passed.")

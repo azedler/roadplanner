@@ -38,6 +38,20 @@ supported write path, so a story editor can be built later without any
 migration - and because an override that travels with its day cannot be
 orphaned by a day being removed. What is NOT here is an editor; this
 module only applies what it finds.
+
+The directed edit
+-----------------
+
+A stored Gemini editing pass is applied the same way and with the same
+rule: found and applied, never produced. It arrives from its own sidecar
+store keyed by the manifest's ``story_context_hash``, and it loses to a
+human override in every chapter where both exist.
+
+Two consequences worth stating. The cache key is no longer the roadbook
+revision alone - an edit can land or be discarded while the trip stands
+still - so it now covers the edit and the crew names too. And the module
+remains provider-free: nothing in here can start an edit, which is what
+keeps a panel refresh from ever costing money.
 """
 
 from __future__ import annotations
@@ -88,10 +102,24 @@ def _media_sort_key(item: dict[str, Any]) -> tuple[str, str]:
 class StoryContextBuilder:
     """Turn one trip into a manifest, and remember it while it is valid."""
 
-    def __init__(self, hass: HomeAssistant, manager: Any, experience: Any) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        manager: Any,
+        experience: Any,
+        *,
+        direction_store: Any = None,
+        crew: Any = None,
+    ) -> None:
         self._hass = hass
         self._manager = manager
         self._experience = experience
+        # Read-only here, both of them. The builder applies an edit it
+        # finds and never makes one, which is what keeps "deterministic"
+        # true: given the same roadbook and the same stored edit, this
+        # produces the same bytes, and no provider is ever called.
+        self._direction_store = direction_store
+        self._crew = crew
         self._cache: dict[str, dict[str, Any]] = {}
 
     async def async_manifest(self, trip_id: str, *, force: bool = False) -> dict[str, Any]:
@@ -100,16 +128,25 @@ class StoryContextBuilder:
         if not trip_id:
             raise ValidationError("Für die Reisegeschichte fehlt die Reise-ID")
         context = await self._async_context(trip_id)
+        # The revision alone is not the key any more: an edit can land or
+        # be discarded without the roadbook moving at all, and a crew
+        # member can be renamed in a different store entirely.
+        fingerprint = (
+            context["revision"],
+            (context["direction"] or {}).get("story_context_hash"),
+            len((context["direction"] or {}).get("chapters") or {}),
+            _crew_fingerprint(context["crew"]),
+        )
         cached = self._cache.get(trip_id)
         if (
             not force
             and cached is not None
-            and cached.get("revision") == context["revision"]
+            and cached.get("fingerprint") == fingerprint
             and cached["manifest"].get("manifest_version")
         ):
             return cached["manifest"]
         manifest = _build(context)
-        self._cache[trip_id] = {"revision": context["revision"], "manifest": manifest}
+        self._cache[trip_id] = {"fingerprint": fingerprint, "manifest": manifest}
         _LOGGER.debug(
             "Reisegeschichte für %s gebaut: %s Kapitel, Hash %s",
             trip_id,
@@ -157,7 +194,59 @@ class StoryContextBuilder:
             "revision": summary.get("revision"),
             "days": days,
             "media": media,
+            "direction": await self._async_direction(trip_id),
+            "crew": await self._async_crew(),
         }
+
+    async def _async_direction(self, trip_id: str) -> dict[str, Any] | None:
+        """The stored editing pass, if there is one.
+
+        Read rather than produced. A builder that could trigger an edit
+        would make every panel refresh a possible Gemini bill, which is
+        exactly the thing this whole caching design exists to prevent.
+        """
+        if self._direction_store is None:
+            return None
+        try:
+            return await self._hass.async_add_executor_job(
+                self._direction_store.load, trip_id
+            )
+        except RoadplannerError:
+            # A story is decoration on a trip. Losing it must not make the
+            # trip unreadable.
+            return None
+
+    async def _async_crew(self) -> dict[str, Any] | None:
+        if self._crew is None:
+            return None
+        try:
+            registry = await self._crew.async_panel_payload()
+        except (RoadplannerError, AttributeError, TypeError):
+            return None
+        people = [
+            str(person.get("name") or "").strip()
+            for person in registry.get("people") or []
+            if isinstance(person, dict) and person.get("active", True)
+        ]
+        vehicles = [
+            str(vehicle.get("name") or "").strip()
+            for vehicle in registry.get("vehicles") or []
+            if isinstance(vehicle, dict) and vehicle.get("active", True)
+        ]
+        people = [name for name in people if name]
+        vehicles = [name for name in vehicles if name]
+        if not people and not vehicles:
+            return None
+        # Names only - see the comment in build_manifest. The rest of a
+        # crew record (notes, portraits, generated summaries) stays where
+        # it is.
+        return {"people": people, "vehicle": vehicles[0] if vehicles else ""}
+
+
+def _crew_fingerprint(crew: dict[str, Any] | None) -> str:
+    if not crew:
+        return ""
+    return "|".join([*crew.get("people", []), str(crew.get("vehicle") or "")])
 
 
 def _build(context: dict[str, Any]) -> dict[str, Any]:
@@ -175,6 +264,9 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
         if stop_id:
             media_by_stop.setdefault(stop_id, []).append(item)
 
+    direction = context.get("direction") or {}
+    directed_chapters = direction.get("chapters") or {}
+
     chapters = []
     for index, day in enumerate(context["days"]):
         day_id = str(day.get("id") or "")
@@ -189,6 +281,9 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
                 stops=stops,
                 media_by_day=media_by_day,
                 media_by_stop=media_by_stop,
+                # An edit for a day that no longer exists simply never
+                # finds a chapter to attach to.
+                direction=directed_chapters.get(day_id),
             )
         )
 
@@ -202,6 +297,8 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
         chapters=chapters,
         trip_facts={"distance_km": trip.get("total_distance_km")},
         trip_cover_media_id=trip_cover,
+        narrative=direction.get("narrative"),
+        crew=context.get("crew"),
     )
 
 
@@ -213,6 +310,7 @@ def _chapter(
     stops: list[dict[str, Any]],
     media_by_day: dict[str, list[dict[str, Any]]],
     media_by_stop: dict[str, list[dict[str, Any]]],
+    direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stop_ids = [str(stop.get("id") or "") for stop in stops if str(stop.get("id") or "")]
     pool: list[dict[str, Any]] = []
@@ -272,6 +370,7 @@ def _chapter(
             if clean_line(item.get("caption"), limit=200)
         ],
         map_hint=_map_hint(stops, stop_ids),
+        direction=direction,
     )
 
 

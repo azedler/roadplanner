@@ -198,7 +198,15 @@ def verify_only_ids_travel_never_resolved_data() -> None:
         assert forbidden not in serialised, forbidden
     chapter = manifest["chapters"][0]
     assert set(chapter["media"][0]) == {"media_id", "role", "stop_id"}
-    assert set(chapter["stops"][0]) == {"stop_id", "name", "kind", "arrival_time"}
+    assert set(chapter["stops"][0]) == {
+        "stop_id",
+        "name",
+        # A readable name for the story, beside the canonical one - never
+        # instead of it.
+        "story_name",
+        "kind",
+        "arrival_time",
+    }
 
 
 def verify_a_map_hint_says_whether_not_where() -> None:
@@ -252,7 +260,12 @@ def verify_the_manifest_counts_where_its_prose_came_from() -> None:
             _chapter(2, overrides={"story": "Von Hand."}),
         ]
     )
-    assert manifest["story_sources"] == {"override": 1, "stored": 1, "composed": 1}
+    assert manifest["story_sources"] == {
+        "override": 1,
+        "directed": 0,
+        "stored": 1,
+        "composed": 1,
+    }
     assert manifest["facts"]["chapter_count"] == 3
     assert manifest["facts"]["stop_count"] == 6
     assert manifest["facts"]["photo_count"] == 243
@@ -261,7 +274,11 @@ def verify_the_manifest_counts_where_its_prose_came_from() -> None:
 def verify_a_foreign_or_future_manifest_is_refused() -> None:
     cases = [
         {**_manifest(), "schema": "etwas.anderes"},
-        {**_manifest(), "manifest_version": 2},
+        # A version this build does not know - in either direction. The
+        # number moves with the schema, so this has to be "one past the
+        # current one" rather than a literal that ages into a no-op.
+        {**_manifest(), "manifest_version": story.MANIFEST_VERSION + 1},
+        {**_manifest(), "manifest_version": story.MANIFEST_VERSION - 1},
         {**_manifest(), "trip": {}},
         {**_manifest(), "chapters": "keine Liste"},
         {**_manifest(), "content_hash": "zu kurz"},
@@ -273,6 +290,134 @@ def verify_a_foreign_or_future_manifest_is_refused() -> None:
         except story.StoryManifestError:
             continue
         raise AssertionError(f"Ungültiges Manifest akzeptiert: {case!r:.60}")
+
+
+def verify_the_editor_sits_below_the_person_and_above_the_machinery() -> None:
+    """The trust order is the whole reason build_story exists."""
+    facts = {"day_number": 1}
+    everything = {
+        "facts": facts,
+        "index": 0,
+        "title": "Tag",
+        "stop_names": ["Vaasa"],
+        "stored_summary": "Aus der Zusammenfassung.",
+        "directed": "Von Gemini redigiert.",
+        "override": "Von Hand geschrieben.",
+    }
+    assert story.build_story(**everything)["source"] == "override"
+    without_person = {**everything, "override": ""}
+    assert story.build_story(**without_person)["source"] == "directed"
+    assert story.build_story(**without_person)["text"] == "Von Gemini redigiert."
+    without_model = {**without_person, "directed": ""}
+    assert story.build_story(**without_model)["source"] == "stored"
+    assert story.build_story(**without_model, )["text"] == "Aus der Zusammenfassung."
+    bare = {**without_model, "stored_summary": ""}
+    assert story.build_story(**bare)["source"] == "composed"
+
+
+def verify_typing_does_not_move_the_editor_cache_key() -> None:
+    """Otherwise every keystroke would buy a new Gemini call.
+
+    The context hash is the story director's cache key. It has to answer
+    "has the material changed?" and must therefore be blind to everything
+    the editing produces - a typed override, a directed title, a directed
+    story. If it were the content hash, writing one character would
+    re-edit the whole trip.
+    """
+    plain = _manifest()
+    overridden = _manifest(
+        [
+            _chapter(0, overrides={"title": "Mein Titel", "story": "Mein Text."}),
+            _chapter(1),
+        ]
+    )
+    directed = _manifest(
+        [
+            _chapter(0, direction={"title": "Redigiert", "story": "Redigierter Text."}),
+            _chapter(1),
+        ]
+    )
+    assert plain["story_context_hash"] == overridden["story_context_hash"]
+    assert plain["story_context_hash"] == directed["story_context_hash"]
+    # But the content hash HAS to move - the description really did change.
+    assert plain["content_hash"] != overridden["content_hash"]
+    assert plain["content_hash"] != directed["content_hash"]
+
+    # And real material still moves it, or the cache would never refresh.
+    moved = _manifest([_chapter(0, title="Ein anderer Tag"), _chapter(1)])
+    assert plain["story_context_hash"] != moved["story_context_hash"]
+
+
+def verify_the_direction_cannot_smuggle_in_its_own_vocabulary() -> None:
+    """An enum the model invented is not an enum."""
+    chapter = _chapter(
+        direction={
+            "importance": "weltbewegend",
+            "story_role": "prolog",
+            "visual_style": "kinoformat",
+        }
+    )
+    assert chapter["importance"] == "normal"
+    assert chapter["story_role"] == "journey"
+    assert chapter["visual_style"] == "normal"
+    # And the real values do survive.
+    good = _chapter(
+        direction={
+            "importance": "major_highlight",
+            "story_role": "finale",
+            "visual_style": "hero",
+        }
+    )
+    assert good["importance"] == "major_highlight"
+    assert good["story_role"] == "finale"
+    assert good["visual_style"] == "hero"
+
+
+def verify_a_story_name_never_replaces_the_canonical_one() -> None:
+    chapter = _chapter(direction={"stop_story_names": {"stop-a": "unser Waldsee"}})
+    first = chapter["stops"][0]
+    assert first["name"] == "Tampere", "der Roadbook-Name bleibt unangetastet"
+    assert first["story_name"] == "unser Waldsee"
+    assert chapter["stops"][1]["story_name"] is None
+
+
+def verify_the_base_survives_every_edit() -> None:
+    """Reset has to have something to reset to."""
+    chapter = _chapter(
+        stored_summary="Was der Dienst schrieb.",
+        overrides={"title": "Meiner", "story": "Meine Fassung."},
+        direction={"title": "Geminis", "story": "Geminis Fassung."},
+    )
+    assert chapter["title"] == "Meiner"
+    assert chapter["story"]["source"] == "override"
+    assert chapter["base"]["title"] == "Nuuksio Nationalpark"
+    assert chapter["base"]["stored_summary"] == "Was der Dienst schrieb."
+
+
+def verify_an_arc_is_absent_rather_than_empty() -> None:
+    assert _manifest()["narrative"] is None
+    assert _manifest(narrative={"motifs": ["", "  "]})["narrative"] is None
+    arc = _manifest(narrative={"subtitle": "Drei Wochen Norden", "motifs": ["Wasser", ""]})
+    assert arc["narrative"]["subtitle"] == "Drei Wochen Norden"
+    assert arc["narrative"]["motifs"] == ["Wasser"]
+    assert arc["narrative"]["source"] == "directed"
+
+
+def verify_the_crew_travels_as_names_and_nothing_else() -> None:
+    """A story needs a name. It does not need somebody's record."""
+    manifest = _manifest(
+        crew={
+            "people": ["Aron", "Mila", ""],
+            "vehicle": "Der Bulli",
+            # Anything else offered is simply not carried.
+            "notes": "geheim",
+            "person_ids": ["person-1"],
+        }
+    )
+    assert manifest["crew"] == {"people": ["Aron", "Mila"], "vehicle": "Der Bulli"}
+    assert "person-1" not in json.dumps(manifest, ensure_ascii=False)
+    assert "geheim" not in json.dumps(manifest, ensure_ascii=False)
+    assert _manifest()["crew"] is None
 
 
 def verify_a_duplicate_chapter_is_refused() -> None:
@@ -304,5 +449,12 @@ verify_entries_without_an_identifier_are_dropped()
 verify_a_chapter_needs_a_stable_identifier()
 verify_the_manifest_counts_where_its_prose_came_from()
 verify_a_foreign_or_future_manifest_is_refused()
+verify_the_editor_sits_below_the_person_and_above_the_machinery()
+verify_typing_does_not_move_the_editor_cache_key()
+verify_the_direction_cannot_smuggle_in_its_own_vocabulary()
+verify_a_story_name_never_replaces_the_canonical_one()
+verify_the_base_survives_every_edit()
+verify_an_arc_is_absent_rather_than_empty()
+verify_the_crew_travels_as_names_and_nothing_else()
 verify_a_duplicate_chapter_is_refused()
 print("Travel story manifest tests passed.")

@@ -6,6 +6,22 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.42.0] - 2026-08-07
+
+### Added
+
+- **Gemini Story Director – die Reise wird redigiert, nicht berichtet.** Der Film v0 hat bewiesen, dass die Technik trägt, und dabei die eigentliche Grenze gezeigt: Die Sätze waren richtig und klangen wie ein Datenbankauszug. „31 Fotos sind an diesem Tag entstanden" hat noch nie jemand über seinen eigenen Urlaub gesagt. Gemini arbeitet jetzt als **Redakteur**: Es formuliert aus den vorhandenen Daten und darf nichts hinzuerfinden.
+- **Die Reise wird als Reise redigiert, nicht als 23 Einzeltage.** Zuerst ein Durchgang über die ganze Reise, der den Reisebogen festlegt und jeden Tag gewichtet – eine Beurteilung, die nur treffen kann, wer alle Tage gleichzeitig sieht. Danach die Tageskapitel in Bündeln zu sechs, mit dem Reisebogen als Kontext. Eine dreiwöchige Reise sind damit **fünf Aufrufe, nicht vierundzwanzig**.
+- **TravelStoryManifest v2** um genau das erweitert, was dieser Anwendungsfall gebraucht hat: eine Video-Caption je Kapitel (eine eigene Fassung für den Bildschirm, keine gekürzte Story), `importance` und `story_role` für die Gewichtung, `visual_style` als Vorschlag, ein optionaler Story-Name je Stopp, ein Reisebogen auf Reiseebene und die Crew als reine Namen.
+- **Ein Story-Name ersetzt nie den echten Stoppnamen.** „Krumhermsdorf Neuhäuser 40" bleibt im Roadbook stehen, weil man dorthin navigiert; die Erzählung bekommt daneben den Namen, den man aussprechen würde.
+- **Die Crew reist als Namen und sonst nichts.** Eine Geschichte, die niemanden nennt, klingt wie ein Prospekt – aber ein Crew-Datensatz enthält Notizen, Porträts und erzeugte Personenzusammenfassungen, und nichts davon hat in einem Prompt etwas verloren. Übergeben werden Anzeigename und Fahrzeugname.
+
+### Changed
+
+- **Vier Storyquellen statt drei, mit klarer Rangfolge:** von Hand geschrieben → von Gemini redigiert → aus der Tageszusammenfassung → aus den Fakten zusammengesetzt. Der Editor zeigt bei jedem Kapitel, welche gilt. **Ein KI-Text wird niemals als menschlicher Override gespeichert** – sonst wäre die Frage „wer hat das geschrieben?" dauerhaft unbeantwortbar.
+- **Zwei Hashes, weil es zwei Fragen gibt.** Der Inhalts-Hash beantwortet „hat sich die Beschreibung geändert?", der neue Story-Kontext-Hash „muss die Redaktion noch einmal laufen?". Letzterer ist blind für alles, was Bearbeiten erzeugt – **Tippen kostet damit kein Geld**, und eine unveränderte Reise auch nach einem Neustart nicht.
+- **Der Film nimmt die Video-Caption, wenn es eine gibt.** Eine Karte steht drei Sekunden auf dem Bildschirm; ein Absatz ist dort unlesbar, wie gut er auch ist. Ohne Redaktion rendert der Film unverändert wie zuvor.
+
 ## [4.41.2] - 2026-08-07
 
 ### Fixed

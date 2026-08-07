@@ -197,8 +197,23 @@ def build_film_package(
                 # Straight from the manifest, including the override if one
                 # was written. This package never composes a word.
                 "title": (source.get("title") or "")[:MAX_TITLE_LENGTH],
-                "story": ((source.get("story") or {}).get("text") or "")[:MAX_STORY_LENGTH],
+                # The film takes the video caption when the manifest has
+                # one. It is not a shortened story - it is the version
+                # written for a card that is on screen for three seconds,
+                # and a long paragraph rendered there is unreadable no
+                # matter how good the prose is. Falls back to the story,
+                # so a trip nobody has edited looks exactly as before.
+                "story": (
+                    (source.get("video_caption") or "")
+                    or ((source.get("story") or {}).get("text") or "")
+                )[:MAX_STORY_LENGTH],
                 "story_source": (source.get("story") or {}).get("source") or "composed",
+                # Weight, so the composition can eventually give a major
+                # highlight more room. Carried now, used when film v1
+                # decides what to do with it - the field costs nothing and
+                # its absence would cost another package version.
+                "importance": source.get("importance") or "normal",
+                "story_role": source.get("story_role") or "journey",
                 "day_number": facts.get("day_number") or index + 1,
                 "distance_km": facts.get("distance_km"),
                 "duration_minutes": facts.get("duration_minutes"),

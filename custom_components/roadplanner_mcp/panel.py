@@ -86,6 +86,9 @@ _ACTIONS = {
     "renderer_app_render",
     "story_manifest",
     "story_set_override",
+    "story_director_status",
+    "story_director_run",
+    "story_director_discard",
     "story_film_preview",
     "story_film_render",
     "renderer_app_trip_days",
@@ -282,6 +285,9 @@ _PROVIDER_CALL_ACTIONS = {
     # The same, for a whole trip: up to ninety photos and minutes of work
     # that must survive a phone locking its screen.
     "story_film_render",
+    # Five Gemini calls over a whole trip. A connection that drops halfway
+    # must not orphan calls that were already paid for.
+    "story_director_run",
     # Verifies and copies tens of megabytes. Being cancelled halfway would
     # leave a partial file where a download expects a whole one.
     "renderer_app_download",
@@ -1410,6 +1416,30 @@ async def _execute_action(
             "renderer_app_job": await runtime.renderer_app.async_submit_test_job(
                 message="Roadplanner Remotion Test",
                 action=ACTION_RENDER_REMOTION_TEST,
+            )
+        }
+
+    if action == "story_director_status":
+        # Free by construction: it compares two hashes and calls nobody.
+        # A panel that opens must never be able to spend money.
+        return {
+            "story_director": await runtime.story_director.async_status(
+                str(data.get("trip_id") or "")
+            )
+        }
+
+    if action == "story_director_run":
+        return {
+            "story_director_run": await runtime.story_director.async_run(
+                str(data.get("trip_id") or ""),
+                force=data.get("force") is True,
+            )
+        }
+
+    if action == "story_director_discard":
+        return {
+            "story_director_discard": await runtime.story_director.async_discard(
+                str(data.get("trip_id") or "")
             )
         }
 
