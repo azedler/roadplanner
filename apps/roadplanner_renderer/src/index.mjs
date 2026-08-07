@@ -304,6 +304,33 @@ async function discardInputs(jobId) {
   }
 }
 
+/**
+ * Remove a result folder that never got a result.
+ *
+ * The folder has to exist before the render starts - the partial file is
+ * written inside it. So a job that fails leaves an empty directory behind,
+ * and `result.json` being absent is exactly what "incomplete" means, since
+ * it is the last file written. Harmless to read, but it is litter in a
+ * shared folder, and cleanup by age would keep it for a day.
+ */
+async function discardIncompleteResult(jobId) {
+  const folder = path.join(DIRS.results, jobId);
+  try {
+    await fs.stat(path.join(folder, "result.json"));
+    return;
+  } catch {
+    // No result.json: nothing here is worth keeping.
+  }
+  try {
+    await fs.rm(folder, { recursive: true, force: true });
+  } catch (err) {
+    log("warn", "unvollständiges Ergebnis konnte nicht aufgeräumt werden", {
+      job_id: jobId,
+      detail: String(err),
+    });
+  }
+}
+
 async function handleJob(name) {
   const jobId = name.replace(/\.json$/i, "");
   if (!isJobId(jobId)) {
@@ -417,6 +444,7 @@ async function handleJob(name) {
     }
     await fs.rm(claimed, { force: true }).catch(() => {});
     await discardInputs(jobId);
+    await discardIncompleteResult(jobId);
   }
 }
 
@@ -458,6 +486,7 @@ async function recoverInterrupted() {
     }).catch(() => {});
     await fs.rm(path.join(DIRS.processing, name), { force: true }).catch(() => {});
     await discardInputs(jobId);
+    await discardIncompleteResult(jobId);
     log("warn", "unterbrochenen Auftrag als fehlgeschlagen markiert", { job_id: jobId });
   }
 }
