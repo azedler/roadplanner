@@ -51,7 +51,10 @@ The security posture, which is narrower than it may look:
 
 - filenames are derived from a server-generated UUID and nothing else. No
   part of any path comes from user text, so there is no traversal to
-  defend against - the defence is that the input never exists;
+  defend against - the defence is that the input never exists. This holds
+  for the input package too: ``inputs/<job_id>/`` is named after the job,
+  and the images inside it are numbered, so the reader builds
+  ``photo-<n>.jpg`` from an integer rather than from anything it was told;
 - the job carries data, never a path, a command or a URL;
 - an unknown protocol version is refused rather than interpreted;
 - artefacts are bounded in size and verified by SHA-256 before Roadplanner
@@ -101,20 +104,31 @@ TERMINAL_JOB_STATES = frozenset({JOB_COMPLETED, JOB_FAILED, JOB_EXPIRED})
 ACTION_PING = "ping"
 ACTION_CREATE_TEST_ARTIFACT = "create_test_artifact"
 ACTION_RENDER_REMOTION_TEST = "render_remotion_test"
+# One real trip day. The job still carries no data beyond a title: the day
+# itself travels as a package in ``inputs/<job_id>/``, which the app finds
+# from the job id it already has. A directory named by a server-generated
+# UUID is the only kind of path either side ever builds.
+ACTION_RENDER_TRIP_DAY = "render_trip_day"
 ALLOWED_ACTIONS = (
     ACTION_PING,
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_REMOTION_TEST,
+    ACTION_RENDER_TRIP_DAY,
 )
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
 ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg"
 ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
+ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4"
 ALLOWED_ARTIFACTS = {
     ARTIFACT_TEXT: "text",
     ARTIFACT_IMAGE: "image",
     ARTIFACT_VIDEO: "video",
+    ARTIFACT_TRIP_DAY_VIDEO: "video",
 }
+# Where a job's input package lives. Named after the job, never after
+# anything a user typed.
+INPUTS_DIR = "inputs"
 # Text artefacts are read into the panel; a video never is. Keeping the
 # limits apart means the small ones stay small - a 64 MiB text file would
 # be nonsense, and a 256 KiB cap would reject every real video.
@@ -460,6 +474,10 @@ def _video_facts(raw: Any) -> dict[str, Any] | None:
         "fps": number("fps"),
         "duration_seconds": number("duration_seconds"),
         "size_bytes": number("size_bytes"),
+        # Only a trip-day render reports these; they say how much of the
+        # package actually made it into the picture.
+        "photo_count": number("photo_count"),
+        "stop_count": number("stop_count"),
     }
 
 
@@ -467,7 +485,7 @@ def _timings(raw: Any) -> dict[str, float]:
     """Measured durations, in seconds. Unknown keys are dropped."""
     if not isinstance(raw, dict):
         return {}
-    allowed = ("browser_start", "render", "probe", "total")
+    allowed = ("package", "browser_start", "render", "probe", "total")
     out: dict[str, float] = {}
     for key in allowed:
         value = raw.get(key)

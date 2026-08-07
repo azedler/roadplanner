@@ -38,9 +38,12 @@ from homeassistant.core import HomeAssistant
 
 from .renderer_app_protocol import (
     ACTION_CREATE_TEST_ARTIFACT,
+    ACTION_RENDER_TRIP_DAY,
     ARTIFACT_IMAGE,
     ARTIFACT_TEXT,
+    ARTIFACT_TRIP_DAY_VIDEO,
     ARTIFACT_VIDEO,
+    INPUTS_DIR,
     MAX_VIDEO_ARTIFACT_BYTES,
     TEXT_ARTIFACT_KINDS,
     JOB_QUEUED,
@@ -60,6 +63,11 @@ from .renderer_app_protocol import (
     validate_status,
     verify_artifact,
 )
+from .trip_day_render_package import (
+    PACKAGE_FILENAME,
+    image_filename,
+    validate_package,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +76,7 @@ JOBS_DIR = "jobs"
 PROCESSING_DIR = "processing"
 STATUS_DIR = "status"
 RESULTS_DIR = "results"
-_SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR)
+_SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR, INPUTS_DIR)
 
 # Environment codes, stable so panel, tests and the report agree.
 ENV_READY = "READY"
@@ -230,6 +238,93 @@ class RendererAppClient:
         await self._hass.async_add_executor_job(self._write_job, job)
         return {"job_id": job_id, "state": JOB_QUEUED, "submitted_at": job["created_at"]}
 
+    async def async_submit_trip_day_job(
+        self,
+        *,
+        package: dict[str, Any],
+        images: list[bytes],
+        title: str,
+    ) -> dict[str, Any]:
+        """Hand over one day: its package first, the job last.
+
+        The order is the whole correctness argument. The worker claims a
+        job by finding its file; if that file existed before the images
+        did, a fast worker would claim a job whose inputs are still being
+        written. Writing the job last means the job file's existence
+        implies a complete package - the same reasoning that makes
+        ``result.json`` the last file the app writes.
+        """
+        validate_package(package)
+        if len(images) != len(package["images"]):
+            raise RendererProtocolError(
+                "Renderpaket und Bilddateien passen nicht zusammen"
+            )
+        job_id = new_job_id()
+        package = {**package, "job_id": job_id}
+        job = build_job(
+            job_id=job_id,
+            action=ACTION_RENDER_TRIP_DAY,
+            message=title or "Reisetag",
+            now=utc_now(),
+            ttl_seconds=JOB_TTL_SECONDS,
+        )
+        written = await self._hass.async_add_executor_job(
+            self._write_trip_day_job, job, package, images
+        )
+        return {
+            "job_id": job_id,
+            "state": JOB_QUEUED,
+            "submitted_at": job["created_at"],
+            "package_bytes": written,
+            "image_count": len(images),
+        }
+
+    def _write_trip_day_job(
+        self, job: dict[str, Any], package: dict[str, Any], images: list[bytes]
+    ) -> int:
+        folder = self._dir / INPUTS_DIR / validate_job_id(job["job_id"])
+        folder.mkdir(parents=True, exist_ok=True)
+        total = 0
+        for declared, blob in zip(package["images"], images, strict=True):
+            # The name is built from the declared integer index, checked by
+            # image_filename - never from anything in the package text.
+            self._write_atomic(folder / image_filename(declared["index"]), blob)
+            total += len(blob)
+        manifest = json.dumps(package, ensure_ascii=False).encode("utf-8")
+        self._write_atomic(folder / PACKAGE_FILENAME, manifest)
+        total += len(manifest)
+        self._write_job(job)
+        return total
+
+    async def async_discard_job_inputs(self, job_id: str) -> None:
+        """Remove a job's package.
+
+        The app deletes its own inputs when it is done with them. This is
+        for the case where the app never got that far - a job that was
+        never claimed would otherwise leave real travel data lying in a
+        shared directory indefinitely.
+        """
+        validate_job_id(job_id)
+        await self._hass.async_add_executor_job(self._discard_inputs, job_id)
+
+    def _discard_inputs(self, job_id: str) -> None:
+        folder = self._dir / INPUTS_DIR / job_id
+        try:
+            if folder.is_symlink() or not folder.is_dir():
+                return
+            for child in folder.iterdir():
+                if child.is_file() or child.is_symlink():
+                    child.unlink(missing_ok=True)
+            folder.rmdir()
+        except OSError as err:
+            _LOGGER.debug("Renderpaket %s nicht aufräumbar: %s", job_id, err)
+
+    @staticmethod
+    def _write_atomic(target: Path, payload: bytes) -> None:
+        temporary = target.with_name(f"{target.name}.part")
+        temporary.write_bytes(payload)
+        os.replace(temporary, target)
+
     def _write_job(self, job: dict[str, Any]) -> None:
         target = self._dir / JOBS_DIR / job_filename(job["job_id"])
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -300,12 +395,19 @@ class RendererAppClient:
             # shows what ffprobe measured; the file stays on disk.
             if is_text:
                 contents[declared["filename"]] = data.decode("utf-8", errors="replace")
-        video_path = folder / ARTIFACT_VIDEO
+        # Either video artefact counts - the test render and the trip-day
+        # render produce different filenames and the panel shows whichever
+        # one this job actually made.
+        video_path = ""
+        for candidate in (ARTIFACT_TRIP_DAY_VIDEO, ARTIFACT_VIDEO):
+            if (folder / candidate).is_file():
+                video_path = str(folder / candidate)
+                break
         return {
             **result,
             "text": contents.get(ARTIFACT_TEXT, ""),
             "svg": contents.get(ARTIFACT_IMAGE, ""),
-            "video_path": str(video_path) if video_path.is_file() else "",
+            "video_path": video_path,
         }
 
     # --- shared plumbing ------------------------------------------------

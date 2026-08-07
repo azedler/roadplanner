@@ -778,6 +778,9 @@ class RoadplannerPanel extends HTMLElement {
         cleanText(select.dataset.stopId),
         Number.parseInt(select.value, 10),
       );
+    } else if (select.dataset.action === "renderer-app-day") {
+      this._rendererAppDayId = select.value;
+      this._render({ preserveScroll: true });
     } else if (select.dataset.action === "select-video-style") {
       this._videoStyle = select.value;
     } else if (select.dataset.action === "pitch-select-day") {
@@ -1621,6 +1624,10 @@ class RoadplannerPanel extends HTMLElement {
       this._rendererAppRun();
     } else if (action === "renderer-app-render" && this._canEdit()) {
       this._rendererAppRun("renderer_app_render");
+    } else if (action === "renderer-app-load-days") {
+      this._rendererAppLoadDays();
+    } else if (action === "renderer-app-trip-day" && this._canEdit()) {
+      this._rendererAppMiniExport();
     } else if (action === "renderer-app-copy-report") {
       this._copyToClipboard(this._rendererAppReportText(), "Bericht kopiert");
     } else if (action === "run-system-check") {

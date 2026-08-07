@@ -68,6 +68,70 @@ export const rendererAppMixin = {
     }
   },
 
+  /**
+   * Load the day list for the mini export.
+   *
+   * Kept separate from the environment probe: the day list depends on the
+   * selected trip and is worth re-reading after a trip change, while the
+   * environment does not change between renders.
+   */
+  async _rendererAppLoadDays() {
+    if (this._rendererAppDaysLoading) return;
+    this._rendererAppDaysLoading = true;
+    this._render({ preserveScroll: true });
+    try {
+      const result = await this._runAction(
+        "renderer_app_trip_days",
+        { trip_id: this._selectedTripId },
+        "",
+        { refresh: false, blockUi: false, errorTitle: "Die Reisetage konnten nicht geladen werden" },
+      );
+      this._rendererAppTripDays = result?.renderer_app_trip_days || [];
+      if (
+        !this._rendererAppDayId ||
+        !this._rendererAppTripDays.some((day) => day.day_id === this._rendererAppDayId)
+      ) {
+        // Preselect a day that can actually be exported, so the first
+        // click does something instead of explaining why it cannot.
+        const usable = this._rendererAppTripDays.find((day) => day.exportable);
+        this._rendererAppDayId = usable ? usable.day_id : "";
+      }
+    } finally {
+      this._rendererAppDaysLoading = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  async _rendererAppMiniExport() {
+    if (!this._rendererAppDayId) return;
+    const result = await this._runAction(
+      "renderer_app_trip_day",
+      { trip_id: this._selectedTripId, day_id: this._rendererAppDayId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorTitle: "Der Mini-Export konnte nicht gestartet werden",
+      },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    this._rendererAppKind = "trip_day";
+    // The status file the poll returns knows nothing about the package -
+    // it carries a job state and nothing else. What was handed over is
+    // kept here, or the result would be unable to say how much travelled.
+    this._rendererAppPackage = {
+      package_bytes: result.renderer_app_job.package_bytes,
+      image_count: result.renderer_app_job.image_count,
+      stop_count: result.renderer_app_job.stop_count,
+      day_title: result.renderer_app_job.day_title,
+      day_date: result.renderer_app_job.day_date,
+    };
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
   async _rendererAppRun(action = "renderer_app_run") {
     const result = await this._runAction(action, {}, "", {
       refresh: false,
@@ -81,6 +145,7 @@ export const rendererAppMixin = {
     // The status file carries no action, so the kind of job is remembered
     // here - otherwise a render would be announced as a plain test.
     this._rendererAppKind = action === "renderer_app_render" ? "render" : "test";
+    this._rendererAppPackage = null;
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
     this._render({ preserveScroll: true });
@@ -147,6 +212,9 @@ export const rendererAppMixin = {
       `App-Version: ${status.app_version || "–"}`,
       `Heartbeat-Alter: ${status.age_seconds === undefined || status.age_seconds === null ? "–" : `${status.age_seconds} s`}`,
       `Testauftrag: ${job.job_id || "nicht gelaufen"}`,
+      this._rendererAppPackage
+        ? `Renderpaket: ${Math.round((this._rendererAppPackage.package_bytes || 0) / 1024)} kB, ${this._rendererAppPackage.image_count} Bilder, ${this._rendererAppPackage.stop_count} Stopps (${this._rendererAppPackage.day_date} ${this._rendererAppPackage.day_title})`
+        : "",
       `Jobzustand: ${job.state || "–"}`,
       result?.video
         ? `Video: ${result.video.codec} ${result.video.width}x${result.video.height}, ${result.video.duration_seconds} s, ${result.video.size_bytes} B`
@@ -192,19 +260,68 @@ export const rendererAppMixin = {
       }
     }
 
+    // --- the mini export with real data ---------------------------------
+    // Offered only once the app is reachable: a day list is pointless if
+    // nothing can render it, and a disabled dropdown explains less than
+    // the app line above it already does.
+    const days = this._rendererAppTripDays;
+    const exportable = (days || []).filter((day) => day.exportable);
+    const selectedDay = (days || []).find((day) => day.day_id === this._rendererAppDayId);
+    let miniExportBlock = "";
+    if (status?.online) {
+      const options = (days || [])
+        .map((day) => {
+          const label = [
+            `Tag ${day.number}`,
+            day.date,
+            day.title || "ohne Titel",
+            day.photo_count ? `${day.photo_count} Fotos` : "keine Fotos",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<option value="${escapeHtml(day.day_id)}"${day.day_id === this._rendererAppDayId ? " selected" : ""}${day.exportable ? "" : " disabled"}>${escapeHtml(label)}</option>`;
+        })
+        .join("");
+      miniExportBlock = `<div class="notice neutral"><div>
+        <strong>Mini-Export mit echten Daten</strong>
+        <small>Ein einzelner Reisetag: Titel, Datum, Stopps und bis zu fünf verkleinerte Fotokopien ohne Aufnahmedaten. Es wird weder das Roadbook noch die Mediathek übergeben.</small>
+        <div class="button-row">
+          ${
+            days
+              ? `<select data-action="renderer-app-day"${exportable.length ? "" : " disabled"}>${options || "<option value=\"\">Keine Reisetage</option>"}</select>`
+              : ""
+          }
+          <button class="secondary-button" type="button" data-action="renderer-app-load-days"${this._rendererAppDaysLoading ? " disabled" : ""}><ha-icon icon="mdi:calendar-search"></ha-icon> ${this._rendererAppDaysLoading ? "Lade …" : days ? "Tage neu laden" : "Reisetage laden"}</button>
+          <button class="secondary-button" type="button" data-action="renderer-app-trip-day"${selectedDay?.exportable && !running ? "" : " disabled"}><ha-icon icon="mdi:filmstrip"></ha-icon> Tagesvideo erzeugen</button>
+        </div>
+        ${days && !exportable.length ? "<small>Kein Reisetag dieser Reise hat ein Foto - ohne Bild ergibt der Mini-Export keinen Nachweis.</small>" : ""}
+      </div></div>`;
+    }
+
     let jobBlock = "";
     if (running) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
       const label =
-        this._rendererAppKind === "render" ? "Testvideo wird gerendert" : "Testauftrag läuft";
+        this._rendererAppKind === "trip_day"
+          ? "Tagesvideo wird gerendert"
+          : this._rendererAppKind === "render"
+            ? "Testvideo wird gerendert"
+            : "Testauftrag läuft";
       jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>${label} … ${percent} %</span></div>`;
     } else if (job?.state === "completed" && result?.video) {
       const v = result.video;
       const t = result.timings || {};
       // .notice is a flex row and stacks only what sits inside a single
       // child div - text with <br> would become one column per element.
+      const pack = this._rendererAppPackage;
       jobBlock = `<div class="notice neutral"><div>
-        <strong>Testvideo erzeugt</strong>
+        <strong>${this._rendererAppKind === "trip_day" ? "Tagesvideo erzeugt" : "Testvideo erzeugt"}</strong>
+        ${
+          pack
+            ? `<span>${escapeHtml([pack.day_date, pack.day_title].filter(Boolean).join(" · "))}</span>
+        <small>Renderpaket ${escapeHtml(String(Math.round((pack.package_bytes || 0) / 1024)))} kB · ${escapeHtml(String(pack.image_count || 0))} Bilder · ${escapeHtml(String(pack.stop_count || 0))} Stopps</small>`
+            : ""
+        }
         <span>${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB</span>
         <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small>
         <small>Die Datei liegt im Austauschordner; sie wird bewusst nicht ins Panel geladen.</small>
@@ -235,6 +352,7 @@ export const rendererAppMixin = {
         ${canEdit ? `<button class="secondary-button" type="button" data-action="renderer-app-render"${status?.online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-open-play-outline"></ha-icon> Testvideo rendern</button>` : ""}
         ${environment ? `<button class="text-button" type="button" data-action="renderer-app-copy-report"><ha-icon icon="mdi:clipboard-text-outline"></ha-icon> Bericht kopieren</button>` : ""}
       </div>
+      ${canEdit ? miniExportBlock : ""}
       ${
         environment
           ? `<div class="facts-grid">

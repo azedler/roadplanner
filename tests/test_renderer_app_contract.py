@@ -358,6 +358,82 @@ def verify_the_render_can_actually_be_triggered() -> None:
     assert "attempt < 150" in feature, "die Abfrage muss den Render überdauern"
 
 
+def verify_the_mini_export_is_wired_end_to_end() -> None:
+    """Every half of the data path, checked where only a file can see it.
+
+    Package builder, client, panel action, worker branch, composition and
+    dispatcher each look complete on their own while the export is
+    unreachable. This is the only place that sees all of them at once.
+    """
+    panel = (INTEGRATION / "panel.py").read_text(encoding="utf-8")
+    for action in ("renderer_app_trip_days", "renderer_app_trip_day"):
+        assert f'"{action}"' in panel, f"{action} fehlt in panel.py"
+    # Handing real photos over is an edit, listing days is not.
+    edit_block = panel.split("_EDIT_ACTIONS = {", 1)[1].split("}", 1)[0]
+    assert '"renderer_app_trip_day"' in edit_block, (
+        "der Mini-Export braucht Schreibrechte"
+    )
+    assert '"renderer_app_trip_days"' not in edit_block, (
+        "die Tagesliste ist ein Lesevorgang"
+    )
+
+    wiring = (INTEGRATION / "__init__.py").read_text(encoding="utf-8")
+    assert "TripDayMiniExporter" in wiring and "trip_day_mini_export=" in wiring
+
+    exporter = (INTEGRATION / "trip_day_mini_export.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in exporter.splitlines() if not line.strip().startswith("#")
+    )
+    # The mini export proves a data path; it must not quietly start doing
+    # the work the assignment put out of scope.
+    for forbidden in ("async_generate_text", "map_snapshot", "trip_music", "narrative"):
+        assert forbidden not in code, f"der Mini-Export darf {forbidden} nicht benutzen"
+    assert "async_fetch_day_photos" in code, (
+        "die Fotoauswahl bleibt die gemeinsame - sie darf nicht auseinanderlaufen"
+    )
+
+    frontend = (INTEGRATION / "frontend" / "features" / "renderer-app.js").read_text(
+        encoding="utf-8"
+    )
+    dispatcher = (INTEGRATION / "frontend" / "roadplanner-panel.js").read_text(
+        encoding="utf-8"
+    )
+    for hook in ("renderer-app-trip-day", "renderer-app-load-days", "renderer-app-day"):
+        assert hook in frontend, f"der Knopf {hook} fehlt im Panel"
+        assert hook in dispatcher, f"{hook} wird nicht verteilt"
+    assert "_rendererAppMiniExport" in frontend and "_rendererAppMiniExport" in dispatcher
+
+    worker = (APP / "src" / "index.mjs").read_text(encoding="utf-8")
+    assert '"render_trip_day"' in worker, "der Worker kennt die Aktion nicht"
+    assert "discardInputs" in worker, "das Renderpaket muss nach dem Job verschwinden"
+    root = (APP / "src" / "remotion" / "Root.tsx").read_text(encoding="utf-8")
+    assert "roadplanner-trip-day" in root and "calculateMetadata" in root
+
+
+def verify_real_travel_data_is_minimised_before_it_leaves() -> None:
+    """/share is a trust channel, so what crosses it is decided, not default."""
+    package = (INTEGRATION / "trip_day_render_package.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line
+        for line in package.splitlines()
+        if not line.strip().startswith("#") and not line.strip().startswith("*")
+    )
+    # Re-encoded from pixels: that is what removes EXIF, and with it the
+    # GPS position a phone writes into every holiday photo.
+    assert "exif_transpose" in code, "die Ausrichtung wird vor dem Verwerfen angewandt"
+    assert "metadata_markers" in code, "das Ergebnis wird auf Restmetadaten geprüft"
+    assert 'format="JPEG"' in code, "das Bild wird neu geschrieben, nicht kopiert"
+    for limit in ("MAX_IMAGES", "MAX_IMAGE_BYTES", "MAX_PACKAGE_BYTES", "MAX_STOPS"):
+        assert limit in code, f"die Grenze {limit} fehlt"
+    # No filename travels, so no string from the package reaches a path.
+    assert "def image_filename" in code
+
+    worker = (APP / "src" / "index.mjs").read_text(encoding="utf-8")
+    assert "INPUT_RETENTION_MS" in worker, (
+        "ein verwaistes Renderpaket darf nicht dauerhaft liegen bleiben"
+    )
+
+
 def verify_one_repository_still_serves_both_consumers() -> None:
     """HACS and the Supervisor read different files and must not collide."""
     assert (ROOT / "hacs.json").is_file(), "HACS bleibt unverändert"
@@ -418,6 +494,8 @@ verify_every_dependency_is_pinned_exactly()
 verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()
 verify_the_render_can_actually_be_triggered()
+verify_the_mini_export_is_wired_end_to_end()
+verify_real_travel_data_is_minimised_before_it_leaves()
 verify_one_repository_still_serves_both_consumers()
 verify_stray_app_manifests_are_rejected_by_the_validator()
 verify_the_app_ci_is_a_separate_workflow()
