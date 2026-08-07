@@ -109,6 +109,25 @@ const padBbox = (
 };
 
 /**
+ * Views already built, kept for the process rather than the component.
+ *
+ * This cache is the difference between a film that renders and one that
+ * does not. Projecting Natural Earth is roughly a hundred thousand
+ * coordinate transforms and a path string of comparable length; a React
+ * memo does not help, because Remotion renders frames across several
+ * browser tabs that each seek to arbitrary frames, so a component almost
+ * never gets to reuse its own previous result. Without this the outline
+ * was rebuilt for every one of four thousand frames and the 25-day CI
+ * film ran past its 1500-second limit.
+ *
+ * A film has as many distinct views as it has map scenes - about thirty -
+ * so the whole cache is a few dozen strings and every frame after the
+ * first of each scene is free.
+ */
+const VIEW_CACHE = new Map<string, MapView>();
+const VIEW_CACHE_LIMIT = 64;
+
+/**
  * Build the view for one scene.
  *
  * Mercator, because a travel map is read the way a road atlas is read and
@@ -121,6 +140,11 @@ export const buildView = (
   height: number,
   pad = 0.55,
 ): MapView => {
+  // Rounded, so a bbox that differs in the eighth decimal is the same
+  // view. It cannot differ visibly and must not cost a second projection.
+  const key = [...bbox.map((value) => value.toFixed(4)), width, height, pad].join("|");
+  const cached = VIEW_CACHE.get(key);
+  if (cached) return cached;
   const [west, south, east, north] = padBbox(bbox, pad);
   // The corners as points, NOT as a polygon. d3-geo reads a polygon
   // spherically, where the ring's winding order decides which side is
@@ -144,8 +168,11 @@ export const buildView = (
     ],
     extent,
   );
-  const path = geoPath(projection);
-  return {
+  // Clip in screen space: a country on the far side of the planet still
+  // has to be walked, but it no longer contributes megabytes of path
+  // data that the browser then has to parse and rasterise.
+  const path = geoPath(projection.clipExtent([[0, 0], [width, height]]));
+  const view: MapView = {
     width,
     height,
     project: (point: MapPoint) => {
@@ -155,6 +182,13 @@ export const buildView = (
     landPath: path(landFeature as never) ?? "",
     borderPath: path(borderMesh as never) ?? "",
   };
+  if (VIEW_CACHE.size >= VIEW_CACHE_LIMIT) {
+    // Oldest first. A film walks its scenes in order, so the entry least
+    // likely to be wanted again is the one added longest ago.
+    VIEW_CACHE.delete(VIEW_CACHE.keys().next().value as string);
+  }
+  VIEW_CACHE.set(key, view);
+  return view;
 };
 
 const polyline = (view: MapView, points: MapPoint[]): string => {
