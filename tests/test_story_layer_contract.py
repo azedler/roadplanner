@@ -302,6 +302,35 @@ def verify_the_poll_outlasts_a_whole_film() -> None:
     assert "trip_film" in poll, "der Film braucht die laengere Frist"
 
 
+def verify_nobody_reads_a_field_the_provider_results_do_not_have() -> None:
+    """The same wrong assumption was made twice, months apart.
+
+    ``AssistantJsonResult`` carries ``value``. Two call sites read
+    ``data``: the story director, where it broke every run, and the day
+    summary, where it silently threw away a paid-for Vision answer and
+    fell through to the text-only prompt. Neither test caught it, because
+    both fakes had been given the shape their author assumed.
+
+    So the field name is checked against the real dataclasses, and the
+    wrong one is checked as absent across the integration.
+    """
+    provider = (INTEGRATION / "assistant_provider.py").read_text(encoding="utf-8")
+    assert "value: dict[str, Any]" in provider, "AssistantJsonResult traegt value"
+    assert "text: str" in provider, "AssistantTextResult traegt text"
+
+    offenders = []
+    for path in sorted(INTEGRATION.glob("*.py")):
+        source = _code(path)
+        for pattern in (
+            'getattr(result, "data"',
+            'getattr(answer, "data"',
+            'getattr(res, "data"',
+        ):
+            if pattern in source:
+                offenders.append(f"{path.name}: {pattern}")
+    assert not offenders, offenders
+
+
 def verify_the_director_has_no_route_to_the_roadbook() -> None:
     """It edits prose. It must not be able to move a stop.
 
@@ -424,6 +453,7 @@ verify_a_running_film_survives_a_page_reload()
 verify_the_poll_outlasts_a_whole_film()
 verify_a_progress_tick_does_not_rebuild_the_page()
 verify_the_finished_video_can_be_fetched()
+verify_nobody_reads_a_field_the_provider_results_do_not_have()
 verify_the_director_has_no_route_to_the_roadbook()
 verify_the_director_module_stays_testable_without_home_assistant()
 verify_the_builder_still_cannot_spend_money()

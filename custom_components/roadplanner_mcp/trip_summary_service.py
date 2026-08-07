@@ -596,9 +596,17 @@ class TripSummaryService:
 
 
 def _summary_of(result: Any) -> str:
-    data = getattr(result, "data", None)
-    if isinstance(data, dict) and "summary" in data:
-        return str(data.get("summary") or "")
+    """The summary out of a provider result, JSON or plain text.
+
+    The JSON field is ``value``. This read ``data``, which no result type
+    has - so every Vision-analysed day summary silently produced nothing,
+    fell through to the text-only prompt, and the image analysis was paid
+    for and discarded. Found while fixing the identical mistake in the
+    story director; the same wrong assumption, made twice.
+    """
+    value = getattr(result, "value", None)
+    if isinstance(value, dict) and "summary" in value:
+        return str(value.get("summary") or "")
     return str(getattr(result, "text", "") or "")
 
 

@@ -54,6 +54,11 @@ for optional in ("bounded_json", "json_io", "identifiers", "json_tree_validation
         pass
 load("canonical_day")
 service_module = load("trip_summary_service")
+# The provider's own result types rather than imitations of them. A fake
+# whose shape the test author chose can only confirm what they already
+# believed: this file's FakeResult had a `data` field that no real result
+# has, which kept a broken read of the Vision answer green for months.
+provider_module = load("assistant_provider")
 RoadplannerError = sys.modules[f"{PACKAGE_NAME}.roadplanner"].RoadplannerError
 
 
@@ -65,10 +70,12 @@ class FakeHass:
         return func(*args)
 
 
-class FakeResult:
-    def __init__(self, text="", data=None):
-        self.text = text
-        self.data = data
+def FakeJson(value):
+    return provider_module.AssistantJsonResult(value=value)
+
+
+def FakeText(text):
+    return provider_module.AssistantTextResult(text=text)
 
 
 class FakeProvider:
@@ -88,11 +95,11 @@ class FakeProvider:
         )
         if len(self.vision_calls) in self._vision_error_on:
             raise RoadplannerError("Vision kaputt")
-        return FakeResult(data={"summary": f"Vision-Text {len(self.vision_calls)}"})
+        return FakeJson({"summary": f"Vision-Text {len(self.vision_calls)}"})
 
     async def async_generate_text(self, *, system_instruction, messages, enable_search, max_output_tokens, temperature):
         self.text_calls.append({"system": system_instruction, "messages": messages})
-        return FakeResult(text=self._text or f"Text {len(self.text_calls)}")
+        return FakeText(self._text or f"Text {len(self.text_calls)}")
 
 
 class FakeManager:

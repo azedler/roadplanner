@@ -152,6 +152,7 @@ export const PANEL_STYLES = `<style>
       .renderer-app-download { display: inline-block; margin-top: 6px; font-weight: 700; word-break: break-word; }
       .story-film-job { display: block; margin-top: 6px; }
       .story-arc { display: block; margin-top: 6px; font-style: italic; }
+      .story-director-failed { display: block; margin-top: 6px; color: var(--error-color, #d32f2f); }
       .story-weight { display: inline-flex; align-items: center; padding: 2px 8px; margin-left: 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); }
       .story-caption { display: grid; gap: 4px; margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--secondary-background-color); color: var(--primary-text-color); min-width: 0; }
       .story-caption > span { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--secondary-text-color); }

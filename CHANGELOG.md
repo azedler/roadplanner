@@ -6,6 +6,15 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.42.1] - 2026-08-07
+
+### Fixed
+
+- **Die Reiseredaktion ist bei jedem echten Lauf gescheitert – wegen eines falschen Feldnamens.** Der Dienst las `.data` aus dem Antwortobjekt; das Antwortobjekt heißt `.value`. Der `getattr`-Rückfall lieferte damit das Objekt selbst statt der Antwort, und die Prüfung sah etwas, das kein Objekt war. Dass die Tests trotzdem grün waren, ist der eigentliche Fehler: Die Attrappe hatte die Form, die ich angenommen hatte, statt der Form, die der Provider zurückgibt. Sie ist jetzt **die echte Datenklasse**.
+- **Derselbe Irrtum steckte seit Monaten in den Tageszusammenfassungen.** `_summary_of` las ebenfalls `.data` – die Vision-Analyse eines Tages wurde also bezahlt und weggeworfen, und es wurde still auf den reinen Textprompt zurückgefallen. Auch dort hatte die Attrappe die falsche Form und den Fehler grün gehalten.
+- **Ein Kontrakttest sperrt beides.** Der Feldname wird gegen die echten Datenklassen geprüft, und der falsche wird integrationsweit als abwesend geprüft.
+- **Ein gescheiterter Durchgang bleibt sichtbar.** Die Einblendung ist nach sechs Sekunden weg; eine Karte, die danach aussieht wie eine, die nie gedrückt wurde, verschweigt den Fehlschlag. Jetzt steht er in der Karte.
+
 ## [4.42.0] - 2026-08-07
 
 ### Added

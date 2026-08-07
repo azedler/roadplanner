@@ -41,6 +41,7 @@ from homeassistant.core import HomeAssistant
 
 from .roadplanner import RoadplannerError, ValidationError
 from .story_director import (
+    StoryDirectorError,
     ARC_SCHEMA,
     ARC_SYSTEM_PROMPT,
     CHAPTERS_SCHEMA,
@@ -69,6 +70,23 @@ TEMPERATURE = 0.55
 
 def _as_text(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True)
+
+
+def _answer_value(answer: Any) -> Any:
+    """The JSON object out of the provider's result wrapper.
+
+    The field is ``value``. This once read ``data``, which does not exist
+    on ``AssistantJsonResult`` - so ``getattr`` fell through to the
+    wrapper object itself, the merge below saw something that was not a
+    dict, and every run failed. The test did not catch it because its fake
+    had been given the shape I assumed instead of the shape the provider
+    actually returns; the fake now IS the real dataclass.
+
+    A plain dict is accepted too, so a caller can hand the raw answer in.
+    """
+    if isinstance(answer, dict):
+        return answer
+    return getattr(answer, "value", None)
 
 
 class StoryDirectorService:
@@ -179,7 +197,16 @@ class StoryDirectorService:
                 "bleiben unverändert."
             ) from err
         calls += 1
-        arc = merge_arc(getattr(arc_answer, "data", arc_answer), known_ids=known_ids)
+        try:
+            arc = merge_arc(_answer_value(arc_answer), known_ids=known_ids)
+        except StoryDirectorError as err:
+            # An answer in a shape nobody expected. Reported rather than
+            # crashed: the trip keeps the sentences it already had, and
+            # the message says which half failed.
+            raise ValidationError(
+                f"Der Reisebogen kam in unlesbarer Form zurück ({err}). Die "
+                "vorhandenen Texte bleiben unverändert."
+            ) from err
 
         edited: dict[str, dict[str, Any]] = {}
         failed_batches = 0
@@ -211,13 +238,18 @@ class StoryDirectorService:
                 _LOGGER.debug("Kapitelredaktion fehlgeschlagen: %s", type(err).__name__)
                 continue
             calls += 1
-            edited.update(
-                merge_chapters(
-                    getattr(answer, "data", answer),
-                    known_ids=known_ids,
-                    stop_ids_by_chapter=stop_ids_by_chapter,
+            try:
+                edited.update(
+                    merge_chapters(
+                        _answer_value(answer),
+                        known_ids=known_ids,
+                        stop_ids_by_chapter=stop_ids_by_chapter,
+                    )
                 )
-            )
+            except StoryDirectorError:
+                # An unreadable answer costs this batch, like a failed call.
+                failed_batches += 1
+                _LOGGER.debug("Kapitelantwort unlesbar")
 
         direction = build_direction(
             context_hash=context_hash,
