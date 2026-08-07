@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.38.0] - 2026-08-07
+
+### Added
+
+- **TravelStoryManifest v1 und StoryContextBuilder – die gemeinsame Story-Ebene.** Bisher gräbt sich jeder Export selbst durch das Roadbook und entscheidet für sich, worum es an einem Tag *geht*. Genau das ist schon auseinandergelaufen. Das Manifest ist die Struktur, die das für die Erzählebene verhindert: eine **Beschreibung**, kein Layout – sie sagt, was eine Reise und ihre Tage sind, und kein Wort über Seiten, Bilder pro Sekunde oder Schriftgrößen.
+- **Nur stabile IDs und echte Fakten.** Jede Referenz ist eine ID, die es in Roadplanner gibt – Tag, Stopp, Medium. Keine URLs, keine Bytes, keine Koordinaten, keine hergeleiteten Zahlen. Eine Strecke steht nur im Manifest, wenn das Roadbook sie ohnehin hat; nichts wird nachgeschlagen, um ein Feld zu füllen. Eine erfundene Zahl wäre schlimmer als eine fehlende, weil man ihr glauben würde.
+- **Deterministisch und cachebar.** Gleiche Eingaben ergeben byteweise dasselbe Ergebnis: keine Uhr, keine Zufallsauswahl, feste Sortierung. Der `content_hash` deckt den gesamten Inhalt ab und wird beim Lesen geprüft – ein nachträglich verändertes Manifest wird abgelehnt. Zwischengespeichert wird über die Roadbook-Revision.
+- **Auch die Prosa erfindet nichts.** Der Text eines Kapitels ist entweder eine gespeicherte Zusammenfassung, ein von Hand geschriebener Override oder ein Satz, der aus den Fakten **desselben Kapitels** zusammengesetzt wurde. `story.source` sagt immer, welches davon. Es gibt hier keinen Erzeuger, der eine Tatsache hervorbringen könnte, die das Kapitel nicht enthält – die Tonalität steckt in der Formulierung, nie im Inhalt. Ein Tag ohne Strecke bekommt keinen Satz über Strecke, und `0 km` gilt als „nicht erfasst", nicht als Tatsache.
+- **Overrides sind Teil des Modells.** Titel und Story eines Kapitels lassen sich ersetzen; das Manifest hält fest, dass es geschehen ist. Sie stehen in den `details` des jeweiligen Tages (`story_title_override`, `story_override`), damit ein späterer Story-Editor ohne Migration darauf aufsetzen kann. Ein Editor ist ausdrücklich **nicht** Teil dieses Schritts.
+- Neue lesende Panel-Aktion `story_manifest`. Sie erzeugt nichts und schreibt nichts.
+
+### Changed
+
+- Nichts an den bestehenden Exporten. PDF, Video und Mini-Export sind unverändert und nutzen das Manifest noch nicht – ein Vertragstest hält das fest. Zwei funktionierende Features umzubauen, um eine neue Struktur zu belegen, würde einen Fehler dort von einem Fehler im Manifest ununterscheidbar machen.
+
 ## [4.37.3] - 2026-08-07
 
 ### Fixed

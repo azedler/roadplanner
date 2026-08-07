@@ -84,6 +84,7 @@ _ACTIONS = {
     "renderer_app_status",
     "renderer_app_run",
     "renderer_app_render",
+    "story_manifest",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
@@ -1393,6 +1394,17 @@ async def _execute_action(
             "renderer_app_job": await runtime.renderer_app.async_submit_test_job(
                 message="Roadplanner Remotion Test",
                 action=ACTION_RENDER_REMOTION_TEST,
+            )
+        }
+
+    if action == "story_manifest":
+        # Read-only: the described trip, as both exporters will one day see
+        # it. Nothing is generated and nothing is written; a cached
+        # manifest is returned unchanged while the roadbook has not moved.
+        return {
+            "story_manifest": await runtime.story_context.async_manifest(
+                str(data.get("trip_id") or ""),
+                force=data.get("force") is True,
             )
         }
 
