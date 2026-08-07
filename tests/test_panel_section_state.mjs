@@ -89,4 +89,32 @@ assert.match(
   "ein Artefakt bringt seine Eigenbreite mit und muss begrenzt werden",
 );
 
+// --- notices stack, they do not become columns -------------------------
+/**
+ * `.notice` is a flex row that stacks only what sits inside a single child
+ * div. Writing text with <br> straight into it turns every element into
+ * its own column - which is exactly how the render result appeared on the
+ * phone: "Testvideo erzeugt", the resolution, the timings and the hint
+ * squeezed side by side into four narrow strips.
+ */
+const noticeCards = [
+  "frontend/features/renderer-app.js",
+  "frontend/features/remotion-spike.js",
+];
+for (const file of noticeCards) {
+  const source = stripComments(read(file));
+  for (const match of source.match(/class="notice[^"]*"[^>]*>[^`]{0,400}/g) || []) {
+    const body = match.slice(match.indexOf(">") + 1);
+    if (!body.trim()) continue;
+    assert.ok(
+      body.trimStart().startsWith("<div") || body.includes('class="spinner'),
+      `${file}: ein Hinweis muss seinen Inhalt in ein <div> stapeln, sonst wird jede Zeile eine Spalte -> ${body.slice(0, 90)}`,
+    );
+  }
+  assert.ok(
+    !/class="notice[^"]*"[^>]*><strong/.test(source),
+    `${file}: Text direkt im Flex-Container erzeugt Spalten statt Zeilen`,
+  );
+}
+
 console.log("Panel section state tests passed.");
