@@ -263,6 +263,11 @@ def verify_a_running_film_survives_a_page_reload() -> None:
     editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
     assert "_rendererAppAdoptOnce()" in editor
     assert editor.count("_renderStoryFilmJobLine()") >= 2
+    # Both cards that show a job have to look for one. Hanging this on the
+    # environment probe alone left a finished film invisible until
+    # somebody pressed a button nobody presses when hunting for a video.
+    card = renderer.split("_renderRendererApp() {", 1)[1].split("\n  },", 1)[0]
+    assert "_rendererAppAdoptOnce()" in card
     # And the panel has to offer the action at all.
     panel = _code(INTEGRATION / "panel.py")
     assert '"renderer_app_recent_jobs"' in panel

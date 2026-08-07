@@ -361,6 +361,12 @@ export const rendererAppMixin = {
   },
 
   _renderRendererApp() {
+    // The card that shows jobs has to look for one, exactly like the
+    // story card does. Hanging this on the environment probe instead
+    // meant a finished film stayed invisible until somebody happened to
+    // press "Umgebung prüfen" - which nobody does when they are looking
+    // for their video.
+    this._rendererAppAdoptOnce();
     const environment = this._rendererAppEnvironment;
     const details = environment?.details || {};
     const status = this._rendererAppStatus;
