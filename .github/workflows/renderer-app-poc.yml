@@ -284,6 +284,91 @@ jobs:
           print(f"Renderpaket: {package['total_image_bytes']} B in {len(images)} Bildern")
           PY
 
+      # The success path already proves the package is removed. This is the
+      # other half: a job that FAILS must not leave somebody's photos in a
+      # shared directory either. The deletion sits in the job's `finally`,
+      # so it should hold - "should" is why this runs.
+      - name: A failed job cleans up after itself too
+        run: |
+          set -euo pipefail
+          python3 - <<'INNER'
+          import hashlib, io, json, os, pathlib, time, uuid
+          from PIL import Image
+
+          exchange = pathlib.Path(os.environ["RUNNER_TEMP"]) / "exchange"
+          job_id = str(uuid.uuid4())
+          inputs = exchange / "inputs" / job_id
+          inputs.mkdir(parents=True, exist_ok=True)
+
+          picture = Image.new("RGB", (640, 360), (30, 60, 90))
+          buffer = io.BytesIO()
+          picture.save(buffer, format="JPEG", quality=82)
+          blob = buffer.getvalue()
+          (inputs / "photo-1.jpg").write_bytes(blob)
+
+          # The declared hash belongs to DIFFERENT bytes. The renderer has
+          # to refuse this before it starts a browser.
+          wrong = hashlib.sha256(blob + b"nicht dieselben Bytes").hexdigest()
+          package = {
+              "package_version": 1,
+              "job_id": job_id,
+              "trip_title": "Finnland 2026",
+              "day": {
+                  "day_id": "day-9",
+                  "date": "2026-08-06",
+                  "title": "Ein Tag, der nicht gerendert werden darf",
+                  "summary": "",
+                  "number": 9,
+                  "count": 21,
+                  "distance_km": None,
+                  "duration_minutes": None,
+              },
+              "stops": [{"name": "Vaasa", "time": ""}],
+              "images": [{"index": 1, "size_bytes": len(blob), "sha256": wrong}],
+              "total_image_bytes": len(blob),
+          }
+          (inputs / "package.json").write_text(json.dumps(package, ensure_ascii=False))
+
+          now = time.time()
+          job = {
+              "schema_version": 1,
+              "protocol_version": 1,
+              "job_id": job_id,
+              "action": "render_trip_day",
+              "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+              "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 1800)),
+              "input": {"message": "Ein Tag, der nicht gerendert werden darf"},
+          }
+          target = exchange / "jobs" / f"{job_id}.json"
+          temporary = target.with_suffix(".json.part")
+          temporary.write_text(json.dumps(job))
+          temporary.replace(target)
+
+          status_file = exchange / "status" / f"{job_id}.json"
+          deadline = time.time() + 180
+          state = None
+          while time.time() < deadline:
+              if status_file.is_file():
+                  status = json.loads(status_file.read_text())
+                  state = status.get("state")
+                  if state in ("failed", "expired", "completed"):
+                      break
+              time.sleep(1)
+          print(json.dumps(status if state else {}, indent=2))
+          assert state == "failed", f"erwartet failed, bekommen {state}"
+          assert status["error"]["code"] == "PACKAGE_INVALID", status["error"]
+
+          # No result was produced, and - the point of this test - the
+          # photos are gone.
+          for _ in range(15):
+              if not inputs.exists():
+                  break
+              time.sleep(1)
+          assert not inputs.exists(), "Das Renderpaket blieb nach dem Fehlschlag liegen"
+          assert not (exchange / "results" / job_id).exists(), "Es gibt ein Ergebnis, obwohl der Job scheiterte"
+          print("Fehlgeschlagener Job: Renderpaket aufgeraeumt, kein Ergebnis erzeugt")
+          INNER
+
       # The status file carries the message a user is meant to read, which
       # is deliberately free of stack traces and paths. When a render fails
       # in CI the cause is what matters, and it is in the app log.
