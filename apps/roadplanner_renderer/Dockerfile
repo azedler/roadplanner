@@ -143,7 +143,10 @@ COPY --from=ffprobe-runtime /opt/ffprobe /opt/ffprobe
 
 WORKDIR /opt/roadplanner-renderer
 COPY --from=builder /build/node_modules ./node_modules
-COPY --from=builder /build/bundle ./bundle
+# Both of these are written to their final location already, by the same
+# ROADPLANNER_* variables the runtime reads - the builder's /build is only
+# the source tree.
+COPY --from=builder /opt/roadplanner-renderer/bundle ./bundle
 COPY --from=builder /opt/roadplanner-renderer/browser ./browser
 COPY package.json ./
 COPY src/index.mjs src/protocol.mjs src/render.mjs ./src/
