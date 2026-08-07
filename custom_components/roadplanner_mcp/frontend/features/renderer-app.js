@@ -288,7 +288,7 @@ export const rendererAppMixin = {
         <div class="button-row">
           ${
             days
-              ? `<select data-action="renderer-app-day"${exportable.length ? "" : " disabled"}>${options || "<option value=\"\">Keine Reisetage</option>"}</select>`
+              ? `<select class="renderer-app-day-select" data-action="renderer-app-day"${exportable.length ? "" : " disabled"}>${options || "<option value=\"\">Keine Reisetage</option>"}</select>`
               : ""
           }
           <button class="secondary-button" type="button" data-action="renderer-app-load-days"${this._rendererAppDaysLoading ? " disabled" : ""}><ha-icon icon="mdi:calendar-search"></ha-icon> ${this._rendererAppDaysLoading ? "Lade …" : days ? "Tage neu laden" : "Reisetage laden"}</button>
