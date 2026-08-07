@@ -108,6 +108,44 @@ assert.match(
   "ein Auswahlfeld ohne Klasse bekommt keine Breitenbegrenzung",
 );
 
+// --- overlays cover the viewport, not the page -------------------------
+/**
+ * The panel is as tall as its content, so anything anchored to its own box
+ * is anchored to the PAGE. A dialog then opens in the middle of the
+ * document - live report: "Fenster geht ganz unten auf und man muss extrem
+ * runterscrollen" - and a toast appears where nobody is looking.
+ *
+ * Two things have to hold together, which is why they are checked here and
+ * not in either file alone: the container context must NOT sit on :host,
+ * because container-type brings layout containment and a contained element
+ * becomes the containing block for position: fixed; and the overlays must
+ * live outside the element that carries it.
+ */
+assert.doesNotMatch(
+  styles,
+  /:host \{[^}]*container-type/,
+  "container-type auf :host macht jedes Overlay seitenbezogen statt fensterbezogen",
+);
+assert.match(
+  styles,
+  /\.app \{ container-type: inline-size/,
+  "der Container-Kontext gehoert auf .app",
+);
+assert.match(
+  styles,
+  /\.modal-backdrop \{ position: fixed/,
+  "ein Dialog gehoert vor das Sichtfenster, nicht in die Mitte der Seite",
+);
+const shell = read("frontend/roadplanner-panel.js");
+const app = shell.slice(shell.indexOf('<div class="app'));
+const closing = app.indexOf("</div>");
+for (const overlay of ["toast-host", "_renderDialog()", 'class="progress"']) {
+  assert.ok(
+    app.indexOf(overlay) > closing,
+    `${overlay} liegt noch innerhalb von .app und waere damit an die Seite gebunden`,
+  );
+}
+
 // --- notices stack, they do not become columns -------------------------
 /**
  * `.notice` is a flex row that stacks only what sits inside a single child

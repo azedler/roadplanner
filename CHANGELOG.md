@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.37.3] - 2026-08-07
+
+### Fixed
+
+- **Dialoge öffneten sich am Ende der Seite statt vor dem Auge** (live: „Beispiel Kostenerstattung. Fenster geht ganz unten auf und man muss extrem runterscrollen"). Das Panel ist so hoch wie sein Inhalt, nicht bildschirmhoch – die Dialogfläche war `position: absolute` und spannte damit über die **ganze Seite**, sodass der Dialog in deren Mitte landete und auf schmalen Schirmen, wo er als Bodenblatt gestaltet ist, ganz unten.
+- **Dieselbe Ursache traf auch die Bestätigungsmeldungen.** `.toast-host` war längst `position: fixed`, wirkte aber nicht zum Fenster: `container-type: inline-size` auf `:host` bringt Layout-Containment mit, und ein Element mit Containment wird zum Bezugsrahmen für `position: fixed`. Jede Einblendung hing damit am Seitenanfang und war nach dem ersten Scrollen unsichtbar. Der Container-Kontext sitzt jetzt auf `.app` statt auf `:host` – gleiche Breite, also unveränderte Assistenten-Umbrüche –, und Dialog, Fortschrittsbalken und Meldungen liegen außerhalb von `.app`. Ein Test prüft beides zusammen, weil es nur im Zusammenspiel beider Dateien sichtbar ist.
+
+### Changed
+
+- Der Test des Entwicklungswerkzeugs schaltet die Commit-Signierung in seinem Wegwerf-Repository ab. Er setzte dort schon Name und E-Mail, damit er nicht von der Entwicklerumgebung abhängt; eine Maschine, die über einen externen Dienst signiert, ließ ihn aus einem Grund scheitern, der mit dem Prüfgegenstand nichts zu tun hat.
+
 ## [4.37.2] - 2026-08-07
 
 ### Fixed

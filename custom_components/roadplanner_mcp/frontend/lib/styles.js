@@ -359,7 +359,7 @@ export const PANEL_STYLES = `<style>
       .spinner { width: 38px; height: 38px; border: 4px solid color-mix(in srgb, var(--primary-color) 20%, transparent); border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
       .spinner.small { width: 28px; height: 28px; border-width: 3px; }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .progress { position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 20; overflow: hidden; background: color-mix(in srgb, var(--primary-color) 20%, transparent); }
+      .progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 20; overflow: hidden; background: color-mix(in srgb, var(--primary-color) 20%, transparent); }
       .progress::after { content: ""; display: block; width: 35%; height: 100%; background: var(--primary-color); animation: progress 1s ease-in-out infinite; }
       @keyframes progress { from { transform: translateX(-120%); } to { transform: translateX(390%); } }
       .toast-host { position: fixed; right: 22px; top: max(18px, env(safe-area-inset-top)); z-index: 1000; pointer-events: none; }
@@ -409,7 +409,10 @@ export const PANEL_STYLES = `<style>
       .place-manual-form > .secondary-button { justify-self: start; }
       .place-enrichment-actions { position: sticky; bottom: 0; background: var(--card-background-color); z-index: 2; }
 
-      .modal-backdrop { position: absolute; inset: 0; z-index: 25; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+      /* Fixed, not absolute: the panel is as tall as its content, so an
+         absolute backdrop covered the whole page and put the dialog in the
+         middle of the document rather than in front of the reader. */
+      .modal-backdrop { position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
       .modal { width: min(760px, 100%); max-height: min(880px, calc(100% - 20px)); overflow: auto; border-radius: 24px; background: var(--card-background-color); color: var(--primary-text-color); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
       .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 22px 12px; position: sticky; top: 0; background: var(--card-background-color); z-index: 2; }
       .modal-header h2 { margin: 0; }
@@ -796,7 +799,16 @@ export const PANEL_STYLES = `<style>
       .muted { color: var(--secondary-text-color); }
 
       /* 2.6.3: keep the panel inside the real HA/webview width. */
-      :host { width: 100%; max-width: 100%; min-width: 0; container-type: inline-size; }
+      :host { width: 100%; max-width: 100%; min-width: 0; }
+      /* The container context sits on .app, NOT on :host. container-type
+         brings layout containment with it, and a contained element becomes
+         the containing block for position: fixed descendants. With it on
+         :host, every overlay in this panel anchored to the top of the
+         DOCUMENT instead of the viewport - which is why a dialog opened far
+         below the fold and a toast appeared where nobody was looking.
+         .app has the same inline size, so the @container query below is
+         unaffected; the overlays now live outside .app and are free. */
+      .app { container-type: inline-size; }
       .app, .content { width: 100%; max-width: 100%; min-width: 0; }
       .content { overflow-x: hidden; }
       .content > * { min-width: 0; max-width: 100%; }

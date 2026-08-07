@@ -2343,12 +2343,17 @@ class RoadplannerPanel extends HTMLElement {
           ${this._error ? this._renderError() : ""}
           ${!this._initialLoading && !this._error && this._data ? this._renderActiveTab() : ""}
         </main>
-        <div class="progress" aria-label="Aktion läuft" ${this._busy ? "" : "hidden"}></div>
-        <div class="toast-host"></div>
         <input id="roadplanner-document-input" data-archive-file-input type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,text/plain,text/markdown,text/csv,text/calendar,application/json,application/gpx+xml,application/xml,text/xml,application/zip,.md,.markdown,.txt,.json,.csv,.gpx,.ics,.ical,.zip" hidden>
         <input id="roadplanner-camera-input" data-archive-file-input type="file" accept="image/*" capture="environment" hidden>
-        ${this._dialog ? this._renderDialog() : ""}
       </div>
+      <!-- Overlays live OUTSIDE .app on purpose. .app carries the container
+           context, and containment makes it the containing block for
+           position: fixed - anchoring every overlay to the page instead of
+           to the viewport. Out here they cover what the reader is looking
+           at, whatever the page height happens to be. -->
+      <div class="progress" aria-label="Aktion läuft" ${this._busy ? "" : "hidden"}></div>
+      <div class="toast-host"></div>
+      ${this._dialog ? this._renderDialog() : ""}
     `;
   }
 
