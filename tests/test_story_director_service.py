@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import importlib.util
 import json
 from pathlib import Path
@@ -65,6 +66,12 @@ def load(name: str):
     return module
 
 
+# The REAL result wrapper the provider returns. Using a hand-rolled fake
+# here is what let a wrong field name ship: the service read `.data`, the
+# dataclass has `.value`, and every run failed on the target system while
+# every test passed. A fake whose shape I chose can only ever confirm what
+# I already believed.
+provider_module = load("assistant_provider")
 builder_module = load("story_context_builder")
 store_module = load("story_direction_store")
 service_module = load("story_director_service")
@@ -130,9 +137,9 @@ class FakeCrew:
         }
 
 
-class FakeAnswer:
-    def __init__(self, data):
-        self.data = data
+def FakeAnswer(value):
+    """The provider's own result type, not an imitation of it."""
+    return provider_module.AssistantJsonResult(value=value)
 
 
 class FakeProvider:
@@ -208,6 +215,48 @@ def make(*, day_count: int = 8, provider: FakeProvider | None = None, root: Path
 
 def run(coroutine):
     return asyncio.run(coroutine)
+
+
+def verify_the_answer_is_read_from_the_field_the_provider_actually_uses() -> None:
+    """The bug this test exists for shipped and broke every real run.
+
+    The service read ``.data``; ``AssistantJsonResult`` has ``.value``. So
+    ``getattr(answer, "data", answer)`` fell through to the wrapper
+    object, the merge saw something that was not a dict, and the run died
+    - while the tests stayed green, because the fake had the shape I
+    assumed rather than the shape the provider returns.
+
+    Pinned against the real class, so the two cannot drift apart again.
+    """
+    fields = {field.name for field in dataclasses.fields(provider_module.AssistantJsonResult)}
+    assert "value" in fields, fields
+    assert "data" not in fields, "der Wrapper hat kein data - der Dienst darf es nicht lesen"
+    wrapped = provider_module.AssistantJsonResult(value={"chapters": []})
+    assert service_module._answer_value(wrapped) == {"chapters": []}
+    # A bare dict is accepted too, so a caller may hand the answer in raw.
+    assert service_module._answer_value({"chapters": []}) == {"chapters": []}
+    # And something unreadable becomes None rather than itself, so the
+    # merge refuses it instead of trying to iterate a wrapper.
+    assert service_module._answer_value(object()) is None
+
+
+def verify_an_unreadable_arc_is_reported_not_crashed() -> None:
+    class BrokenProvider(FakeProvider):
+        async def async_generate_json_result(self, **kwargs):
+            self.calls.append("arc")
+            return object()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        service, context, _trip, store = make(provider=BrokenProvider(), root=Path(tmp))
+        try:
+            run(service.async_run("trip-1"))
+        except roadplanner.ValidationError as err:
+            assert "unverändert" in str(err), err
+        else:
+            raise AssertionError("Eine unlesbare Antwort wurde verschwiegen")
+        assert store.load("trip-1") is None
+        manifest = run(context.async_manifest("trip-1"))
+    assert manifest["story_sources"]["composed"] == 8
 
 
 def verify_opening_the_panel_costs_nothing() -> None:
@@ -424,6 +473,8 @@ def verify_a_corrupt_store_costs_the_story_and_not_the_trip() -> None:
     assert manifest["story_sources"]["composed"] == 8
 
 
+verify_the_answer_is_read_from_the_field_the_provider_actually_uses()
+verify_an_unreadable_arc_is_reported_not_crashed()
 verify_opening_the_panel_costs_nothing()
 verify_a_whole_trip_is_a_handful_of_calls()
 verify_an_unchanged_trip_is_not_edited_twice()

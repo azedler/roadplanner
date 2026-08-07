@@ -251,6 +251,10 @@ export const storyEditorMixin = {
           errorTitle: "Die Reiseredaktion ist fehlgeschlagen",
         },
       );
+      // _runAction reports failure by returning null, and its toast is
+      // gone in six seconds. A run that failed has to stay visible, or
+      // the card is indistinguishable from one that was never pressed.
+      this._storyDirectorFailed = !result?.story_director_run;
       if (result?.story_director_run) {
         const run = result.story_director_run;
         this._showToast(
@@ -313,6 +317,7 @@ export const storyEditorMixin = {
       <strong>Reiseredaktion mit Gemini</strong>
       <small>Gemini arbeitet als Redakteur, nicht als Faktenquelle: Es formuliert aus den vorhandenen Daten und darf nichts hinzuerfinden. Von Hand geschriebene Kapitel bleiben unangetastet.</small>
       ${state}
+      ${this._storyDirectorFailed ? '<small class="story-director-failed">Der letzte Durchgang ist fehlgeschlagen. Die vorhandenen Texte sind unverändert; die Fehlermeldung stand in der Einblendung.</small>' : ""}
       ${
         narrative
           ? `<small class="story-arc">${escapeHtml([narrative.subtitle, (narrative.motifs || []).join(" · ")].filter(Boolean).join(" — "))}</small>`
