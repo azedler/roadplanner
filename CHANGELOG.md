@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.4] - 2026-08-07
+
+### Fixed
+
+- **Während einer Videoerstellung zuckte ein offener Dialog alle zwei Sekunden.** Ein Neuzeichnen ersetzt das gesamte Shadow DOM – unter einem offenen Dialog reißt es diesen ab und baut einen neuen. Sichtbar als Wackeln, und alles, was gerade eingetippt war, stand dabei auf dem Spiel. In 4.41.0 hatte ich den Fortschritt so umgebaut, dass er nur noch die Prozentzahl schreibt; die Rückfallebene für den Fall, dass diese Zahl gerade nicht auf dem Bildschirm ist – etwa weil ein Dialog offen ist –, zeichnete weiterhin alles neu. **Die halbe Behebung war die gefährlichere Hälfte.**
+- Die Regel „nie neu zeichnen, solange ein Dialog offen ist oder Text ungespeichert" galt schon für Hintergrundaktualisierungen; die Fortschrittsabfrage kannte sie nur nicht. Sie geht jetzt durch dieselbe Sperre. Kosten: keine – beim Schließen eines Dialogs wird ohnehin gezeichnet, der aktuelle Stand erscheint also sofort danach.
+
 ## [4.44.3] - 2026-08-07
 
 ### Fixed

@@ -202,7 +202,7 @@ export const rendererAppMixin = {
       });
       if (status?.renderer_app_status) {
         this._rendererAppStatus = status.renderer_app_status;
-        this._render({ preserveScroll: true });
+        this._rendererAppRedraw();
       }
     } finally {
       this._rendererAppStatusLoading = false;
@@ -229,7 +229,7 @@ export const rendererAppMixin = {
     const active = result?.renderer_app_active_job;
     const recent = this._rendererAppRecent;
     if (!recent.length) {
-      this._render({ preserveScroll: true });
+      this._rendererAppRedraw();
       return;
     }
     const adopted = active || recent[0];
@@ -240,7 +240,7 @@ export const rendererAppMixin = {
     // job. Rather than invent them, the card shows the job without them.
     this._rendererAppPackage = null;
     this._rendererAppResult = active ? null : result?.renderer_app_result || null;
-    this._render({ preserveScroll: true });
+    this._rendererAppRedraw();
     if (active) this._pollRendererAppJob(active.job_id);
   },
 
@@ -281,7 +281,7 @@ export const rendererAppMixin = {
         const structural =
           !before || Boolean(before.terminal) !== Boolean(result.renderer_app_job.terminal);
         if (structural || !this._rendererAppPatchProgress()) {
-          this._render({ preserveScroll: true });
+          this._rendererAppRedraw();
         }
         if (result.renderer_app_job.terminal) {
           // The App line otherwise keeps showing whatever the last
@@ -293,7 +293,7 @@ export const rendererAppMixin = {
           }).catch(() => null);
           if (status?.renderer_app_status) {
             this._rendererAppStatus = status.renderer_app_status;
-            this._render({ preserveScroll: true });
+            this._rendererAppRedraw();
           }
           return;
         }
@@ -333,6 +333,24 @@ export const rendererAppMixin = {
       this._rendererAppDownloading = false;
       this._render({ preserveScroll: true });
     }
+  },
+
+  /**
+   * Redraw, unless the user is in the middle of something.
+   *
+   * A render replaces the whole shadow DOM, so doing it under an open
+   * dialog tears that dialog down and builds a new one - which is why a
+   * vehicle form visibly jumped every two seconds while a film rendered
+   * (live report), and why anything typed into it was at risk.
+   *
+   * Skipping costs nothing: `_closeDialog` renders on its way out, so
+   * whatever changed while the dialog was open is drawn the moment it
+   * closes. The same rule already governs background refreshes; the
+   * progress poll had simply not been told about it.
+   */
+  _rendererAppRedraw() {
+    if (this._dialog || this._storyAnyDirty?.()) return;
+    this._render({ preserveScroll: true });
   },
 
   _rendererAppProgressPercent() {

@@ -440,6 +440,24 @@ def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     assert 'data-renderer-progress="story"' in editor
 
 
+def verify_a_render_in_progress_never_rebuilds_an_open_dialog() -> None:
+    """Live report: a vehicle form jumped every two seconds during a film.
+
+    A render replaces the whole shadow DOM, so doing it under an open
+    dialog tears that dialog down and builds a new one - visibly, and
+    with whatever was typed into it at risk. The rule already existed
+    for background refreshes; the progress poll had not been told.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    guard = renderer.split("_rendererAppRedraw() {", 1)[1].split("\n  },", 1)[0]
+    assert "this._dialog" in guard, "ein offener Dialog darf nicht neu gebaut werden"
+    assert "_storyAnyDirty" in guard, "ungespeicherter Text ebenso wenig"
+    # And the poll has to go through it rather than around it.
+    poll = renderer.split("_pollRendererAppJob(jobId) {", 1)[1].split("\n  },", 1)[0]
+    assert "_rendererAppRedraw()" in poll
+    assert "this._render(" not in poll, "die Abfrage darf nicht direkt zeichnen"
+
+
 def verify_the_finished_video_can_be_fetched() -> None:
     """A film that renders and cannot be downloaded is not a film.
 
@@ -482,6 +500,7 @@ verify_a_running_film_survives_a_page_reload()
 verify_the_poll_outlasts_a_whole_film()
 verify_a_progress_tick_does_not_rebuild_the_page()
 verify_the_finished_video_can_be_fetched()
+verify_a_render_in_progress_never_rebuilds_an_open_dialog()
 verify_nobody_reads_a_field_the_provider_results_do_not_have()
 verify_not_knowing_is_not_reported_as_not_working()
 verify_the_director_has_no_route_to_the_roadbook()
