@@ -20,6 +20,17 @@ import process from "node:process";
 
 const TARGET = process.env.ROADPLANNER_BROWSER_DIR || "/opt/roadplanner-renderer/browser";
 
+/**
+ * Where Remotion puts the download. Not `~/.cache` — it walks up from the
+ * working directory to the nearest `package.json` and unpacks into
+ * `node_modules/.remotion`. Guessing that path once cost a build; it is
+ * only a fallback here, and the value `ensureBrowser()` returns wins.
+ */
+const CACHE_ROOTS = [
+  path.resolve(process.cwd(), "node_modules/.remotion"),
+  path.join(process.env.HOME || "/root", ".cache", "remotion"),
+];
+
 /** Find the shell binary underneath a directory, wherever it was unpacked. */
 function findShell(root) {
   if (!existsSync(root)) return null;
@@ -37,32 +48,47 @@ function findShell(root) {
   return null;
 }
 
-await ensureBrowser({ logLevel: "info" });
+// The status carries the resolved executable path. Reading it beats
+// reconstructing a cache layout that belongs to Remotion, not to us.
+const status = await ensureBrowser({ logLevel: "info" });
 
-const cache = path.join(
-  process.env.HOME || "/root",
-  ".cache",
-  "remotion",
-  "chrome-headless-shell",
-);
-const source = findShell(cache);
+let source = null;
+if (status && typeof status.path === "string" && existsSync(status.path)) {
+  source = status.path;
+} else {
+  for (const root of CACHE_ROOTS) {
+    source = findShell(root);
+    if (source) break;
+  }
+}
+
 if (!source) {
-  console.error(`Kein chrome-headless-shell unter ${cache} gefunden.`);
+  console.error(
+    `Kein chrome-headless-shell gefunden. ensureBrowser meldete ${JSON.stringify(status)}; ` +
+      `durchsucht wurden ${CACHE_ROOTS.join(", ")}.`,
+  );
   process.exit(1);
 }
 
-// Copied to a fixed path rather than left in a cache under $HOME: the
-// runtime stage must not depend on which user or home directory the
-// container happens to run with.
+// Copied to a fixed path rather than left in the build cache: the runtime
+// stage must not depend on the builder's directory layout - and the next
+// `npm ci` deletes node_modules, cache and all.
 const shellRoot = path.dirname(source);
 mkdirSync(TARGET, { recursive: true });
 cpSync(shellRoot, TARGET, { recursive: true, dereference: true });
-const binary = path.join(TARGET, path.basename(source));
+
+// Remotion names the binary `headless_shell` on some platforms. The
+// runtime is told one fixed path, so the name is normalised here rather
+// than leaving the Dockerfile to guess which one it got.
+const binary = path.join(TARGET, "chrome-headless-shell");
+const copied = path.join(TARGET, path.basename(source));
+if (copied !== binary) cpSync(copied, binary, { dereference: true });
 chmodSync(binary, 0o755);
 
 process.stdout.write(
   `${JSON.stringify({
     event: "browser-ready",
+    source,
     binary,
     size_bytes: statSync(binary).size,
   })}\n`,
