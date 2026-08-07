@@ -160,6 +160,20 @@ RUN printf '%s' "${APP_VERSION:-${BUILD_VERSION}}" > /opt/roadplanner-renderer/V
     && ffprobe -version | head -1 \
     && test -x "${ROADPLANNER_BROWSER}"
 
+# The image trims system libraries on purpose, so it has to prove the
+# browser still runs. `test -x` only says the file is executable; it says
+# nothing about a library the trimming removed. These two checks name the
+# missing library here, in the build, instead of surfacing hours later as
+# a render that fails in under a second with nothing to go on.
+RUN set -eux; \
+    ldd "${ROADPLANNER_BROWSER}"; \
+    if ldd "${ROADPLANNER_BROWSER}" | grep -q "not found"; then \
+      echo "Dem Headless Shell fehlen Systembibliotheken:" >&2; \
+      ldd "${ROADPLANNER_BROWSER}" | grep "not found" >&2; \
+      exit 1; \
+    fi; \
+    "${ROADPLANNER_BROWSER}" --version
+
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

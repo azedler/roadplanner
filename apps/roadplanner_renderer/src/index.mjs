@@ -307,7 +307,17 @@ async function handleJob(name) {
         retryable: false,
       },
     });
-    log("warn", "Auftrag fehlgeschlagen", { job_id: jobId, state, detail: String(err) });
+    // `String(err)` is the message the user already sees. The cause lives
+    // in `err.detail` - the browser's own stderr, ffprobe's complaint -
+    // and it is the only thing that makes a failure diagnosable. It goes
+    // to the app log, which the operator reads, and never into the status
+    // file, which crosses the exchange directory into the panel.
+    log("warn", "Auftrag fehlgeschlagen", {
+      job_id: jobId,
+      state,
+      detail: String(err),
+      cause: String(err?.detail ?? "").slice(0, 600),
+    });
   } finally {
     clearTimeout(jobDeadline);
     activeJobs -= 1;
