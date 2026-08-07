@@ -331,6 +331,28 @@ def verify_nobody_reads_a_field_the_provider_results_do_not_have() -> None:
     assert not offenders, offenders
 
 
+def verify_not_knowing_is_not_reported_as_not_working() -> None:
+    """The third time this shape of bug appeared in one session.
+
+    The story card read `_rendererAppStatus?.online`, a field only ever
+    filled by pressing a button in a DIFFERENT card, and announced "die
+    Renderer-App ist nicht erreichbar" whenever it was missing. So every
+    freshly loaded page declared the app dead and disabled the film
+    button while the app was running and had just finished a film.
+
+    Silence is not an answer. The card now asks, and distinguishes three
+    states rather than two.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    assert "_rendererAppEnsureStatus" in renderer, "die Karte muss selbst fragen"
+    editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    film = editor.split("_renderStoryFilm() {", 1)[1].split("\n  },", 1)[0]
+    assert "noch nicht bekannt" in film, "unbekannt braucht einen eigenen Satz"
+    # And an unanswered question may not disable the button - only a real
+    # "no" may.
+    assert "(online || !status)" in film, "Schweigen darf den Knopf nicht sperren"
+
+
 def verify_the_director_has_no_route_to_the_roadbook() -> None:
     """It edits prose. It must not be able to move a stop.
 
@@ -454,6 +476,7 @@ verify_the_poll_outlasts_a_whole_film()
 verify_a_progress_tick_does_not_rebuild_the_page()
 verify_the_finished_video_can_be_fetched()
 verify_nobody_reads_a_field_the_provider_results_do_not_have()
+verify_not_knowing_is_not_reported_as_not_working()
 verify_the_director_has_no_route_to_the_roadbook()
 verify_the_director_module_stays_testable_without_home_assistant()
 verify_the_builder_still_cannot_spend_money()

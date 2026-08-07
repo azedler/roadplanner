@@ -385,7 +385,11 @@ export const storyEditorMixin = {
   _renderStoryFilm() {
     const film = this._storyFilm;
     const canEdit = this._canEdit();
-    const online = Boolean(this._rendererAppStatus?.online);
+    // Three states, not two. "Nobody has asked yet" must not be reported
+    // as "the app is down" - that claim disabled the film button on every
+    // freshly loaded page while the app was running fine.
+    const status = this._rendererAppStatus;
+    const online = Boolean(status?.online);
     const job = this._rendererAppJob;
     const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
     return `<div class="notice neutral"><div>
@@ -396,10 +400,16 @@ export const storyEditorMixin = {
           ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>`
           : ""
       }
-      ${online ? "" : '<small>Die Renderer-App ist nicht erreichbar - der Film braucht sie.</small>'}
+      ${
+        online
+          ? ""
+          : status
+            ? `<small>Die Renderer-App ist nicht erreichbar (${escapeHtml(String(status.reason || status.state || "kein Lebenszeichen"))}) - der Film braucht sie.</small>`
+            : "<small>Der Zustand der Renderer-App ist noch nicht bekannt.</small>"
+      }
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
-        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
       </div>
       ${this._renderStoryFilmJobLine()}
     </div></div>`;

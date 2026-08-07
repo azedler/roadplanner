@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.43.1] - 2026-08-07
+
+### Fixed
+
+- **„Die Renderer-App ist nicht erreichbar" stand da, obwohl niemand gefragt hatte.** Die Reisegeschichte-Karte las ein Feld, das ausschließlich durch den Knopf „Umgebung prüfen" in einer *anderen* Karte gefüllt wird. Auf jeder frisch geladenen Seite war es leer – und die Karte machte daraus die Aussage, die App sei tot, und sperrte den Filmknopf. Währenddessen lief die App einwandfrei und hatte gerade einen Film fertiggestellt. **Nichts zu wissen ist nicht dasselbe wie zu wissen, dass etwas kaputt ist**, und nur eines von beidem darf man aussprechen. Die Karte fragt jetzt selbst, unterscheidet drei Zustände statt zwei, und ein Schweigen sperrt keinen Knopf mehr.
+- Ist die App wirklich nicht erreichbar, nennt die Karte jetzt den Grund statt nur die Tatsache.
+
 ## [4.43.0] - 2026-08-07
 
 ### Added
