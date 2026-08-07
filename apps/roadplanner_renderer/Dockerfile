@@ -38,10 +38,13 @@ FROM ${BUILD_FROM}
 # Supervisor, when it builds the app on the user's own system, passes
 # BUILD_VERSION taken from config.yaml. Reading only one of them meant a
 # locally built image reported a version that does not exist.
+# Resolved by a real shell further down rather than by Dockerfile
+# substitution: ENV supports ${var:-default}, but a nested ${...} inside
+# that default is not something to bet the reported version on - and a
+# version nobody can trust is exactly the field that must never lie.
 ARG BUILD_VERSION=0.0.0-unknown
 ARG APP_VERSION=""
-ENV ROADPLANNER_APP_VERSION=${APP_VERSION:-${BUILD_VERSION}} \
-    NODE_ENV=production \
+ENV NODE_ENV=production \
     PATH=/opt/node/bin:${PATH} \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
@@ -84,6 +87,11 @@ COPY scripts/ ./scripts/
 # belongs where it can fail loudly in CI.
 RUN node scripts/bundle.mjs
 
+# One shell, one expansion, no guessing. CI passes APP_VERSION; the
+# Supervisor passes BUILD_VERSION when it builds on the user's machine.
+RUN printf '%s' "${APP_VERSION:-${BUILD_VERSION}}" > /opt/roadplanner-renderer/VERSION \
+    && cat /opt/roadplanner-renderer/VERSION
+
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
@@ -91,7 +99,7 @@ LABEL \
   io.hass.name="Roadplanner Renderer (PoC)" \
   io.hass.description="Remotion-Spike: Testrender in der App, ohne Produktivexport" \
   io.hass.type="addon" \
-  io.hass.version="${ROADPLANNER_APP_VERSION}" \
+  io.hass.version="${APP_VERSION:-${BUILD_VERSION}}" \
   org.opencontainers.image.source="https://github.com/azedler/roadplanner"
 
 CMD ["/run.sh"]

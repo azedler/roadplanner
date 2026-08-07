@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.35.2] - 2026-08-07
+
+### Fixed
+
+- **Ergebnisblöcke standen in schmalen Spalten nebeneinander statt untereinander** (live nach dem ersten echten Render sichtbar: „Testvideo erzeugt", Auflösung, Zeiten und Hinweis in vier Streifen). `.notice` ist ein Flex-Container und stapelt nur, was in einem einzelnen Kind-`<div>` liegt – Text mit `<br>` direkt darin macht aus jedem Element eine eigene Spalte. Betroffen waren beide Experimentkarten; beide stapeln ihre Inhalte jetzt korrekt.
+- Der Fortschritt eines Renders heißt jetzt „Testvideo wird gerendert" statt „Testauftrag läuft … running"; das englische Wort stammte aus dem rohen Jobzustand.
+- Die Zeile **App** wird nach einem abgeschlossenen Auftrag aktualisiert. Sie zeigte sonst weiter die Version aus der letzten Umgebungsprüfung – nach einem App-Update also eine veraltete.
+- **Die gemeldete App-Version wird jetzt von einer echten Shell aufgelöst.** Sie stand als `ENV ROADPLANNER_APP_VERSION=${APP_VERSION:-${BUILD_VERSION}}` im Dockerfile – eine *verschachtelte* Ersetzung. `ENV` beherrscht `${var:-default}`, aber ob ein weiteres `${...}` innerhalb des Standardwerts aufgelöst wird, ist nicht verlässlich. Der Build schreibt die Version jetzt mit `printf` in eine Datei, und der Start liest sie von dort. Ausgerechnet das Feld, das den laufenden Build identifizieren soll, darf nicht von einer unsicheren Ersetzung abhängen.
+- Doppelter Punkt in der App-Beschreibung entfernt.
+
 ## [4.35.1] - 2026-08-07
 
 ### Fixed
