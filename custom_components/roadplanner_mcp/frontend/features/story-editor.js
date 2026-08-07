@@ -431,7 +431,18 @@ export const storyEditorMixin = {
       return `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
     }
     if (job.state === "completed") {
-      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig. Er liegt in der Karte „Renderer-App".</small>`;
+      // "It is in the other card" is a signpost, not an answer - and on a
+      // phone that other card is behind a menu, two taps and a scroll.
+      // The film was started here; it can be fetched here.
+      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig.</small>
+      <div class="button-row">
+        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : "Film herunterladen"}</button>
+      </div>
+      ${
+        this._rendererAppDownloadUrl
+          ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download>Bereit – hier speichern</a>`
+          : ""
+      }`;
     }
     return `<small class="story-film-job">Der zuletzt gestartete Reisefilm ist nicht fertig geworden (${escapeHtml(String(job.state || "unbekannt"))}).</small>`;
   },
