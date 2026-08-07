@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.2] - 2026-08-07
+
+### Fixed
+
+- **Die CI-Prüfung des Films rechnete die Filmlänge selbst nach – mit der Formel von v0.** Der Film v1 lief einwandfrei durch (264,0 s geplant, 264,043 s gemessen), und die Prüfung wurde rot, weil sie 179,6 s erwartete. Eine zweite Umsetzung derselben Regel geht genau dann kaputt, wenn die Regel sich ändert. Geprüft wird jetzt gegen den Szenenplan, den derselbe Schritt gebaut hat – und das ist zugleich die stärkere Aussage: **Der Film ist exakt so lang, wie er geplant war.**
+
 ## [4.44.1] - 2026-08-07
 
 ### Fixed
