@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.41.0] - 2026-08-07
+
+### Fixed
+
+- **Ein laufender Reisefilm war nur in genau dem Browser-Tab sichtbar, der ihn gestartet hat.** Ein Film über eine ganze Reise braucht eine Viertelstunde. In der Zeit sperrt ein Handy den Bildschirm und Home Assistant lädt seine Seite neu – und damit war alles weg, was die Karte über den Auftrag wusste, während der Auftrag selbst im anderen Container unbeirrt weiterlief. Der Renderer wird jetzt gefragt, was er gerade tut: Roadplanner liest den Zustand aus dem Austauschordner, findet einen laufenden Film wieder und zeigt ihn – auch auf einer Seite, die selbst nie etwas gestartet hat. Ein Ergebnis, das fertig wurde, während niemand hinsah, ist damit ebenfalls wieder erreichbar.
+- **Die Fortschrittsabfrage gab nach fünf Minuten auf.** Sie zählte 150 Versuche à zwei Sekunden – eine Dauer in Verkleidung, großzügig bemessen für einen Testrender von zwölf Sekunden und zu knapp für einen Film von vierzehn Minuten. Ein Render, der bestens lief, sah dadurch aus wie abgebrochen. Die Schleife hängt jetzt an der Uhr statt an einem Zähler, mit einer eigenen, längeren Frist für den Film.
+- **Die Art des Auftrags wird gelesen, nicht geraten.** Wer einen Auftrag wiederfindet, den er nicht selbst gestartet hat, weiß nicht, was er ist. Sie steht in der Auftragsdatei, solange er läuft, und danach in den Namen der erzeugten Dateien – einen Reisefilm als Testrender anzukündigen wäre schlimmer, als nichts zu sagen.
+
 ## [4.40.1] - 2026-08-07
 
 ### Fixed

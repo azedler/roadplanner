@@ -66,6 +66,10 @@ export const rendererAppMixin = {
       this._rendererAppProbing = false;
       this._render({ preserveScroll: true });
     }
+    // After the probe, not before: adopting a job re-renders, and doing
+    // that while the probe is still writing its own fields would show a
+    // half-filled card.
+    await this._rendererAppAdoptRunningJob();
   },
 
   /**
@@ -152,11 +156,61 @@ export const rendererAppMixin = {
     this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
 
+  /**
+   * Find a job that is already running, and take it over.
+   *
+   * The browser is not where a render lives. A trip film takes a quarter
+   * of an hour, and in that time a phone locks and Home Assistant reloads
+   * its page - at which point every variable this card kept is gone while
+   * the job runs on in another container. Asking the exchange folder is
+   * the only way back to it, and it is also how a result that finished
+   * while nobody was looking becomes reachable again.
+   */
+  _rendererAppAdoptOnce() {
+    // Called from render, so it has to be free after the first time and
+    // must never make the render wait on a network round trip.
+    if (this._rendererAppAdoptTried) return;
+    this._rendererAppAdoptTried = true;
+    void this._rendererAppAdoptRunningJob();
+  },
+
+  async _rendererAppAdoptRunningJob() {
+    if (this._rendererAppJob || this._rendererAppPolling) return;
+    const result = await this._runAction("renderer_app_recent_jobs", {}, "", {
+      refresh: false,
+      blockUi: false,
+      errorTitle: "",
+    }).catch(() => null);
+    const active = result?.renderer_app_active_job;
+    const recent = result?.renderer_app_recent_jobs || [];
+    const adopted = active || recent[0];
+    if (!adopted?.job_id) return;
+    this._rendererAppJob = adopted;
+    this._rendererAppKind = adopted.kind || "";
+    // The package facts were only ever in the browser that submitted the
+    // job. Rather than invent them, the card shows the job without them.
+    this._rendererAppPackage = null;
+    this._rendererAppResult = active ? null : result?.renderer_app_result || null;
+    this._render({ preserveScroll: true });
+    if (active) this._pollRendererAppJob(active.job_id);
+  },
+
+  /**
+   * Poll until the job settles, bounded by wall-clock time rather than by
+   * a number of attempts.
+   *
+   * A count is a duration in disguise, and the disguise is what makes it
+   * wrong: 150 attempts sounded generous until a trip film took fourteen
+   * minutes and the card stopped watching after five, leaving a render
+   * that was going perfectly well looking abandoned.
+   */
   async _pollRendererAppJob(jobId) {
     if (this._rendererAppPolling) return;
     this._rendererAppPolling = true;
+    const deadline =
+      Date.now() + (this._rendererAppKind === "trip_film" ? 45 : 15) * 60 * 1000;
     try {
-      for (let attempt = 0; attempt < 150; attempt += 1) {
+      while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
         if (!this.isConnected) return;
         const result = await this._runAction(

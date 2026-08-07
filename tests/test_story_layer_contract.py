@@ -245,6 +245,43 @@ def verify_the_manifest_carries_a_version_and_a_hash() -> None:
     assert "Nicht unterstützte Manifestversion" in manifest
 
 
+def verify_a_running_film_survives_a_page_reload() -> None:
+    """The render outlives the page; the page has to be able to find it.
+
+    A trip film takes a quarter of an hour, and a phone reloads Home
+    Assistant whenever it feels like it. Everything the browser kept about
+    the job is gone at that moment - so the job has to be re-askable from
+    the exchange folder, or a render in progress becomes invisible and its
+    result unreachable.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    assert "renderer_app_recent_jobs" in renderer, "der Weg zurueck zum Auftrag fehlt"
+    assert "_rendererAppAdoptRunningJob" in renderer
+    # The story card is where the film is started, so it is where a
+    # running film has to be visible - and on the closed card too, which
+    # is what a reload shows first.
+    editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "_rendererAppAdoptOnce()" in editor
+    assert editor.count("_renderStoryFilmJobLine()") >= 2
+    # And the panel has to offer the action at all.
+    panel = _code(INTEGRATION / "panel.py")
+    assert '"renderer_app_recent_jobs"' in panel
+
+
+def verify_the_poll_outlasts_a_whole_film() -> None:
+    """A number of attempts is a duration wearing a disguise.
+
+    150 attempts at two seconds looked generous until a film took fourteen
+    minutes and the card stopped watching after five - a render that was
+    going perfectly well, shown as abandoned.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    poll = renderer.split("_pollRendererAppJob(jobId) {", 1)[1].split("\n  },", 1)[0]
+    assert "Date.now() < deadline" in poll, "die Schleife muss an der Uhr haengen"
+    assert "attempt" not in poll, "ein Versuchszaehler ist keine Dauer"
+    assert "trip_film" in poll, "der Film braucht die laengere Frist"
+
+
 verify_the_story_layer_is_reachable()
 verify_reading_a_manifest_is_not_an_edit()
 verify_the_builder_only_reads()
@@ -257,4 +294,6 @@ verify_typing_does_not_re_render()
 verify_unsaved_work_defers_a_background_refresh()
 verify_the_chapter_image_reuses_the_existing_cover()
 verify_the_manifest_carries_a_version_and_a_hash()
+verify_a_running_film_survives_a_page_reload()
+verify_the_poll_outlasts_a_whole_film()
 print("Story layer contract tests passed.")

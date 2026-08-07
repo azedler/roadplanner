@@ -91,6 +91,7 @@ _ACTIONS = {
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
+    "renderer_app_recent_jobs",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
     "propose_day_calendar_repair",
@@ -1472,6 +1473,29 @@ async def _execute_action(
             }
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+
+    if action == "renderer_app_recent_jobs":
+        # Read-only, and the answer to "what is this box doing right now?"
+        # after the browser forgot. A render outlives the page that started
+        # it; without this the panel could never find it again.
+        try:
+            jobs = await runtime.renderer_app.async_recent_jobs()
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+        active = next((job for job in jobs if not job.get("terminal")), None)
+        result = None
+        if active is None and jobs and jobs[0].get("state") == "completed":
+            try:
+                result = await runtime.renderer_app.async_result(jobs[0]["job_id"])
+            except RendererProtocolError:
+                # The list is still worth returning; only the artefacts of
+                # the newest job could not be read.
+                result = None
+        return {
+            "renderer_app_recent_jobs": jobs,
+            "renderer_app_active_job": active,
+            "renderer_app_result": result,
+        }
 
     if action == "renderer_app_job_status":
         job_id = str(data.get("job_id") or "")

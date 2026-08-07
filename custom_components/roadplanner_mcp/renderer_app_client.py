@@ -38,6 +38,7 @@ from homeassistant.core import HomeAssistant
 
 from .renderer_app_protocol import (
     ACTION_CREATE_TEST_ARTIFACT,
+    ACTION_RENDER_REMOTION_TEST,
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
     ARTIFACT_TRIP_FILM_VIDEO,
@@ -85,6 +86,27 @@ PROCESSING_DIR = "processing"
 STATUS_DIR = "status"
 RESULTS_DIR = "results"
 _SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR, INPUTS_DIR)
+
+# How many status files a single look is willing to open. The folder is
+# written by another container; the panel's cost must not depend on how
+# many files it decides to leave there.
+_MAX_STATUS_SCAN = 60
+
+# The kinds the panel distinguishes. They are the panel's vocabulary, not
+# the protocol's, which is why the mapping lives here and not in the
+# protocol module.
+_KIND_BY_ACTION = {
+    ACTION_CREATE_TEST_ARTIFACT: "test",
+    ACTION_RENDER_REMOTION_TEST: "render",
+    ACTION_RENDER_TRIP_DAY: "trip_day",
+    ACTION_RENDER_TRIP_FILM: "trip_film",
+}
+_KIND_BY_ARTIFACT = {
+    ARTIFACT_TRIP_FILM_VIDEO: "trip_film",
+    ARTIFACT_TRIP_DAY_VIDEO: "trip_day",
+    ARTIFACT_VIDEO: "render",
+    ARTIFACT_IMAGE: "test",
+}
 
 # Environment codes, stable so panel, tests and the report agree.
 ENV_READY = "READY"
@@ -440,6 +462,78 @@ class RendererAppClient:
                 "terminal": False,
                 "reason": clean_text(str(err), limit=200),
             }
+
+    async def async_recent_jobs(self, *, limit: int = 6) -> list[dict[str, Any]]:
+        """Which jobs the exchange folder knows about, newest first.
+
+        The panel needs this because the browser is not where a render
+        lives. A trip film takes a quarter of an hour; in that time a phone
+        locks, Home Assistant reloads its page, and every variable the card
+        kept is gone - while the job itself runs on, entirely unbothered,
+        in another container. Without a way to ask "what is going on", the
+        render becomes invisible the moment you look away, and its result
+        unreachable. So the question is answered from disk, which is the
+        only place that survived.
+
+        The kind of job is not in the status file. It is read from the job
+        file while the job is alive and from the artefact names once it has
+        finished - never guessed, because announcing a trip film as a test
+        render would be worse than saying nothing.
+        """
+        entries = await self._hass.async_add_executor_job(self._recent_jobs, limit)
+        return entries
+
+    def _recent_jobs(self, limit: int) -> list[dict[str, Any]]:
+        folder = self._dir / STATUS_DIR
+        try:
+            names = [entry.name for entry in os.scandir(folder) if entry.is_file()]
+        except OSError:
+            return []
+        found: list[dict[str, Any]] = []
+        # Bounded before any file is opened: the folder is written by
+        # another container, and a thousand status files must not turn a
+        # panel refresh into a thousand reads.
+        for name in sorted(names)[:_MAX_STATUS_SCAN]:
+            if not name.endswith(".json"):
+                continue
+            job_id = name[: -len(".json")]
+            try:
+                validate_job_id(job_id)
+            except RendererProtocolError:
+                continue
+            raw = self._read_bounded(folder / name, MAX_JSON_BYTES)
+            if raw is None:
+                continue
+            try:
+                status = validate_status(decode_json(raw), job_id=job_id)
+            except RendererProtocolError:
+                # A single unreadable status must not hide the others.
+                continue
+            found.append({**status, "kind": self._job_kind(job_id)})
+        found.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        return found[: max(1, limit)]
+
+    def _job_kind(self, job_id: str) -> str:
+        """What a job was asked to do, read rather than remembered."""
+        for directory in (PROCESSING_DIR, JOBS_DIR):
+            raw = self._read_bounded(
+                self._dir / directory / f"{job_id}.json", MAX_JSON_BYTES
+            )
+            if raw is None:
+                continue
+            try:
+                action = decode_json(raw).get("action")
+            except RendererProtocolError:
+                continue
+            kind = _KIND_BY_ACTION.get(str(action or ""))
+            if kind:
+                return kind
+        # The job file is removed when the job ends, so a finished job is
+        # identified by what it produced.
+        for filename, kind in _KIND_BY_ARTIFACT.items():
+            if (self._dir / RESULTS_DIR / job_id / filename).is_file():
+                return kind
+        return ""
 
     async def async_result(self, job_id: str) -> dict[str, Any] | None:
         """Read and verify a finished job's artefacts, or None if absent."""

@@ -263,8 +263,30 @@ export const storyEditorMixin = {
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
       </div>
-      ${running ? `<small>Der Film läuft - das dauert bei einer ganzen Reise viele Minuten. Der Fortschritt steht in der Karte „Renderer-App".</small>` : ""}
+      ${this._renderStoryFilmJobLine()}
     </div></div>`;
+  },
+
+  /**
+   * What the film job is doing, said in the place the film was started.
+   *
+   * This exists because the previous answer was "look in the other card",
+   * which stops being an answer the moment the page reloads and that card
+   * has forgotten too. The job is read from the exchange folder, so this
+   * line can appear on a page that never started anything.
+   */
+  _renderStoryFilmJobLine() {
+    const job = this._rendererAppJob;
+    if (!job || this._rendererAppKind !== "trip_film") return "";
+    if (!job.terminal) {
+      const percent =
+        typeof job.progress === "number" ? ` · ${Math.round(job.progress * 100)} %` : "";
+      return `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (${escapeHtml(String(job.state || "läuft"))}${percent}). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
+    }
+    if (job.state === "completed") {
+      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig. Er liegt in der Karte „Renderer-App".</small>`;
+    }
+    return `<small class="story-film-job">Der zuletzt gestartete Reisefilm ist nicht fertig geworden (${escapeHtml(String(job.state || "unbekannt"))}).</small>`;
   },
 
   // --- rendering -------------------------------------------------------
@@ -337,11 +359,15 @@ export const storyEditorMixin = {
     if (!this._selectedTripId) {
       return `<section class="panel-card"><p class="hint">Zuerst eine Reise auswählen.</p></section>`;
     }
+    // A film started here can outlive the page. Asking once, on the way
+    // in, is what makes it findable again after a reload.
+    this._rendererAppAdoptOnce();
     const manifest = this._storyManifest;
     if (!manifest) {
       return `<section class="panel-card">
         <div class="section-heading compact"><div><span class="eyebrow">Redaktion</span><h2>Reisegeschichte</h2></div></div>
         <p class="hint">Die Kapitel entstehen aus dem Roadbook, den Tageszusammenfassungen und den zugeordneten Fotos. Bearbeitet werden nur Titel und Text – Stopps, Zeiten und Strecken bleiben unberührt.</p>
+        ${this._renderStoryFilmJobLine()}
         <div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:book-open-page-variant-outline"></ha-icon> ${this._storyLoading ? "Lädt …" : "Reisegeschichte öffnen"}</button></div>
       </section>`;
     }
