@@ -163,6 +163,13 @@ jobs:
           pathlib.Path(os.environ["RUNNER_TEMP"], "renders.json").write_text(json.dumps(results, indent=2))
           PY
 
+      # The status file carries the message a user is meant to read, which
+      # is deliberately free of stack traces and paths. When a render fails
+      # in CI the cause is what matters, and it is in the app log.
+      - name: App log after a failed render
+        if: failure()
+        run: docker logs renderer 2>&1 || true
+
       - name: Resource use and measurement summary
         if: always()
         run: |

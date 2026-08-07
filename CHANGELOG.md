@@ -6,6 +6,30 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.36.0] - 2026-08-07
+
+### Changed
+
+- **Renderer-App 0.3.0-slim.1: das Image ist deutlich kleiner.** Die erste lauffähige Fassung war 1574 MB – nichts daran war nötig, es waren ein vollständiges Chromium, ein vollständiges ffmpeg, die Bau-Werkzeuge und der npm-Cache, die alle in die Laufzeitschicht mitgefahren sind. Gleiches Verhalten, ohne die Teile, die nie laufen:
+  - **`chrome-headless-shell` statt vollem Chromium.** Dieselbe Rendermaschine, ohne Browseroberfläche, Erweiterungswirt und Synchronisierung. Einmal beim Bauen geladen, nie zur Laufzeit.
+  - **Nur `ffprobe` statt des ganzen ffmpeg-Pakets.** ffprobe ist das einzige Programm, das die Validierung benutzt; es wird mit genau den Bibliotheken herausgelöst, die es selbst nennt (per `ldd` ermittelt, nicht geraten).
+  - **Mehrstufiger Bau.** Bundler, React, TypeScript und der npm-Cache erzeugen das Bundle und bleiben dann in der Baustufe zurück. Von 209 npm-Paketen sind noch 27 in der Laufzeit.
+- Alles bleibt gepinnt: Basis-Image per exaktem Tag, Node per Version **und** SHA-256, npm per Sperrdatei, der Browser über die Remotion-Version, die ihn holt. Während eines Auftrags wird weiterhin nichts geladen, beim Containerstart nichts installiert.
+
+### Added
+
+- **Harte Grenzen für den Worker.** Ein Renderer ohne sie kann eine Platte füllen oder den einzigen Arbeiter dauerhaft belegen: ein Job gleichzeitig (ausdrücklich geprüft, nicht nur durch die Schleife impliziert), 300 s Renderzeit, 420 s Gesamtdauer, 64 MB Ergebnisdatei, 512 MB Ergebnisordner, 24 h Aufbewahrung, 512 MB freier Speicher als Vorbedingung. Aufgeräumt wird jetzt auch nach Größe, nicht nur nach Alter – ein Ordner, der schneller wächst als er altert, wäre sonst unbegrenzt. Liegengebliebene `.part`-Dateien eines abgestürzten Renders werden entfernt.
+- **Der Austauschordner ist als Vertrauenskanal dokumentiert, nicht als Sicherheitsgrenze.** `/share` ist von jeder App mit demselben Mount beschreibbar, und die SHA-256 liegt in derselben Datei wie das Artefakt – wer eines fälscht, fälscht beides. Die Prüfsumme belegt Transportintegrität, **nie** Herkunft. Für produktive Videos darf daher nur übernommen werden, was ffprobe als das erwartete MP4 bestätigt. Ein Vertragstest hält die Aussage fest, damit sie eine spätere Änderung überlebt.
+- **Der Bau prüft den Browser selbst.** Das Image schneidet Systembibliotheken absichtlich weg, also muss es belegen, dass der Headless Shell noch läuft: `ldd` bricht den Bau ab und nennt die fehlende Bibliothek, danach wird das Programm einmal wirklich gestartet. Eine zu viel weggeschnittene Bibliothek ist ein Baufehler und gehört in den Bau – nicht in einen Render Stunden später.
+- **Der Worker protokolliert die Ursache eines Fehlschlags.** Bisher stand im Log nur die Meldung, die im Panel erscheint; der eigentliche Grund steckt in `err.detail`. Er geht jetzt ins App-Log und ausdrücklich **nicht** in die Statusdatei, denn die läuft über den Austauschordner ins Panel. Die CI gibt das App-Log aus, wenn ein Render scheitert.
+
+### Fixed
+
+- **Der Testrender scheiterte mit „Der Browser konnte nicht gestartet werden" – für einen Browser, der die ganze Zeit im Image lag.** Das Basis-Image der Home-Assistant-Apps startet Dienste über s6-overlay, und das reicht die Docker-`ENV` nicht an den Dienst weiter. `render.mjs` fiel deshalb auf seinen eigenen Standardwert `/usr/bin/chromium` zurück. Sichtbar wurde das erst jetzt, weil jede andere Variable einen zufällig passenden Fallback hatte – das alte Image hatte seinen Browser tatsächlich dort liegen. `LD_LIBRARY_PATH` wäre als Nächstes betroffen gewesen: Der aus dem ffmpeg-Paket herausgelöste `ffprobe` findet ohne ihn keine einzige seiner Bibliotheken. Das Startskript setzt und **prüft** jetzt jeden Pfad, von dem die Laufzeit abhängt; ein kaputtes Image scheitert beim Start mit dem Namen des fehlenden Programms statt Sekunden in einen Job hinein.
+- **React fehlte in der Laufzeitschicht.** `npm ci --omit=dev` warf es heraus, aber `@remotion/renderer` macht beim Laden `require("react/jsx-runtime")` für die JSX-Hilfetexte an seinen Options-Definitionen. React ist hier eine Laufzeit-, keine Bau-Abhängigkeit und steht jetzt auch dort.
+- **Der Browser wurde beim Bauen an der falschen Stelle gesucht.** Remotion legt ihn nicht unter `~/.cache/remotion` ab, sondern läuft vom Arbeitsverzeichnis aufwärts bis zur nächsten `package.json` und entpackt nach `node_modules/.remotion`. Verwendet wird jetzt der Pfad, den `ensureBrowser()` selbst zurückgibt.
+- Das Bundle wurde aus `/build/bundle` kopiert, obwohl der Bundler es direkt an seinen Zielort schreibt.
+
 ## [4.35.2] - 2026-08-07
 
 ### Fixed

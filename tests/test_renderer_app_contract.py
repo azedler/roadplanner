@@ -89,6 +89,94 @@ def verify_the_untrusted_artifact_is_never_injected_as_markup() -> None:
     assert "innerHTML = result" not in feature
 
 
+def verify_the_channel_is_documented_as_trust_not_security() -> None:
+    """The distinction decides what may be done with what comes back.
+
+    /share is writable by every app with the same mount, and the SHA-256
+    sits in the same file as the artefact it describes - so the hash proves
+    transport, never origin. Anyone later tempted to treat a returned file
+    as trustworthy has to meet this sentence first.
+    """
+    protocol = (INTEGRATION / "renderer_app_protocol.py").read_text(encoding="utf-8")
+    assert "trust channel, not a security boundary" in protocol
+    assert "never\nthat they came from the renderer" in protocol.replace("  ", " ") or (
+        "never" in protocol and "came from the renderer" in protocol
+    )
+    assert "only a file that ffprobe confirms" in protocol, (
+        "fuer produktive Videos zaehlt nur, was ffprobe bestaetigt"
+    )
+    docs = (APP / "DOCS.md").read_text(encoding="utf-8")
+    assert "Vertrauenskanal, keine Sicherheitsgrenze" in docs
+
+
+def verify_the_worker_has_hard_limits() -> None:
+    """A renderer without limits can fill a disk or occupy the only worker."""
+    worker = (APP / "src" / "index.mjs").read_text(encoding="utf-8")
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    assert "MAX_CONCURRENT_JOBS = 1" in worker, "ein Job zur Zeit bleibt der Standard"
+    assert "activeJobs >= MAX_CONCURRENT_JOBS" in worker, "die Grenze muss auch greifen"
+    for needed in ("MAX_JOB_DURATION_MS", "MAX_RESULT_BYTES", "RESULT_RETENTION_MS"):
+        assert needed in worker, f"{needed} fehlt"
+    for needed in ("renderTimeoutMs", "maxOutputBytes", "minFreeBytes"):
+        assert needed in render, f"{needed} fehlt"
+    assert "RENDER_TIMEOUT" in render, "eine ueberschrittene Renderzeit braucht einen Code"
+    # Leftovers from a crashed render must not accumulate.
+    assert '.part' in worker and "fs.rm" in worker
+
+
+def verify_the_image_is_built_slim() -> None:
+    """1574 MB was not necessary - it was a full browser and a full ffmpeg."""
+    dockerfile = (APP / "Dockerfile").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in dockerfile.splitlines() if not line.strip().startswith("#")
+    )
+    assert "AS builder" in code, "der Bau bleibt in einer eigenen Stufe zurueck"
+    assert "npm ci --omit=dev" in code, "die Laufzeit bekommt nur Laufzeitpakete"
+    assert "npm cache clean" in code and "/root/.npm" in code
+    assert "chrome-headless-shell" in code, "kein vollstaendiges Chromium"
+    assert "libnss3" in code, "die Bibliotheken des Shell werden benannt statt mitgeschleppt"
+    assert "apt-get install -y --no-install-recommends chromium" not in code
+    assert "AS ffprobe-runtime" in code and "ldd /usr/bin/ffprobe" in code, (
+        "ffprobe wird mit seinen Bibliotheken herausgeloest, statt ffmpeg mitzunehmen"
+    )
+    package = json.loads((APP / "package.json").read_text(encoding="utf-8"))
+    assert "@remotion/bundler" in package["devDependencies"], (
+        "der Bundler laeuft nur beim Bauen"
+    )
+    assert "@remotion/bundler" not in package["dependencies"]
+
+
+def verify_the_paths_reach_the_process_that_needs_them() -> None:
+    """A Dockerfile ENV is not enough: s6 does not pass it to the service.
+
+    The worker fell back to /usr/bin/chromium and reported a missing
+    browser for a browser that was in the image. Every path the runtime
+    depends on has to be set by the script that execs it, and checked
+    there, so a broken image says so at startup instead of at the first
+    render.
+    """
+    run_sh = (APP / "run.sh").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in run_sh.splitlines() if not line.strip().startswith("#")
+    )
+    for variable in (
+        "ROADPLANNER_BROWSER",
+        "ROADPLANNER_FFPROBE",
+        "ROADPLANNER_BUNDLE_DIR",
+        "LD_LIBRARY_PATH",
+    ):
+        assert f"export {variable}=" in code, (
+            f"{variable} muss im Startskript gesetzt werden, nicht nur als ENV"
+        )
+    assert "/opt/roadplanner-renderer/browser/chrome-headless-shell" in code
+    assert "/opt/ffprobe/lib" in code, "ffprobe findet seine Bibliotheken sonst nicht"
+    assert "nicht ausführbar" in code, "fehlende Programme brechen den Start ab"
+
+    # The same defaults, in the module the worker actually imports.
+    render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
+    assert "ROADPLANNER_BROWSER" in render and "ROADPLANNER_FFPROBE" in render
+
+
 def verify_the_app_asks_for_nothing_beyond_a_shared_folder() -> None:
     # Comments are prose - this file's own commentary names the permissions
     # it deliberately does NOT request. Scan what takes effect, not what
@@ -208,7 +296,17 @@ def verify_the_image_brings_its_own_runtime_and_browser() -> None:
     code = "\n".join(
         line for line in dockerfile.splitlines() if not line.strip().startswith("#")
     )
-    for needed in ("chromium", "ffmpeg", "fonts-", "npm ci", "scripts/bundle.mjs"):
+    # The browser is a headless shell now, and ffprobe is lifted out of
+    # ffmpeg - so this checks the capabilities, not the package names of
+    # the first attempt.
+    for needed in (
+        "chrome-headless-shell",
+        "ffprobe",
+        "fonts-",
+        "npm ci",
+        "scripts/bundle.mjs",
+        "scripts/ensure-browser.mjs",
+    ):
         assert needed in code, f"das Image muss {needed} enthalten"
     # Pinned base and a checksum-verified Node tarball.
     assert "amd64-base-debian:bookworm-" in code, "das Basis-Image muss exakt gepinnt sein"
@@ -309,6 +407,10 @@ verify_the_poc_is_reachable_from_the_panel()
 verify_submitting_a_job_needs_edit_rights()
 verify_the_production_paths_are_untouched()
 verify_the_untrusted_artifact_is_never_injected_as_markup()
+verify_the_channel_is_documented_as_trust_not_security()
+verify_the_worker_has_hard_limits()
+verify_the_image_is_built_slim()
+verify_the_paths_reach_the_process_that_needs_them()
 verify_the_app_asks_for_nothing_beyond_a_shared_folder()
 verify_nothing_is_installed_at_container_start()
 verify_the_reported_version_survives_a_local_build()
