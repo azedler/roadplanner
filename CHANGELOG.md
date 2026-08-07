@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.36.0] - 2026-08-07
+
+### Changed
+
+- **Renderer-App 0.3.0-slim.1: das Image ist deutlich kleiner.** Die erste lauffähige Fassung war 1574 MB – nichts daran war nötig, es waren ein vollständiges Chromium, ein vollständiges ffmpeg, die Bau-Werkzeuge und der npm-Cache, die alle in die Laufzeitschicht mitgefahren sind. Gleiches Verhalten, ohne die Teile, die nie laufen:
+  - **`chrome-headless-shell` statt vollem Chromium.** Dieselbe Rendermaschine, ohne Browseroberfläche, Erweiterungswirt und Synchronisierung. Einmal beim Bauen geladen, nie zur Laufzeit.
+  - **Nur `ffprobe` statt des ganzen ffmpeg-Pakets.** ffprobe ist das einzige Programm, das die Validierung benutzt; es wird mit genau den Bibliotheken herausgelöst, die es selbst nennt (per `ldd` ermittelt, nicht geraten).
+  - **Mehrstufiger Bau.** Bundler, React, TypeScript und der npm-Cache erzeugen das Bundle und bleiben dann in der Baustufe zurück. Von 209 npm-Paketen sind noch 27 in der Laufzeit.
+- Alles bleibt gepinnt: Basis-Image per exaktem Tag, Node per Version **und** SHA-256, npm per Sperrdatei, der Browser über die Remotion-Version, die ihn holt. Während eines Auftrags wird weiterhin nichts geladen, beim Containerstart nichts installiert.
+
+### Added
+
+- **Harte Grenzen für den Worker.** Ein Renderer ohne sie kann eine Platte füllen oder den einzigen Arbeiter dauerhaft belegen: ein Job gleichzeitig (ausdrücklich geprüft, nicht nur durch die Schleife impliziert), 300 s Renderzeit, 420 s Gesamtdauer, 64 MB Ergebnisdatei, 512 MB Ergebnisordner, 24 h Aufbewahrung, 512 MB freier Speicher als Vorbedingung. Aufgeräumt wird jetzt auch nach Größe, nicht nur nach Alter – ein Ordner, der schneller wächst als er altert, wäre sonst unbegrenzt. Liegengebliebene `.part`-Dateien eines abgestürzten Renders werden entfernt.
+- **Der Austauschordner ist als Vertrauenskanal dokumentiert, nicht als Sicherheitsgrenze.** `/share` ist von jeder App mit demselben Mount beschreibbar, und die SHA-256 liegt in derselben Datei wie das Artefakt – wer eines fälscht, fälscht beides. Die Prüfsumme belegt Transportintegrität, **nie** Herkunft. Für produktive Videos darf daher nur übernommen werden, was ffprobe als das erwartete MP4 bestätigt. Ein Vertragstest hält die Aussage fest, damit sie eine spätere Änderung überlebt.
+
 ## [4.35.2] - 2026-08-07
 
 ### Fixed

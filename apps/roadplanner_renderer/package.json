@@ -1,8 +1,8 @@
 {
   "name": "roadplanner-renderer-poc",
-  "version": "0.2.0-remotion.2",
+  "version": "0.3.0-slim.1",
   "private": true,
-  "description": "Renderer app for Roadplanner. Remotion spike: proves a five-second H.264 test render inside the app container.",
+  "description": "Renderer app for Roadplanner. Remotion render in a slimmed image: headless shell, ffprobe only, multi-stage build.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -13,17 +13,18 @@
     "start": "node src/index.mjs",
     "bundle": "node scripts/bundle.mjs",
     "typecheck": "tsc --noEmit",
-    "check": "node --check src/index.mjs && node --check src/protocol.mjs && node --check src/render.mjs"
+    "check": "node --check src/index.mjs && node --check src/protocol.mjs && node --check src/render.mjs",
+    "ensure-browser": "node scripts/ensure-browser.mjs"
   },
   "dependencies": {
-    "@remotion/bundler": "4.0.506",
     "@remotion/renderer": "4.0.506",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
     "remotion": "4.0.506"
   },
   "devDependencies": {
+    "@remotion/bundler": "4.0.506",
     "@types/react": "19.2.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
     "typescript": "5.9.3"
   }
 }

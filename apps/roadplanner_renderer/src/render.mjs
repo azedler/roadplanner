@@ -18,6 +18,7 @@
  *   its codec, container, resolution and duration have been read back.
  */
 import { execFile } from "node:child_process";
+import { statfsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -32,6 +33,24 @@ const BROWSER = process.env.ROADPLANNER_BROWSER || "/usr/bin/chromium";
 const FFPROBE = process.env.ROADPLANNER_FFPROBE || "ffprobe";
 
 export const COMPOSITION_ID = "roadplanner-remotion-test";
+
+/**
+ * Hard limits.
+ *
+ * A renderer without them is a renderer that can fill a disk or occupy the
+ * only worker forever. Every number below is generous for the five-second
+ * test and small enough that a stuck run ends by itself.
+ */
+export const LIMITS = {
+  // A five-second 720p render takes ~13 s on the target box and produces
+  // ~260 kB. Both budgets are an order of magnitude above that, so they
+  // only ever trigger on something genuinely wrong.
+  renderTimeoutMs: Number(process.env.ROADPLANNER_RENDER_TIMEOUT_MS || 300_000),
+  maxOutputBytes: Number(process.env.ROADPLANNER_MAX_OUTPUT_BYTES || 64 * 1024 * 1024),
+  // Free space required before a render is even started - failing early
+  // beats failing halfway through with a half-written file.
+  minFreeBytes: Number(process.env.ROADPLANNER_MIN_FREE_BYTES || 512 * 1024 * 1024),
+};
 export const EXPECTED = {
   codec: "h264",
   container: "mov,mp4,m4a,3gp,3g2,mj2",
@@ -126,6 +145,23 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
   const startedAt = Date.now();
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
+  // Checked before the browser starts: a render that cannot possibly land
+  // should not cost thirteen seconds first.
+  try {
+    const fsStat = statfsSync(path.dirname(outputPath));
+    const free = fsStat.bavail * fsStat.bsize;
+    if (free < LIMITS.minFreeBytes) {
+      throw new RenderError(
+        "INSUFFICIENT_DISK_SPACE",
+        `Zu wenig freier Speicher: ${Math.round(free / 1024 / 1024)} MB.`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof RenderError) throw err;
+    // statfs is not worth failing a render over; the size check below still
+    // catches a full disk.
+  }
+
   try {
     await fs.access(BUNDLE_DIR);
   } catch (err) {
@@ -158,7 +194,22 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
     });
 
     const renderStarted = Date.now();
-    await renderMedia({
+    // A wall-clock ceiling on the render itself. Without it a wedged
+    // browser holds the single worker for as long as the container lives.
+    let timer;
+    const deadline = new Promise((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new RenderError(
+              "RENDER_TIMEOUT",
+              `Der Render hat die Zeitgrenze von ${Math.round(LIMITS.renderTimeoutMs / 1000)} s überschritten.`,
+            ),
+          ),
+        LIMITS.renderTimeoutMs,
+      );
+    });
+    const render = renderMedia({
       composition,
       serveUrl: BUNDLE_DIR,
       codec: "h264",
@@ -172,7 +223,22 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
       concurrency: 1,
       onProgress: ({ progress }) => onProgress?.(progress),
     });
+    try {
+      await Promise.race([render, deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
     timings.render = (Date.now() - renderStarted) / 1000;
+
+    // A file larger than the channel will carry is a failure here, not a
+    // surprise on the Home Assistant side.
+    const written = await fs.stat(partial);
+    if (written.size > LIMITS.maxOutputBytes) {
+      throw new RenderError(
+        "OUTPUT_INVALID",
+        `Das Ergebnis ist mit ${Math.round(written.size / 1024 / 1024)} MB zu gross.`,
+      );
+    }
   } catch (err) {
     await fs.rm(partial, { force: true }).catch(() => {});
     throw new RenderError("RENDER_FAILED", "Der Render ist fehlgeschlagen.", err?.message);

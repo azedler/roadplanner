@@ -76,6 +76,46 @@ Drei Eigenschaften tragen den Entwurf:
 Dateinamen bestehen ausschliesslich aus einer serverseitig erzeugten UUID.
 Kein Pfad und kein Dateiname stammt aus Nutzertext.
 
+## Der Austauschordner ist ein Vertrauenskanal, keine Sicherheitsgrenze
+
+`/share` ist von Home Assistant und von jeder App beschreibbar, die
+denselben Mount anfordert. Nichts dort ist authentifiziert: Die SHA-256 in
+`result.json` liegt in derselben Datei wie das Artefakt, das sie
+beschreibt. Wer eines faelschen kann, faelscht beides.
+
+**Die Pruefsumme belegt, dass die Bytes unversehrt angekommen sind - nie,
+dass sie vom Renderer stammen.**
+
+Daraus folgt:
+
+- Eine zurueckgelieferte Datei gilt als nicht vertrauenswuerdige Eingabe.
+  Sie ist groessenbegrenzt, ihr Typ wird geprueft, und sie wird nie als
+  Markup, Code oder Pfad interpretiert.
+- **Fuer produktive Videos darf nur uebernommen werden, was ffprobe als das
+  erwartete MP4 bestaetigt** - Container, Codec, Aufloesung und Dauer, aus
+  den Bytes zurueckgelesen statt einem Manifest geglaubt.
+- Der Kanal ist angemessen, weil beide Enden lokal sind und demselben
+  Betreiber gehoeren. Ueber Maschinen- oder Vertrauensgrenzen hinweg waere
+  er es nicht; das braeuchte Signaturen oder einen Transport mit Identitaet,
+  nicht ein strengeres Schema.
+
+## Grenzen
+
+| | |
+|---|---|
+| Gleichzeitige Jobs | 1 |
+| Renderdauer | 300 s |
+| Gesamtdauer eines Jobs | 420 s |
+| Ergebnisdatei | 64 MB |
+| Ergebnisordner gesamt | 512 MB |
+| Aufbewahrung | 24 h |
+| Auftragsdatei | 64 kB |
+| Freier Speicher vor dem Render | 512 MB |
+
+Alle Werte sind ueber Umgebungsvariablen einstellbar, aber so gewaehlt, dass
+sie im Normalbetrieb nie greifen und nur bei etwas tatsaechlich Falschem
+ausloesen.
+
 ## Neustartverhalten
 
 | Fall | Verhalten |

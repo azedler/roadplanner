@@ -26,6 +26,27 @@ file is *finished*:
   go back to ``running``. A late write from a process that was restarted
   cannot resurrect a finished job.
 
+**The exchange directory is a trust channel, not a security boundary.**
+That distinction decides what may be done with what comes out of it.
+
+``/share`` is writable by Home Assistant and by every app that asks for the
+same mount. Nothing there is authenticated: the SHA-256 in ``result.json``
+sits in the same file as the artefact it describes, so whoever can forge
+one can forge both. **The hash proves that the bytes arrived intact, never
+that they came from the renderer.**
+
+What follows from that, and what must survive any later change:
+
+- a returned file is treated as untrusted input. It is bounded, its type is
+  checked, and it is never interpreted as markup, code or a path;
+- **for production video, only a file that ffprobe confirms to be the
+  expected MP4 may be taken over** - container, codec, resolution and
+  duration, read back from the bytes rather than believed from a manifest;
+- the channel is adequate because both ends are local and under the same
+  operator. It would not be adequate across machines or across trust
+  domains, and turning it into one would need a different mechanism -
+  signatures or a transport with identity - not a stricter schema.
+
 The security posture, which is narrower than it may look:
 
 - filenames are derived from a server-generated UUID and nothing else. No

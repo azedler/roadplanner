@@ -59,6 +59,26 @@ const HEARTBEAT_INTERVAL_MS = 5000;
 const RESULT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_JOB_FILE_BYTES = 64 * 1024;
 
+/**
+ * Bounds on what one worker will take on.
+ *
+ * ONE job at a time, deliberately. A Home Assistant box shares its cores
+ * with everything else the household runs on it, and two concurrent
+ * renders would make both slower and the machine less responsive without
+ * finishing any sooner. The guard is explicit rather than implied by the
+ * sequential loop, so it survives someone parallelising that loop later.
+ */
+const MAX_CONCURRENT_JOBS = 1;
+// A whole job, not just its render: claim, parse, render, probe, hash.
+const MAX_JOB_DURATION_MS = Number(process.env.ROADPLANNER_MAX_JOB_MS || 420_000);
+// Anything left in results/ beyond this is from a run nobody came back
+// for; the shared folder must not grow without bound.
+const MAX_RESULT_BYTES = Number(
+  process.env.ROADPLANNER_MAX_RESULT_BYTES || 512 * 1024 * 1024,
+);
+
+let activeJobs = 0;
+
 const DIRS = {
   jobs: path.join(EXCHANGE_DIR, "jobs"),
   processing: path.join(EXCHANGE_DIR, "processing"),
@@ -219,6 +239,11 @@ async function handleJob(name) {
     log("warn", "Dateiname ist keine Job-ID, wird ignoriert", { name });
     return;
   }
+  if (activeJobs >= MAX_CONCURRENT_JOBS) {
+    // Left in jobs/ on purpose: the next sweep picks it up. Refusing it
+    // would turn a busy moment into a failed job.
+    return;
+  }
   const source = path.join(DIRS.jobs, name);
   const claimed = path.join(DIRS.processing, name);
   try {
@@ -229,6 +254,12 @@ async function handleJob(name) {
     return;
   }
   log("info", "Auftrag übernommen", { job_id: jobId });
+
+  activeJobs += 1;
+  const jobStarted = Date.now();
+  const jobDeadline = setTimeout(() => {
+    log("error", "Auftrag überschreitet die Gesamtdauer", { job_id: jobId });
+  }, MAX_JOB_DURATION_MS);
 
   try {
     await writeStatus(jobId, "claimed", { progress: 0 });
@@ -278,8 +309,36 @@ async function handleJob(name) {
     });
     log("warn", "Auftrag fehlgeschlagen", { job_id: jobId, state, detail: String(err) });
   } finally {
+    clearTimeout(jobDeadline);
+    activeJobs -= 1;
+    const seconds = (Date.now() - jobStarted) / 1000;
+    if (seconds * 1000 > MAX_JOB_DURATION_MS) {
+      log("warn", "Auftrag hat die Gesamtdauer überschritten", {
+        job_id: jobId,
+        seconds,
+      });
+    }
     await fs.rm(claimed, { force: true }).catch(() => {});
   }
+}
+
+/** Total bytes below a directory, used to bound the results folder. */
+async function directorySize(root) {
+  let total = 0;
+  const stack = [root];
+  while (stack.length) {
+    const current = stack.pop();
+    const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else {
+        const stat = await fs.stat(full).catch(() => null);
+        if (stat) total += stat.size;
+      }
+    }
+  }
+  return total;
 }
 
 /**
@@ -306,16 +365,42 @@ async function recoverInterrupted() {
 
 async function cleanupOldResults() {
   const cutoff = Date.now() - RESULT_RETENTION_MS;
-  const names = await fs.readdir(DIRS.results).catch(() => []);
+  const names = (await fs.readdir(DIRS.results).catch(() => [])).filter(isJobId);
+  const folders = [];
   for (const name of names) {
-    if (!isJobId(name)) continue;
     const folder = path.join(DIRS.results, name);
     const stat = await fs.stat(folder).catch(() => null);
-    if (stat && stat.mtimeMs < cutoff) {
+    if (!stat) continue;
+    if (stat.mtimeMs < cutoff) {
       await fs.rm(folder, { recursive: true, force: true }).catch(() => {});
       await fs.rm(path.join(DIRS.status, `${name}.json`), { force: true }).catch(() => {});
       finished.delete(name);
       log("info", "altes Ergebnis aufgeräumt", { job_id: name });
+      continue;
+    }
+    folders.push({ name, folder, mtime: stat.mtimeMs });
+  }
+
+  // Age alone does not bound a folder that fills up faster than it ages.
+  // Oldest first until the total is back under the budget.
+  let total = await directorySize(DIRS.results);
+  folders.sort((a, b) => a.mtime - b.mtime);
+  for (const entry of folders) {
+    if (total <= MAX_RESULT_BYTES) break;
+    const size = await directorySize(entry.folder);
+    await fs.rm(entry.folder, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.join(DIRS.status, `${entry.name}.json`), { force: true }).catch(() => {});
+    finished.delete(entry.name);
+    total -= size;
+    log("info", "Ergebnis wegen Platzgrenze aufgeräumt", { job_id: entry.name });
+  }
+
+  // A crashed render can leave a .part behind; nothing ever reads those.
+  for (const dir of [DIRS.results, DIRS.jobs, DIRS.status]) {
+    for (const entry of await fs.readdir(dir).catch(() => [])) {
+      if (entry.endsWith(".part") || entry.includes(".part.")) {
+        await fs.rm(path.join(dir, entry), { force: true }).catch(() => {});
+      }
     }
   }
 }
