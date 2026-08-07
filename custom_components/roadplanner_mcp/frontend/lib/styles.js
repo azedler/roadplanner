@@ -100,6 +100,16 @@ export const PANEL_STYLES = `<style>
       .next-day-grid, .facts-grid, .preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
       .next-day-grid > div, .facts-grid > div, .preview-grid > div { padding: 14px; border-radius: 14px; background: var(--secondary-background-color); display: flex; flex-direction: column; gap: 5px; }
       .next-day-grid span, .facts-grid span, .preview-grid span { color: var(--secondary-text-color); font-size: 12px; }
+      /* Live report: "das Fenster passt nicht ins Bild". Values like a
+         full exchange path or a filename have no spaces to break at, so
+         they pushed the grid past the viewport and the whole card
+         scrolled sideways. minmax(0,1fr) alone does not help - the cell
+         has to be allowed to break the word. */
+      .next-day-grid strong, .facts-grid strong, .preview-grid strong { overflow-wrap: anywhere; min-width: 0; }
+      .facts-grid > div, .next-day-grid > div, .preview-grid > div { min-width: 0; }
+      /* An artefact from the renderer arrives at its own intrinsic size
+         (640px wide), which is wider than a phone. */
+      .renderer-app-artifact { display: block; width: 100%; max-width: 100%; height: auto; margin-top: 12px; border-radius: 12px; }
       .settings-list { display: grid; gap: 0; margin-bottom: 16px; }
       .setting-row { min-height: 50px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--divider-color); }
       .setting-row:last-child { border-bottom: 0; }
@@ -831,6 +841,7 @@ export const PANEL_STYLES = `<style>
         .trip-select { min-width: 0; width: min(42vw, 280px); }
       }
       @media (max-width: 680px) {
+        .facts-grid, .next-day-grid, .preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .assistant-toolbar { align-items: stretch; flex-direction: column; }
         .assistant-toolbar-primary .assistant-main-actions { display: grid; grid-template-columns: 1fr; }
         .assistant-toolbar-primary .assistant-main-actions button { width: 100%; }

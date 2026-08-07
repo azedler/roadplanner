@@ -233,7 +233,7 @@ export const tripDayStopMixin = {
         </div>
       </section>
 
-      <details class="overview-technical panel-card">
+      <details data-section="technical" class="overview-technical panel-card">
         <summary><span><ha-icon icon="mdi:tools"></ha-icon>Werkzeuge & System</span><small>Import, Reisen, Routing, Rollen und Diagnose</small></summary>
         <div class="assistant-technical-content">
           <div class="button-row">

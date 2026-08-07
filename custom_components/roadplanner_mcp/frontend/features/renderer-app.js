@@ -68,11 +68,14 @@ export const rendererAppMixin = {
     }
   },
 
-  async _rendererAppRun() {
-    const result = await this._runAction("renderer_app_run", {}, "", {
+  async _rendererAppRun(action = "renderer_app_run") {
+    const result = await this._runAction(action, {}, "", {
       refresh: false,
       blockUi: false,
-      errorTitle: "Der Testauftrag konnte nicht übergeben werden",
+      errorTitle:
+        action === "renderer_app_render"
+          ? "Der Testrender konnte nicht gestartet werden"
+          : "Der Testauftrag konnte nicht übergeben werden",
     });
     if (!result?.renderer_app_job?.job_id) return;
     this._rendererAppJob = result.renderer_app_job;
@@ -85,7 +88,7 @@ export const rendererAppMixin = {
     if (this._rendererAppPolling) return;
     this._rendererAppPolling = true;
     try {
-      for (let attempt = 0; attempt < 60; attempt += 1) {
+      for (let attempt = 0; attempt < 150; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
         if (!this.isConnected) return;
         const result = await this._runAction(
@@ -129,6 +132,12 @@ export const rendererAppMixin = {
       `Heartbeat-Alter: ${status.age_seconds === undefined || status.age_seconds === null ? "–" : `${status.age_seconds} s`}`,
       `Testauftrag: ${job.job_id || "nicht gelaufen"}`,
       `Jobzustand: ${job.state || "–"}`,
+      result?.video
+        ? `Video: ${result.video.codec} ${result.video.width}x${result.video.height}, ${result.video.duration_seconds} s, ${result.video.size_bytes} B`
+        : "",
+      result?.timings
+        ? `Zeiten: gesamt ${result.timings.total} s (Browser ${result.timings.browser_start} s, Render ${result.timings.render} s, ffprobe ${result.timings.probe} s)`
+        : "",
       job.error ? `Jobfehler: ${job.error.code} – ${job.error.message}` : "",
       result
         ? `Artefakte: ${result.artifacts.map((a) => `${a.filename} (${a.size_bytes} B)`).join(", ")}`
@@ -171,6 +180,13 @@ export const rendererAppMixin = {
     if (running) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
       jobBlock = `<div class="notice neutral trip-video-status"><div class="spinner small"></div><span>Testauftrag läuft … ${escapeHtml(job.state)} ${percent} %</span></div>`;
+    } else if (job?.state === "completed" && result?.video) {
+      const v = result.video;
+      const t = result.timings || {};
+      jobBlock = `<div class="notice neutral"><strong>Testvideo erzeugt</strong><br>
+        ${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB<br>
+        <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small><br>
+        <small>Die Datei liegt im Austauschordner; sie wird bewusst nicht ins Panel geladen.</small></div>`;
     } else if (job?.state === "completed" && result) {
       jobBlock = `<div class="notice neutral"><strong>Testauftrag erfolgreich</strong><br>${result.artifacts
         .map((item) => `${escapeHtml(item.filename)} · ${escapeHtml(String(item.size_bytes))} B`)
@@ -190,6 +206,7 @@ export const rendererAppMixin = {
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="renderer-app-probe"${this._rendererAppProbing ? " disabled" : ""}><ha-icon icon="mdi:lan-connect"></ha-icon> ${this._rendererAppProbing ? "Prüfe …" : "Umgebung prüfen"}</button>
         ${canEdit ? `<button class="secondary-button" type="button" data-action="renderer-app-run"${status?.online && !running ? "" : " disabled"}><ha-icon icon="mdi:play-box-outline"></ha-icon> Testauftrag senden</button>` : ""}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="renderer-app-render"${status?.online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-open-play-outline"></ha-icon> Testvideo rendern</button>` : ""}
         ${environment ? `<button class="text-button" type="button" data-action="renderer-app-copy-report"><ha-icon icon="mdi:clipboard-text-outline"></ha-icon> Bericht kopieren</button>` : ""}
       </div>
       ${

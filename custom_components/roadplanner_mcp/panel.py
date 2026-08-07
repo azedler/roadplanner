@@ -36,7 +36,7 @@ from .page_images import async_fetch_page_place
 from .system_check import async_run_system_check
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
-from .renderer_app_protocol import RendererProtocolError
+from .renderer_app_protocol import ACTION_RENDER_REMOTION_TEST, RendererProtocolError
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
 
@@ -83,6 +83,7 @@ _ACTIONS = {
     "renderer_app_environment",
     "renderer_app_status",
     "renderer_app_run",
+    "renderer_app_render",
     "renderer_app_job_status",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
@@ -163,6 +164,7 @@ _EDIT_ACTIONS = {
     "remotion_test_render",
     "remotion_cancel",
     "renderer_app_run",
+    "renderer_app_render",
     "update_trip",
     "add_day",
     "update_day",
@@ -1373,6 +1375,17 @@ async def _execute_action(
         # The job id is generated server-side and becomes the filename, so
         # nothing a client sends can reach the filesystem.
         return {"renderer_app_job": await runtime.renderer_app.async_submit_test_job()}
+
+    if action == "renderer_app_render":
+        # Same mechanism as the plain test job - the render takes about
+        # twelve seconds, so it is submitted and polled rather than waited
+        # on inside the websocket call.
+        return {
+            "renderer_app_job": await runtime.renderer_app.async_submit_test_job(
+                message="Roadplanner Remotion Test",
+                action=ACTION_RENDER_REMOTION_TEST,
+            )
+        }
 
     if action == "renderer_app_job_status":
         job_id = str(data.get("job_id") or "")
