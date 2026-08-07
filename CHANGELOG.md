@@ -6,6 +6,23 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.37.0] - 2026-08-07
+
+### Added
+
+- **Mini-Export: ein echter Reisetag durch die Renderer-App.** Der Nachweis, dass Roadplanner reale Daten kontrolliert übergeben kann und daraus ein gültiges Video entsteht – ausdrücklich kein Export-Feature. Die Strecke ist vollständig: Roadplanner → Renderpaket in `/share` → App → Remotion → ffprobe → MP4 zurück. In der Karte „Renderer-App" lassen sich die Reisetage laden, einer auswählen und daraus ein Tagesvideo erzeugen.
+- **Das Renderpaket ist bewusst klein.** Übergeben werden Tages-ID, Datum, Titel, die gespeicherte Tageszusammenfassung, die Namen der Stopps sowie Strecke und Fahrzeit – Letztere **nur, wenn Roadplanner sie ohnehin schon lokal hat**. Nichts wird nachgeschlagen, um das Paket zu füllen. Weder das Roadbook noch die Mediathek verlassen die Integration.
+- **Fotos werden neu codiert, nie kopiert.** Bis zu fünf Bilder, auf 1280 px verkleinert, als frische JPEGs aus den Bilddaten geschrieben. Genau das entfernt die EXIF-Daten – einschließlich der GPS-Position, die jedes Telefon in ein Urlaubsfoto schreibt und die sonst unwiderruflich in einem geteilten Verzeichnis läge. Die Drehung aus dem Orientierungs-Tag wird vorher auf die Pixel angewandt, sonst läge jedes Hochformat auf der Seite. Ein Bild, das danach noch Metadaten trägt, wird verworfen statt ausgeliefert.
+- **Kein Dateiname reist mit.** Die Bilder sind nummeriert, und der Lesende baut `photo-<n>.jpg` aus der Zahl. Damit kommt keine Zeichenkette aus dem Paket je in die Nähe eines Pfades – die Abwehr ist, dass die Eingabe gar nicht existiert.
+- **Feste Grenzen statt Hoffnung:** höchstens 5 Bilder à 400 kB, 3 MB je Paket, 12 Stopps, begrenzte Textlängen. Jede Grenze wird geprüft, bevor irgendetwas geschrieben wird.
+- **Das Renderpaket überlebt seinen Auftrag nicht.** Die App löscht es nach jedem Job – erfolgreich oder nicht. Ein Paket, das nie abgeholt wurde, wird nach einer Stunde entfernt; Ergebnisse dürfen 24 Stunden bleiben, fremde Fotos nicht.
+- Der Auftrag wird **zuletzt** geschrieben. Seine Existenz belegt damit ein vollständiges Paket – dieselbe Begründung, aus der `result.json` die letzte Datei der App ist.
+- **Die App prüft jedes Bild gegen den angekündigten SHA-256, bevor sie es benutzt** – und zwar bevor ein Browser startet. Ein Symlink im Paket wird abgelehnt statt verfolgt. Die CI weist das an einem echten Container nach, inklusive eines vollständigen Tagesvideos aus einem Paket.
+
+### Changed
+
+- Renderer-App 0.4.0-tripday.1: neue Aktion `render_trip_day` und eine zweite Komposition (Titelkarte, Tagesdaten, Fotos, Abschlusskarte). Ihre Länge folgt der Anzahl der Fotos; die Renderprüfung liest sie aus der Komposition zurück, statt dieselbe Rechnung ein zweites Mal anzustellen. Der Testrender und die bestehende ffmpeg-Videopipeline bleiben unverändert.
+
 ## [4.36.0] - 2026-08-07
 
 ### Changed

@@ -18,6 +18,7 @@
  *   its codec, container, resolution and duration have been read back.
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { statfsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -26,6 +27,13 @@ import { promisify } from "node:util";
 
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
+import {
+  MAX_JSON_BYTES,
+  MAX_PACKAGE_IMAGE_BYTES,
+  PACKAGE_FILENAME,
+  parsePackage,
+} from "./protocol.mjs";
+
 const execFileAsync = promisify(execFile);
 
 const BUNDLE_DIR = process.env.ROADPLANNER_BUNDLE_DIR || "/opt/roadplanner-renderer/bundle";
@@ -33,6 +41,14 @@ const BROWSER = process.env.ROADPLANNER_BROWSER || "/usr/bin/chromium";
 const FFPROBE = process.env.ROADPLANNER_FFPROBE || "ffprobe";
 
 export const COMPOSITION_ID = "roadplanner-remotion-test";
+export const TRIP_DAY_COMPOSITION_ID = "roadplanner-trip-day";
+
+// The trip-day video is as long as the day has photos, so its length is
+// computed by the composition rather than fixed here. These are the bounds
+// a sane result has to fall inside; a composition that produced anything
+// outside them has a bug, and rendering it would only hide that.
+export const TRIP_DAY_MIN_SECONDS = 6;
+export const TRIP_DAY_MAX_SECONDS = 25;
 
 /**
  * Hard limits.
@@ -109,18 +125,25 @@ export async function probe(file) {
   };
 }
 
-/** Refuse anything that is not the video we asked for. */
-export function assertExpected(facts) {
+/**
+ * Refuse anything that is not the video we asked for.
+ *
+ * The expectation is a parameter because the trip-day video's length
+ * depends on how many photos the day had. Everything else — codec,
+ * container, resolution, frame rate — is fixed for both compositions, and
+ * a mismatch there means something changed that nobody meant to change.
+ */
+export function assertExpected(facts, expected = EXPECTED) {
   const problems = [];
-  if (facts.codec !== EXPECTED.codec) problems.push(`Codec ${facts.codec}`);
+  if (facts.codec !== expected.codec) problems.push(`Codec ${facts.codec}`);
   if (!facts.container.includes("mp4")) problems.push(`Container ${facts.container}`);
-  if (facts.width !== EXPECTED.width || facts.height !== EXPECTED.height) {
+  if (facts.width !== expected.width || facts.height !== expected.height) {
     problems.push(`Auflösung ${facts.width}x${facts.height}`);
   }
-  if (Math.abs(facts.fps - EXPECTED.fps) > 0.01) problems.push(`Bildrate ${facts.fps}`);
+  if (Math.abs(facts.fps - expected.fps) > 0.01) problems.push(`Bildrate ${facts.fps}`);
   if (
-    Math.abs(facts.duration_seconds - EXPECTED.durationSeconds) >
-    EXPECTED.durationToleranceSeconds
+    Math.abs(facts.duration_seconds - expected.durationSeconds) >
+    expected.durationToleranceSeconds
   ) {
     problems.push(`Dauer ${facts.duration_seconds} s`);
   }
@@ -141,8 +164,131 @@ export function assertExpected(facts) {
  * appearing under its final name would be read as a finished result.
  */
 export async function renderTestVideo({ outputPath, title, onProgress }) {
+  return renderComposition({
+    outputPath,
+    compositionId: COMPOSITION_ID,
+    inputProps: { title },
+    expected: EXPECTED,
+    onProgress,
+  });
+}
+
+/**
+ * Render one real trip day from the package that came with the job.
+ *
+ * The reading rules are the point of this function, not the rendering:
+ *
+ * - **only files inside the job's own input directory are opened.** The
+ *   directory is named after the job id, and the image names are built
+ *   from integer indices, so no string out of the package ever reaches a
+ *   path;
+ * - **every image is checked against the hash the package declared**
+ *   before it is used. The hash proves the bytes are the ones Roadplanner
+ *   prepared — not that they came from Roadplanner, which no hash in the
+ *   same directory could ever prove;
+ * - **the photos are passed to the composition as data URIs.** The bundle
+ *   is built with no public directory precisely so a composition cannot
+ *   reach for assets of its own; handing the bytes in keeps that true.
+ */
+export async function renderTripDayVideo({ outputPath, inputsDir, onProgress }) {
+  const started = Date.now();
+  const packageRaw = await readBounded(
+    path.join(inputsDir, PACKAGE_FILENAME),
+    MAX_JSON_BYTES,
+  );
+  if (packageRaw === null) {
+    throw new RenderError("PACKAGE_MISSING", "Zum Auftrag fehlt das Renderpaket.");
+  }
+  const parsed = parsePackage(packageRaw.toString("utf8"));
+
+  const photos = [];
+  for (const image of parsed.images) {
+    const bytes = await readBounded(
+      path.join(inputsDir, image.filename),
+      MAX_PACKAGE_IMAGE_BYTES,
+    );
+    if (bytes === null) {
+      throw new RenderError(
+        "PACKAGE_MISSING",
+        `Im Renderpaket fehlt ein angekündigtes Bild (${image.filename}).`,
+      );
+    }
+    if (bytes.length !== image.sizeBytes) {
+      throw new RenderError(
+        "PACKAGE_INVALID",
+        `${image.filename}: Größe weicht von der Ankündigung ab.`,
+      );
+    }
+    if (createHash("sha256").update(bytes).digest("hex") !== image.sha256) {
+      throw new RenderError("PACKAGE_INVALID", `${image.filename}: SHA-256 stimmt nicht.`);
+    }
+    photos.push(`data:image/jpeg;base64,${bytes.toString("base64")}`);
+  }
+
+  const packageSeconds = (Date.now() - started) / 1000;
+  const result = await renderComposition({
+    outputPath,
+    compositionId: TRIP_DAY_COMPOSITION_ID,
+    inputProps: {
+      tripTitle: parsed.tripTitle,
+      day: parsed.day,
+      stops: parsed.stops,
+      photos,
+    },
+    // The composition works out its own length from the number of photos,
+    // so the expectation is read back from it rather than recomputed here.
+    // Two places doing the same arithmetic is two places to get it wrong.
+    expected: (composition) => {
+      const seconds = composition.durationInFrames / EXPECTED.fps;
+      if (seconds < TRIP_DAY_MIN_SECONDS || seconds > TRIP_DAY_MAX_SECONDS) {
+        throw new RenderError(
+          "OUTPUT_INVALID",
+          `Die Komposition ergibt ${Math.round(seconds)} s - das liegt ausserhalb des erwarteten Rahmens.`,
+        );
+      }
+      return { ...EXPECTED, durationSeconds: seconds, durationToleranceSeconds: 0.2 };
+    },
+    onProgress,
+  });
+  result.timings.package = packageSeconds;
+  result.timings.total += packageSeconds;
+  result.facts.photo_count = photos.length;
+  result.facts.stop_count = parsed.stops.length;
+  return result;
+}
+
+/** Read a file, refusing an oversized one and never following a symlink. */
+async function readBounded(file, limit) {
+  let stat;
+  try {
+    stat = await fs.lstat(file);
+  } catch {
+    return null;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new RenderError("PACKAGE_INVALID", `Symlink im Renderpaket: ${path.basename(file)}`);
+  }
+  if (!stat.isFile()) return null;
+  if (stat.size > limit) {
+    throw new RenderError(
+      "PACKAGE_INVALID",
+      `${path.basename(file)} überschreitet die Größengrenze.`,
+    );
+  }
+  return fs.readFile(file);
+}
+
+async function renderComposition({
+  outputPath,
+  compositionId,
+  inputProps,
+  expected,
+  onProgress,
+}) {
   const timings = {};
   const startedAt = Date.now();
+  // Resolved after the composition is selected when it depends on it.
+  let finalExpected = typeof expected === "function" ? null : expected;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
   // Checked before the browser starts: a render that cannot possibly land
@@ -188,10 +334,11 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
   try {
     const composition = await selectComposition({
       serveUrl: BUNDLE_DIR,
-      id: COMPOSITION_ID,
-      inputProps: { title },
+      id: compositionId,
+      inputProps,
       puppeteerInstance: browser,
     });
+    if (finalExpected === null) finalExpected = expected(composition);
 
     const renderStarted = Date.now();
     // A wall-clock ceiling on the render itself. Without it a wedged
@@ -214,7 +361,7 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
       serveUrl: BUNDLE_DIR,
       codec: "h264",
       outputLocation: partial,
-      inputProps: { title },
+      inputProps,
       puppeteerInstance: browser,
       x264Preset: "veryfast",
       crf: 20,
@@ -247,7 +394,7 @@ export async function renderTestVideo({ outputPath, title, onProgress }) {
   }
 
   const probeStarted = Date.now();
-  const facts = assertExpected(await probe(partial));
+  const facts = assertExpected(await probe(partial), finalExpected);
   timings.probe = (Date.now() - probeStarted) / 1000;
 
   await fs.rename(partial, outputPath);

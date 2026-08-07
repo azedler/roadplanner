@@ -185,6 +185,7 @@ from .crew_portrait_service import CrewPortraitService
 from .crew_portraits import CrewPortraitStore
 from .remotion_spike import RemotionSpikeService
 from .renderer_app_client import RendererAppClient, default_exchange_dir
+from .trip_day_mini_export import TripDayMiniExporter
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -225,6 +226,7 @@ class RoadplannerRuntimeData:
     crew_portrait_service: CrewPortraitService
     remotion_spike: RemotionSpikeService
     renderer_app: RendererAppClient
+    trip_day_mini_export: TripDayMiniExporter
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -702,6 +704,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # can ever be installed, which is itself the answer. It touches nothing
     # until an action asks it to.
     renderer_app = RendererAppClient(hass, exchange_dir=default_exchange_dir())
+    # The mini export: one real trip day into the shared directory. It
+    # reads through the same helpers the PDF and video exports use and
+    # writes nothing back into the trip, so constructing it costs nothing
+    # until an action asks for a day.
+    trip_day_mini_export = TripDayMiniExporter(
+        hass, manager, experience, renderer_app, media_cache=media_cache
+    )
 
     trip_summaries = TripSummaryService(
         hass,
@@ -737,6 +746,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         crew_portrait_service=crew_portrait_service,
         remotion_spike=remotion_spike,
         renderer_app=renderer_app,
+        trip_day_mini_export=trip_day_mini_export,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

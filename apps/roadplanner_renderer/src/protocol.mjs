@@ -28,13 +28,128 @@ export const JOB_STATES = [
 ];
 export const TERMINAL_JOB_STATES = new Set(["completed", "failed", "expired"]);
 
-export const ACTIONS = ["ping", "create_test_artifact", "render_remotion_test"];
+export const ACTIONS = [
+  "ping",
+  "create_test_artifact",
+  "render_remotion_test",
+  "render_trip_day",
+];
 export const ARTIFACT_TEXT = "roadplanner-renderer-poc.txt";
 export const ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg";
 export const ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4";
+export const ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4";
 
 export const MAX_JSON_BYTES = 64 * 1024;
 export const MAX_MESSAGE_LENGTH = 120;
+
+// --- the render package -------------------------------------------------
+
+export const PACKAGE_VERSION = 1;
+export const PACKAGE_FILENAME = "package.json";
+export const MAX_PACKAGE_IMAGES = 5;
+export const MAX_PACKAGE_IMAGE_BYTES = 400 * 1024;
+export const MAX_PACKAGE_BYTES = 3 * 1024 * 1024;
+export const MAX_PACKAGE_STOPS = 12;
+
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * The one place an image filename is built, and it is built from a number.
+ *
+ * The package deliberately carries no filenames. Nothing a writer put in
+ * the manifest can therefore reach a path join — the defence is that the
+ * string never exists, not that it is escaped.
+ */
+export function packageImageFilename(index) {
+  if (!Number.isInteger(index) || index < 1 || index > MAX_PACKAGE_IMAGES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Ungültiger Bildindex im Renderpaket.");
+  }
+  return `photo-${index}.jpg`;
+}
+
+/**
+ * Validate the package with this app's own rules.
+ *
+ * Roadplanner validates before writing; this validates before reading.
+ * The two implementations are independent on purpose — the contract is
+ * the JSON, and a disagreement has to surface as a failure rather than be
+ * absorbed by shared code.
+ */
+export function parsePackage(raw) {
+  if (Buffer.byteLength(raw) > MAX_JSON_BYTES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket überschreitet die Größengrenze.");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket ist kein gültiges JSON.");
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket ist kein Objekt.");
+  }
+  if (payload.package_version !== PACKAGE_VERSION) {
+    throw new ProtocolError(
+      ERROR_UNSUPPORTED_PROTOCOL,
+      "Nicht unterstützte Version des Renderpakets.",
+    );
+  }
+  const day = payload.day;
+  if (day === null || typeof day !== "object" || Array.isArray(day) || !cleanText(day.day_id, 80)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket ohne Tagesangaben.");
+  }
+  const images = payload.images;
+  if (!Array.isArray(images) || images.length < 1 || images.length > MAX_PACKAGE_IMAGES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket enthält keine gültige Bildliste.");
+  }
+  const seen = new Set();
+  let total = 0;
+  const declared = images.map((entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag ist kein Objekt.");
+    }
+    const filename = packageImageFilename(entry.index);
+    if (seen.has(entry.index)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Doppelter Bildindex im Renderpaket.");
+    }
+    seen.add(entry.index);
+    const size = entry.size_bytes;
+    if (!Number.isInteger(size) || size <= 0 || size > MAX_PACKAGE_IMAGE_BYTES) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag mit ungültiger Größe.");
+    }
+    if (!SHA256_RE.test(String(entry.sha256 ?? ""))) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Bildeintrag ohne gültigen SHA-256.");
+    }
+    total += size;
+    return { index: entry.index, filename, sizeBytes: size, sha256: entry.sha256 };
+  });
+  if (total > MAX_PACKAGE_BYTES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket überschreitet die Größengrenze.");
+  }
+  const stops = Array.isArray(payload.stops) ? payload.stops : [];
+  if (stops.length > MAX_PACKAGE_STOPS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Renderpaket enthält zu viele Stopps.");
+  }
+  return {
+    tripTitle: cleanText(payload.trip_title, 120),
+    day: {
+      dayId: cleanText(day.day_id, 80),
+      date: cleanText(day.date, 40),
+      title: cleanText(day.title, 120),
+      summary: cleanText(day.summary, 400),
+      number: Number.isInteger(day.number) ? day.number : null,
+      count: Number.isInteger(day.count) ? day.count : null,
+      distanceKm: typeof day.distance_km === "number" ? day.distance_km : null,
+      durationMinutes:
+        typeof day.duration_minutes === "number" ? day.duration_minutes : null,
+    },
+    stops: stops
+      .filter((stop) => stop !== null && typeof stop === "object" && !Array.isArray(stop))
+      .map((stop) => ({ name: cleanText(stop.name, 80), time: cleanText(stop.time, 10) }))
+      .filter((stop) => stop.name),
+    images: declared,
+  };
+}
 
 export const ERROR_INVALID_JOB = "INVALID_JOB";
 export const ERROR_UNSUPPORTED_PROTOCOL = "UNSUPPORTED_PROTOCOL";

@@ -84,6 +84,8 @@ _ACTIONS = {
     "renderer_app_status",
     "renderer_app_run",
     "renderer_app_render",
+    "renderer_app_trip_days",
+    "renderer_app_trip_day",
     "renderer_app_job_status",
     "park4night_autofill_run",
     "plan_day_calendar_repair",
@@ -165,6 +167,9 @@ _EDIT_ACTIONS = {
     "remotion_cancel",
     "renderer_app_run",
     "renderer_app_render",
+    # Writes a package of real photos into the shared directory. Reading
+    # the day list is not an edit; handing the data over is.
+    "renderer_app_trip_day",
     "update_trip",
     "add_day",
     "update_day",
@@ -259,6 +264,10 @@ _PROVIDER_CALL_ACTIONS = {
     # but a dropped connection must not orphan the probe.
     "remotion_diagnose",
     "remotion_test_render",
+    # Downloads up to five photos and re-encodes them. That is tens of
+    # seconds on a phone connection, and being cancelled halfway would
+    # leave a half-written package in the shared directory.
+    "renderer_app_trip_day",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1386,6 +1395,29 @@ async def _execute_action(
                 action=ACTION_RENDER_REMOTION_TEST,
             )
         }
+
+    if action == "renderer_app_trip_days":
+        # Which days could be exported, and which have no photo to export.
+        # Counted from data already loaded - nothing is downloaded here.
+        return {
+            "renderer_app_trip_days": await runtime.trip_day_mini_export.async_days(
+                str(data.get("trip_id") or "")
+            )
+        }
+
+    if action == "renderer_app_trip_day":
+        # The mini export: ONE day, minimised, into the shared directory.
+        # Same submit-and-poll shape as the test render, because the render
+        # takes far longer than a websocket call should.
+        try:
+            return {
+                "renderer_app_job": await runtime.trip_day_mini_export.async_submit(
+                    str(data.get("trip_id") or ""),
+                    str(data.get("day_id") or ""),
+                )
+            }
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
 
     if action == "renderer_app_job_status":
         job_id = str(data.get("job_id") or "")

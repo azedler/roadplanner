@@ -34,6 +34,7 @@ import process from "node:process";
 import {
   ARTIFACT_IMAGE,
   ARTIFACT_TEXT,
+  ARTIFACT_TRIP_DAY_VIDEO,
   ARTIFACT_VIDEO,
   ERROR_INTERNAL,
   ProtocolError,
@@ -57,6 +58,12 @@ const HEARTBEAT_INTERVAL_MS = 5000;
 // Anything older than this in results/ is from a previous run nobody came
 // back for. Bounded cleanup keeps a shared folder from growing forever.
 const RESULT_RETENTION_MS = 24 * 60 * 60 * 1000;
+// Input packages are kept far shorter than results. A result is a video
+// the user asked for; an input package is somebody's photos, including of
+// their home, sitting in a directory every app can read. An hour is long
+// enough to cover an app that was briefly stopped, and short enough that
+// an abandoned package does not become a permanent copy.
+const INPUT_RETENTION_MS = 60 * 60 * 1000;
 const MAX_JOB_FILE_BYTES = 64 * 1024;
 
 /**
@@ -84,6 +91,10 @@ const DIRS = {
   processing: path.join(EXCHANGE_DIR, "processing"),
   status: path.join(EXCHANGE_DIR, "status"),
   results: path.join(EXCHANGE_DIR, "results"),
+  // Where a job's input package waits. Written by Roadplanner before the
+  // job file exists, and removed by this app as soon as the job ends -
+  // real travel data must not outlive the job it was prepared for.
+  inputs: path.join(EXCHANGE_DIR, "inputs"),
 };
 const HEARTBEAT_FILE = path.join(EXCHANGE_DIR, "renderer-status.json");
 
@@ -233,6 +244,66 @@ async function produceRemotionVideo(jobId, message, onProgress) {
 }
 
 
+/**
+ * Render one real trip day from the package that came with the job.
+ *
+ * Same shape as the test render: produce, hash, describe. The difference
+ * is that the input is real travel data sitting in a shared directory,
+ * which is why the render module verifies every image against the hash the
+ * package declared before it uses it.
+ */
+async function produceTripDayVideo(jobId, onProgress) {
+  const { renderTripDayVideo } = await import("./render.mjs");
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const target = path.join(folder, ARTIFACT_TRIP_DAY_VIDEO);
+
+  const { facts, timings } = await renderTripDayVideo({
+    outputPath: target,
+    inputsDir: path.join(DIRS.inputs, jobId),
+    onProgress,
+  });
+
+  const bytes = await fs.readFile(target);
+  const artifacts = [
+    {
+      kind: "video",
+      filename: ARTIFACT_TRIP_DAY_VIDEO,
+      size_bytes: bytes.length,
+      sha256: sha256(bytes),
+    },
+  ];
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(
+      buildResult({ jobId, completedAt: new Date(), artifacts, video: facts, timings }),
+      null,
+      2,
+    )}\n`,
+  );
+  return { facts, timings };
+}
+
+/**
+ * Remove a job's input package.
+ *
+ * Unconditional, and in the job's `finally`: whether the render succeeded,
+ * failed or was refused, the day's photos have no reason to stay in a
+ * directory every other app can read. A failure to delete is logged rather
+ * than thrown - it must not turn a finished job into a failed one.
+ */
+async function discardInputs(jobId) {
+  const folder = path.join(DIRS.inputs, jobId);
+  try {
+    await fs.rm(folder, { recursive: true, force: true });
+  } catch (err) {
+    log("warn", "Renderpaket konnte nicht aufgeräumt werden", {
+      job_id: jobId,
+      detail: String(err),
+    });
+  }
+}
+
 async function handleJob(name) {
   const jobId = name.replace(/\.json$/i, "");
   if (!isJobId(jobId)) {
@@ -284,6 +355,22 @@ async function handleJob(name) {
         seconds: timings.total,
         size_bytes: facts.size_bytes,
       });
+    } else if (job.action === "render_trip_day") {
+      let lastReported = 0;
+      const { facts, timings } = await produceTripDayVideo(jobId, (progress) => {
+        const rounded = Math.floor(progress * 20) / 20;
+        if (rounded > lastReported) {
+          lastReported = rounded;
+          void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+        }
+      });
+      await writeStatus(jobId, "completed", { progress: 1 });
+      log("info", "Tagesvideo abgeschlossen", {
+        job_id: jobId,
+        seconds: timings.total,
+        size_bytes: facts.size_bytes,
+        photos: facts.photo_count,
+      });
     } else {
       await produceArtifacts(jobId, job.message);
       await writeStatus(jobId, "completed", { progress: 1 });
@@ -329,6 +416,7 @@ async function handleJob(name) {
       });
     }
     await fs.rm(claimed, { force: true }).catch(() => {});
+    await discardInputs(jobId);
   }
 }
 
@@ -369,6 +457,7 @@ async function recoverInterrupted() {
       },
     }).catch(() => {});
     await fs.rm(path.join(DIRS.processing, name), { force: true }).catch(() => {});
+    await discardInputs(jobId);
     log("warn", "unterbrochenen Auftrag als fehlgeschlagen markiert", { job_id: jobId });
   }
 }
@@ -403,6 +492,22 @@ async function cleanupOldResults() {
     finished.delete(entry.name);
     total -= size;
     log("info", "Ergebnis wegen Platzgrenze aufgeräumt", { job_id: entry.name });
+  }
+
+  // An input package whose job never arrived - Roadplanner wrote it while
+  // this app was stopped, and then gave up. Nothing will ever claim it, and
+  // it holds real photos, so it goes as soon as it is clearly abandoned.
+  const inputCutoff = Date.now() - INPUT_RETENTION_MS;
+  for (const name of (await fs.readdir(DIRS.inputs).catch(() => [])).filter(isJobId)) {
+    const folder = path.join(DIRS.inputs, name);
+    const stat = await fs.stat(folder).catch(() => null);
+    if (!stat || stat.mtimeMs >= inputCutoff) continue;
+    const pending =
+      (await fs.stat(path.join(DIRS.jobs, `${name}.json`)).catch(() => null)) ||
+      (await fs.stat(path.join(DIRS.processing, `${name}.json`)).catch(() => null));
+    if (pending) continue;
+    await fs.rm(folder, { recursive: true, force: true }).catch(() => {});
+    log("info", "verwaistes Renderpaket aufgeräumt", { job_id: name });
   }
 
   // A crashed render can leave a .part behind; nothing ever reads those.

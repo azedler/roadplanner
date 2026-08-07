@@ -60,6 +60,7 @@ Beide Seiten teilen sich einen Ordner und sonst nichts:
 ├── jobs/                  # Roadplanner legt Auftraege ab
 ├── processing/            # uebernommene Auftraege
 ├── status/                # Jobstatus
+├── inputs/<job_id>/       # Renderpaket eines Tagesvideos
 └── results/<job_id>/      # result.json + Artefakte
 ```
 
@@ -75,6 +76,27 @@ Drei Eigenschaften tragen den Entwurf:
 
 Dateinamen bestehen ausschliesslich aus einer serverseitig erzeugten UUID.
 Kein Pfad und kein Dateiname stammt aus Nutzertext.
+
+### Das Renderpaket eines Tagesvideos
+
+Fuer die Aktion `render_trip_day` legt Roadplanner vor dem Auftrag ein
+Paket in `inputs/<job_id>/` ab: eine `package.json` mit Datum, Titel,
+Tageszusammenfassung, Stoppnamen und - sofern lokal vorhanden - Strecke und
+Fahrzeit, dazu bis zu fuenf verkleinerte Fotokopien als `photo-1.jpg` bis
+`photo-5.jpg`.
+
+- **Der Auftrag wird zuletzt geschrieben.** Seine Existenz belegt damit ein
+  vollstaendiges Paket.
+- **Das Paket nennt keine Dateinamen.** Die Bilder sind nummeriert, und die
+  App baut `photo-<n>.jpg` aus der Zahl - keine Zeichenkette aus dem Paket
+  kommt je in die Naehe eines Pfades.
+- **Jedes Bild wird gegen den angekuendigten SHA-256 geprueft**, bevor es
+  benutzt wird, und ein Symlink wird abgelehnt statt verfolgt. Beides
+  geschieht, bevor ein Browser startet.
+- **Die Fotos tragen keine Aufnahmedaten.** Roadplanner codiert sie aus den
+  Bilddaten neu; EXIF und damit auch die GPS-Position sind entfernt.
+- **Das Paket ueberlebt seinen Auftrag nicht.** Die App loescht es nach
+  jedem Job, ob er gelungen ist oder nicht.
 
 ## Der Austauschordner ist ein Vertrauenskanal, keine Sicherheitsgrenze
 
@@ -108,7 +130,11 @@ Daraus folgt:
 | Gesamtdauer eines Jobs | 420 s |
 | Ergebnisdatei | 64 MB |
 | Ergebnisordner gesamt | 512 MB |
-| Aufbewahrung | 24 h |
+| Aufbewahrung Ergebnisse | 24 h |
+| Aufbewahrung verwaister Renderpakete | 1 h |
+| Bilder je Renderpaket | 5 |
+| Bildgroesse | 400 kB |
+| Renderpaket gesamt | 3 MB |
 | Auftragsdatei | 64 kB |
 | Freier Speicher vor dem Render | 512 MB |
 
