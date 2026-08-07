@@ -6,6 +6,45 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.3] - 2026-08-07
+
+### Fixed
+
+- **Derselbe Wettlauf im End-to-End-Test, eine Zeile höher.** Ein Auftrag durchläuft mehrere Meilensteine, und sie sind nicht derselbe Augenblick: Erst wird die Ergebnisdatei geschrieben, dann kippt der Status auf „completed", dann verschwindet die übernommene Datei aus `processing/`. Der Test wartete auf den einen und las sofort den anderen. In 4.40.1 hatte ich das für die dritte Stelle behoben – **das Exemplar, nicht die Klasse**, weil der Lauf, der es zeigte, zufällig an jener Stelle gescheitert war. Jetzt wird auf jeden Meilenstein einzeln gewartet.
+
+## [4.44.2] - 2026-08-07
+
+### Fixed
+
+- **Die CI-Prüfung des Films rechnete die Filmlänge selbst nach – mit der Formel von v0.** Der Film v1 lief einwandfrei durch (264,0 s geplant, 264,043 s gemessen), und die Prüfung wurde rot, weil sie 179,6 s erwartete. Eine zweite Umsetzung derselben Regel geht genau dann kaputt, wenn die Regel sich ändert. Geprüft wird jetzt gegen den Szenenplan, den derselbe Schritt gebaut hat – und das ist zugleich die stärkere Aussage: **Der Film ist exakt so lang, wie er geplant war.**
+
+## [4.44.1] - 2026-08-07
+
+### Fixed
+
+- **Ein Besuch der Crew-Seite hat die eigene IP-Adresse aus dem eigenen Home Assistant ausgesperrt.** Die Porträt-Route verlangte Home Assistants Sitzungsauthentifizierung, mit der Begründung: „ein Porträt wird im Panel von einem angemeldeten Browser angezeigt". Die Annahme ist falsch – **ein Browser hängt an eine `<img src>`-Anfrage kein Token an.** Das JavaScript des Panels tut es, ein Bild-Element nie. Jedes Porträt antwortete also mit 401, und Home Assistant wertet einen 401 von **jeder** Route als fehlgeschlagenen Anmeldeversuch: Eine Crew-Seite mit vier Personen sind vier Fehlversuche je Besuch. Deshalb blieben die Kreise leer, und deshalb kam die Sperre.
+- Die Zugriffsberechtigung ist jetzt – wie bei jeder anderen dateiliefernden Ansicht dieser Integration – der nicht erratbare Dateiname: ein SHA-1 über Personen-ID, Medien-ID und Bildausschnitt, die alle nur aus einem authentifizierten Panel-Payload stammen können.
+- Ein Kontrakttest prüft das für **alle** Ansichten, deren Bytes der Browser als schlichte URL holt – und verlangt zusätzlich, dass benannt wird, was an die Stelle der Authentifizierung tritt. Eine Ansicht, die sie kommentarlos ablegt, wäre die wirklich gefährliche Fassung dieses Fixes.
+
+**Zum Aufheben einer bestehenden Sperre:** den Eintrag in `/config/ip_bans.yaml` löschen und Home Assistant neu starten.
+
+## [4.44.0] - 2026-08-07
+
+### Added
+
+- **Reisefilm v1 – der Film liest jetzt, was die Redaktion entschieden hat.** Gemini bestimmte seit 4.42.0 `importance`, `story_role` und `visual_style`, und der Film ignorierte alle drei: 23 gleich lange Tage, jeder mit derselben Karte und derselben Diashow. Neu dazwischen liegt ein **Szenenplan** – eine deterministische Ableitung aus dem Manifest, die in Python entsteht, im Renderpaket mitreist und nie ins Manifest zurückwandert. Bildzahlen haben in der Beschreibung einer Reise nichts verloren.
+- **Die Tageslänge folgt der Bedeutung.** Überführungstag rund 5 s, normaler Tag rund 9 s, Höhepunkt rund 15 s, großer Höhepunkt rund 22 s. **Ein dünner Tag wird nicht künstlich gestreckt**: Ein Höhepunkt mit einem einzigen Foto bleibt kurz, denn Bildschirmzeit ist auch eine Behauptung.
+- **Eine endliche Szenenbibliothek.** Intro, Tageskarte, Foto, Leitbild, Collage, Textseite, Abschluss, Abschlusscollage – und sonst nichts. `visual_style` wählt darin aus; es kann kein Layout beschreiben. Ein Modell, das Formen erfinden könnte, erfände irgendwann eine, die sich nicht zeichnen lässt. `map_focus` fällt bis zur Camper-Karte sichtbar auf das Leitbild zurück.
+- **`story_role` bestimmt, wie eine Szene ankommt** – und ausschließlich das. Ein zweites Größensystem neben `importance` wäre ein Regelwerk, das mit sich selbst streitet.
+- **Der Bildhaushalt ist gewichtet statt flach.** Ein Überführungstag bekommt ein Bild, ein großer Höhepunkt vier. Das Gesamtbudget bleibt bei 90 – ein reicher Tag nimmt einem Fahrtag etwas weg, nicht dem Paket.
+- **Intro und Abschluss benutzen endlich den Reisebogen**: Titelvariante, Untertitel, Auftakt, Motive, Schlusssatz. Der Film endet mit einer Abschlusscollage aus über die Reise verteilten Bildern – das letzte Bild ist damit die Reise und nicht ihr letzter Tag.
+
+### Fixed
+
+- **Technische Stoppnamen erscheinen nicht mehr auf Titelkarten.** „park4night - (595 50) Mjölby - 24 Vetagatan" stand wortwörtlich im Film und las sich wie ein Datenbankauszug. Der Story-Name der Redaktion gewinnt; sonst wird der kanonische Name behutsam gekürzt. **Im Roadbook ändert sich nichts** – dort steht der Name, zu dem man navigiert.
+- **„Für diesen Tag gibt es keine Fotos" ist aus dem Film verschwunden.** Das war eine Diagnosemeldung an das falsche Publikum. Ein Tag ohne Bilder bekommt jetzt eine gestaltete Textseite – womit ein fotoloser letzter Reisetag elegant ins Outro übergeht. Auch „Keine Fahrtdaten hinterlegt" ist weg.
+- **Captions bleiben lesbar**: höchstens drei Zeilen, mit Verlauf hinterlegt. Ein Leitbild darf ganz ohne Text stehen – das stärkste Foto eines Tages braucht keinen Satz quer darüber.
+
 ## [4.43.2] - 2026-08-07
 
 ### Changed

@@ -149,6 +149,15 @@ async function makeFilmInputs(mutate) {
       distance_km: 2140.5,
       photo_count: 812,
     },
+    scene_plan: {
+      plan_version: 1,
+      fps: 30,
+      total_frames: 120,
+      scenes: [
+        { type: "chapter_card", chapter_index: 0, frames: 60, enter: "fade", photos: [] },
+        { type: "photo", chapter_index: 0, frames: 60, enter: "fade", photos: [0] },
+      ],
+    },
     chapters: [
       {
         chapter_id: "day-1",
@@ -162,6 +171,8 @@ async function makeFilmInputs(mutate) {
         duration_minutes: 90,
         stop_count: 2,
         photo_count: 40,
+        importance: "highlight",
+        story_role: "opening",
         stops: ["Tampere", "Vaasa"],
         images: [
           {
@@ -194,7 +205,7 @@ function verifyAFilmPhotoPathIsBuiltFromNumbers() {
     "photos/../../etc/passwd",
     "/etc/passwd",
     "photos/c0-1.jpg",
-    "photos/c00-4.jpg",
+    "photos/c00-5.jpg",
     "photos/c00-1.png",
     "",
     null,
@@ -206,11 +217,23 @@ function verifyAFilmPhotoPathIsBuiltFromNumbers() {
   assert.throws(() => filmPhotoPath("photos/c01-1.jpg", 0, 1), /Kapitelposition/);
 }
 
+const PLAN = {
+  plan_version: 1,
+  fps: 30,
+  total_frames: 150,
+  scenes: [
+    { type: "intro", chapter_index: -1, frames: 60, enter: "rise", photos: [] },
+    { type: "chapter_card", chapter_index: 0, frames: 60, enter: "fade", photos: [] },
+    { type: "outro", chapter_index: -1, frames: 30, enter: "settle", photos: [] },
+  ],
+};
+
 function verifyAFilmPackageIsCheckedBeforeItIsUsed() {
   const base = {
     film_package_version: 1,
     trip: {},
     chapters: [{ chapter_id: "day-1", index: 0, images: [] }],
+    scene_plan: PLAN,
   };
   assert.equal(parseFilmPackage(JSON.stringify(base)).chapters.length, 1);
   for (const [label, payload] of [
@@ -234,9 +257,59 @@ function verifyAFilmPackageIsCheckedBeforeItIsUsed() {
         ],
       },
     ],
+    // The plan decides the length of the video and which components are
+    // asked for, so every part of it is checked before anything renders.
+    ["ohne Plan", { ...base, scene_plan: undefined }],
+    ["fremde Planversion", { ...base, scene_plan: { ...PLAN, plan_version: 9 } }],
+    ["fremde Bildrate", { ...base, scene_plan: { ...PLAN, fps: 25 } }],
+    ["Laenge passt nicht", { ...base, scene_plan: { ...PLAN, total_frames: 999 } }],
+    [
+      "erfundener Szenentyp",
+      {
+        ...base,
+        scene_plan: {
+          ...PLAN,
+          total_frames: 60,
+          scenes: [{ type: "kinoformat", chapter_index: -1, frames: 60 }],
+        },
+      },
+    ],
+    [
+      "Szene ohne Kapitel",
+      {
+        ...base,
+        scene_plan: {
+          ...PLAN,
+          total_frames: 60,
+          scenes: [{ type: "chapter_card", chapter_index: 7, frames: 60 }],
+        },
+      },
+    ],
+    [
+      "Szene ohne Laenge",
+      {
+        ...base,
+        scene_plan: {
+          ...PLAN,
+          total_frames: 0,
+          scenes: [{ type: "intro", chapter_index: -1, frames: 0 }],
+        },
+      },
+    ],
   ]) {
     assert.throws(() => parseFilmPackage(JSON.stringify(payload)), /./, label);
   }
+
+  // The arc is optional, and absent must stay different from empty.
+  assert.equal(parseFilmPackage(JSON.stringify(base)).narrative, null);
+  const withArc = parseFilmPackage(
+    JSON.stringify({ ...base, narrative: { subtitle: "Drei Wochen Norden" } }),
+  );
+  assert.equal(withArc.narrative.subtitle, "Drei Wochen Norden");
+  assert.equal(
+    parseFilmPackage(JSON.stringify({ ...base, narrative: { motifs: [] } })).narrative,
+    null,
+  );
 }
 
 async function verifyAFilmWithChangedBytesIsRefused() {

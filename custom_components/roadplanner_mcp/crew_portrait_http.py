@@ -1,10 +1,26 @@
 """Serve a locally stored crew/vehicle portrait.
 
-Unlike the PDF and video downloads, this one KEEPS Home Assistant session
-authentication: a portrait is displayed inside the panel by a logged-in
-browser, never fetched by the companion app as a plain link, so there is no
-reason to weaken the check. The filename is still a content hash, so it
-leaks nothing about who is in the picture.
+This view used to require Home Assistant's session authentication, and
+the docstring argued for it: "a portrait is displayed inside the panel by
+a logged-in browser". The premise was wrong, and expensively so. **A
+browser does not attach a bearer token to an ``<img src>`` request.** The
+panel's own JavaScript sends one; an image tag never does.
+
+So every portrait answered 401. Two consequences, and the second one is
+the reason this is a bug report rather than a cosmetic note:
+
+- the pictures stayed blank, which is what a broken image looks like;
+- Home Assistant's ban middleware treats a 401 from **any** endpoint as a
+  failed login. A crew page with four people is four failed logins per
+  visit, and a few visits ban the household's own IP address out of its
+  own Home Assistant (live report).
+
+Every other file-serving view in this integration had already learned
+this - the PDF, the video library, the media redirects - and this one was
+the single exception. The capability is therefore the filename, as it is
+there: a SHA-1 over the person id, the media id and the crop rectangle,
+none of which is reachable without an authenticated panel payload, and
+none of which appears in a URL anybody else sees.
 
 Portraits are immutable per filename - the source photo and the crop are
 both part of the hash - so they can be cached hard. A new crop is a new
@@ -36,6 +52,10 @@ class RoadplannerCrewPortraitView(HomeAssistantView):
 
     url = PORTRAIT_URL
     name = "api:roadplanner:crew_portrait"
+    # The unguessable filename is the capability - see the module
+    # docstring. Session auth here does not protect the picture, it only
+    # makes the browser fail to load it and gets the household banned.
+    requires_auth = False
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass

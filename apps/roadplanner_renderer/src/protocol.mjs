@@ -338,11 +338,30 @@ export const FILM_PACKAGE_VERSION = 1;
 export const FILM_MANIFEST_FILENAME = "film.json";
 export const MAX_FILM_JSON_BYTES = 512 * 1024;
 export const MAX_FILM_CHAPTERS = 45;
-export const MAX_FILM_PHOTOS_PER_CHAPTER = 3;
+export const MAX_FILM_PHOTOS_PER_CHAPTER = 4;
 export const MAX_FILM_IMAGES = 90;
 export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
 
-const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-3])\.jpg$/;
+const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-4])\.jpg$/;
+
+export const FILM_PLAN_VERSION = 1;
+export const FILM_PLAN_FPS = 30;
+// The finite library. A type outside it is refused rather than drawn.
+export const FILM_SCENE_TYPES = new Set([
+  "intro",
+  "chapter_card",
+  "photo",
+  "hero",
+  "collage",
+  "text",
+  "outro",
+  "outro_collage",
+]);
+// Bounds, so a malformed plan cannot ask for an hour of video or ten
+// thousand sequences.
+const MAX_FILM_SCENES = 400;
+const MAX_FILM_SCENE_FRAMES = 900;
+const MAX_FILM_TOTAL_FRAMES = 30 * 900;
 
 /**
  * The one place a film photo path is accepted.
@@ -430,6 +449,8 @@ export function parseFilmPackage(raw) {
       // collapsing them here would silently undo the editor.
       story: String(chapter.story ?? "").slice(0, 1200),
       storySource: cleanText(chapter.story_source, 20) || "composed",
+      importance: cleanText(chapter.importance, 20) || "normal",
+      storyRole: cleanText(chapter.story_role, 20) || "journey",
       dayNumber: Number.isInteger(chapter.day_number) ? chapter.day_number : index + 1,
       distanceKm: typeof chapter.distance_km === "number" ? chapter.distance_km : null,
       durationMinutes:
@@ -458,5 +479,102 @@ export function parseFilmPackage(raw) {
       photoCount: Number.isInteger(trip.photo_count) ? trip.photo_count : 0,
     },
     chapters: parsed,
+    narrative: parseNarrative(payload.narrative),
+    scenes: parseScenePlan(payload.scene_plan, parsed.length),
   };
+}
+
+/** The trip-level arc, or null. Absent and empty must stay different. */
+function parseNarrative(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const arc = {
+    titleVariant: cleanText(value.title_variant, 120),
+    subtitle: cleanText(value.subtitle, 120),
+    opening: String(value.opening ?? "").slice(0, 1200),
+    closing: String(value.closing ?? "").slice(0, 1200),
+    motifs: (Array.isArray(value.motifs) ? value.motifs : [])
+      .map((motif) => cleanText(motif, 80))
+      .filter(Boolean)
+      .slice(0, 5),
+  };
+  const empty =
+    !arc.titleVariant && !arc.subtitle && !arc.opening && !arc.closing && !arc.motifs.length;
+  return empty ? null : arc;
+}
+
+/**
+ * The shot list, checked before anything is drawn.
+ *
+ * Every scene type is looked up in a fixed library, so a type this build
+ * has no component for has to be refused here rather than rendered as a
+ * blank frame nobody can explain. The same reasoning covers the frame
+ * counts: they decide the length of the video, so a plan whose parts do
+ * not add up to its stated total is not a plan.
+ */
+function parseScenePlan(value, chapterCount) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket ohne Szenenplan.");
+  }
+  if (value.plan_version !== FILM_PLAN_VERSION) {
+    throw new ProtocolError(
+      ERROR_UNSUPPORTED_PROTOCOL,
+      "Nicht unterstützte Version des Szenenplans.",
+    );
+  }
+  if (value.fps !== FILM_PLAN_FPS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Szenenplan mit fremder Bildrate.");
+  }
+  const scenes = value.scenes;
+  if (!Array.isArray(scenes) || !scenes.length || scenes.length > MAX_FILM_SCENES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Szenenplan ohne gültige Szenenliste.");
+  }
+  let total = 0;
+  const parsed = scenes.map((scene) => {
+    if (scene === null || typeof scene !== "object" || Array.isArray(scene)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Szene ist kein Objekt.");
+    }
+    const type = cleanText(scene.type, 30);
+    if (!FILM_SCENE_TYPES.has(type)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, `Unbekannter Szenentyp: ${type}`);
+    }
+    const frames = scene.frames;
+    if (!Number.isInteger(frames) || frames <= 0 || frames > MAX_FILM_SCENE_FRAMES) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Szene mit ungültiger Länge.");
+    }
+    total += frames;
+    const chapterIndex = Number.isInteger(scene.chapter_index) ? scene.chapter_index : -1;
+    if (chapterIndex >= chapterCount) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Szene zeigt auf ein fehlendes Kapitel.");
+    }
+    return {
+      type,
+      chapterIndex,
+      frames,
+      enter: cleanText(scene.enter, 20) || "fade",
+      photos: (Array.isArray(scene.photos) ? scene.photos : [])
+        .filter((position) => Number.isInteger(position) && position >= 0)
+        .slice(0, MAX_FILM_PHOTOS_PER_CHAPTER),
+      paths: (Array.isArray(scene.paths) ? scene.paths : [])
+        .map((path, position) => filmPhotoPathAnywhere(path))
+        .filter(Boolean)
+        .slice(0, 8),
+    };
+  });
+  if (total !== value.total_frames) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Szenenplan: Gesamtlänge passt nicht.");
+  }
+  if (total > MAX_FILM_TOTAL_FRAMES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Szenenplan ist zu lang.");
+  }
+  return parsed;
+}
+
+/**
+ * A photo path for the closing collage, where the picture comes from
+ * whichever chapter it came from - so it cannot be checked against one
+ * position, only against the shape every film path has.
+ */
+function filmPhotoPathAnywhere(value) {
+  const text = String(value ?? "");
+  return FILM_PHOTO_RE.test(text) ? text : "";
 }

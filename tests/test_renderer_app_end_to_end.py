@@ -183,16 +183,24 @@ def verify_a_job_travels_all_the_way_and_back() -> None:
             submit(exchange, job)
             job_id = job["job_id"]
 
+            # A job passes several milestones and they are NOT the same
+            # moment. The result file is written, then the status flips to
+            # completed, then the claimed file leaves processing/ - and a
+            # test that waits for one and then reads another is asserting
+            # against whichever instant it happened to catch. Each is
+            # therefore waited for on its own.
+            #
+            # The processing/ assertion below already had this fixed; this
+            # line did not, because the run that exposed it happened to
+            # fail on the other one. Fixing the instance rather than the
+            # class bought exactly one green run.
             result_file = exchange / "results" / job_id / "result.json"
-            wait_for(lambda: read_json(result_file), what="Ergebnis")
-
-            status = protocol.validate_status(
-                read_json(exchange / "status" / f"{job_id}.json"), job_id=job_id
-            )
+            status = wait_for_terminal(exchange, job_id)
             assert status["state"] == "completed", status
             assert status["terminal"] is True
 
-            result = protocol.validate_result(read_json(result_file), job_id=job_id)
+            raw_result = wait_for(lambda: read_json(result_file), what="Ergebnis")
+            result = protocol.validate_result(raw_result, job_id=job_id)
             assert len(result["artifacts"]) == 2, result
 
             # The declared hashes must match the bytes actually written -

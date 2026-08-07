@@ -42,6 +42,12 @@ import io
 import logging
 from typing import Any
 
+from .trip_film_plan import (
+    OUTRO_COLLAGE_PHOTOS,
+    build_scene_plan,
+    readable_places,
+    validate_scene_plan,
+)
 from .trip_day_render_package import (
     RenderPackageError,
     metadata_markers,
@@ -59,7 +65,10 @@ FILM_PHOTO_DIR = "photos"
 # and the per-chapter number is derived from it rather than fixed, so a
 # longer trip produces a thinner film instead of a bigger package.
 MAX_FILM_IMAGES = 90
-MAX_PHOTOS_PER_CHAPTER = 3
+# Four rather than three, so a major highlight can actually look like
+# one. The total budget is unchanged: a rich day now takes its extra
+# picture from a transfer day, not from a bigger package.
+MAX_PHOTOS_PER_CHAPTER = 4
 MAX_CHAPTERS = 45
 # A film frame shows a photo for well under two seconds at 720p. 900 px on
 # the long edge is already more than the frame can display.
@@ -221,11 +230,12 @@ def build_film_package(
                 # What the DAY has, which is not what this chapter carries.
                 # The film shows the gap when the second number is zero.
                 "photo_count": facts.get("photo_count") or 0,
-                "stops": [
-                    str(stop.get("name") or "")[:80]
-                    for stop in (source.get("stops") or [])[:6]
-                    if str(stop.get("name") or "").strip()
-                ],
+                # Readable, not canonical. A title card that says
+                # "park4night - (595 50) Mjölby - 24 Vetagatan" reads like
+                # a database export and undoes a good headline; the
+                # roadbook keeps that name, the film gets the one you
+                # would say out loud.
+                "stops": readable_places(source.get("stops") or [], limit=3),
                 "images": images,
             }
         )
@@ -254,10 +264,56 @@ def build_film_package(
             "distance_km": manifest_facts.get("distance_km"),
             "photo_count": manifest_facts.get("photo_count") or 0,
         },
+        # The arc, when the editor wrote one. Absent rather than empty, so
+        # the composition can tell "no arc" from "an arc that says
+        # nothing" and fall back to the plain title card.
+        "narrative": _narrative(manifest.get("narrative")),
         "chapters": chapters,
         "total_image_bytes": total_bytes,
     }
+    # The shot list. A rendering derivation, computed here and carried in
+    # the package - never written back into the manifest, where frame
+    # counts would have no business being.
+    package["scene_plan"] = build_scene_plan(
+        trip=package["trip"],
+        chapters=chapters,
+        narrative=package["narrative"],
+        outro_photos=_outro_photos(chapters),
+    )
     return package, files
+
+
+def _narrative(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    arc = {
+        "title_variant": str(value.get("title_variant") or "")[:MAX_TITLE_LENGTH],
+        "subtitle": str(value.get("subtitle") or "")[:MAX_TITLE_LENGTH],
+        "opening": str(value.get("opening") or "")[:MAX_STORY_LENGTH],
+        "closing": str(value.get("closing") or "")[:MAX_STORY_LENGTH],
+        "motifs": [
+            str(motif or "")[:80]
+            for motif in (value.get("motifs") or [])[:5]
+            if str(motif or "").strip()
+        ],
+    }
+    return arc if any(arc.values()) else None
+
+
+def _outro_photos(chapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A few pictures for the closing collage, spread across the trip.
+
+    Taking the last six would end on whichever day happened to be last.
+    Spacing them means the final image is the journey rather than its
+    tail - and the choice is a fixed stride, so it does not move between
+    two renders of the same package.
+    """
+    with_photos = [chapter for chapter in chapters if chapter.get("images")]
+    if not with_photos:
+        return []
+    stride = max(1, len(with_photos) // OUTRO_COLLAGE_PHOTOS)
+    picked = [chapter["images"][0] for chapter in with_photos[::stride]]
+    return picked[:OUTRO_COLLAGE_PHOTOS]
 
 
 def validate_film_package(payload: Any) -> dict[str, Any]:
@@ -298,6 +354,10 @@ def validate_film_package(payload: Any) -> dict[str, Any]:
             total += size
     if images > MAX_FILM_IMAGES or total > MAX_FILM_PACKAGE_BYTES:
         raise RenderPackageError("Filmpaket überschreitet seine Grenzen")
+    # The plan travels with the package, so it is checked with it. A
+    # renderer that trusted an unchecked plan would happily render a
+    # scene type it has no component for.
+    validate_scene_plan(payload.get("scene_plan"))
     return payload
 
 

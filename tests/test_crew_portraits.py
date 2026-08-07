@@ -137,8 +137,18 @@ def verify_the_panel_and_the_pdf_read_the_local_copy() -> None:
     assert "_async_vehicle_photo" in exporter
 
     view = (root / "crew_portrait_http.py").read_text(encoding="utf-8")
-    assert "requires_auth" not in view, (
-        "a portrait is shown to a logged-in browser - no reason to weaken auth"
+    # This assertion used to demand the opposite - "a portrait is shown to
+    # a logged-in browser, no reason to weaken auth" - and so held the bug
+    # in place with a premise that was simply untrue. A browser does not
+    # attach a bearer token to an <img src>. Every portrait answered 401,
+    # the pictures stayed blank, and Home Assistant counts a 401 from any
+    # endpoint as a failed login: visiting the crew page banned the
+    # household's own IP address from its own Home Assistant.
+    assert "requires_auth = False" in view, (
+        "ein <img> sendet kein Token - Sitzungsauth hier heisst 401 und IP-Sperre"
+    )
+    assert "unguessable filename is the capability" in view, (
+        "der Ersatz fuer die Authentifizierung muss benannt sein"
     )
 
 

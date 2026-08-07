@@ -161,7 +161,11 @@ def verify_the_paths_are_built_from_numbers_only() -> None:
         except day_package.RenderPackageError:
             continue
         raise AssertionError(f"Kapitelindex {bad!r} akzeptiert")
-    for bad in (0, 4, "1", None):
+    # One past the cap, read from the module rather than written as a
+    # literal - the cap moved from three to four when a major highlight
+    # earned a fourth picture, and a hard-coded 4 would have started
+    # asserting the wrong thing without failing.
+    for bad in (0, film.MAX_PHOTOS_PER_CHAPTER + 1, "1", None):
         try:
             film.photo_filename(0, bad)
         except day_package.RenderPackageError:
