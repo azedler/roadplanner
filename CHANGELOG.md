@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.41.2] - 2026-08-07
+
+### Fixed
+
+- **Die Karte sagt jetzt, was der Austauschordner geantwortet hat – auch wenn die Antwort „nichts" lautet.** Eine leere Karte war von einer Karte, deren Frage fehlgeschlagen ist, nicht zu unterscheiden, und beide von einer, die nie gefragt hat. Drei Zustände, ein Aussehen: Genau daran war nicht zu erkennen, warum ein fertiger Film nicht auftauchte. Es gibt jetzt drei Sätze.
+- **Ein fehlgeschlagener Aufruf wurde als „keine Aufträge" gelesen.** Die Aktionsschicht meldet einen Fehler, indem sie `null` zurückgibt, nicht indem sie wirft – ein `catch` hätte also nie ausgelöst und jeder Fehler hätte wie eine leere Liste ausgesehen. Unterschieden wird jetzt daran, ob überhaupt eine Liste zurückkam.
+- **Der kopierbare Bericht enthält die Auftragsliste.** Er ist das, was man verschickt, wenn etwas nicht stimmt, also muss die Zeile darin stehen, die erklärt, warum eine Karte leer ist.
+
 ## [4.41.1] - 2026-08-07
 
 ### Fixed

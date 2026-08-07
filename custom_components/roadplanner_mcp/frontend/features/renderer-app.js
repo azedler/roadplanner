@@ -180,13 +180,27 @@ export const rendererAppMixin = {
 
   async _rendererAppAdoptRunningJob() {
     if (this._rendererAppJob || this._rendererAppPolling) return;
+    this._rendererAppRecentPending = true;
     const result = await this._runAction("renderer_app_recent_jobs", {}, "", {
       refresh: false,
       blockUi: false,
       errorTitle: "",
-    }).catch(() => null);
+    });
+    this._rendererAppRecentPending = false;
+    // `_runAction` reports a failure by returning null rather than by
+    // throwing, so a catch block here would never fire and every failure
+    // would read as "no jobs". The presence of the list is the only
+    // honest way to tell an answer from a non-answer - and the two need
+    // very different reactions from whoever is looking at the card.
+    const answered = Boolean(result && Array.isArray(result.renderer_app_recent_jobs));
+    this._rendererAppRecent = answered ? result.renderer_app_recent_jobs : [];
+    this._rendererAppRecentAsked = answered;
     const active = result?.renderer_app_active_job;
-    const recent = result?.renderer_app_recent_jobs || [];
+    const recent = this._rendererAppRecent;
+    if (!recent.length) {
+      this._render({ preserveScroll: true });
+      return;
+    }
     const adopted = active || recent[0];
     if (!adopted?.job_id) return;
     this._rendererAppJob = adopted;
@@ -317,6 +331,27 @@ export const rendererAppMixin = {
     return true;
   },
 
+  /**
+   * Say what the exchange folder answered - including "nothing".
+   *
+   * Live report: the card stayed empty with a finished film on disk, and
+   * an empty card cannot be told apart from a card whose question failed
+   * or was never asked. Those three need different reactions from the
+   * person looking at it, so they get different sentences.
+   */
+  _rendererAppRecentLine() {
+    if (!this._rendererAppAdoptTried || this._rendererAppRecentPending) return "";
+    if (!this._rendererAppRecentAsked) {
+      return "<small>Die Auftragsliste hat nicht geantwortet – vermutlich läuft noch eine ältere Roadplanner-Version. Nach dem Update die Seite neu laden.</small>";
+    }
+    const recent = this._rendererAppRecent || [];
+    if (!recent.length) {
+      return "<small>Der Austauschordner meldet keine Aufträge – weder laufende noch fertige.</small>";
+    }
+    const newest = recent[0];
+    return `<small>${escapeHtml(String(recent.length))} Auftrag/Aufträge im Austauschordner, neuester: ${escapeHtml(newest.kind || "unbekannter Typ")} · ${escapeHtml(String(newest.state || "?"))}${newest.updated_at ? ` · ${escapeHtml(String(newest.updated_at))}` : ""}</small>`;
+  },
+
   _rendererAppReportText() {
     const environment = this._rendererAppEnvironment || {};
     const details = environment.details || {};
@@ -340,6 +375,17 @@ export const rendererAppMixin = {
       `App-Version: ${status.app_version || "–"}`,
       `Heartbeat-Alter: ${status.age_seconds === undefined || status.age_seconds === null ? "–" : `${status.age_seconds} s`}`,
       `Testauftrag: ${job.job_id || "nicht gelaufen"}`,
+      // The line that answers "why is this card empty?" - the report is
+      // what gets sent when something is wrong, so it has to carry it.
+      `Auftragsliste: ${
+        !this._rendererAppRecentAsked
+          ? "keine Antwort (ältere Version?)"
+          : (this._rendererAppRecent || []).length === 0
+            ? "leer"
+            : (this._rendererAppRecent || [])
+                .map((entry) => `${entry.kind || "?"}/${entry.state || "?"}/${entry.updated_at || "?"}`)
+                .join(", ")
+      }`,
       this._rendererAppPackage
         ? `Renderpaket: ${Math.round((this._rendererAppPackage.package_bytes || 0) / 1024)} kB, ${this._rendererAppPackage.image_count} Bilder, ${this._rendererAppPackage.stop_count} Stopps (${this._rendererAppPackage.day_date} ${this._rendererAppPackage.day_title})`
         : "",
@@ -497,6 +543,7 @@ export const rendererAppMixin = {
         ${canEdit ? `<button class="secondary-button" type="button" data-action="renderer-app-render"${status?.online && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-open-play-outline"></ha-icon> Testvideo rendern</button>` : ""}
         ${environment ? `<button class="text-button" type="button" data-action="renderer-app-copy-report"><ha-icon icon="mdi:clipboard-text-outline"></ha-icon> Bericht kopieren</button>` : ""}
       </div>
+      ${this._rendererAppRecentLine()}
       ${canEdit ? miniExportBlock : ""}
       ${
         environment
