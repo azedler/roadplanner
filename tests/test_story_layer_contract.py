@@ -456,6 +456,12 @@ def verify_a_render_in_progress_never_rebuilds_an_open_dialog() -> None:
     poll = renderer.split("_pollRendererAppJob(jobId) {", 1)[1].split("\n  },", 1)[0]
     assert "_rendererAppRedraw()" in poll
     assert "this._render(" not in poll, "die Abfrage darf nicht direkt zeichnen"
+    # And the tick must not redraw merely because the percentage is not on
+    # screen. That fallback fired on every tab except the two that show
+    # the card, which is how the Erinnerungen tab twitched every two
+    # seconds. Nothing to update is a reason NOT to rebuild the page.
+    assert "if (structural) this._rendererAppRedraw();" in poll, poll[:400]
+    assert "!this._rendererAppPatchProgress()" not in poll
 
 
 def verify_the_finished_video_can_be_fetched() -> None:

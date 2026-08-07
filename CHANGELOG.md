@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.44.5] - 2026-08-07
+
+### Fixed
+
+- **Auch der Reiter „Erinnerungen" wackelte während einer Videoerstellung** – und aus demselben Grund wie der Dialog, nur eine Stufe allgemeiner. Wenn die Prozentzahl gar nicht auf dem Bildschirm ist, weil man auf einem anderen Reiter steht, zeichnete die Fortschrittsabfrage vorsichtshalber die ganze Seite neu. Diese Rückfallebene griff also auf **jedem** Reiter außer den zweien, die die Karte zeigen. Sie ist ersatzlos entfallen: **„Es gibt nichts zu aktualisieren" ist kein Grund, die Seite neu zu bauen, sondern der Grund, es nicht zu tun.** Die Karte wird ohnehin gezeichnet, wenn man sie das nächste Mal öffnet.
+
 ## [4.44.4] - 2026-08-07
 
 ### Fixed
