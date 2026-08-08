@@ -158,25 +158,33 @@ export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1,
 };
 
 /**
- * Somebody at the wheel, looking out.
+ * Somebody at the wheel.
  *
- * Deliberately nobody in particular. The camper is about forty pixels
- * wide on the map, and a face at that size is four pixels of skin - a
- * likeness is not something this drawing is capable of, whoever it were
- * meant to be. What it *can* say is that the van is being driven rather
- * than rolling along empty, and that is worth the six shapes.
+ * Still not a portrait, and it cannot become one: the camper is about
+ * forty pixels wide on the map, so a head is three pixels across and a
+ * face is one. No amount of care makes a likeness fit there.
  *
- * Where a person really is recognisable is the crew scene, at a couple
- * of hundred pixels and from their own photograph.
+ * What does survive at three pixels is a silhouette and two colours. So
+ * the figure carries the two things that are true of whoever usually
+ * drives this van - hair worn short and light rather than long and dark,
+ * and a black jacket - and claims nothing beyond them. That is the
+ * honest version of "make it look like her": not a face, but a shape
+ * that is no longer somebody else's.
+ *
+ * Recognising a person is the crew scene's job, at a couple of hundred
+ * pixels and from their own photograph.
  */
 const Driver: React.FC = () => (
   <g>
-    {/* Shoulder, in a colour that separates from the glass behind it -
-        without contrast the whole figure disappears into the window. */}
-    <path d="M1.9 -2.5 Q2.4 -4.6 4.05 -4.6 Q5.7 -4.6 5.8 -2.5 Z" fill="#2f4054" />
-    <circle cx="4.05" cy="-5.55" r="1.35" fill="#d8a883" />
-    {/* Hair, so the head is a head rather than a bare dot. */}
-    <path d="M2.7 -5.75 Q2.85 -7 4.05 -7 Q5.3 -7 5.4 -5.75 Q4.75 -6.35 4.05 -6.3 Q3.35 -6.25 2.7 -5.75 Z" fill="#4a3428" />
+    {/* Shoulder in the dark jacket, against the cab glass. */}
+    <path d="M1.9 -2.5 Q2.4 -4.6 4.05 -4.6 Q5.7 -4.6 5.8 -2.5 Z" fill="#20262d" />
+    <circle cx="4.05" cy="-5.55" r="1.35" fill="#e0b492" />
+    {/* Hair: cropped short and light, which is the one feature that
+        still reads once everything else has become a single pixel. */}
+    <path
+      d="M2.72 -5.5 Q2.72 -7.05 4.05 -7.05 Q5.4 -7.05 5.42 -5.55 Q5.1 -6.25 4.35 -6.35 Q3.5 -6.45 2.72 -5.5 Z"
+      fill="#b9ad9c"
+    />
   </g>
 );
 
