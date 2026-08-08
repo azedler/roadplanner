@@ -6,6 +6,30 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.49.0] - 2026-08-08
+
+### Added
+
+- **Die Karte beschriftet, wo die Reise hinführt.** Das Tagesziel steht an jedem Zoom auf der Karte; zoomt die Kamera in die Tagesetappe hinein, kommen die übrigen Stopps des Tages dazu; auf dem Überblick sind es die Ziele früherer Tage, über die Reise verteilt statt vom Anfang gezählt. Höchstens fünf Beschriftungen gleichzeitig – darüber ist es die überladene Straßenkarte, die ausdrücklich nicht gewollt ist.
+
+  Die Namen kommen aus den **eigenen Stopps der Reise**, nicht aus einem Ortsverzeichnis. Eine Liste großer Städte würde Namen auf die Karte setzen, die mit der Reise nichts zu tun haben – und was man auf seiner eigenen Karte lesen will, ist, wo man war.
+
+- **Character Assets: eine bestätigte Zeichnung des echten Campers.** Aus dem vorhandenen Fahrzeugfoto wird **einmal** eine Illustration abgeleitet, jemand sieht sie sich an, und ab dann liest jeder Render dieselbe Datei. Ein Bild pro Rendervorgang wäre langsam, teuer und – der eigentliche Punkt – würde zwei Renders derselben Reise zu zwei verschiedenen Filmen machen. Ein Modell liefert nie zweimal dasselbe Bild.
+
+  Erzeugtes landet als **Kandidat** und wird erst durch eine Bestätigung zu dem Bild, das Filme verwenden dürfen. Der Dateiname folgt dem, woraus das Bild entstand: neues Foto oder neue Beschreibung heißt neuer Name, also kann nie ein veraltetes Bild für eine geänderte Anfrage ausgeliefert werden. Zwei Ansichten sind vorgesehen – Dreiviertelansicht für die Karte, Seitenansicht für Vor- und Abspann –, und dieselbe Struktur trägt später die Crewfiguren.
+
+  Ohne bestätigtes Asset zeichnet der Film den Camper wie bisher. Das ist ein schlechteres Bild und ein vollständiger Film.
+
+- **Lyria als optionale KI-Musikquelle.** Standardmäßig **aus**. Es gibt keinen Weg von „Film rendern" zu „Lyria aufrufen": Der Export liest einen Ordner mit Audiodateien, mehr nicht. Erzeugen ist eine eigene Aktion, die man bewusst auslöst, nachdem ein **Preis genannt** wurde – Modell, Länge, geschätzte Kosten in Euro und der Hinweis, dass es eine Schätzung ist.
+
+  Erzeugte Musik landet **im selben Ordner** wie eigene Dateien, unter einem aus dem Reisebrief abgeleiteten Namen. Damit ist der Cache der Ordner: Ein zweiter Render findet den Titel auf dem ganz normalen Weg und kostet nichts, und zwei Filme derselben Reise klingen gleich. Der Musikbrief kommt aus den Motiven, die die Erzählebene ohnehin schon gefunden hat – warm, nordisch, leicht verspielt, instrumental, zurückhaltend.
+
+### Changed
+
+- **Die Kamera folgt dem Camper leicht gedämpft**, statt während der Fahrt stillzustehen. Nur ein Teil des Weges und höchstens bis zu einer festen Grenze: Wäre sie starr am Fahrzeug, klebte der Camper in der Bildmitte und die Karte glitte darunter weg – das liest sich als bewegte Welt statt als Reise. Bliebe sie ganz stehen, liefe der Camper an langen Tagen aus dem Bild.
+
+- **Die bereits gefahrene Strecke ist deutlicher zu sehen** und die Ländergrenzen ebenfalls. Die vergangene Route ist das Gedächtnis des Films; sie muss neben der heutigen Etappe lesbar bleiben, ohne mit ihr zu konkurrieren.
+
 ## [4.48.0] - 2026-08-08
 
 ### Changed

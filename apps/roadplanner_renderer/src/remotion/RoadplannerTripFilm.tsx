@@ -51,7 +51,12 @@ import {
   type MapPoint,
   type Projection,
 } from "./TripMap";
-import { CamperBadge, CrewPortrait } from "./CharacterAssets";
+import {
+  CamperBadge,
+  CharacterAssetContext,
+  CrewPortrait,
+  type CharacterAsset,
+} from "./CharacterAssets";
 
 export const FILM_FPS = 30;
 
@@ -124,6 +129,7 @@ export type RoadplannerTripFilmProps = {
   mapContext?: MapContext | null;
   crew?: FilmCrew | null;
   music?: FilmMusic | null;
+  characters?: { assets: CharacterAsset[] } | null;
 };
 
 export const filmDurationInFrames = (scenes: { frames: number }[]): number =>
@@ -518,6 +524,12 @@ const MAP_HEIGHT = 720;
 // How a map leg divides: recap, glide, drive. Shares rather than fixed
 // lengths, so a three-second day and an eight-second day have the same
 // shape. Mirrors the constants in the Python plan.
+// How far the camera drifts towards the camper while a day is driven,
+// and how far that drift may ever reach. Both deliberately small: the
+// view should breathe with the vehicle, not track it.
+const CAMERA_FOLLOW = 0.34;
+const CAMERA_FOLLOW_REACH = 0.16;
+
 const MAP_RECAP_SHARE = 0.26;
 const MAP_APPROACH_SHARE = 0.16;
 
@@ -546,6 +558,59 @@ const MapLabel: React.FC<{
     </div>
   </AbsoluteFill>
 );
+
+
+/**
+ * Which named places the map shows at this magnification.
+ *
+ * The brief asks for "a few important cities depending on zoom", and the
+ * honest source for that is the trip's own stops rather than a gazetteer:
+ * a list of populous places would put names on the map that have nothing
+ * to do with where anybody went, and this film does not invent geography.
+ *
+ * Three rules, in order of what a viewer needs:
+ *
+ * 1. The day's destination is always labelled. It is the answer to the
+ *    question the scene is asking, at every zoom.
+ * 2. Zoomed in far enough to see a day, the rest of the day's stops come
+ *    with it - that is the magnification at which they no longer collide.
+ * 3. On the overview, only where earlier days *ended*, and only a few of
+ *    them, spread across the journey rather than clustered at the start.
+ *
+ * Beyond `MAX_LABELS` nothing is added, whatever the rules would like:
+ * a map buried in type is exactly the overloaded road map the brief
+ * rules out.
+ */
+const MAX_LABELS = 5;
+const DETAIL_ZOOM_FACTOR = 2.2;
+
+export const visiblePlaces = (
+  live: MapChapter | null,
+  past: MapChapter[],
+  zoom: number,
+  overviewZoom: number,
+): { text: string; point: MapPoint }[] => {
+  const labels: { text: string; point: MapPoint }[] = [];
+  const seen = new Set<string>();
+  const add = (place: { name: string; point: MapPoint }) => {
+    if (labels.length >= MAX_LABELS || seen.has(place.name)) return;
+    seen.add(place.name);
+    labels.push({ text: place.name, point: place.point });
+  };
+  const detailed = zoom >= overviewZoom * DETAIL_ZOOM_FACTOR;
+  const today = live?.places ?? [];
+  for (const place of today) if (place.rank === 0) add(place);
+  if (detailed) for (const place of today) if (place.rank !== 0) add(place);
+  if (!past.length) return labels;
+  // Earlier destinations, spread rather than taken from the front, so an
+  // overview describes the whole journey and not its first days.
+  const ends = past.flatMap((chapter) => chapter.places.filter((place) => place.rank === 0));
+  const room = MAX_LABELS - labels.length;
+  if (room <= 0 || !ends.length) return labels;
+  const step = Math.max(1, Math.floor(ends.length / room));
+  for (let index = ends.length - 1; index >= 0; index -= step) add(ends[index]);
+  return labels;
+};
 
 /**
  * The one projection a film uses, and the cameras derived from it.
@@ -672,7 +737,7 @@ const MapLegScene: React.FC<{
 
   // The camera: still on the overview while the recap reads, then a
   // single eased move down into the day, then held while it is driven.
-  const camera =
+  const settled =
     frame < recapFrames
       ? overview
       : blendCamera(
@@ -689,11 +754,37 @@ const MapLegScene: React.FC<{
     () => (live ? driveState(live, driving / driveFrames, driveFrames) : null),
     [live, driving, driveFrames],
   );
+
+  // The camera drifts after the camper instead of standing still, and it
+  // drifts only part of the way. Locking it to the vehicle would nail the
+  // van to the middle of the frame and set the whole map sliding
+  // underneath, which reads as the world moving rather than as a journey.
+  // Holding perfectly still is the other failure: on a long day the
+  // camper walks out to the edge.
+  //
+  // The pull is capped at a share of the frame, so a leg that already
+  // fits is barely followed at all. It is a fraction of a smooth
+  // quantity, so it inherits its smoothness - there is no second easing
+  // here that could disagree with the movement.
+  const camera = React.useMemo(() => {
+    if (!live || !drive || frame < recapFrames + approachFrames) return settled;
+    const target = projection.project(drive.position);
+    const reach = Math.min(projection.width, projection.height) * CAMERA_FOLLOW_REACH;
+    const dx = target[0] - detail.x;
+    const dy = target[1] - detail.y;
+    return {
+      ...settled,
+      x: settled.x + Math.max(-reach, Math.min(reach, dx)) * CAMERA_FOLLOW,
+      y: settled.y + Math.max(-reach, Math.min(reach, dy)) * CAMERA_FOLLOW,
+    };
+  }, [live, drive, frame, recapFrames, approachFrames, settled, detail, projection]);
   const country = React.useMemo(() => (live ? countryAt(live.end) : ""), [live]);
   if (!live || !drive) return <ChapterCardScene chapter={chapter} scene={scene} />;
 
-  const destination = chapter.stops[chapter.stops.length - 1] || "";
-  const arrived = driving / driveFrames > 0.72;
+  const destination = live.places.find((place) => place.rank === 0)?.name
+    || chapter.stops[chapter.stops.length - 1]
+    || "";
+  const labels = visiblePlaces(live, past, camera.zoom, overview.zoom);
   return (
     <AbsoluteFill style={{ ...base, opacity }}>
       <TripMap
@@ -702,7 +793,7 @@ const MapLegScene: React.FC<{
         past={past}
         live={frame >= recapFrames ? drive.runs : []}
         camper={frame >= recapFrames ? { position: drive.position, heading: drive.heading } : null}
-        labels={arrived && destination ? [{ text: destination, point: live.end }] : []}
+        labels={frame >= recapFrames ? labels : []}
       />
       <MapLabel
         lead={[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
@@ -767,6 +858,7 @@ const MapFullScene: React.FC<{ map: MapContext; trip: FilmTrip; scene: FilmScene
         past={past}
         pastStroke="#e8823f"
         camper={tail ? { position: tail.end, heading, scale: 1.05 } : null}
+        labels={visiblePlaces(null, past, camera.zoom, overview.zoom)}
       />
       <MapLabel
         lead="DIE GANZE STRECKE"
@@ -1031,6 +1123,7 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
   narrative,
   scenes,
   mapContext = null,
+  characters = null,
   crew = null,
   music = null,
 }) => {
@@ -1125,9 +1218,19 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
     cursor += scene.frames;
   });
   return (
-    <AbsoluteFill style={{ backgroundColor: BACKDROP }}>
-      {rendered}
-      {music ? <Soundtrack music={music} totalFrames={durationInFrames} /> : null}
-    </AbsoluteFill>
+    // One provider around the whole film: whether an approved
+    // illustration of the camper exists is a property of the trip, not
+    // of any scene, and threading it through the map would make every
+    // scene know about an asset pipeline it has no business knowing.
+    <CharacterAssetContext.Provider value={characters?.assets ?? EMPTY_ASSETS}>
+      <AbsoluteFill style={{ backgroundColor: BACKDROP }}>
+        {rendered}
+        {music ? <Soundtrack music={music} totalFrames={durationInFrames} /> : null}
+      </AbsoluteFill>
+    </CharacterAssetContext.Provider>
   );
 };
+
+// A stable identity, so a film without assets does not hand the context
+// a new empty array on every render and invalidate every consumer.
+const EMPTY_ASSETS: CharacterAsset[] = [];

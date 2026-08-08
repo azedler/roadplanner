@@ -129,5 +129,12 @@ class AssistantProvider(Protocol):
         self,
         *,
         prompt: str,
+        reference: tuple[bytes, str] | None = None,
     ) -> AssistantImageResult:
-        """Generate one image from a text prompt."""
+        """Generate one image from a text prompt and an optional reference.
+
+        ``reference`` is ``(bytes, mime_type)`` of a picture the result
+        should be based on. It is what makes "our camper" possible at
+        all: a prompt alone can only describe a category, and every
+        high-roof van matches the description of every other one.
+        """

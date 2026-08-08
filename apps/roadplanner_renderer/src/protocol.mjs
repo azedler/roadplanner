@@ -499,6 +499,7 @@ export function parseFilmPackage(raw) {
     chapters: parsed,
     narrative: parseNarrative(payload.narrative),
     crew: parseCrew(payload.crew),
+    characters: parseCharacters(payload.characters),
     music: parseMusic(payload.music),
     mapContext: parseMapContext(payload.map_context),
     scenes: parseScenePlan(payload.scene_plan, parsed.length),
@@ -506,6 +507,66 @@ export function parseFilmPackage(raw) {
 }
 
 export const FILM_ORIENTATIONS = new Set(["landscape", "portrait", "square"]);
+
+
+// --- the cast, as pictures rather than as drawings -----------------------
+
+export const MAX_CHARACTER_BYTES = 260 * 1024;
+export const CHARACTER_KINDS = new Set(["vehicle", "crew"]);
+export const CHARACTER_VARIANTS = new Set(["map", "side"]);
+const CHARACTER_PATH_RE = /^characters\/(vehicle|crew)-(map|side)\.png$/;
+
+/**
+ * Confirmed character illustrations that travel with the job.
+ *
+ * Absent is the normal case and always will be: a trip whose vehicle has
+ * no approved illustration gets the drawn camper, which is a worse
+ * picture and a complete film. Nothing here may be a link, for the same
+ * reason as the crew portraits.
+ */
+export function parseCharacters(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Figurenangaben sind kein Objekt.");
+  }
+  const assets = value.assets;
+  if (!Array.isArray(assets) || !assets.length || assets.length > 4) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Figurenangaben ohne gültige Bilder.");
+  }
+  return {
+    assets: assets.map((asset) => {
+      if (asset === null || typeof asset !== "object" || Array.isArray(asset)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Figurenbild ist kein Objekt.");
+      }
+      if (!CHARACTER_KINDS.has(asset.kind) || !CHARACTER_VARIANTS.has(asset.variant)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Figurenbild mit unbekannter Art.");
+      }
+      const path = String(asset.path ?? "");
+      const match = CHARACTER_PATH_RE.exec(path);
+      if (!match || match[1] !== asset.kind || match[2] !== asset.variant) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Ungültiger Figurenbildpfad.");
+      }
+      return {
+        kind: asset.kind,
+        variant: asset.variant,
+        path,
+        sha256: (() => {
+          if (!/^[0-9a-f]{64}$/.test(String(asset.sha256 ?? ""))) {
+            throw new ProtocolError(ERROR_INVALID_JOB, "Figurenbild ohne gültige Prüfsumme.");
+          }
+          return asset.sha256;
+        })(),
+        sizeBytes: (() => {
+          const size = asset.size_bytes;
+          if (!Number.isInteger(size) || size <= 0 || size > MAX_CHARACTER_BYTES) {
+            throw new ProtocolError(ERROR_INVALID_JOB, "Figurenbild mit ungültiger Größe.");
+          }
+          return size;
+        })(),
+      };
+    }),
+  };
+}
 
 // --- the crew, and the music -------------------------------------------
 
@@ -689,6 +750,7 @@ export function parseMapContext(value) {
       bbox: mapBbox(chapter.bbox),
       hasFerry: Boolean(chapter.has_ferry),
       estimated: Boolean(chapter.estimated),
+      places: mapPlaces(chapter.places),
     };
   });
   if (points > MAX_MAP_POINTS) {
@@ -702,6 +764,38 @@ export function parseMapContext(value) {
     pointCount: points,
     chapters: parsed,
   };
+}
+
+
+export const MAX_MAP_PLACES = 4;
+
+/**
+ * The named places a day puts on the map.
+ *
+ * Absent is normal: a day whose stops have no coordinates has no places,
+ * and the map simply shows no labels. What is refused is a list long
+ * enough to bury the map in type - the reduced style is a requirement,
+ * not a preference, and four labels is where a 1280-pixel frame stops
+ * being readable.
+ */
+function mapPlaces(value) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Orte im Kartenkapitel sind keine Liste.");
+  }
+  if (value.length > MAX_MAP_PLACES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Zu viele Orte im Kartenkapitel.");
+  }
+  return value.map((place) => {
+    if (place === null || typeof place !== "object" || Array.isArray(place)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Ort im Kartenkapitel ist kein Objekt.");
+    }
+    const name = cleanText(place.name, 42);
+    if (!name) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Ort ohne Namen.");
+    }
+    return { name, point: mapPoint(place.point), rank: place.rank === 0 ? 0 : 1 };
+  });
 }
 
 /** One [lon, lat] pair, refused unless it is a real place on Earth. */

@@ -144,4 +144,77 @@ const detail = cameraFor(FRAME, DAY, { fill: 0.58, maxZoom: 22, bottom: CAPTION_
   assert.ok(Number.isFinite(broken.x) && Number.isFinite(broken.y) && Number.isFinite(broken.zoom));
 }
 
+// --- following the camper must not reintroduce a jump --------------------
+
+{
+  // The composition drifts the camera part of the way towards the
+  // camper while a day is driven. That is a second motion laid over the
+  // first, and two smooth motions can still add up to a rough one - so
+  // it is measured here the same way the glide is, rather than trusted
+  // because each half looks reasonable.
+  const FOLLOW = 0.34;
+  const REACH = Math.min(FRAME.width, FRAME.height) * 0.16;
+  const clampReach = (value) => Math.max(-REACH, Math.min(REACH, value));
+  const followed = (base, target) => ({
+    ...base,
+    x: base.x + clampReach(target[0] - detail.x) * FOLLOW,
+    y: base.y + clampReach(target[1] - detail.y) * FOLLOW,
+  });
+
+  // The camper walks the day's route at an eased pace, which is what the
+  // real composition feeds in.
+  const ease = (u) => u * u * (3 - 2 * u);
+  const along = (u) => {
+    const span = (DAY.length - 1) * ease(u);
+    const index = Math.min(DAY.length - 2, Math.floor(span));
+    const t = span - index;
+    return [
+      DAY[index][0] + (DAY[index + 1][0] - DAY[index][0]) * t,
+      DAY[index][1] + (DAY[index + 1][1] - DAY[index][1]) * t,
+    ];
+  };
+
+  const FRAMES = 90;
+  const path = [];
+  for (let frame = 0; frame <= FRAMES; frame += 1) {
+    path.push(followed(detail, along(frame / FRAMES)));
+  }
+  const probe = DAY[DAY.length - 1];
+  const speeds = [];
+  for (let frame = 1; frame <= FRAMES; frame += 1) {
+    const [x0, y0] = onScreen(FRAME, path[frame - 1], probe);
+    const [x1, y1] = onScreen(FRAME, path[frame], probe);
+    speeds.push(Math.hypot(x1 - x0, y1 - y0));
+  }
+  const mean = speeds.reduce((sum, value) => sum + value, 0) / speeds.length;
+  const worst = Math.max(...speeds);
+  assert.ok(
+    worst < Math.max(mean * 2.5, 1.5),
+    `die Kameraverfolgung springt: ${worst.toFixed(2)}px gegen ${mean.toFixed(2)}px Mittel`,
+  );
+
+  // It must stay a drift, not a lock: the camera may never move as far
+  // as the camper does, or the map slides under a pinned vehicle.
+  const first = path[0];
+  const last = path[FRAMES];
+  const cameraMoved = Math.hypot(last.x - first.x, last.y - first.y);
+  const camperMoved = Math.hypot(
+    along(1)[0] - along(0)[0],
+    along(1)[1] - along(0)[1],
+  );
+  assert.ok(
+    cameraMoved < camperMoved * 0.6,
+    `die Kamera folgt zu starr: ${cameraMoved.toFixed(1)} von ${camperMoved.toFixed(1)}`,
+  );
+
+  // And the route still has to fit above the caption while it follows.
+  const usableBottom = FRAME.height - CAPTION_STRIP;
+  for (const camera of path) {
+    for (const point of DAY) {
+      const [, y] = onScreen(FRAME, camera, point);
+      assert.ok(y <= usableBottom + 1, `Verfolgung schiebt die Route unter die Beschriftung (${y.toFixed(0)})`);
+    }
+  }
+}
+
 console.log("Camera move tests passed.");

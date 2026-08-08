@@ -42,6 +42,7 @@ import io
 import logging
 from typing import Any
 
+from .character_assets import validate_characters
 from .trip_film_crew import validate_crew
 from .trip_map_context import validate_map_context
 from .trip_film_plan import (
@@ -241,6 +242,7 @@ def build_film_package(
     crew: dict[str, Any] | None = None,
     crew_files: dict[str, bytes] | None = None,
     music: dict[str, Any] | None = None,
+    characters: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Translate the manifest into a film package.
 
@@ -375,6 +377,10 @@ def build_film_package(
         # What it sounds like, or nothing at all. A film without music
         # stays a complete film.
         "music": music or None,
+        # Approved illustrations of the camper, when somebody has confirmed
+        # one. Absent means the film draws it - a worse picture and a
+        # complete film. See character_assets.
+        "characters": validate_characters(characters),
         "chapters": chapters,
         "total_image_bytes": total_bytes,
     }

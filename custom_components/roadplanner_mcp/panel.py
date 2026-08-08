@@ -91,6 +91,8 @@ _ACTIONS = {
     "story_director_discard",
     "story_film_preview",
     "story_film_music",
+    "story_film_music_offer",
+    "story_film_music_generate",
     "story_film_render",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
@@ -1503,6 +1505,27 @@ async def _execute_action(
 
     if action == "story_film_music":
         return {"film_music": await runtime.trip_film.async_music_options()}
+
+    if action == "story_film_music_offer":
+        # What generated music would cost and what would be ordered -
+        # read-only, free, and the only thing the panel may do before
+        # somebody has agreed to a price.
+        return {
+            "film_music_offer": await runtime.film_music.async_offer(
+                str(data.get("trip_id") or "")
+            )
+        }
+
+    if action == "story_film_music_generate":
+        # The one place that spends money, and it is its own action for
+        # exactly that reason: there is no path from rendering a film to
+        # here. A cached track for the same brief is returned without
+        # generating again, so a second attempt costs nothing.
+        return {
+            "film_music_generated": await runtime.film_music.async_generate(
+                str(data.get("trip_id") or "")
+            )
+        }
 
     if action == "renderer_app_trip_days":
         # Which days could be exported, and which have no photo to export.

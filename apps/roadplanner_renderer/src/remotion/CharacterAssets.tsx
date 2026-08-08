@@ -62,6 +62,31 @@ const NOSE_D = "M6 -8.6 L11.4 -6.2 Q15.6 -4.4 17.2 -0.6 L18.2 2.2 Q18.5 3.2 17.4
 const ROOF_D =
   "M6.6 -8.6 Q5.6 -13.6 2.6 -16.4 Q0.8 -18 -2.6 -18 L-14.4 -17.2 Q-17.4 -17 -17.4 -14.6 L-17.4 -8.6 Z";
 
+
+/**
+ * The confirmed illustrations this film may use, if any.
+ *
+ * A context rather than a prop threaded through the map, because the
+ * question "is there an approved picture of our camper" is the same
+ * everywhere and belongs to the film, not to any one scene. Empty is the
+ * normal state: without an asset every character falls back to what is
+ * drawn here, which is a worse picture and a complete film.
+ */
+export type CharacterAsset = { kind: string; variant: string; path: string };
+
+export const CharacterAssetContext = React.createContext<CharacterAsset[]>([]);
+
+export const useCharacterAsset = (kind: string, variant: string): string => {
+  const assets = React.useContext(CharacterAssetContext);
+  const found = assets.find((asset) => asset.kind === kind && asset.variant === variant);
+  if (found) return found.path;
+  // The side elevation stands in for the map view and the other way
+  // round: one approved picture is better than one approved picture and
+  // one drawing that do not look like the same vehicle.
+  const other = assets.find((asset) => asset.kind === kind);
+  return other ? other.path : "";
+};
+
 export type CharacterProps = {
   x: number;
   y: number;
@@ -70,6 +95,8 @@ export type CharacterProps = {
   scale?: number;
   /** Whether somebody is at the wheel. Off when the vehicle is parked. */
   driver?: boolean;
+  /** Which approved illustration to prefer, when one exists. */
+  variant?: "map" | "side";
 };
 
 /**
@@ -103,7 +130,52 @@ export type CharacterProps = {
  * on a dark map. When a photograph of the real one is turned into a
  * confirmed asset, that is where the true colour belongs.
  */
-export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1, driver = true }) => {
+export const Camper: React.FC<CharacterProps> = (props) => {
+  const asset = useCharacterAsset("vehicle", props.variant ?? "map");
+  return asset ? <CamperImage {...props} asset={asset} /> : <CamperDrawing {...props} />;
+};
+
+/**
+ * The approved illustration, placed exactly where the drawing would be.
+ *
+ * Mirrored when travelling west and leaning with the gradient, like the
+ * drawn one - the asset is generated facing right, and a camper that
+ * drove to Norway pointing backwards would be worse than no asset at
+ * all. It never rotates to the heading, for the same reason the drawing
+ * does not: a side view turned north stands on its bumper.
+ */
+const CAMPER_ASSET_WIDTH = 46;
+
+const CamperImage: React.FC<CharacterProps & { asset: string }> = ({
+  x,
+  y,
+  heading = 0,
+  scale = 1,
+  asset,
+}) => {
+  const screen = -heading;
+  const westward = Math.abs(screen) > 90;
+  const slope = westward ? (screen > 0 ? 180 - screen : -180 - screen) : screen;
+  const lean = Math.max(-14, Math.min(14, slope));
+  const width = CAMPER_ASSET_WIDTH * scale;
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${lean})`}>
+      <ellipse cx="0" cy={width * 0.21} rx={width * 0.46} ry={width * 0.085} fill="rgba(0,0,0,0.42)" />
+      <g transform={`scale(${westward ? -1 : 1} 1)`}>
+        <image
+          href={`/${asset}`}
+          x={-width / 2}
+          y={-width * 0.62}
+          width={width}
+          height={width}
+          preserveAspectRatio="xMidYMax meet"
+        />
+      </g>
+    </g>
+  );
+};
+
+const CamperDrawing: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1, driver = true }) => {
   // Mercator y grows downward and the bearing was computed in map space,
   // so the screen angle is the negative of it.
   const screen = -heading;
