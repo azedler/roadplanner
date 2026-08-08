@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.3] - 2026-08-08
+
+### Added
+
+- **„Was käme in den Film?" sagt jetzt auch, ob es eine Karte gäbe** – „Karte: 20 von 23 Tagen", bei Bedarf mit dem Hinweis auf Fährstrecken und darauf, wie viele Tage nur als Luftlinie vorliegen. Ohne das war ein Film ohne Karte nicht deutbar: Es konnte an den gespeicherten Routen der Reise liegen oder an der Version, die ihn gerendert hat, und man sah es dem Ergebnis nicht an. Gezählt wird mit demselben Aufbau, den auch der Rendervorgang benutzt – ein zweiter Zähler wäre irgendwann anderer Meinung als das, was tatsächlich gezeichnet wird.
+
 ## [4.45.2] - 2026-08-08
 
 ### Fixed
