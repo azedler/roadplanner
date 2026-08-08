@@ -289,6 +289,9 @@ class RoadplannerExperienceManager:
     async def async_update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         return await self._media_library.async_update_media(trip_id, media_id, patch)
 
+    async def async_reassign_media(self, trip_id: str) -> dict[str, Any]:
+        return await self._media_library.async_reassign_media(trip_id)
+
     async def async_delete_media(self, trip_id: str, media_id: str) -> dict[str, Any]:
         return await self._media_library.async_delete_media(trip_id, media_id)
 

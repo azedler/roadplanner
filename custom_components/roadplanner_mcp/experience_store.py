@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
+from collections.abc import Callable
 from typing import Any
 import uuid
 
@@ -737,6 +738,62 @@ class ExperienceStore:
             state["vision_usage"] = usage
             self.write(state)
             return {"reserved": True, "date": day_key, "count": count + 1, "limit": limit}
+
+    def reassign_media(
+        self, trip_id: str, decide: Callable[[dict[str, Any]], dict[str, Any] | None]
+    ) -> dict[str, Any]:
+        """Re-decide every automatic or suggested assignment, in one write.
+
+        The rule that turns a photograph into an assignment can improve,
+        and when it does it has to reach the photographs that are already
+        here - otherwise it only ever helps the next trip.
+
+        Two things this does not do. It never touches a **manual**
+        assignment: a decision somebody made by hand outranks any rule,
+        now and later. And it never invents or removes a photo - it only
+        re-answers a question that was already asked about each one.
+
+        The caller supplies `decide`, so the rule itself stays in the
+        media library where it belongs and the store keeps knowing only
+        how to write.
+        """
+        with self._lock:
+            state = self.load(trip_id)
+            changed = 0
+            became_automatic = 0
+            counts: dict[str, int] = {}
+            for index, item in enumerate(state["media"]):
+                if item.get("assignment_status") == "manual":
+                    continue
+                verdict = decide(item)
+                if not isinstance(verdict, dict):
+                    continue
+                before = (
+                    item.get("assignment_status"),
+                    item.get("linked_day_id"),
+                    item.get("linked_stop_id"),
+                )
+                merged = normalize_media({**item, **verdict, "id": item["id"], "trip_id": trip_id})
+                after = (
+                    merged.get("assignment_status"),
+                    merged.get("linked_day_id"),
+                    merged.get("linked_stop_id"),
+                )
+                if before == after:
+                    continue
+                state["media"][index] = merged
+                changed += 1
+                if after[0] == "automatic" and before[0] != "automatic":
+                    became_automatic += 1
+                counts[str(after[0])] = counts.get(str(after[0]), 0) + 1
+            if changed:
+                self.write(state)
+            return {
+                "changed": changed,
+                "became_automatic": became_automatic,
+                "by_status": counts,
+                "total": len(state["media"]),
+            }
 
     def update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
