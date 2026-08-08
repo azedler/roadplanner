@@ -572,6 +572,7 @@ export const rendererAppMixin = {
         }
         <span>${escapeHtml(v.codec)} · ${escapeHtml(String(v.width))} × ${escapeHtml(String(v.height))} · ${escapeHtml(String(v.duration_seconds))} s · ${escapeHtml(String(Math.round((v.size_bytes || 0) / 1024)))} kB</span>
         <small>gesamt ${escapeHtml(String(t.total ?? "?"))} s – Browser ${escapeHtml(String(t.browser_start ?? "?"))} s, Render ${escapeHtml(String(t.render ?? "?"))} s, ffprobe ${escapeHtml(String(t.probe ?? "?"))} s</small>
+        ${result.completed_at ? `<small>Erstellt am ${escapeHtml(this._formatTimestamp(result.completed_at))}</small>` : ""}
         <div class="button-row">
           <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : "Video herunterladen"}</button>
         </div>

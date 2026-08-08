@@ -1173,6 +1173,11 @@ class RoadplannerPanel extends HTMLElement {
         errorMode: "dialog",
         errorTitle: "Bildauswahl konnte nicht aktualisiert werden",
       });
+    } else if (action === "media-reassign") {
+      // Costs nothing outside Home Assistant: the photographs, their
+      // coordinates and their timestamps are already stored, and only the
+      // question "which stop is this?" is asked again.
+      void this._mediaReassign();
     } else if (action === "media-open-album") {
       const dayId = target.dataset.dayId || "";
       const stopId = target.dataset.stopId || "";

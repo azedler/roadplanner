@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.46.1] - 2026-08-08
+
+### Added
+
+- **Beim fertigen Film steht jetzt, wann er erstellt wurde.** Ein Reisefilm braucht eine Viertelstunde, und die Karte sagte bisher nur „der zuletzt erzeugte Reisefilm ist fertig" – ein Film von gestern Abend und einer von vor zehn Minuten sahen damit gleich aus. Genau das ist heute passiert: Nach dem Kartenrelease wurde ein älterer Film heruntergeladen und die fehlende Karte darin für einen Fehler der Karte gehalten. Der Zeitstempel lag die ganze Zeit in den Daten und wurde nur nicht angezeigt.
+
+## [4.46.0] - 2026-08-08
+
+### Changed
+
+- **Fotos werden jetzt zugeordnet, wenn die Zuordnung eindeutig ist – nicht nur, wenn sie nah ist.** Ein fester Radius stellt die falsche Frage. Er fragt „ist dieses Foto nah?", während das, was über eine Entscheidung wirklich bestimmt, „gibt es überhaupt etwas anderes, das es sein könnte?" ist. Ein Wildpark ist größer als 750 Meter: 253 Fotos eines Nachmittags landeten mit 799–912 m Abstand zum einzigen Stopp weit und breit in „zu prüfen" – nicht weil jemand im Zweifel war, sondern weil ein Ort größer war als eine Zahl. Umgekehrt wurden 700 m mitten in einem Ort mit vier Stopps im Umkreis automatisch entschieden, obwohl dort niemand hätte sagen können, welcher es war.
+
+  Die Regel schaut deshalb zusätzlich auf den Zweitplatzierten: Liegt der nächste Stopp innerhalb von 2,5 km und ist der nächstbeste mindestens doppelt so weit weg und zusätzlich 800 m weiter, wird ohne Nachfrage zugeordnet. **Die bisherige Nähe-Schwelle von 750 m bleibt unverändert** – alles, was vorher automatisch war, bleibt automatisch. Ein Foto an einem anderen Datum als der Reisetag bleibt weiterhin eine Nachfrage; Mitternacht ist eine echte Unklarheit.
+
+### Added
+
+- **„Zuordnungen neu berechnen"** in den Erinnerungen. Ohne das würde eine verbesserte Regel nur für künftige Importe gelten und die bereits vorhandenen Fotos für immer in „zu prüfen" stehen lassen. Es wird nichts nachgeladen: Fotos, Koordinaten und Zeitstempel liegen längst hier, nur die Frage „welcher Stopp ist das?" wird neu gestellt. **Von Hand gesetzte Zuordnungen bleiben unangetastet** – eine Entscheidung, die jemand selbst getroffen hat, schlägt jede Regel. Die Meldung nennt anschließend, wie viele sich geändert haben und wie viele davon keine Prüfung mehr brauchen.
+
 ## [4.45.4] - 2026-08-08
 
 ### Fixed

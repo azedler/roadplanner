@@ -432,7 +432,7 @@ export const mediaMixin = {
       ${this._renderReadOnlyNotice()}
       <section class="panel-card media-toolbar">
         <div><span class="eyebrow">OneDrive Personal</span><h2>Reisefotos automatisch zuordnen</h2><p>Roadplanner liest den Ordner <strong>${escapeHtml(oneDrive.folder_path || "Pictures/Camera Roll")}</strong>${oneDrive.recursive_subfolders ? " einschließlich Unterordnern" : ""}, berücksichtigt nur den Zeitraum der ausgewählten Reise mit ${Number(oneDrive.date_buffer_days || 0)} Tagen Puffer und kopiert keine Originale nach Home Assistant.</p></div>
-        <div class="media-toolbar-actions"><span class="assistant-health ${oneDrive.connected ? "success" : "muted"}"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>${escapeHtml(statusText)}</span>${oneDrive.connected ? `<button class="secondary-button" type="button" data-action="onedrive-sync"><ha-icon icon="mdi:sync"></ha-icon>Jetzt synchronisieren</button><button class="text-button" type="button" data-action="onedrive-full-sync"><ha-icon icon="mdi:calendar-refresh-outline"></ha-icon>Neu ab Reisebeginn einlesen</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung</button><button class="text-button danger-text" type="button" data-action="onedrive-disconnect">Trennen</button>` : oneDrive.configured ? `<button class="primary-button" type="button" data-action="onedrive-connect"><ha-icon icon="mdi:login-variant"></ha-icon>Mit Microsoft anmelden</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung ändern</button>` : `<button class="primary-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>OneDrive einrichten</button>`}${vision.enabled && this._canEdit() ? `<button class="secondary-button" type="button" data-action="media-curate-trip" data-limit="5"><ha-icon icon="mdi:creation-outline"></ha-icon>Highlights neu bewerten</button>` : ""}</div>
+        <div class="media-toolbar-actions"><span class="assistant-health ${oneDrive.connected ? "success" : "muted"}"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>${escapeHtml(statusText)}</span>${oneDrive.connected ? `<button class="secondary-button" type="button" data-action="onedrive-sync"><ha-icon icon="mdi:sync"></ha-icon>Jetzt synchronisieren</button><button class="text-button" type="button" data-action="onedrive-full-sync"><ha-icon icon="mdi:calendar-refresh-outline"></ha-icon>Neu ab Reisebeginn einlesen</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung</button><button class="text-button danger-text" type="button" data-action="onedrive-disconnect">Trennen</button>` : oneDrive.configured ? `<button class="primary-button" type="button" data-action="onedrive-connect"><ha-icon icon="mdi:login-variant"></ha-icon>Mit Microsoft anmelden</button><button class="text-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:cog-outline"></ha-icon>Einrichtung ändern</button>` : `<button class="primary-button" type="button" data-action="onedrive-setup"><ha-icon icon="mdi:microsoft-onedrive"></ha-icon>OneDrive einrichten</button>`}${vision.enabled && this._canEdit() ? `<button class="secondary-button" type="button" data-action="media-curate-trip" data-limit="5"><ha-icon icon="mdi:creation-outline"></ha-icon>Highlights neu bewerten</button>` : ""}${this._canEdit() ? `<button class="text-button" type="button" data-action="media-reassign" title="Ordnet die vorhandenen Fotos nach der aktuellen Regel neu zu. Von Hand gesetzte Zuordnungen bleiben unberührt."><ha-icon icon="mdi:map-marker-check-outline"></ha-icon>Zuordnungen neu berechnen</button>` : ""}</div>
       </section>
       ${syncNotice}
       ${visionNotice}
@@ -447,6 +447,40 @@ export const mediaMixin = {
       ${media.length ? mediaControls : ""}
       ${latest.length ? `<section class="media-grid">${latest.map(({ item, absoluteIndex }) => this._renderMediaCard(item, absoluteIndex)).join("")}</section>` : media.length ? `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-filter-none"></ha-icon><h2>Keine Bilder in dieser Auswahl</h2><p>Wähle oben einen anderen Filter.</p></div>` : `<div class="empty-state"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><h2>Noch keine OneDrive-Fotos</h2><p>Verbinde OneDrive Personal und starte anschließend eine Synchronisierung. Bereits vorhandene Fotos im gewählten Kameraordner werden anhand von Datum und GPS zugeordnet.</p></div>`}
     `;
+  },
+
+  /**
+   * Re-decide the stored assignments, and say what changed.
+   *
+   * "Fertig" would be useless here: the whole point is the number. If a
+   * rule change turns 253 photographs waiting for a click into twelve,
+   * that is the message; and if it changes nothing, that is worth
+   * knowing too, because it means the doubt was real.
+   */
+  async _mediaReassign() {
+    const result = await this._runAction(
+      "media_reassign",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        errorMode: "dialog",
+        errorTitle: "Die Zuordnungen konnten nicht neu berechnet werden",
+      },
+    );
+    if (!result) return;
+    const summary = result.media_reassign || {};
+    const changed = Number(summary.changed || 0);
+    const automatic = Number(summary.became_automatic || 0);
+    if (!changed) {
+      this._showToast("Keine Zuordnung hat sich geändert.", "success", 4000);
+    } else {
+      const detail = automatic
+        ? `${automatic} davon brauchen keine Prüfung mehr`
+        : "keine davon wurde automatisch";
+      this._showToast(`${changed} Zuordnungen neu berechnet – ${detail}.`, "success", 6000);
+    }
+    await this._loadData({ silent: true, force: true });
   },
 
   _mediaStat(icon, label, value) {

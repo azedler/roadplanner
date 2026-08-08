@@ -149,6 +149,7 @@ _ACTIONS = {
     "onedrive_disconnect",
     "onedrive_sync",
     "media_update_assignment",
+    "media_reassign",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -229,6 +230,7 @@ _EDIT_ACTIONS = {
     "decision_delete",
     "onedrive_sync",
     "media_update_assignment",
+    "media_reassign",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -936,6 +938,15 @@ async def _execute_action(
             "experience": await runtime.experience.async_panel_payload(
                 str(data.get("trip_id") or "")
             ),
+        }
+
+    if action == "media_reassign":
+        trip_id = str(data.get("trip_id") or "")
+        if not trip_id:
+            raise ValidationError("Für die Neuzuordnung wurde keine Reise ausgewählt")
+        return {
+            "media_reassign": await runtime.experience.async_reassign_media(trip_id),
+            "experience": await runtime.experience.async_panel_payload(trip_id),
         }
 
     if action == "media_delete":

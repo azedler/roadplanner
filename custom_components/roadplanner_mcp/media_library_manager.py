@@ -44,7 +44,40 @@ from .roadplanner import RoadplannerError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
 
+# How close a photo has to be to a stop before Roadplanner assigns it
+# without asking. Near enough is enough, and this number is unchanged:
+# everything that was automatic before stays automatic.
 _AUTOMATIC_RADIUS_M = 750.0
+
+# The second way to be certain: not near, but *unambiguous*.
+#
+# A fixed radius asks the wrong question. It asks "is this photo close?"
+# when the thing that decides whether a human can answer is "is there
+# anything else it could be?". A wildlife park is bigger than 750 m, so
+# 253 photographs taken 799-912 m from the only stop for twenty
+# kilometres landed in "zu prüfen" - not because anyone was in doubt, but
+# because a place was larger than a number. Meanwhile 700 m in a town
+# with four stops within a kilometre is a genuine coin toss, and that one
+# was being decided automatically.
+#
+# So the second rule looks at the runner-up. If the nearest stop is
+# within reach and the next-nearest is far behind it, nobody would pick
+# differently, and asking is a formality. Both a ratio and an absolute
+# margin have to hold: the ratio is what makes "clearly the closest"
+# meaningful at any scale, and the margin stops a few dozen metres of
+# difference from counting as clarity.
+#
+# Twice as far, and at least 800 m further. Three times was the first
+# number and it was too cautious to help: at 800 m it would demand the
+# runner-up be 2.4 km away, and the campsite the same evening is often
+# nearer than that. The cost of the two mistakes is not symmetric - a
+# photo filed under the wrong stop of the *right day* is a small thing
+# and can be corrected in one tap, while 253 photographs waiting for a
+# click is what made this worth changing.
+_CLEAR_RADIUS_M = 2_500.0
+_CLEAR_SEPARATION = 2.0
+_CLEAR_MARGIN_M = 800.0
+
 _SUGGESTED_RADIUS_M = 5_000.0
 _MEDIA_SYNC_STRATEGY_VERSION = 3
 _INITIAL_SCAN_MODE = "initial_scan"
@@ -903,11 +936,24 @@ class MediaLibraryManager:
                 if coord is not None:
                     stop_candidates.append((_distance_m(media_coord, coord), day, stop))
         if stop_candidates:
-            distance, day, stop = min(stop_candidates, key=lambda item: item[0])
+            stop_candidates.sort(key=lambda item: item[0])
+            distance, day, stop = stop_candidates[0]
             day_id = str(day.get("id") or "")
             stop_id = str(stop.get("id") or "")
             same_day = _day_date(day) == local_date
-            if distance <= _AUTOMATIC_RADIUS_M and same_day:
+            # The nearest thing it could otherwise be. Any other stop
+            # counts, including one on a neighbouring day - a photograph
+            # two hundred metres from tomorrow's campsite is ambiguous
+            # about the day, and that is exactly the doubt worth keeping.
+            runner_up = stop_candidates[1][0] if len(stop_candidates) > 1 else None
+            alone = runner_up is None or (
+                runner_up >= distance * _CLEAR_SEPARATION
+                and runner_up - distance >= _CLEAR_MARGIN_M
+            )
+            if same_day and (
+                distance <= _AUTOMATIC_RADIUS_M
+                or (distance <= _CLEAR_RADIUS_M and alone)
+            ):
                 return {
                     "linked_day_id": day_id or None,
                     "linked_stop_id": stop_id or None,
@@ -930,6 +976,34 @@ class MediaLibraryManager:
                 "confidence": 0.45,
             }
         return {"assignment_status": "unassigned", "confidence": 0.0}
+
+    async def async_reassign_media(self, trip_id: str) -> dict[str, Any]:
+        """Re-decide the stored assignments with today's rule.
+
+        Nothing is fetched. The photographs, their coordinates and their
+        timestamps are already here; only the question "which stop is
+        this?" is asked again. That makes it cheap enough to offer as a
+        button rather than as a full re-synchronisation of OneDrive - and
+        it is the only way an improved rule reaches the trip somebody is
+        looking at right now.
+
+        Assignments made by hand are left alone. See `reassign_media`.
+        """
+        trip_id = str(trip_id or "").strip()
+        if not trip_id:
+            raise ValidationError("Für die Neuzuordnung wurde keine Reise ausgewählt")
+        payload = await self.manager.async_get_assistant_payload(trip_id)
+        days = _all_days(payload)
+        result = await self.hass.async_add_executor_job(
+            self.store.reassign_media, trip_id, lambda media: self._assignment_for(media, days)
+        )
+        _LOGGER.debug(
+            "Fotozuordnung für %s neu berechnet: %s von %s geändert",
+            trip_id,
+            result.get("changed"),
+            result.get("total"),
+        )
+        return result
 
     async def async_update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         allowed = {

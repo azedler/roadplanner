@@ -16,6 +16,9 @@ import re
 ROOT = Path(".")
 INTEGRATION = ROOT / "custom_components" / "roadplanner_mcp"
 APP = ROOT / "apps" / "roadplanner_renderer"
+APP_FRONTEND = (
+    ROOT / "custom_components" / "roadplanner_mcp" / "frontend" / "features" / "renderer-app.js"
+)
 
 
 def _js_code(path: Path) -> str:
@@ -452,6 +455,28 @@ def verify_no_full_frame_filter_reaches_the_film() -> None:
     assert "def image_palette" in package
 
 
+def verify_a_finished_film_says_when_it_was_made() -> None:
+    """Live request, and the reason is in this session's own history.
+
+    A trip film takes a quarter of an hour, and the card said only "der
+    zuletzt erzeugte Reisefilm ist fertig" - so a film from yesterday
+    evening and one from ten minutes ago looked exactly alike. When the
+    map arrived, an older film was downloaded to look for it, and the
+    absence of a map was read as a fault in the map rather than as the
+    age of the file.
+
+    The timestamp was in the data the whole time: `completed_at` in the
+    result, `updated_at` on the job. It simply was never shown.
+    """
+    story = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "job.updated_at" in story, "die Karte muss das Alter des Films kennen"
+    assert "erstellt am" in story
+
+    renderer = _js_code(APP_FRONTEND)
+    assert "result.completed_at" in renderer
+    assert "Erstellt am" in renderer
+
+
 def verify_the_film_gets_the_plan_rather_than_deriving_one() -> None:
     """Two places computing a length is one place computing it wrong."""
     render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
@@ -618,6 +643,7 @@ verify_the_render_can_actually_be_triggered()
 verify_every_planned_scene_type_has_a_component()
 verify_the_world_outline_is_projected_once_per_view()
 verify_no_full_frame_filter_reaches_the_film()
+verify_a_finished_film_says_when_it_was_made()
 verify_the_film_gets_the_plan_rather_than_deriving_one()
 verify_no_diagnostic_text_reaches_the_film()
 verify_the_mini_export_is_wired_end_to_end()
