@@ -359,6 +359,7 @@ export const FILM_SCENE_TYPES = new Set([
   "map_start",
   "map_leg",
   "map_full",
+  "crew",
 ]);
 // Bounds, so a malformed plan cannot ask for an hour of video or ten
 // thousand sequences.
@@ -497,12 +498,119 @@ export function parseFilmPackage(raw) {
     },
     chapters: parsed,
     narrative: parseNarrative(payload.narrative),
+    crew: parseCrew(payload.crew),
+    music: parseMusic(payload.music),
     mapContext: parseMapContext(payload.map_context),
     scenes: parseScenePlan(payload.scene_plan, parsed.length),
   };
 }
 
 export const FILM_ORIENTATIONS = new Set(["landscape", "portrait", "square"]);
+
+// --- the crew, and the music -------------------------------------------
+
+export const MAX_CREW_MEMBERS = 6;
+export const MAX_CREW_PORTRAIT_BYTES = 120 * 1024;
+const CREW_PATH_RE = /^crew\/member-(\d{2})\.jpg$/;
+
+/** The one place a crew portrait path is accepted, built from a number. */
+export function crewPortraitPath(value, index) {
+  const text = String(value ?? "");
+  const match = CREW_PATH_RE.exec(text);
+  if (!match || Number(match[1]) !== index) {
+    throw new ProtocolError(ERROR_INVALID_JOB, `Ungültiger Crewbildpfad: ${text.slice(0, 60)}`);
+  }
+  return text;
+}
+
+/**
+ * Who is travelling: display names, and portraits that are files.
+ *
+ * Absent is normal - a trip without a crew record simply has no crew
+ * scene. What is refused is anything that looks like a link: the crew
+ * portrait route is guarded by an unguessable filename, which is a
+ * bearer secret rather than a session, and a package written into a
+ * shared folder must not carry one.
+ */
+export function parseCrew(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Crewangaben sind kein Objekt.");
+  }
+  const members = value.members;
+  if (!Array.isArray(members) || !members.length || members.length > MAX_CREW_MEMBERS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Crewangaben ohne gültige Mitglieder.");
+  }
+  return {
+    members: members.map((member, index) => {
+      if (member === null || typeof member !== "object" || Array.isArray(member)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Crewmitglied ist kein Objekt.");
+      }
+      const name = cleanText(member.name, 40);
+      if (!name) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Crewmitglied ohne Namen.");
+      }
+      for (const entry of Object.values(member)) {
+        const text = String(entry ?? "");
+        if (text.includes("://") || text.startsWith("/api/")) {
+          throw new ProtocolError(ERROR_INVALID_JOB, "Crewangaben dürfen keine Adressen enthalten.");
+        }
+      }
+      const path = member.path ? crewPortraitPath(member.path, index) : "";
+      const size = member.size_bytes;
+      if (path) {
+        if (!Number.isInteger(size) || size <= 0 || size > MAX_CREW_PORTRAIT_BYTES) {
+          throw new ProtocolError(ERROR_INVALID_JOB, "Crewbild mit ungültiger Größe.");
+        }
+        if (!/^[0-9a-f]{64}$/.test(String(member.sha256 ?? ""))) {
+          throw new ProtocolError(ERROR_INVALID_JOB, "Crewbild ohne gültigen SHA-256.");
+        }
+      }
+      return { name, path, sizeBytes: path ? size : 0, sha256: path ? member.sha256 : "" };
+    }),
+  };
+}
+
+export const MUSIC_FILENAME = "music/track";
+export const MAX_MUSIC_BYTES = 40 * 1024 * 1024;
+export const MUSIC_EXTENSIONS = new Set([".mp3", ".m4a", ".ogg", ".wav", ".flac"]);
+
+/**
+ * The soundtrack, or nothing.
+ *
+ * A film without music has to stay a complete film, so absent is a
+ * first-class answer rather than a failure. What travels is a file in
+ * the job folder and a volume - never a path from the user's machine,
+ * because that string would be a filesystem location arriving from
+ * outside and reaching a reader.
+ */
+export function parseMusic(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Musikangaben sind kein Objekt.");
+  }
+  const path = String(value.path ?? "");
+  const extension = path.slice(path.lastIndexOf("."));
+  if (!path.startsWith(`${MUSIC_FILENAME}`) || !MUSIC_EXTENSIONS.has(extension)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Musikdatei liegt nicht im Auftragsordner.");
+  }
+  const size = value.size_bytes;
+  if (!Number.isInteger(size) || size <= 0 || size > MAX_MUSIC_BYTES) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Musikdatei mit ungültiger Größe.");
+  }
+  if (!/^[0-9a-f]{64}$/.test(String(value.sha256 ?? ""))) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Musikdatei ohne gültigen SHA-256.");
+  }
+  const volume = typeof value.volume === "number" ? value.volume : 0.45;
+  return {
+    path,
+    sizeBytes: size,
+    sha256: value.sha256,
+    // Clamped here rather than trusted: it reaches an audio node.
+    volume: Math.max(0, Math.min(1, volume)),
+    title: cleanText(value.title, 80),
+  };
+}
 
 const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
 

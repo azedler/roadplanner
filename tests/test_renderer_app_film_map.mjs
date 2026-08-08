@@ -16,8 +16,10 @@ import assert from "node:assert/strict";
 import {
   FILM_SCENE_TYPES,
   MAP_CONTEXT_VERSION,
+  parseCrew,
   parseFilmPackage,
   parseMapContext,
+  parseMusic,
 } from "../apps/roadplanner_renderer/src/protocol.mjs";
 
 const HASH = "a".repeat(64);
@@ -109,7 +111,7 @@ refuses(mapContext({ bbox: [13, 56, 10, 54] }), /verdreht/);
 
 // --- the scene library knows the map ------------------------------------
 
-for (const type of ["map_start", "map_leg", "map_full"]) {
+for (const type of ["map_start", "map_leg", "map_full", "crew"]) {
   assert.ok(FILM_SCENE_TYPES.has(type), `${type} must be renderable`);
 }
 
@@ -189,5 +191,72 @@ assert.throws(
   () => parseFilmPackage(JSON.stringify(filmPackage({ map_context: mapContext({ bbox: [1] }) }))),
   /Kartenausschnitt/,
 );
+
+// --- the crew: names and faces, never an address -----------------------
+
+// Absent is normal: a trip without a crew record has no crew scene.
+assert.equal(parseCrew(null), null);
+
+const crew = (overrides = {}) => ({
+  members: [
+    { name: "Aron", path: "crew/member-00.jpg", size_bytes: 4321, sha256: HASH },
+    { name: "Nina", path: "", size_bytes: 0, sha256: "" },
+  ],
+  ...overrides,
+});
+
+const parsedCrew = parseCrew(crew());
+assert.equal(parsedCrew.members.length, 2);
+// A member whose portrait could not be prepared still travels: leaving
+// somebody out of the crew because their photo failed to open would be
+// the worst possible way to handle that.
+assert.equal(parsedCrew.members[1].path, "");
+
+// The rule that matters most. The crew portrait route is guarded only by
+// an unguessable filename - a bearer secret, not a session - so a link
+// in a package written to a shared folder would be a copy of that
+// capability sitting on disk.
+assert.throws(
+  () =>
+    parseCrew({
+      members: [{ name: "Aron", portrait_url: "/api/roadplanner/crew_portrait/abc.jpg" }],
+    }),
+  /Adressen/,
+);
+assert.throws(
+  () => parseCrew({ members: [{ name: "Aron", note: "https://example.invalid/face.jpg" }] }),
+  /Adressen/,
+);
+// The path is built from the position, so a member cannot point at
+// another member's file - or anywhere else.
+assert.throws(
+  () => parseCrew({ members: [{ name: "A", path: "crew/member-04.jpg", size_bytes: 1, sha256: HASH }] }),
+  /Crewbildpfad/,
+);
+assert.throws(() => parseCrew({ members: [{ name: "" }] }), /Namen/);
+
+// --- the music: a file in the job folder, or nothing -------------------
+
+assert.equal(parseMusic(null), null);
+const track = parseMusic({
+  path: "music/track.mp3",
+  size_bytes: 3_000_000,
+  sha256: HASH,
+  volume: 0.4,
+  title: "Abendlicht",
+});
+assert.equal(track.path, "music/track.mp3");
+assert.equal(track.volume, 0.4);
+// The volume reaches an audio node, so it is clamped rather than trusted.
+assert.equal(parseMusic({ ...crewlessMusic(), volume: 9 }).volume, 1);
+assert.equal(parseMusic({ ...crewlessMusic(), volume: -3 }).volume, 0);
+// A path from the user's machine is not a file in the job folder.
+for (const path of ["/media/music/x.mp3", "../../etc/passwd", "music/track.exe", "track.mp3"]) {
+  assert.throws(() => parseMusic({ ...crewlessMusic(), path }), /Auftragsordner|Größe/);
+}
+
+function crewlessMusic() {
+  return { path: "music/track.mp3", size_bytes: 3_000_000, sha256: HASH };
+}
 
 console.log("Renderer app film map tests passed.");

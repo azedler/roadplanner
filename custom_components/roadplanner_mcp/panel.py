@@ -90,6 +90,7 @@ _ACTIONS = {
     "story_director_run",
     "story_director_discard",
     "story_film_preview",
+    "story_film_music",
     "story_film_render",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
@@ -1491,10 +1492,17 @@ async def _execute_action(
         # exactly like the day video rather than awaited here.
         try:
             return {"renderer_app_job": await runtime.trip_film.async_submit(
-                str(data.get("trip_id") or "")
+                str(data.get("trip_id") or ""),
+                # A NAME, not a path. See trip_film_music: the chosen
+                # value is matched against the folder listing before
+                # anything is opened, so no path is ever built from it.
+                music=str(data.get("music") or ""),
             )}
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+
+    if action == "story_film_music":
+        return {"film_music": await runtime.trip_film.async_music_options()}
 
     if action == "renderer_app_trip_days":
         # Which days could be exported, and which have no photo to export.

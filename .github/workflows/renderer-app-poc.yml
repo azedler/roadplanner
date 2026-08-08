@@ -539,13 +539,95 @@ jobs:
               "chapters": chapters,
               "total_image_bytes": total,
           }
+
+          # Crew and music, built by the real modules. Both are code paths
+          # that only exist in a finished package - the crew scene sizes
+          # itself from how many people there are, and the audio is mixed
+          # by the renderer rather than by ffmpeg - so a CI film without
+          # them would leave the two newest parts of the film untested.
+          crew_spec = importlib.util.spec_from_file_location(
+              "trip_film_crew",
+              "custom_components/roadplanner_mcp/trip_film_crew.py",
+          )
+          crew_module = importlib.util.module_from_spec(crew_spec)
+          crew_spec.loader.exec_module(crew_module)
+          music_spec = importlib.util.spec_from_file_location(
+              "trip_film_music",
+              "custom_components/roadplanner_mcp/trip_film_music.py",
+          )
+          music_module = importlib.util.module_from_spec(music_spec)
+          music_spec.loader.exec_module(music_module)
+
+          def portrait_bytes(seed: int) -> bytes:
+              face = Image.new("RGB", (700, 700))
+              for x in range(0, 700, 10):
+                  for y in range(0, 700, 10):
+                      face.paste(
+                          ((x + seed * 37) % 256, (y + seed * 61) % 256, (x * y + seed) % 256),
+                          (x, y, x + 10, y + 10),
+                      )
+              held = io.BytesIO()
+              face.save(held, format="JPEG", quality=88)
+              return held.getvalue()
+
+          # The last member deliberately has no usable picture: somebody
+          # whose portrait fails to open still belongs in the crew, and
+          # the only way to know the film agrees is to render one.
+          crew, crew_files = crew_module.build_crew_package(
+              [
+                  {"name": "Aron", "portrait": portrait_bytes(1)},
+                  {"name": "Nina", "portrait": portrait_bytes(2)},
+                  {"name": "Jonas", "portrait": portrait_bytes(3)},
+                  {"name": "Hund", "portrait": None},
+              ]
+          )
+          for relative, blob in crew_files.items():
+              destination = inputs / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(blob)
+          assert len(crew["members"]) == 4, crew
+          assert sum(1 for m in crew["members"] if m["path"]) == 3, crew
+          package["crew"] = crew
+
+          # A short tone written as a real WAV, chosen by name from a
+          # folder - the same path a user's own track takes, including
+          # the listing that a chosen name is matched against.
+          music_root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "music"
+          music_root.mkdir(parents=True, exist_ok=True)
+          import array, math, struct, wave
+
+          with wave.open(str(music_root / "Testton.wav"), "wb") as handle:
+              handle.setnchannels(1)
+              handle.setsampwidth(2)
+              handle.setframerate(22050)
+              samples = array.array(
+                  "h",
+                  (
+                      int(9000 * math.sin(2 * math.pi * 220 * n / 22050))
+                      for n in range(22050 * 20)
+                  ),
+              )
+              handle.writeframes(samples.tobytes())
+          music, music_files = music_module.build_music_package("Testton.wav", music_root)
+          assert music and music["path"] == "music/track.wav", music
+          for relative, blob in music_files.items():
+              destination = inputs / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(blob)
+          package["music"] = music
+
           package["scene_plan"] = plan_module.build_scene_plan(
               trip=package["trip"],
               chapters=chapters,
               narrative=package["narrative"],
               outro_photos=[c["images"][0] for c in chapters if c["images"]][:6],
               map_context=map_context,
+              crew=crew,
           )
+          assert any(
+              scene["type"] == plan_module.SCENE_CREW
+              for scene in package["scene_plan"]["scenes"]
+          ), "Der Szenenplan hat keine Crew-Szene"
           seconds = plan_module.plan_seconds(package["scene_plan"])
           print(
               f"Szenenplan: {len(package['scene_plan']['scenes'])} Szenen, {seconds} s"
@@ -595,6 +677,11 @@ jobs:
           assert video["chapter_count"] == DAYS, video
           assert video["chapters_without_photos"] == 1, video
           assert payload["artifacts"][0]["filename"] == "roadplanner-trip-film.mp4"
+          # The renderer reports what it actually staged, so these say the
+          # crew and the track reached the film rather than the package.
+          assert video.get("crew_count") == 4, video
+          assert video.get("has_music") is True, video
+          assert video.get("mapped_chapters") == DAYS, video
           assert not inputs.exists(), "Das Filmpaket wurde nicht aufgeraeumt"
           pathlib.Path(os.environ["RUNNER_TEMP"], "film.json").write_text(
               json.dumps(payload, indent=2)

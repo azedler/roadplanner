@@ -812,6 +812,10 @@ class RoadplannerPanel extends HTMLElement {
     } else if (select.dataset.action === "renderer-app-day") {
       this._rendererAppDayId = select.value;
       this._render({ preserveScroll: true });
+    } else if (select.dataset.action === "story-film-track") {
+      // A name, not a path. The backend matches it against the folder
+      // listing before anything is opened.
+      this._storyFilmTrack = select.value;
     } else if (select.dataset.action === "select-video-style") {
       this._videoStyle = select.value;
     } else if (select.dataset.action === "pitch-select-day") {
@@ -1173,6 +1177,8 @@ class RoadplannerPanel extends HTMLElement {
         errorMode: "dialog",
         errorTitle: "Bildauswahl konnte nicht aktualisiert werden",
       });
+    } else if (action === "story-film-music") {
+      void this._storyFilmMusicLoad();
     } else if (action === "media-reassign") {
       // Costs nothing outside Home Assistant: the photographs, their
       // coordinates and their timestamps are already stored, and only the

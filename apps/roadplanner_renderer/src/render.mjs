@@ -32,6 +32,7 @@ import {
   FILM_MANIFEST_FILENAME,
   MAX_FILM_IMAGE_BYTES,
   MAX_FILM_JSON_BYTES,
+  MAX_MUSIC_BYTES,
   MAX_JSON_BYTES,
   MAX_PACKAGE_IMAGE_BYTES,
   PACKAGE_FILENAME,
@@ -293,6 +294,7 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
   const manifestRaw = await readBounded(
     path.join(inputsDir, FILM_MANIFEST_FILENAME),
     MAX_FILM_JSON_BYTES,
+  MAX_MUSIC_BYTES,
   );
   if (manifestRaw === null) {
     throw new RenderError("PACKAGE_MISSING", "Zum Auftrag fehlt das Filmpaket.");
@@ -333,6 +335,38 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
         photoBytes += bytes.length;
       }
     }
+    // The crew portraits and the soundtrack travel with the job for the
+    // same reason the photographs do: the renderer runs in another
+    // container, and a link would either not resolve or - in the case of
+    // the crew route - be a copy of a bearer secret sitting on disk.
+    for (const member of parsed.crew?.members ?? []) {
+      if (!member.path) continue;
+      const bytes = await readBounded(path.join(inputsDir, member.path), MAX_FILM_IMAGE_BYTES);
+      if (bytes === null) {
+        throw new RenderError(
+          "PACKAGE_MISSING",
+          `Im Filmpaket fehlt ein angekündigtes Crewbild (${member.path}).`,
+        );
+      }
+      if (createHash("sha256").update(bytes).digest("hex") !== member.sha256) {
+        throw new RenderError("PACKAGE_INVALID", `${member.path}: SHA-256 stimmt nicht.`);
+      }
+      const target = path.join(stage, member.path);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, bytes);
+    }
+    if (parsed.music) {
+      const bytes = await readBounded(path.join(inputsDir, parsed.music.path), MAX_MUSIC_BYTES);
+      if (bytes === null) {
+        throw new RenderError("PACKAGE_MISSING", "Im Filmpaket fehlt die angekündigte Musik.");
+      }
+      if (createHash("sha256").update(bytes).digest("hex") !== parsed.music.sha256) {
+        throw new RenderError("PACKAGE_INVALID", "Musikdatei: SHA-256 stimmt nicht.");
+      }
+      const target = path.join(stage, parsed.music.path);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, bytes);
+    }
     await fs.cp(BUNDLE_DIR, stage, { recursive: true });
     const prepareSeconds = (Date.now() - started) / 1000;
 
@@ -348,6 +382,8 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
         narrative: parsed.narrative,
         scenes: parsed.scenes,
         mapContext: parsed.mapContext,
+        crew: parsed.crew,
+        music: parsed.music,
       },
       limits: FILM_LIMITS,
       expected: (composition) => {
@@ -374,6 +410,8 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
     ).length;
     result.facts.package_bytes = photoBytes;
     result.facts.mapped_chapters = parsed.mapContext?.chapters.length ?? 0;
+    result.facts.crew_count = parsed.crew?.members.length ?? 0;
+    result.facts.has_music = Boolean(parsed.music);
     return result;
   } finally {
     // The stage holds a copy of somebody's photos. It goes whether the

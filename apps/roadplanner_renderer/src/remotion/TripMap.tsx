@@ -1,41 +1,61 @@
 /**
- * The travel map: where the camper is, and how far it has come.
+ * The travel map: one projection for the whole journey, and a camera.
  *
- * This is a *reduced* map on purpose. Land, water, national borders, the
- * route, a couple of place names and the vehicle - and nothing else. A
+ * This is a *reduced* travel map on purpose. Land, water, national
+ * borders, the route, a few names, the camper - and nothing else. A
  * navigation map is a tool for deciding where to turn; a travel map in a
- * film is a picture of a journey, and every road, label and point of
- * interest that is not the journey is noise on top of it.
+ * film is a picture of a journey, and every road and point of interest
+ * that is not the journey is noise on top of it.
+ *
+ * The architecture, and why it changed
+ * ------------------------------------
+ *
+ * The first version fitted a fresh projection to each day and cached the
+ * result. That made every day its own island: the camera could not move
+ * between the whole-trip view and today's leg, because the two were
+ * different coordinate systems. It also meant a zoom would have cost a
+ * re-projection of Natural Earth on every frame - which is precisely the
+ * thing that once ran the CI render past its time limit.
+ *
+ * Now the trip is projected **once**, at whole-journey scale, and the
+ * camera is an SVG transform over that single picture. Panning and
+ * zooming are then free: the browser is scaling a path it already has.
+ * Overview and detail are the same map at two magnifications, which is
+ * what lets the film glide between them instead of cutting.
+ *
+ * Two consequences are handled explicitly. Stroke widths would grow with
+ * the zoom, so every stroke is non-scaling. Text would grow too, so
+ * labels are placed outside the transform and positioned by applying the
+ * camera by hand.
  *
  * Where the geography comes from
  * ------------------------------
  *
- * The coastlines and borders are Natural Earth, shipped inside the image
- * as a TopoJSON file (`world-atlas`, public domain). No tile server, no
- * API key, no request while a job runs - which is what makes a render
- * reproducible and free.
+ * Natural Earth, shipped inside the image (`world-atlas`, public
+ * domain). No tile server, no API key, no request while a job runs.
+ * Country names come from that same file, so a name on screen is read
+ * rather than invented.
  *
  * The route is not geography at all: it arrives in the render package,
- * built from the same routing data Roadplanner already stored. Nothing
- * here computes a route, snaps a point to a road or guesses a crossing.
- * A ferry is drawn as a ferry because the roadbook recorded it as one.
- *
- * Why the camera does not move within a scene
- * -------------------------------------------
- *
- * Projecting a world outline is the expensive part, and re-projecting it
- * on every one of thirty frames a second would multiply the cost of the
- * film by the size of the map. So a scene picks its view once - close for
- * a short leg, wide for a long one - and animates only the things that
- * are cheap: the growing route, the camper, and a slow drift applied as a
- * transform. The result looks like a camera move and costs almost
- * nothing.
+ * built from the routing Roadplanner already stored. Nothing here
+ * computes a route, snaps a point to a road or guesses a crossing.
  */
 import React from "react";
-import { geoMercator, geoPath } from "d3-geo";
+import { geoMercator, geoPath, geoContains } from "d3-geo";
 import { feature, mesh } from "topojson-client";
 import type { GeometryCollection } from "topojson-specification";
 import world from "world-atlas/countries-50m.json";
+
+import { Camper } from "./CharacterAssets";
+import {
+  bearingAtDistance,
+  bearingWindow,
+  damped,
+  easeTravel,
+  pointAtDistance,
+  prepareRoute,
+  routeUpTo,
+} from "../movement.mjs";
 
 export type MapPoint = [number, number];
 
@@ -61,38 +81,97 @@ export type MapContext = {
   chapters: MapChapter[];
 };
 
-// The palette. Muted on purpose: the route and the camper are the only
-// two things on this map that are allowed to be bright.
+// The palette. Muted on purpose: the current day's route and the camper
+// are the only two things on this map allowed to be bright.
 const WATER = "#0e1723";
 const LAND = "#33404f";
-const BORDER = "#4b5b6e";
-const ROUTE_DONE = "#7f8ea3";
-const ROUTE_LIVE = "#e07a3f";
+const BORDER = "#5b6d81";
+const ROUTE_DONE = "#6d7b8d";
+const ROUTE_LIVE = "#e8823f";
 const FERRY = "#5fb3c4";
-const LABEL = "#c6d2df";
+const LABEL = "#cfdae6";
+const COUNTRY_LABEL = "#8296ab";
 
 const worldTopology = world as unknown as {
   objects: { land: GeometryCollection; countries: GeometryCollection };
 };
-// Computed once for the whole process, not once per scene: the outline of
-// the world is the same in every frame of every film.
+// Computed once for the process, not once per scene: the outline of the
+// world is the same in every frame of every film.
 const landFeature = feature(worldTopology as never, worldTopology.objects.land as never);
 const borderMesh = mesh(
   worldTopology as never,
   worldTopology.objects.countries as never,
   (a: unknown, b: unknown) => a !== b,
 );
+const countryFeatures = feature(
+  worldTopology as never,
+  worldTopology.objects.countries as never,
+) as unknown as { features: { properties?: { name?: string } }[] };
 
-/** A view that never zooms closer than a place you could drive across. */
-const MIN_SPAN_DEGREES = 0.55;
+/**
+ * German names for the countries a European trip crosses.
+ *
+ * The map file carries English names. Showing "Sweden" in a German film
+ * would be a small wrongness in the one place the map speaks, so the
+ * handful that matter are translated and anything unlisted falls back to
+ * the name as it is stored - never to a guess.
+ */
+const COUNTRY_NAMES: Record<string, string> = {
+  Germany: "Deutschland",
+  Denmark: "Dänemark",
+  Sweden: "Schweden",
+  Norway: "Norwegen",
+  Finland: "Finnland",
+  Poland: "Polen",
+  Estonia: "Estland",
+  Latvia: "Lettland",
+  Lithuania: "Litauen",
+  Netherlands: "Niederlande",
+  Belgium: "Belgien",
+  France: "Frankreich",
+  Austria: "Österreich",
+  Switzerland: "Schweiz",
+  Italy: "Italien",
+  Spain: "Spanien",
+  Portugal: "Portugal",
+  "Czech Republic": "Tschechien",
+  Czechia: "Tschechien",
+  Slovakia: "Slowakei",
+  Hungary: "Ungarn",
+  Slovenia: "Slowenien",
+  Croatia: "Kroatien",
+  Russia: "Russland",
+  Belarus: "Belarus",
+  Ukraine: "Ukraine",
+  Ireland: "Irland",
+  "United Kingdom": "Vereinigtes Königreich",
+  Iceland: "Island",
+  Luxembourg: "Luxemburg",
+  Romania: "Rumänien",
+  Bulgaria: "Bulgarien",
+  Greece: "Griechenland",
+};
 
-export type MapView = {
+/** Which country a place is in, read from the map rather than guessed. */
+export const countryAt = (point: MapPoint): string => {
+  for (const candidate of countryFeatures.features) {
+    if (geoContains(candidate as never, point)) {
+      const name = String(candidate.properties?.name || "");
+      return COUNTRY_NAMES[name] || name;
+    }
+  }
+  return "";
+};
+
+export type Projection = {
   width: number;
   height: number;
   project: (point: MapPoint) => [number, number];
   landPath: string;
   borderPath: string;
 };
+
+const MIN_SPAN_DEGREES = 0.55;
 
 const padBbox = (
   bbox: [number, number, number, number],
@@ -103,55 +182,48 @@ const padBbox = (
   const spanY = Math.max(north - south, MIN_SPAN_DEGREES);
   const midX = (west + east) / 2;
   const midY = (south + north) / 2;
-  const growX = (spanX * (1 + pad)) / 2;
-  const growY = (spanY * (1 + pad)) / 2;
-  return [midX - growX, midY - growY, midX + growX, midY + growY];
+  return [
+    midX - (spanX * (1 + pad)) / 2,
+    midY - (spanY * (1 + pad)) / 2,
+    midX + (spanX * (1 + pad)) / 2,
+    midY + (spanY * (1 + pad)) / 2,
+  ];
 };
 
 /**
- * Views already built, kept for the process rather than the component.
+ * Projections already built, kept for the process rather than a component.
  *
- * This cache is the difference between a film that renders and one that
- * does not. Projecting Natural Earth is roughly a hundred thousand
- * coordinate transforms and a path string of comparable length; a React
- * memo does not help, because Remotion renders frames across several
- * browser tabs that each seek to arbitrary frames, so a component almost
- * never gets to reuse its own previous result. Without this the outline
- * was rebuilt for every one of four thousand frames and the 25-day CI
- * film ran past its 1500-second limit.
- *
- * A film has as many distinct views as it has map scenes - about thirty -
- * so the whole cache is a few dozen strings and every frame after the
- * first of each scene is free.
+ * There is normally exactly one per film. The cache exists because
+ * Remotion renders frames across several browser tabs that each seek to
+ * arbitrary frames, so a React memo almost never gets to reuse its own
+ * previous result - and without this the world outline was rebuilt for
+ * every one of four thousand frames, which ran the CI render past its
+ * time limit.
  */
-const VIEW_CACHE = new Map<string, MapView>();
-const VIEW_CACHE_LIMIT = 64;
+const PROJECTION_CACHE = new Map<string, Projection>();
 
 /**
- * Build the view for one scene.
+ * The one projection a film uses, fitted to the whole journey.
  *
- * Mercator, because a travel map is read the way a road atlas is read and
+ * Mercator, because a travel map is read the way a road atlas is and
  * north stays up. The distortion that makes Mercator wrong for a world
  * map is irrelevant across a few hundred kilometres.
  */
-export const buildView = (
+export const buildProjection = (
   bbox: [number, number, number, number],
   width: number,
   height: number,
-  pad = 0.55,
-): MapView => {
-  // Rounded, so a bbox that differs in the eighth decimal is the same
-  // view. It cannot differ visibly and must not cost a second projection.
+  pad = 0.35,
+): Projection => {
   const key = [...bbox.map((value) => value.toFixed(4)), width, height, pad].join("|");
-  const cached = VIEW_CACHE.get(key);
+  const cached = PROJECTION_CACHE.get(key);
   if (cached) return cached;
   const [west, south, east, north] = padBbox(bbox, pad);
   // The corners as points, NOT as a polygon. d3-geo reads a polygon
   // spherically, where the ring's winding order decides which side is
   // "inside" - and a ring wound the wrong way means the whole planet
-  // except the box. That is exactly what happened here first: every map
-  // came out as a view of the entire world with a camper on Germany. Four
-  // points have no winding and cannot be turned inside out.
+  // except the box. That happened here first: every map came out as a
+  // view of the entire world with a camper on Germany.
   const extent = {
     type: "MultiPoint" as const,
     coordinates: [
@@ -168,41 +240,59 @@ export const buildView = (
     ],
     extent,
   );
-  // Clip in screen space: a country on the far side of the planet still
-  // has to be walked, but it no longer contributes megabytes of path
-  // data that the browser then has to parse and rasterise.
-  const path = geoPath(projection.clipExtent([[0, 0], [width, height]]));
-  const view: MapView = {
+  // Clipped generously around the trip view. Without this the land path
+  // covers the planet, and magnifying a planet-sized path twenty times
+  // is work the browser does not need to do.
+  const margin = Math.max(width, height);
+  const path = geoPath(
+    projection.clipExtent([
+      [-margin, -margin],
+      [width + margin, height + margin],
+    ]),
+  );
+  const built: Projection = {
     width,
     height,
     project: (point: MapPoint) => {
       const projected = projection(point);
-      return projected ? [projected[0], projected[1]] : [-9999, -9999];
+      return projected ? [projected[0], projected[1]] : [-99999, -99999];
     },
     landPath: path(landFeature as never) ?? "",
     borderPath: path(borderMesh as never) ?? "",
   };
-  if (VIEW_CACHE.size >= VIEW_CACHE_LIMIT) {
-    // Oldest first. A film walks its scenes in order, so the entry least
-    // likely to be wanted again is the one added longest ago.
-    VIEW_CACHE.delete(VIEW_CACHE.keys().next().value as string);
+  if (PROJECTION_CACHE.size >= 24) {
+    PROJECTION_CACHE.delete(PROJECTION_CACHE.keys().next().value as string);
   }
-  VIEW_CACHE.set(key, view);
-  return view;
+  PROJECTION_CACHE.set(key, built);
+  return built;
 };
 
-const polyline = (view: MapView, points: MapPoint[]): string => {
+/**
+ * Where the camera is, and how it moves.
+ *
+ * The arithmetic lives in `../camera.mjs` so that a test can drive it
+ * without a browser; it is re-exported here because the map is where
+ * every caller already looks for it.
+ */
+export type { Camera } from "../camera.mjs";
+import { cameraTransform, onScreen } from "../camera.mjs";
+import type { Camera } from "../camera.mjs";
+
+export { CAPTION_STRIP, blendCamera, cameraFor, onScreen } from "../camera.mjs";
+
+
+const polyline = (projection: Projection, points: MapPoint[]): string => {
   if (points.length < 2) return "";
   return points
     .map((point, index) => {
-      const [x, y] = view.project(point);
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      const [x, y] = projection.project(point);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
 };
 
 /** Every point of a chapter in travel order, with the mode it belongs to. */
-const flatten = (chapter: MapChapter): { point: MapPoint; mode: string }[] => {
+export const flatten = (chapter: MapChapter): { point: MapPoint; mode: string }[] => {
   const out: { point: MapPoint; mode: string }[] = [];
   chapter.segments.forEach((segment) => {
     segment.points.forEach((point) => out.push({ point, mode: segment.mode }));
@@ -211,231 +301,186 @@ const flatten = (chapter: MapChapter): { point: MapPoint; mode: string }[] => {
 };
 
 /**
- * Where the camper is when a leg is `fraction` done, and which way it
- * faces.
+ * Where the camper is on a chapter, and which way it faces.
  *
- * The heading is taken over a window rather than between two neighbouring
- * points. Route geometry has hairpins and roundabouts in it, and a camper
- * that faithfully followed every one of them would spin on the spot -
- * true to the data and unwatchable.
+ * The distance work lives in `movement.mjs`, which is plain JavaScript so
+ * that the tests can drive it without a browser or a bundler. This is the
+ * thin layer that turns "how far through the day are we" into something
+ * to draw.
  */
-export const travelled = (
-  points: MapPoint[],
-  fraction: number,
-): { index: number; position: MapPoint; heading: number } => {
-  if (points.length < 2) {
-    return { index: 0, position: points[0] ?? [0, 0], heading: 0 };
+export const driveState = (chapter: MapChapter, fraction: number, frames: number) => {
+  const flat = flatten(chapter);
+  const route = prepareRoute(flat.map((entry) => entry.point));
+  const window = bearingWindow(route, frames);
+  const distanceAt = (f: number) => route.total * easeTravel(Math.max(0, Math.min(frames, f)) / frames);
+  const bearingAt = (f: number) => bearingAtDistance(route, distanceAt(f), window);
+  const frame = Math.round(Math.max(0, Math.min(1, fraction)) * frames);
+  const distance = distanceAt(frame);
+  const head = pointAtDistance(route, distance);
+  // Damped over frames rather than accumulated, so a renderer drawing
+  // frames out of order and in parallel still gets the same answer.
+  const heading = damped(bearingAt, frame, 12);
+  const drawn = routeUpTo(route, distance);
+  // The drawn line has to be split back into runs of one mode, so a ferry
+  // inside a day keeps its own style instead of being averaged away.
+  const runs: { mode: string; points: MapPoint[] }[] = [];
+  for (let index = 0; index < drawn.length; index += 1) {
+    const mode = flat[Math.min(index, flat.length - 1)]?.mode || "driving";
+    const last = runs[runs.length - 1];
+    if (last && last.mode === mode) last.points.push(drawn[index] as MapPoint);
+    else runs.push({ mode, points: [drawn[index] as MapPoint] });
   }
-  const clamped = Math.max(0, Math.min(1, fraction));
-  const lengths: number[] = [0];
-  let total = 0;
-  for (let i = 1; i < points.length; i += 1) {
-    const dx = points[i][0] - points[i - 1][0];
-    const dy = points[i][1] - points[i - 1][1];
-    total += Math.hypot(dx, dy);
-    lengths.push(total);
-  }
-  if (total <= 0) {
-    return { index: points.length - 1, position: points[points.length - 1], heading: 0 };
-  }
-  const target = total * clamped;
-  let index = 1;
-  while (index < points.length - 1 && lengths[index] < target) index += 1;
-  const span = lengths[index] - lengths[index - 1] || 1;
-  const t = Math.max(0, Math.min(1, (target - lengths[index - 1]) / span));
-  const position: MapPoint = [
-    points[index - 1][0] + (points[index][0] - points[index - 1][0]) * t,
-    points[index - 1][1] + (points[index][1] - points[index - 1][1]) * t,
-  ];
-  // Smoothing window: look back and ahead a few points, so the heading is
-  // the direction of travel rather than the tangent of a slip road.
-  const back = points[Math.max(0, index - 4)];
-  const ahead = points[Math.min(points.length - 1, index + 3)];
-  const heading =
-    (Math.atan2(ahead[1] - back[1], ahead[0] - back[0]) * 180) / Math.PI;
-  return { index, position, heading };
+  return { position: head.position as MapPoint, heading, runs, route };
 };
 
-/** The camper. Drawn, not photographed - eight shapes and a wheelbase. */
-export const Camper: React.FC<{
-  x: number;
-  y: number;
-  heading: number;
-  scale?: number;
-}> = ({ x, y, heading, scale = 1 }) => {
-  // Mercator y grows downward and the bearing was computed in map space,
-  // so the screen angle is the negative of it.
-  const screen = -heading;
-  // The camper is drawn from the side, and a side view rotated to follow
-  // a heading points straight up when the road goes north - which reads
-  // as a van standing on its bumper. So it never turns: it faces the way
-  // it is travelling, and only leans with the slope.
-  const westward = Math.abs(screen) > 90;
-  const slope = westward ? (screen > 0 ? 180 - screen : -180 - screen) : screen;
-  const lean = Math.max(-14, Math.min(14, slope));
-  return (
-    <g transform={`translate(${x} ${y}) rotate(${lean}) scale(${scale})`}>
-      <ellipse cx="0" cy="9" rx="19" ry="4" fill="rgba(0,0,0,0.35)" />
-      <g transform={`scale(${westward ? -1 : 1} 1)`}>
-        <rect x="-17" y="-11" width="27" height="15" rx="3" fill="#f2f4f7" />
-        <rect x="-17" y="-11" width="27" height="4" rx="2" fill="#e07a3f" />
-        <path d="M10 -8 L17 -2 L17 4 L10 4 Z" fill="#f2f4f7" />
-        <path d="M10.5 -7 L15.5 -2.5 L10.5 -2.5 Z" fill="#8fa6bd" />
-        <rect x="-13" y="-6" width="8" height="6" rx="1" fill="#8fa6bd" />
-        <circle cx="-9" cy="5" r="3.6" fill="#1b2330" />
-        <circle cx="9" cy="5" r="3.6" fill="#1b2330" />
-      </g>
-    </g>
-  );
-};
+export type MapLabel = { text: string; point: MapPoint; kind?: "place" | "country" };
 
 export type TripMapProps = {
-  view: MapView;
+  projection: Projection;
+  camera: Camera;
   /** Chapters already finished. Drawn quiet and complete. */
   past: MapChapter[];
-  /** The chapter being travelled, if any. */
-  live?: MapChapter | null;
-  /** How far through the live chapter we are, 0…1. */
-  progress?: number;
-  labels?: { text: string; point: MapPoint }[];
-  showCamper?: boolean;
-  /** The colour of the finished route. Quiet during the trip, warm at the end. */
-  pastStroke?: string;
-  /** A ring on one place, for the scene that says "it starts here". */
+  /** The route being driven right now, already cut to the camper. */
+  live?: { mode: string; points: MapPoint[] }[];
+  labels?: MapLabel[];
+  camper?: { position: MapPoint; heading: number; scale?: number } | null;
   markPoint?: MapPoint | null;
-  /** A slow drift, applied as a transform so nothing is re-projected. */
-  drift?: { scale: number; x: number; y: number };
+  pastStroke?: string;
+  children?: React.ReactNode;
 };
 
 export const TripMap: React.FC<TripMapProps> = ({
-  view,
+  projection,
+  camera,
   past,
-  live = null,
-  progress = 1,
+  live = [],
   labels = [],
-  showCamper = true,
-  pastStroke = ROUTE_DONE,
+  camper = null,
   markPoint = null,
-  drift,
+  pastStroke = ROUTE_DONE,
+  children,
 }) => {
-  const livePoints = React.useMemo(() => (live ? flatten(live) : []), [live]);
-  const head = React.useMemo(
-    () => travelled(livePoints.map((entry) => entry.point), progress),
-    [livePoints, progress],
-  );
-  const revealed = livePoints.slice(0, Math.max(2, head.index + 1));
-  // Split the revealed part back into runs of one mode, so a ferry inside
-  // a day keeps its own line style instead of being averaged away.
-  const runs: { mode: string; points: MapPoint[] }[] = [];
-  revealed.forEach((entry) => {
-    const last = runs[runs.length - 1];
-    if (last && last.mode === entry.mode) last.points.push(entry.point);
-    else runs.push({ mode: entry.mode, points: [entry.point] });
-  });
-  if (runs.length && head.index > 0) {
-    runs[runs.length - 1].points.push(head.position);
-  }
-  const [cameraX, cameraY] = showCamper ? view.project(head.position) : [0, 0];
-  const transform = drift
-    ? `translate(${drift.x} ${drift.y}) scale(${drift.scale})`
-    : undefined;
-
+  const transform = cameraTransform(projection, camera);
   return (
     <svg
-      width={view.width}
-      height={view.height}
-      viewBox={`0 0 ${view.width} ${view.height}`}
+      width={projection.width}
+      height={projection.height}
+      viewBox={`0 0 ${projection.width} ${projection.height}`}
       style={{ display: "block", backgroundColor: WATER }}
     >
-      <g transform={transform} style={{ transformOrigin: "center" }}>
-        <path d={view.landPath} fill={LAND} stroke="none" />
+      <g transform={transform}>
+        <path d={projection.landPath} fill={LAND} stroke="none" />
         <path
-          d={view.borderPath}
+          d={projection.borderPath}
           fill="none"
           stroke={BORDER}
-          strokeWidth={1}
+          strokeWidth={1.4}
           strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+          opacity={0.85}
         />
         {past.map((chapter) =>
           chapter.segments.map((segment, position) => (
             <path
               key={`${chapter.chapterId}-${position}`}
-              d={polyline(view, segment.points)}
+              d={polyline(projection, segment.points)}
               fill="none"
               stroke={segment.mode === "ferry" ? FERRY : pastStroke}
-              strokeWidth={segment.mode === "ferry" ? 2.4 : 3.4}
+              strokeWidth={segment.mode === "ferry" ? 2.2 : 3}
               strokeLinecap="round"
               strokeLinejoin="round"
-              // A ferry is dashed and an unverified straight line is
-              // sparser still. Both say "this is not a road you drove".
+              vectorEffect="non-scaling-stroke"
               strokeDasharray={
-                segment.mode === "ferry"
-                  ? "9 7"
-                  : segment.mode === "direct"
-                    ? "3 8"
-                    : undefined
+                segment.mode === "ferry" ? "9 7" : segment.mode === "direct" ? "3 8" : undefined
               }
-              opacity={pastStroke === ROUTE_DONE ? 0.75 : 0.95}
+              opacity={pastStroke === ROUTE_DONE ? 0.7 : 0.95}
             />
           )),
         )}
-        {runs.map((run, position) => (
+        {live.map((run, position) => (
           <path
             key={`live-${position}`}
-            d={polyline(view, run.points)}
+            d={polyline(projection, run.points)}
             fill="none"
             stroke={run.mode === "ferry" ? FERRY : ROUTE_LIVE}
             strokeWidth={run.mode === "ferry" ? 3 : 4.4}
             strokeLinecap="round"
             strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
             strokeDasharray={
               run.mode === "ferry" ? "10 8" : run.mode === "direct" ? "3 9" : undefined
             }
           />
         ))}
-        {labels.map((label) => {
-          const [x, y] = view.project(label.point);
-          return (
-            <g key={`${label.text}-${x.toFixed(0)}`}>
-              <circle cx={x} cy={y} r={3.4} fill={LABEL} />
-              <text
-                x={x + 9}
-                y={y + 5}
-                fill={LABEL}
-                fontSize={19}
-                fontFamily="sans-serif"
-                stroke={WATER}
-                strokeWidth={4}
-                paintOrder="stroke"
-              >
-                {label.text}
-              </text>
-            </g>
-          );
-        })}
-        {markPoint ? (
-          <g>
-            <circle
-              cx={view.project(markPoint)[0]}
-              cy={view.project(markPoint)[1]}
-              r={13}
-              fill="none"
-              stroke={ROUTE_LIVE}
-              strokeWidth={2}
-              opacity={0.6}
-            />
-            <circle
-              cx={view.project(markPoint)[0]}
-              cy={view.project(markPoint)[1]}
-              r={4}
-              fill={ROUTE_LIVE}
-            />
-          </g>
-        ) : null}
-        {showCamper && livePoints.length ? (
-          <Camper x={cameraX} y={cameraY} heading={head.heading} />
-        ) : null}
       </g>
+      {/* Outside the transform: text and the vehicle keep their size at
+          every magnification, so a zoom changes the map and not the
+          typography. */}
+      {markPoint ? <Mark projection={projection} camera={camera} point={markPoint} /> : null}
+      {labels.map((label) => {
+        const [x, y] = onScreen(projection, camera, projection.project(label.point));
+        if (x < -200 || y < -200 || x > projection.width + 200 || y > projection.height + 200) {
+          return null;
+        }
+        return label.kind === "country" ? (
+          <text
+            key={`${label.text}-country`}
+            x={x}
+            y={y}
+            fill={COUNTRY_LABEL}
+            fontSize={26}
+            fontFamily="sans-serif"
+            letterSpacing={6}
+            textAnchor="middle"
+            opacity={0.75}
+          >
+            {label.text.toUpperCase()}
+          </text>
+        ) : (
+          <g key={`${label.text}-${Math.round(x)}`}>
+            <circle cx={x} cy={y} r={3.6} fill={LABEL} />
+            <text
+              x={x + 10}
+              y={y + 5}
+              fill={LABEL}
+              fontSize={19}
+              fontFamily="sans-serif"
+              stroke={WATER}
+              strokeWidth={4}
+              paintOrder="stroke"
+            >
+              {label.text}
+            </text>
+          </g>
+        );
+      })}
+      {camper ? (
+        <Camper
+          {...(() => {
+            const [x, y] = onScreen(projection, camera, projection.project(camper.position));
+            return { x, y };
+          })()}
+          heading={camper.heading}
+          scale={camper.scale ?? 1}
+        />
+      ) : null}
+      {children}
     </svg>
   );
 };
+
+const Mark: React.FC<{ projection: Projection; camera: Camera; point: MapPoint }> = ({
+  projection,
+  camera,
+  point,
+}) => {
+  const [x, y] = onScreen(projection, camera, projection.project(point));
+  return (
+    <g>
+      <circle cx={x} cy={y} r={13} fill="none" stroke={ROUTE_LIVE} strokeWidth={2} opacity={0.6} />
+      <circle cx={x} cy={y} r={4} fill={ROUTE_LIVE} />
+    </g>
+  );
+};
+
+export { Camper };

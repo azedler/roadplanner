@@ -42,6 +42,7 @@ import io
 import logging
 from typing import Any
 
+from .trip_film_crew import validate_crew
 from .trip_map_context import validate_map_context
 from .trip_film_plan import (
     OUTRO_COLLAGE_PHOTOS,
@@ -237,6 +238,9 @@ def build_film_package(
     manifest: dict[str, Any],
     photos_by_chapter: dict[str, list[bytes]],
     map_context: dict[str, Any] | None = None,
+    crew: dict[str, Any] | None = None,
+    crew_files: dict[str, bytes] | None = None,
+    music: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Translate the manifest into a film package.
 
@@ -365,6 +369,12 @@ def build_film_package(
         # by its own module and carried here rather than in the manifest,
         # which answers what is told and not where.
         "map_context": validate_map_context(map_context) if map_context else None,
+        # Who is travelling: display names, and portraits that arrive as
+        # files rather than as links. See trip_film_crew.
+        "crew": validate_crew(crew),
+        # What it sounds like, or nothing at all. A film without music
+        # stays a complete film.
+        "music": music or None,
         "chapters": chapters,
         "total_image_bytes": total_bytes,
     }
@@ -377,7 +387,10 @@ def build_film_package(
         narrative=package["narrative"],
         outro_photos=_outro_photos(chapters),
         map_context=package["map_context"],
+        crew=package["crew"],
     )
+    for path, blob in (crew_files or {}).items():
+        files[path] = blob
     return package, files
 
 

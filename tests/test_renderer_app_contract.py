@@ -409,7 +409,7 @@ def verify_every_planned_scene_type_has_a_component() -> None:
     assert not missing, f"Szenentypen ohne Komponente: {sorted(missing)}"
 
 
-def verify_the_world_outline_is_projected_once_per_view() -> None:
+def verify_the_world_outline_is_projected_once() -> None:
     """Live failure: the 25-day CI film ran past its 1500-second limit.
 
     Projecting Natural Earth is about a hundred thousand coordinate
@@ -419,18 +419,38 @@ def verify_the_world_outline_is_projected_once_per_view() -> None:
     its own previous result and the outline was rebuilt for every one of
     four thousand frames.
 
-    The fix is a module-level cache keyed by the view, which is checked
-    here because nothing else would notice it being removed - the film
-    would still be correct, just too slow to finish.
+    The map has since been rebuilt around a single projection per trip
+    with the camera as a transform - which makes the rule stronger, not
+    weaker: there is now one projection for the whole film rather than
+    one per scene, and a zoom must never cause another. This checks the
+    rule rather than the old names, because nothing else would notice it
+    being removed: the film would still be correct, just too slow to
+    finish.
     """
     map_source = _js_code(APP / "src" / "remotion" / "TripMap.tsx")
-    assert "VIEW_CACHE" in map_source, "der Kartenausschnitt braucht einen Cache"
-    body = map_source.split("export const buildView", 1)[1]
-    assert "VIEW_CACHE.get(" in body, "buildView muss den Cache lesen"
-    assert "VIEW_CACHE.set(" in body, "buildView muss den Cache fuellen"
-    # And the projection happens there and nowhere else: a second call
-    # site would reintroduce the per-frame cost past the cache.
+    assert "PROJECTION_CACHE" in map_source, "die Projektion braucht einen Cache"
+    body = map_source.split("export const buildProjection", 1)[1]
+    assert "PROJECTION_CACHE.get(" in body, "buildProjection muss den Cache lesen"
+    assert "PROJECTION_CACHE.set(" in body, "buildProjection muss den Cache fuellen"
+    # The projection happens there and nowhere else: a second call site
+    # would reintroduce the per-frame cost past the cache.
     assert map_source.count("geoPath(") == 1, "geoPath gehoert genau an eine Stelle"
+    # And the camera is a transform over that one picture rather than a
+    # new fit - which is what lets the film glide from the whole journey
+    # into one day instead of cutting between two unrelated maps.
+    assert "cameraTransform" in map_source and "blendCamera" in map_source
+    # Strokes must not grow with the zoom, or a magnified map turns into
+    # a diagram of fat lines.
+    assert "non-scaling-stroke" in map_source
+    # The camera arithmetic itself lives outside the component, in plain
+    # JavaScript, so that "the view does not jump" is something a test
+    # can measure rather than something a comment claims. Inlining it
+    # back into the component would take the measurement away without
+    # changing a single frame.
+    camera_source = _js_code(APP / "src" / "camera.mjs")
+    for name in ("export function cameraFor", "export function blendCamera", "CAPTION_STRIP"):
+        assert name in camera_source, f"{name} gehoert in die pruefbare Kameramathematik"
+    assert 'from "../camera.mjs"' in map_source, "die Karte muss diese Mathematik benutzen"
 
 
 def verify_no_full_frame_filter_reaches_the_film() -> None:
@@ -641,7 +661,7 @@ verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()
 verify_the_render_can_actually_be_triggered()
 verify_every_planned_scene_type_has_a_component()
-verify_the_world_outline_is_projected_once_per_view()
+verify_the_world_outline_is_projected_once()
 verify_no_full_frame_filter_reaches_the_film()
 verify_a_finished_film_says_when_it_was_made()
 verify_the_film_gets_the_plan_rather_than_deriving_one()

@@ -37,6 +37,9 @@ from .trip_film_package import (
     build_film_package,
     shrink_film_photo,
 )
+from .crew_portraits import portrait_key
+from .trip_film_crew import build_crew_package
+from .trip_film_music import build_music_package, list_tracks
 from .trip_film_plan import allocate_photos
 from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
@@ -56,6 +59,8 @@ class TripFilmExporter:
         renderer_app: Any,
         *,
         media_cache: Any = None,
+        crew: Any = None,
+        crew_portraits: Any = None,
     ) -> None:
         self._hass = hass
         self._manager = manager
@@ -67,6 +72,11 @@ class TripFilmExporter:
         # Where the trip happened is asked for separately, by chapter id,
         # from the canonical routing data.
         self._map = MapContextBuilder(hass, manager)
+        # Names and faces for the opening. Read here rather than through
+        # the story layer, which deliberately knows crew names only - a
+        # portrait has no business in a description of a journey.
+        self._crew = crew
+        self._crew_portraits = crew_portraits
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -107,7 +117,11 @@ class TripFilmExporter:
             "estimated_map_chapters": (map_context or {}).get("estimated_chapters", 0),
         }
 
-    async def async_submit(self, trip_id: str) -> dict[str, Any]:
+    async def async_music_options(self) -> list[dict[str, Any]]:
+        """What could be played under a film. Names and sizes only."""
+        return await self._hass.async_add_executor_job(list_tracks)
+
+    async def async_submit(self, trip_id: str, *, music: str = "") -> dict[str, Any]:
         """Build the package for the whole trip and queue the render."""
         trip_id = str(trip_id or "").strip()
         if not trip_id:
@@ -158,6 +172,10 @@ class TripFilmExporter:
             photos_by_chapter[str(chapter.get("chapter_id") or "")] = prepared
 
         map_context = await self._map.async_build(trip_id, manifest)
+        crew, crew_files = await self._async_crew()
+        music_entry, music_files = await self._hass.async_add_executor_job(
+            build_music_package, music
+        )
 
         try:
             package, files = build_film_package(
@@ -165,6 +183,9 @@ class TripFilmExporter:
                 manifest=manifest,
                 photos_by_chapter=photos_by_chapter,
                 map_context=map_context,
+                crew=crew,
+                crew_files={**crew_files, **music_files},
+                music=music_entry,
             )
         except RenderPackageError as err:
             raise ValidationError(str(err)) from err
@@ -193,7 +214,67 @@ class TripFilmExporter:
             "manifest_content_hash": manifest.get("content_hash") or "",
             "mapped_chapters": (map_context or {}).get("chapter_count", 0),
             "has_ferry": bool((map_context or {}).get("has_ferry")),
+            "crew_count": len((crew or {}).get("members") or []),
+            "music": (music_entry or {}).get("title", ""),
         }
+
+    async def _async_crew(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+        """Names and locally stored portraits, prepared for the film.
+
+        Fail-open throughout: a crew that cannot be read means a film
+        without a crew scene, never a film that does not render. And the
+        portraits are read from disk as bytes rather than referenced by
+        URL - the crew portrait route is guarded only by an unguessable
+        filename, which must not be copied into a package written to a
+        shared folder.
+        """
+        if self._crew is None:
+            return None, {}
+        try:
+            registry = await self._crew.async_panel_payload()
+        except Exception:  # noqa: BLE001 - decoration must not fail a film
+            _LOGGER.debug("Crew für den Film nicht lesbar", exc_info=True)
+            return None, {}
+
+        members: list[dict[str, Any]] = []
+        for person in registry.get("people") or []:
+            if not isinstance(person, dict) or not person.get("active", True):
+                continue
+            members.append(
+                {
+                    "name": str(person.get("name") or "").strip(),
+                    "portrait": await self._async_portrait_bytes(person),
+                }
+            )
+        members = [member for member in members if member["name"]]
+        if not members:
+            return None, {}
+        return await self._hass.async_add_executor_job(build_crew_package, members)
+
+    async def _async_portrait_bytes(self, person: dict[str, Any]) -> bytes | None:
+        """The stored portrait file for one person, or nothing.
+
+        The filename is derived the same way the portrait service derives
+        it, from the person, the source photo and the crop. Deriving it
+        rather than parsing a URL means no URL is ever formed here at
+        all - the bearer secret cannot leak from a string that does not
+        exist.
+        """
+        store = self._crew_portraits
+        if store is None:
+            return None
+        filename = portrait_key(
+            str(person.get("id") or ""),
+            str(person.get("reference_media_id") or ""),
+            person.get("reference_crop"),
+            kind="person",
+        )
+        if not filename:
+            return None
+        try:
+            return await self._hass.async_add_executor_job(store.read, filename)
+        except Exception:  # noqa: BLE001
+            return None
 
     async def _async_media_records(self, trip_id: str) -> dict[str, dict[str, Any]]:
         """The media records for the ids the manifest refers to.
