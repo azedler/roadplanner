@@ -37,7 +37,11 @@ from .const import (
     CONF_BACKUP_PATH,
     CONF_ENABLE_HANDOFF_WEBHOOK,
     CONF_HANDOFF_PATH,
+    CONF_AI_MUSIC_ENABLED,
     CONF_GEMINI_API_KEY,
+    CONF_VIDEO_ANALYSIS_ENABLED,
+    DEFAULT_AI_MUSIC_ENABLED,
+    DEFAULT_VIDEO_ANALYSIS_ENABLED,
     CONF_GEMINI_FALLBACK_MODEL,
     CONF_GEMINI_LITE_MODEL,
     CONF_GEMINI_MODEL,
@@ -239,6 +243,11 @@ class RoadplannerRuntimeData:
     story_director: StoryDirectorService
     story_overrides: StoryOverrideService
     trip_film: TripFilmExporter
+    # Off unless somebody turned them on. Carried on the runtime so the
+    # panel can report the state rather than leaving anybody to guess
+    # whether their videos are being uploaded.
+    video_analysis_enabled: bool
+    ai_music_enabled: bool
     film_music: TripFilmMusicService
     character_assets: CharacterAssetStore
 
@@ -818,6 +827,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         story_director=story_director,
         story_overrides=story_overrides,
         trip_film=trip_film,
+        video_analysis_enabled=bool(
+            options.get(CONF_VIDEO_ANALYSIS_ENABLED, DEFAULT_VIDEO_ANALYSIS_ENABLED)
+        ),
+        ai_music_enabled=bool(
+            options.get(CONF_AI_MUSIC_ENABLED, DEFAULT_AI_MUSIC_ENABLED)
+        ),
         film_music=film_music,
         character_assets=character_assets,
     )

@@ -10,6 +10,9 @@ The project follows Semantic Versioning for public releases.
 
 ### Added
 
+- **Zwei Schalter, die aus sind, bis jemand sie einschaltet:** KI-Videoanalyse und KI-Musik. Beide kosten Geld und beide schicken private Familienmedien in eine Cloud – das ist eine Entscheidung, keine Einstellung mit einem sinnvollen Standardwert. Das Panel meldet ihren Zustand, damit niemand raten muss, ob gerade Videos hochgeladen werden.
+
+
 - **Videos sind jetzt Medien wie Fotos.** Roadplanner hat beim Anlegen eines Medieneintrags alles verworfen, was kein Bild war – deshalb waren die Filme einer Familie für einen Film unsichtbar. Ein Video ist jetzt derselbe Datensatz mit `media_type: "video"` und eigenen Angaben (Länge, Maße), nicht eine zweite Art von Ding. Nichts, was Fotos liest, musste etwas dazulernen. OneDrive wird zusätzlich nach der `video`-Facette gefragt, ohne die ein Video ohne jede Angabe ankommt.
 
 - **Lokale Vorauswahl, bevor irgendetwas das Haus verlässt** (`video_prefilter.py`). Kostenlos und offline: zu kurz, zu klein, durchgehend dunkel, praktisch unbewegt, oder derselbe Take zweimal. Lange Aufnahmen werden in überlappende Fenster geschnitten – zwölf Minuten Autobahn sind nicht *ein* Kandidat, und als einer gefragt bekommt man eine Antwort über den Durchschnitt. **Jede Ablehnung nennt ihren Grund**, weil „nur drei deiner vierzig Videos wurden angesehen" sonst ein Verdacht statt einer Auskunft ist.

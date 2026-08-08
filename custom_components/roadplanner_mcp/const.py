@@ -92,6 +92,12 @@ CONF_MEDIA_CURATION_MODE = "media_curation_mode"
 CONF_MEDIA_VISION_MAX_CANDIDATES = "media_vision_max_candidates"
 CONF_MEDIA_VISION_MAX_HIGHLIGHTS = "media_vision_max_highlights"
 CONF_MEDIA_VISION_DAILY_LIMIT = "media_vision_daily_limit"
+# Two switches that spend money and send private material to a cloud, so
+# both are off unless somebody turned them on. Neither has a "sensible
+# default" that would be sensible for everybody: analysing a family's
+# videos is a decision, not a setting.
+CONF_VIDEO_ANALYSIS_ENABLED = "video_analysis_enabled"
+CONF_AI_MUSIC_ENABLED = "ai_music_enabled"
 
 # Legacy option retained only for config-entry migration from 1.1.0.
 CONF_STORAGE_PATH = "storage_path"
@@ -203,6 +209,9 @@ MAX_ONEDRIVE_MAX_SCAN_SECONDS = 60
 
 MEDIA_CURATION_MODES = ("local", "hybrid")
 DEFAULT_MEDIA_CURATION_MODE = "local"
+DEFAULT_VIDEO_ANALYSIS_ENABLED = False
+DEFAULT_AI_MUSIC_ENABLED = False
+
 DEFAULT_MEDIA_VISION_MAX_CANDIDATES = 12
 DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS = 5
 DEFAULT_MEDIA_VISION_DAILY_LIMIT = 5

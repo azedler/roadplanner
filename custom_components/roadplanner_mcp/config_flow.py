@@ -44,7 +44,9 @@ from .const import (
     CONF_GEMINI_MODEL_MODE,
     CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
     CONF_MEDIA_VISION_MAX_CANDIDATES,
+    CONF_AI_MUSIC_ENABLED,
     CONF_MEDIA_VISION_DAILY_LIMIT,
+    CONF_VIDEO_ANALYSIS_ENABLED,
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
@@ -108,7 +110,9 @@ from .const import (
     MEDIA_CURATION_MODES,
     DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
     DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
+    DEFAULT_AI_MUSIC_ENABLED,
     DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+    DEFAULT_VIDEO_ANALYSIS_ENABLED,
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
@@ -436,6 +440,20 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                     max=MAX_MEDIA_VISION_DAILY_LIMIT,
                 ),
             ),
+            # Both default to False and stay there unless somebody says
+            # otherwise. Analysing a family's videos in a cloud and
+            # buying generated music are decisions, not settings with a
+            # sensible default.
+            vol.Required(
+                CONF_VIDEO_ANALYSIS_ENABLED,
+                default=defaults.get(
+                    CONF_VIDEO_ANALYSIS_ENABLED, DEFAULT_VIDEO_ANALYSIS_ENABLED
+                ),
+            ): bool,
+            vol.Required(
+                CONF_AI_MUSIC_ENABLED,
+                default=defaults.get(CONF_AI_MUSIC_ENABLED, DEFAULT_AI_MUSIC_ENABLED),
+            ): bool,
             vol.Required(
                 CONF_GEOCODING_ENABLED,
                 default=defaults.get(
