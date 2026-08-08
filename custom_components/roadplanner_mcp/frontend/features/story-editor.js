@@ -491,7 +491,12 @@ export const storyEditorMixin = {
       // "It is in the other card" is a signpost, not an answer - and on a
       // phone that other card is behind a menu, two taps and a scroll.
       // The film was started here; it can be fetched here.
-      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig.</small>
+      // When it was made, not just that it was. A film that took a
+      // quarter of an hour is easy to mistake for the one from
+      // yesterday - which is exactly what happened when the map arrived
+      // and an older film was downloaded to look for it.
+      const made = job.updated_at ? this._formatTimestamp(job.updated_at) : "";
+      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : "Film herunterladen"}</button>
       </div>

@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.46.1] - 2026-08-08
+
+### Added
+
+- **Beim fertigen Film steht jetzt, wann er erstellt wurde.** Ein Reisefilm braucht eine Viertelstunde, und die Karte sagte bisher nur „der zuletzt erzeugte Reisefilm ist fertig" – ein Film von gestern Abend und einer von vor zehn Minuten sahen damit gleich aus. Genau das ist heute passiert: Nach dem Kartenrelease wurde ein älterer Film heruntergeladen und die fehlende Karte darin für einen Fehler der Karte gehalten. Der Zeitstempel lag die ganze Zeit in den Daten und wurde nur nicht angezeigt.
+
 ## [4.46.0] - 2026-08-08
 
 ### Changed
