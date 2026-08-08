@@ -338,11 +338,18 @@ export const FILM_PACKAGE_VERSION = 1;
 export const FILM_MANIFEST_FILENAME = "film.json";
 export const MAX_FILM_JSON_BYTES = 512 * 1024;
 export const MAX_FILM_CHAPTERS = 45;
-export const MAX_FILM_PHOTOS_PER_CHAPTER = 4;
-export const MAX_FILM_IMAGES = 90;
+// Raised with the package's own limits: a day of a real journey is
+// not four pictures, and a film that showed one per day while the
+// library held hundreds was the complaint that moved these.
+export const MAX_FILM_PHOTOS_PER_CHAPTER = 10;
+export const MAX_FILM_IMAGES = 180;
 export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
 
-const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-4])\.jpg$/;
+// The position range follows MAX_FILM_PHOTOS_PER_CHAPTER. It was
+// [1-4] and silently rejected every fifth picture of a day when that
+// limit was raised - a pattern that encodes a constant has to move
+// with it.
+const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-9]|10)\.jpg$/;
 
 export const FILM_PLAN_VERSION = 1;
 export const FILM_PLAN_FPS = 30;

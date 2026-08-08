@@ -100,10 +100,14 @@ def _photos_for(manifest, count: int):
 
 def verify_the_photo_budget_shrinks_as_the_trip_grows() -> None:
     """A longer trip gets a thinner film, never a bigger package."""
+    # Derived from the constants rather than repeated, so raising the
+    # budget does not silently make this test measure the old numbers.
     assert film.photos_per_chapter(10) == film.MAX_PHOTOS_PER_CHAPTER
-    assert film.photos_per_chapter(30) == 3
-    assert film.photos_per_chapter(45) == 2
+    assert film.photos_per_chapter(30) == film.MAX_FILM_IMAGES // 30
+    assert film.photos_per_chapter(45) == film.MAX_FILM_IMAGES // 45
     assert film.photos_per_chapter(0) == 0
+    # A longer trip really does thin out.
+    assert film.photos_per_chapter(45) < film.photos_per_chapter(10)
     # And it never drops to zero for a trip that has days.
     assert film.photos_per_chapter(1000) == 1
 

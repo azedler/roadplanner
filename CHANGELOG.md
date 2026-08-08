@@ -8,6 +8,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [4.49.0] - 2026-08-08
 
+### Changed
+
+- **Ein Reisetag zeigt jetzt so viele Erinnerungen, wie er hergibt – ohne dass der Film proportional länger wird.** Der fertige Film las sich über weite Strecken als „Anmoderation, ein Foto, nächster Tag", während die Mediathek hunderte kuratierte Bilder hielt. Die Ursache war, dass **Medienbudget und Zeitbudget dieselbe Zahl waren**: Jedes Bild kaufte seine eigenen Sekunden, also konnte „mehr zeigen" nur „länger laufen" heißen, und die einzige Art, den Film kurz zu halten, war, Bilder wegzulassen.
+
+  Die beiden sind jetzt getrennt. Ein Tag ist **seiner Bedeutung nach** eine bestimmte Zeit wert (Transfertag 8 s, normal 12,5 s, Highlight 16,5 s, großes Highlight 21 s), und was er hat, wird da hineingelegt: Viele Bilder heißen kürzer stehen und mehr gruppieren, wenige Bilder heißen mehr Raum je Bild. Die Bildzahl je Tag steigt von 1/2/3/4 auf **2/4/6/8**, die Obergrenze je Tag von 4 auf 10 und für die ganze Reise von 90 auf 180.
+
+  Gemessen am 25-Tage-Testfilm: **112 statt 60 gezeigte Bilder bei 23 % mehr Länge** statt 87 %. Reicht die Zeit nicht für alle Einzelbilder, werden sie zu Gruppen zusammengefasst statt den Tag zu verlängern – vier Bilder in einer Gruppe kosten etwa so viel wie anderthalb Einzelbilder, und man sieht alle vier.
+
+  Ein Tag, der wenig hat, bleibt weiterhin kurz: Das Zeitbudget ist eine Obergrenze, keine Vorgabe. Einen dünnen Tag auf Highlight-Länge aufzublasen wäre eine Behauptung, die mit Bildschirmzeit gemacht wird.
+
+- **Transfertage und Map-Focus-Tage bekommen keine eigene Titelkarte mehr**, wenn sie eine Karte haben. Die Kartenszene trägt Tagesnummer, Datum, Land und Titel ohnehin an ihrer Unterkante – dieselben Worte vorher auf schwarzem Grund sind ein zweiter Titel für dieselbe Sache, und dreiundzwanzig davon hintereinander waren ein guter Teil der Monotonie. Ohne Karte bleibt die Karte, denn dann benennt nichts anderes den Tag.
+
 ### Added
 
 - **Die Karte beschriftet, wo die Reise hinführt.** Das Tagesziel steht an jedem Zoom auf der Karte; zoomt die Kamera in die Tagesetappe hinein, kommen die übrigen Stopps des Tages dazu; auf dem Überblick sind es die Ziele früherer Tage, über die Reise verteilt statt vom Anfang gezählt. Höchstens fünf Beschriftungen gleichzeitig – darüber ist es die überladene Straßenkarte, die ausdrücklich nicht gewollt ist.
