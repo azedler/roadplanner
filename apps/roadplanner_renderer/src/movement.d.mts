@@ -7,11 +7,20 @@
  * would let a node test do.
  */
 export type LonLat = [number, number];
-export type Route = { points: LonLat[]; lengths: number[]; total: number };
+export type Route = {
+  points: LonLat[];
+  lengths: number[];
+  total: number;
+  times: number[];
+  timeTotal: number;
+};
 
 export function metres(a: LonLat, b: LonLat): number;
 export function arcLengths(points: LonLat[]): number[];
-export function prepareRoute(points: LonLat[]): Route;
+export const MODE_PACE: Record<string, number>;
+export function paceFor(mode: string): number;
+export function prepareRoute(points: LonLat[], modes?: string[]): Route;
+export function distanceAtFraction(route: Route, fraction: number): number;
 export function pointAtDistance(
   route: Route,
   distance: number,

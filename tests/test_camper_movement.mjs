@@ -16,10 +16,12 @@
 import assert from "node:assert/strict";
 
 import {
+  MODE_PACE,
   arcLengths,
   bearingAtDistance,
   bearingWindow,
   damped,
+  distanceAtFraction,
   easeTravel,
   metres,
   pointAtDistance,
@@ -239,6 +241,67 @@ for (const fraction of [0, 0.01, 0.17, 0.5, 0.83, 0.999, 1]) {
   const repeated = prepareRoute([[10, 55], [10, 55], [10, 55]]);
   assert.equal(repeated.points.length, 1, "wiederholte Koordinaten sind kein Weg");
   assert.deepEqual(prepareRoute([]).points, []);
+}
+
+// --- a crossing is slower than a road ------------------------------------
+
+{
+  // A day of two equal halves: drive east, then take a ferry the same
+  // distance. Spread over metres they would take the same screen time,
+  // which is what made the camper shoot across the Baltic and then crawl
+  // to the campsite.
+  const half = [];
+  for (let step = 0; step <= 20; step += 1) half.push([12 + step * 0.02, 55]);
+  const second = [];
+  for (let step = 1; step <= 20; step += 1) second.push([12.4 + step * 0.02, 55]);
+  const points = [...half, ...second];
+  const modes = points.map((_, index) => (index >= half.length ? "ferry" : "driving"));
+  const paced = prepareRoute(points, modes);
+  const plain = prepareRoute(points);
+
+  // Halfway through the scene the paced camper has not yet reached the
+  // quay, while the unpaced one is exactly at it.
+  const midPaced = distanceAtFraction(paced, 0.5);
+  const midPlain = distanceAtFraction(plain, 0.5);
+  assert.ok(
+    Math.abs(midPlain - plain.total / 2) < 1,
+    "ohne Faehre muss die Haelfte der Zeit die Haelfte des Weges sein",
+  );
+  // More than half the *distance* by half the *scene*: the fast half is
+  // over quickly and the crossing is what the rest of the time is spent
+  // on. Reading this the other way round is easy, and wrong.
+  assert.ok(
+    midPaced > paced.total * 0.55,
+    `die Faehre kostet keine Zeit - bei halber Szene erst ${(midPaced / paced.total).toFixed(3)}`,
+  );
+
+  // And the share of the scene the crossing gets is the pace ratio, not
+  // a number somebody liked: half the metres at 2.2x cost is 2.2/3.2.
+  let crossingStart = 0;
+  for (let f = 0; f <= 1000; f += 1) {
+    if (distanceAtFraction(paced, f / 1000) >= plain.total / 2) {
+      crossingStart = f / 1000;
+      break;
+    }
+  }
+  const expected = 1 / (1 + MODE_PACE.ferry);
+  assert.ok(
+    Math.abs(crossingStart - expected) < 0.02,
+    `die Fahrt endet bei ${crossingStart.toFixed(3)}, erwartet ${expected.toFixed(3)}`,
+  );
+
+  // Both ends still land exactly, which is what the pacing must not break.
+  assert.ok(Math.abs(distanceAtFraction(paced, 0)) < 1e-9);
+  assert.ok(Math.abs(distanceAtFraction(paced, 1) - paced.total) < 1e-6);
+  // And progress never goes backwards.
+  let previous = -1;
+  for (let f = 0; f <= 200; f += 1) {
+    const here = distanceAtFraction(paced, f / 200);
+    assert.ok(here >= previous - 1e-9, `Fortschritt springt bei ${f} zurueck`);
+    previous = here;
+  }
+  // A route with no modes at all behaves exactly as it did before.
+  assert.ok(Math.abs(distanceAtFraction(plain, 0.25) - plain.total * 0.25) < 1);
 }
 
 console.log("Camper movement tests passed.");

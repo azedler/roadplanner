@@ -6,6 +6,20 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.48.0] - 2026-08-08
+
+### Changed
+
+- **Eine Fährfahrt dauert jetzt länger als dieselbe Strecke auf der Straße.** Der Tag wurde bisher gleichmäßig über seine **Meter** verteilt – das behauptete, eine Fähre überquere die Ostsee so schnell, wie ein Transporter Autobahn fährt. An einem Tag, der überwiegend Wasser ist, schoss der Camper über die See und kroch dann die letzten zwanzig Kilometer zum Stellplatz. Es war das Letzte, was im fertigen Bild sichtbar unwahr war.
+
+  Gerechnet wird jetzt in **Fahrzeit statt in Strecke**: eine Fähre mit rund zwanzig Knoten gegen einen Reisetag mit vielleicht 75 km/h im Schnitt ist gut zwei zu eins, also kostet ein Kilometer Überfahrt etwa die doppelte Filmzeit. Ein Tag mit langer Überfahrt verbringt damit den größten Teil seiner Szene auf dem Wasser – was auch der Art entspricht, wie sich so ein Tag anfühlt. Eine **Luftlinie** zwischen zwei Stopps bleibt bei Straßentempo: sie gibt ohnehin schon zu, dass nichts gemessen wurde, und ihr zusätzlich eine Geschwindigkeit anzudichten wäre eine zweite Erfindung.
+
+- **Der Camper ist in den Farben gezeichnet, die er wirklich hat.** Nach Fotos des echten Fahrzeugs: blaugrau metallic statt weiß, fast schwarzes Hochdach, Fenster im Dachpaneel, Silberfelgen. Der Kontrast zwischen heller Karosserie und dunklem Dach ist das, woran man den Wagen über ein Feld hinweg erkennt – ihn falsch zu haben wog schwerer als jede Formfrage.
+
+  Die richtigen Farben kosten Lesbarkeit: Ein dunkler Wagen auf einer dunklen Karte ist ein Fleck. Statt ihn in einer Farbe zu malen, die er nicht hat, wird die Silhouette zweimal gezeichnet – einmal hell und breit darunter, dann die echte Karosserie darüber. Übrig bleibt eine dünne Kontur ringsum, so wie eine Papierkarte ein dunkles Symbol von dunklem Grund abhebt.
+
+- **Am Steuer sitzt jemand mit kurzen hellen Haaren und schwarzer Jacke.** Kein Porträt und keines, das eines werden kann: Der Camper ist auf der Karte etwa 40 px breit, ein Kopf davon drei Pixel. Was auf dieser Fläche überlebt, ist eine Silhouette und zwei Farben – die trägt die Figur jetzt, und mehr behauptet sie nicht. Wiedererkennbar sind Menschen im Crew-Intro, aus ihrem eigenen Foto.
+
 ## [4.47.1] - 2026-08-08
 
 ### Fixed

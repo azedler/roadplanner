@@ -51,6 +51,7 @@ import { Camper } from "./CharacterAssets";
 import {
   bearingAtDistance,
   bearingWindow,
+  distanceAtFraction,
   damped,
   easeTravel,
   pointAtDistance,
@@ -337,9 +338,15 @@ export const flatten = (chapter: MapChapter): { point: MapPoint; mode: string }[
  */
 export const driveState = (chapter: MapChapter, fraction: number, frames: number) => {
   const flat = flatten(chapter);
-  const route = prepareRoute(flat.map((entry) => entry.point));
+  // The modes travel with the points, so a crossing inside a day is
+  // paced as a crossing rather than averaged into the driving.
+  const route = prepareRoute(
+    flat.map((entry) => entry.point),
+    flat.map((entry) => entry.mode),
+  );
   const window = bearingWindow(route, frames);
-  const distanceAt = (f: number) => route.total * easeTravel(Math.max(0, Math.min(frames, f)) / frames);
+  const distanceAt = (f: number) =>
+    distanceAtFraction(route, easeTravel(Math.max(0, Math.min(frames, f)) / frames));
   const bearingAt = (f: number) => bearingAtDistance(route, distanceAt(f), window);
   const frame = Math.round(Math.max(0, Math.min(1, fraction)) * frames);
   const distance = distanceAt(frame);
