@@ -42,6 +42,7 @@ import io
 import logging
 from typing import Any
 
+from .character_assets import validate_characters
 from .trip_film_crew import validate_crew
 from .trip_map_context import validate_map_context
 from .trip_film_plan import (
@@ -63,14 +64,21 @@ FILM_PHOTO_DIR = "photos"
 
 # --- limits -------------------------------------------------------------
 
-# A whole trip's worth of pictures. Ninety is three per day for a month,
-# and the per-chapter number is derived from it rather than fixed, so a
-# longer trip produces a thinner film instead of a bigger package.
-MAX_FILM_IMAGES = 90
-# Four rather than three, so a major highlight can actually look like
-# one. The total budget is unchanged: a rich day now takes its extra
-# picture from a transfer day, not from a bigger package.
-MAX_PHOTOS_PER_CHAPTER = 4
+# A whole trip's worth of pictures. Raised from ninety after a real film
+# turned out to be "announcement, one photograph, next day" for most of
+# its length while the library held hundreds of curated pictures. Six per
+# day for a month rather than three.
+#
+# The package grows with it, which is the honest cost: these are 900-pixel
+# JPEGs at quality 76, so roughly 80 kB each, and MAX_FILM_PACKAGE_BYTES
+# still bounds the whole thing.
+MAX_FILM_IMAGES = 180
+# Ten rather than four, because a major highlight of a real journey is
+# not four pictures. The per-chapter number is still derived from the
+# total, so a long trip thins out instead of producing a huge package -
+# and the scene planner decides how they are SHOWN, grouping rather than
+# lengthening when a day has more than it has time for.
+MAX_PHOTOS_PER_CHAPTER = 10
 MAX_CHAPTERS = 45
 # A film frame shows a photo for well under two seconds at 720p. 900 px on
 # the long edge is already more than the frame can display.
@@ -241,6 +249,7 @@ def build_film_package(
     crew: dict[str, Any] | None = None,
     crew_files: dict[str, bytes] | None = None,
     music: dict[str, Any] | None = None,
+    characters: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Translate the manifest into a film package.
 
@@ -375,6 +384,10 @@ def build_film_package(
         # What it sounds like, or nothing at all. A film without music
         # stays a complete film.
         "music": music or None,
+        # Approved illustrations of the camper, when somebody has confirmed
+        # one. Absent means the film draws it - a worse picture and a
+        # complete film. See character_assets.
+        "characters": validate_characters(characters),
         "chapters": chapters,
         "total_image_bytes": total_bytes,
     }

@@ -38,6 +38,7 @@ from .trip_film_package import (
     shrink_film_photo,
 )
 from .crew_portraits import portrait_key
+from .character_assets import build_character_package
 from .trip_film_crew import build_crew_package
 from .trip_film_music import build_music_package, list_tracks
 from .trip_film_plan import allocate_photos
@@ -61,6 +62,7 @@ class TripFilmExporter:
         media_cache: Any = None,
         crew: Any = None,
         crew_portraits: Any = None,
+        characters: Any = None,
     ) -> None:
         self._hass = hass
         self._manager = manager
@@ -77,6 +79,7 @@ class TripFilmExporter:
         # portrait has no business in a description of a journey.
         self._crew = crew
         self._crew_portraits = crew_portraits
+        self._characters = characters
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -173,6 +176,7 @@ class TripFilmExporter:
 
         map_context = await self._map.async_build(trip_id, manifest)
         crew, crew_files = await self._async_crew()
+        characters, character_files = await self._async_characters()
         music_entry, music_files = await self._hass.async_add_executor_job(
             build_music_package, music
         )
@@ -184,8 +188,9 @@ class TripFilmExporter:
                 photos_by_chapter=photos_by_chapter,
                 map_context=map_context,
                 crew=crew,
-                crew_files={**crew_files, **music_files},
+                crew_files={**crew_files, **music_files, **character_files},
                 music=music_entry,
+                characters=characters,
             )
         except RenderPackageError as err:
             raise ValidationError(str(err)) from err
@@ -216,7 +221,39 @@ class TripFilmExporter:
             "has_ferry": bool((map_context or {}).get("has_ferry")),
             "crew_count": len((crew or {}).get("members") or []),
             "music": (music_entry or {}).get("title", ""),
+            "character_assets": len((characters or {}).get("assets") or []),
         }
+
+
+    async def _async_characters(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+        """Confirmed illustrations of the camper, as bytes.
+
+        Fail-open like the crew: no store, no confirmed asset, or an
+        unreadable file all mean the film draws the camper instead. The
+        drawing is a worse picture and a complete film, and a missing
+        illustration must never be the reason an export fails.
+
+        Only *confirmed* assets are read. A candidate somebody generated
+        and has not looked at yet is not something a film may quietly
+        start using.
+        """
+        store = self._characters
+        if store is None:
+            return None, {}
+        try:
+            found = await self._hass.async_add_executor_job(store.confirmed)
+        except Exception as err:  # noqa: BLE001 - a broken store is not a broken film
+            _LOGGER.debug("Figurenbilder nicht lesbar: %s", type(err).__name__)
+            return None, {}
+        assets: list[dict[str, Any]] = []
+        for entry in found:
+            data = await self._hass.async_add_executor_job(store.read, entry["filename"])
+            if not data:
+                continue
+            assets.append({"kind": entry["kind"], "variant": entry["variant"], "data": data})
+        if not assets:
+            return None, {}
+        return await self._hass.async_add_executor_job(build_character_package, assets)
 
     async def _async_crew(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
         """Names and locally stored portraits, prepared for the film.

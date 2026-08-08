@@ -41,6 +41,11 @@ _LOGGER = logging.getLogger(__name__)
 
 _GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 _MAX_ERROR_BODY = 1_500
+# A reference picture is inlined into the JSON request, so it counts
+# against the same inline budget as any other attachment. Roadplanner
+# shrinks portraits long before this; the limit is here so a caller that
+# forgets cannot post a camera original.
+_MAX_REFERENCE_BYTES = 4 * 1024 * 1024
 _TRANSIENT_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _DAILY_QUOTA_MARKERS = (
     "requestsperday",
@@ -1365,6 +1370,7 @@ class GeminiClient:
         self,
         *,
         prompt: str,
+        reference: tuple[bytes, str] | None = None,
     ) -> AssistantImageResult:
         """Generate one icon-style image from a short text prompt.
 
@@ -1378,8 +1384,27 @@ class GeminiClient:
         if len(clean_prompt) > 4_000:
             raise ValidationError("Der Bildgenerierungs-Prompt ist zu lang")
 
+        parts: list[dict[str, Any]] = [{"text": clean_prompt}]
+        if reference is not None:
+            blob, mime_type = reference
+            if not isinstance(blob, (bytes, bytearray)) or not blob:
+                raise ValidationError("Das Referenzbild ist leer")
+            if len(blob) > _MAX_REFERENCE_BYTES:
+                raise ValidationError("Das Referenzbild ist zu groß")
+            # The picture goes first: the prompt then reads as an
+            # instruction about it rather than as a description competing
+            # with it.
+            parts.insert(
+                0,
+                {
+                    "inline_data": {
+                        "mime_type": str(mime_type or "image/jpeg"),
+                        "data": base64.b64encode(bytes(blob)).decode("ascii"),
+                    }
+                },
+            )
         body = {
-            "contents": [{"role": "user", "parts": [{"text": clean_prompt}]}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"responseModalities": ["IMAGE"]},
         }
         payload, diagnostics = await self._post(

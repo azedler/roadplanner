@@ -268,10 +268,25 @@ def verify_the_map_takes_time_rather_than_adding_it() -> None:
                     for scene in with_map["scenes"]
                     if scene["chapter_id"] == "day-1"
                 )
-                # map_focus is the one style that says the map IS the day,
-                # so it is allowed to be more than the introduction.
-                limit = 1.4 if style == "map_focus" else 1.25
-                assert day_with <= day_without * limit, (
+                # The guarantee changed shape and got stronger. It used
+                # to be a ratio against the same day without a map, which
+                # only ever said "the map does not add too much". Now a
+                # day is priced from one budget - card, map and pictures
+                # all come out of what its importance is worth - so the
+                # claim is absolute: a mapped day does not exceed that
+                # budget except where the floors force it, and a picture
+                # below its floor is a flicker rather than a memory.
+                budget = plan._CHAPTER_FRAMES[importance]
+                headroom = 1.45 if photos > 2 else 1.15
+                assert day_with <= budget * headroom, (
+                    style,
+                    importance,
+                    photos,
+                    budget,
+                    day_with,
+                )
+                # And the map is never simply free time added on top.
+                assert day_with <= day_without + plan.MAP_FRAMES_MAX, (
                     style,
                     importance,
                     photos,

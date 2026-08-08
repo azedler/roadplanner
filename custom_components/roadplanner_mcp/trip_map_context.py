@@ -236,6 +236,62 @@ def _routing_of(day: dict[str, Any]) -> dict[str, Any]:
     return routing if isinstance(routing, dict) else {}
 
 
+
+# A day carries at most this many named places into the film. The map is
+# 1280 pixels wide and the type is 19 point; beyond a handful the labels
+# collide and the reduced style the brief asks for is gone.
+MAX_PLACES_PER_CHAPTER = 4
+MAX_NAME_LENGTH = 42
+
+
+def _places(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The day's stops that can be put on a map, named and ranked.
+
+    Only places Roadplanner already knows travel. A gazetteer of "important
+    cities" would put names on the map that have nothing to do with the
+    trip, and the one thing this module refuses to do is invent geography.
+    What a traveller wants labelled on their own map is where they stopped.
+
+    Rank is what the film thins by when it is zoomed out: rank 0 is the
+    day's destination and is shown at every magnification, rank 1 is the
+    rest, in order.
+    """
+    seen: set[tuple[float, float]] = set()
+    places: list[dict[str, Any]] = []
+    for stop in stops or []:
+        if not isinstance(stop, dict):
+            continue
+        point = _location(stop)
+        if not point:
+            continue
+        key = (point[0], point[1])
+        if key in seen:
+            continue
+        name = " ".join(str(stop.get("name") or "").split())[:MAX_NAME_LENGTH]
+        if not name:
+            continue
+        seen.add(key)
+        places.append({"name": name, "point": point, "rank": 1})
+    if not places:
+        return []
+    # The last stop of the day is where the day ends, and the brief asks
+    # for that one to be unmistakable.
+    places[-1]["rank"] = 0
+    if len(places) <= MAX_PLACES_PER_CHAPTER:
+        return places
+    # Keep the destination and the start, then spread the rest evenly
+    # rather than taking the first few - a day's labels should describe
+    # the whole day, not its first hour.
+    kept = [places[0], places[-1]]
+    middle = places[1:-1]
+    step = max(1, len(middle) // max(1, MAX_PLACES_PER_CHAPTER - 2))
+    for index in range(0, len(middle), step):
+        if len(kept) >= MAX_PLACES_PER_CHAPTER:
+            break
+        kept.insert(-1, middle[index])
+    return kept[:MAX_PLACES_PER_CHAPTER]
+
+
 def chapter_map(
     day: dict[str, Any], stops: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
@@ -280,10 +336,16 @@ def chapter_map(
         for segment in segments
     ]
     every = [point for segment in trimmed for point in segment["points"]]
+    places = _places(stops)
+    destination = next((place for place in places if place["rank"] == 0), None)
     return {
         "segments": trimmed,
         "start": every[0],
         "end": every[-1],
+        # Named places for the map, and the day's destination pulled out
+        # so the film never has to guess which of them it is.
+        "places": places,
+        "destination": destination,
         "bbox": _bbox(every),
         "point_count": len(every),
         "has_ferry": any(segment["mode"] == MODE_FERRY for segment in trimmed),
@@ -379,6 +441,21 @@ def validate_map_context(payload: Any) -> dict[str, Any]:
                 if _coordinate(point) is None:
                     raise MapContextError("Ungültige Koordinate im Kartenkontext")
             total += len(points)
+        # Places are the only strings in this whole structure, and they
+        # end up drawn on a map that travels to another container. They
+        # are checked like everything else rather than trusted because
+        # they came from our own roadbook.
+        places = chapter.get("places")
+        if places is not None:
+            if not isinstance(places, list) or len(places) > MAX_PLACES_PER_CHAPTER:
+                raise MapContextError("Zu viele Orte im Kartenkapitel")
+            for place in places:
+                if not isinstance(place, dict):
+                    raise MapContextError("Ort im Kartenkapitel ist kein Objekt")
+                if not str(place.get("name") or "").strip():
+                    raise MapContextError("Ort ohne Namen")
+                if _coordinate(place.get("point")) is None:
+                    raise MapContextError("Ort ohne gültige Koordinate")
     if total > MAX_TRIP_POINTS:
         raise MapContextError("Kartenkontext enthält zu viele Punkte")
     return payload
@@ -386,6 +463,7 @@ def validate_map_context(payload: Any) -> dict[str, Any]:
 
 __all__ = [
     "MAP_CONTEXT_VERSION",
+    "MAX_PLACES_PER_CHAPTER",
     "MAX_TRIP_POINTS",
     "MODE_BREAK",
     "MODE_DIRECT",

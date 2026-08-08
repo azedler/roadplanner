@@ -67,21 +67,78 @@ def verify_importance_decides_how_long_a_day_lasts() -> None:
 
     Film v0 gave every day the same length, so a transfer and the reason
     for the whole trip were indistinguishable on screen.
+
+    The numbers moved when the media budget stopped being the time
+    budget. A day is now worth its importance in seconds and fills them
+    with whatever it has; before, each picture bought its own seconds, so
+    these ranges were really measuring how many photographs the fixture
+    happened to give each day.
     """
     chapters = [
-        _chapter(0, importance="transition", photos=1),
-        _chapter(1, importance="normal", photos=2),
-        _chapter(2, importance="highlight", style="hero", photos=3),
-        _chapter(3, importance="major_highlight", style="hero", photos=4),
+        # Roughly what each importance is now given: 2/4/6/8.
+        _chapter(0, importance="transition", photos=2),
+        _chapter(1, importance="normal", photos=4),
+        _chapter(2, importance="highlight", style="hero", photos=6),
+        _chapter(3, importance="major_highlight", style="hero", photos=8),
     ]
     plan = _plan(chapters)
     seconds = [_chapter_frames(plan, index) / plan_module.FILM_FPS for index in range(4)]
     assert seconds[0] < seconds[1] < seconds[2] < seconds[3], seconds
-    # And inside the ranges the brief asked for.
-    assert 4 <= seconds[0] <= 7, seconds[0]
-    assert 8 <= seconds[1] <= 13, seconds[1]
-    assert 15 <= seconds[2] <= 22, seconds[2]
-    assert 20 <= seconds[3] <= 30, seconds[3]
+    assert 4 <= seconds[0] <= 9, seconds[0]
+    assert 8 <= seconds[1] <= 14, seconds[1]
+    assert 12 <= seconds[2] <= 20, seconds[2]
+    assert 15 <= seconds[3] <= 26, seconds[3]
+
+
+def verify_more_pictures_do_not_buy_more_minutes() -> None:
+    """The separation of media budget from time budget, as a measurement.
+
+    This is the whole point of the rewrite and the property the planned
+    length control depends on. Doubling what a day shows must not double
+    how long it runs: the pictures get shorter and more of them are
+    grouped, which is how a day shows more memories inside the same
+    minute.
+
+    Without this, "a more detailed film" could only ever mean "the same
+    film, slower", and the film it produced was the opposite complaint:
+    day after day of announcement, one photograph, next day.
+    """
+    few = _plan([_chapter(0, importance="major_highlight", photos=3)])
+    many = _plan([_chapter(0, importance="major_highlight", photos=9)])
+    few_seconds = _chapter_frames(few, 0)
+    many_seconds = _chapter_frames(many, 0)
+    shown_few = sum(len(scene["photos"]) for scene in few["scenes"])
+    shown_many = sum(len(scene["photos"]) for scene in many["scenes"])
+
+    assert shown_many >= shown_few * 2, (shown_few, shown_many)
+    # Three times the pictures, nowhere near three times the length.
+    assert many_seconds < few_seconds * 1.7, (few_seconds, many_seconds)
+    # And the extra memories are really on screen, not silently dropped.
+    assert shown_many == 9, shown_many
+
+
+def verify_a_thin_transfer_day_needs_no_card_of_its_own() -> None:
+    """Twenty-three identical announcements are the monotony, not the cure.
+
+    A transfer day's map already carries the day number, the date, the
+    country and the title. A separate card in front of it is a second
+    title for the same thing - so it is dropped when there is a map to
+    carry it, and kept when there is not.
+    """
+    mapped = _plan(
+        [_chapter(0, importance="transition", photos=2)],
+        map_context={"chapters": [{"chapter_id": "day-1", "index": 0}]},
+    )
+    assert not [
+        scene for scene in mapped["scenes"] if scene["type"] == plan_module.SCENE_CHAPTER_CARD
+    ], "ein Tag mit Karte braucht keine zweite Titelkarte"
+    assert [scene for scene in mapped["scenes"] if scene["type"] == plan_module.SCENE_MAP_LEG]
+
+    # Without a map the card is the only thing that names the day.
+    plain = _plan([_chapter(0, importance="transition", photos=2)])
+    assert [
+        scene for scene in plain["scenes"] if scene["type"] == plan_module.SCENE_CHAPTER_CARD
+    ], "ohne Karte muss der Tag benannt bleiben"
 
 
 def verify_a_thin_day_is_not_padded_to_look_important() -> None:
@@ -102,8 +159,21 @@ def verify_visual_style_picks_only_scenes_that_exist() -> None:
         style: [scene["type"] for scene in _plan([_chapter(0, style=style, photos=3)])["scenes"]]
         for style in ("compact", "normal", "hero", "collage")
     }
-    assert shapes["compact"].count("photo") == 1, shapes["compact"]
-    assert shapes["normal"].count("photo") == 3, shapes["normal"]
+    # "compact" is now about restraint rather than about exactly one
+    # picture: it opens on a single shot and keeps the rest brief. Pinning
+    # it to one photograph was pinning the old model, where a picture and
+    # a scene were the same thing.
+    assert shapes["compact"].count("collage") == 0, shapes["compact"]
+    assert shapes["compact"].count("hero") == 1, shapes["compact"]
+    # A day with real material opens on one shot rather than starting
+    # straight into a sequence, so three pictures are a hero and two
+    # stills rather than three identical stills.
+    assert shapes["normal"].count("hero") == 1, shapes["normal"]
+    assert shapes["normal"].count("photo") == 2, shapes["normal"]
+    assert sum(
+        len(scene["photos"])
+        for scene in _plan([_chapter(0, style="normal", photos=3)])["scenes"]
+    ) == 3, "alle drei Bilder muessen vorkommen"
     assert "hero" in shapes["hero"], shapes["hero"]
     assert "collage" in shapes["collage"], shapes["collage"]
 
@@ -203,15 +273,31 @@ def verify_the_same_input_produces_the_same_plan() -> None:
 
 
 def verify_the_photo_budget_is_weighted_not_flat() -> None:
-    """A transfer day and a major highlight used to get the same three."""
+    """A transfer day and a major highlight used to get the same three.
+
+    The weights were raised (2/4/6/8) after a real film turned out to be
+    "announcement, one photograph, next day" over and over while the
+    library held hundreds of curated pictures. The fixture therefore has
+    to offer enough material for the weights to be visible at all - with
+    four photographs each, three of the four days are simply capped by
+    what they have, which measures the fixture rather than the rule.
+    """
     chapters = [
-        {"chapter_id": "a", "importance": "transition", "media": [1, 2, 3, 4]},
-        {"chapter_id": "b", "importance": "normal", "media": [1, 2, 3, 4]},
-        {"chapter_id": "c", "importance": "highlight", "media": [1, 2, 3, 4]},
-        {"chapter_id": "d", "importance": "major_highlight", "media": [1, 2, 3, 4]},
+        {"chapter_id": "a", "importance": "transition", "media": list(range(10))},
+        {"chapter_id": "b", "importance": "normal", "media": list(range(10))},
+        {"chapter_id": "c", "importance": "highlight", "media": list(range(10))},
+        {"chapter_id": "d", "importance": "major_highlight", "media": list(range(10))},
     ]
-    budget = plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=4)
-    assert budget == {"a": 1, "b": 2, "c": 3, "d": 4}, budget
+    budget = plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=10)
+    assert budget["a"] < budget["b"] < budget["c"] < budget["d"], budget
+    assert budget == {
+        "a": plan_module.PHOTO_WEIGHTS["transition"],
+        "b": plan_module.PHOTO_WEIGHTS["normal"],
+        "c": plan_module.PHOTO_WEIGHTS["highlight"],
+        "d": plan_module.PHOTO_WEIGHTS["major_highlight"],
+    }, budget
+    # And the weights really are the richer ones the brief asked for.
+    assert budget["d"] >= 6, budget
 
 
 def verify_a_day_is_never_given_more_pictures_than_it_has() -> None:
@@ -292,6 +378,8 @@ def verify_a_broken_plan_is_refused() -> None:
 
 
 verify_importance_decides_how_long_a_day_lasts()
+verify_more_pictures_do_not_buy_more_minutes()
+verify_a_thin_transfer_day_needs_no_card_of_its_own()
 verify_a_thin_day_is_not_padded_to_look_important()
 verify_visual_style_picks_only_scenes_that_exist()
 verify_an_unknown_style_or_importance_falls_back_quietly()
@@ -310,3 +398,45 @@ verify_a_technical_stop_name_does_not_reach_a_title_card()
 verify_the_route_line_is_short_and_without_repeats()
 verify_a_broken_plan_is_refused()
 print("Trip film plan tests passed.")
+
+def verify_no_curated_picture_is_ever_dropped() -> None:
+    """A photograph somebody kept must reach the screen, or nothing works.
+
+    This failed twice in one evening, both times silently. The map-focus
+    shape took the first four of what followed its hero and discarded the
+    rest - under a comment saying "rather than thrown away". The collage
+    component did the same at the other end, showing four of however many
+    the plan gave it.
+
+    Both were invisible: the plan was valid, the film rendered, and the
+    only trace was a count nobody was looking at. So the count is looked
+    at here, for every style and every plausible number of pictures - the
+    cheapest possible check for the most expensive possible failure.
+    """
+    for style in ("normal", "compact", "hero", "collage", "map_focus", "erfunden"):
+        for count in range(0, 11):
+            chapter = _chapter(0, style=style, photos=count)
+            for mapped in (False, True):
+                plan = _plan(
+                    [chapter],
+                    map_context=(
+                        {"chapters": [{"chapter_id": "day-1", "index": 0}]}
+                        if mapped
+                        else None
+                    ),
+                )
+                shown = [
+                    position
+                    for scene in plan["scenes"]
+                    if scene.get("chapter_index") == 0
+                    for position in scene["photos"]
+                ]
+                assert sorted(shown) == list(range(count)), (
+                    style,
+                    count,
+                    mapped,
+                    sorted(shown),
+                )
+
+
+verify_no_curated_picture_is_ever_dropped()

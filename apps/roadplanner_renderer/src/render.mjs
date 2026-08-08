@@ -365,6 +365,21 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, bytes);
     }
+    for (const asset of parsed.characters?.assets ?? []) {
+      const bytes = await readBounded(path.join(inputsDir, asset.path), MAX_FILM_IMAGE_BYTES);
+      if (bytes === null) {
+        throw new RenderError(
+          "PACKAGE_MISSING",
+          `Im Filmpaket fehlt ein angekündigtes Figurenbild (${asset.path}).`,
+        );
+      }
+      if (createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
+        throw new RenderError("PACKAGE_INVALID", `${asset.path}: SHA-256 stimmt nicht.`);
+      }
+      const target = path.join(stage, asset.path);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, bytes);
+    }
     if (parsed.music) {
       const bytes = await readBounded(path.join(inputsDir, parsed.music.path), MAX_MUSIC_BYTES);
       if (bytes === null) {
@@ -393,6 +408,7 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
         scenes: parsed.scenes,
         mapContext: parsed.mapContext,
         crew: parsed.crew,
+        characters: parsed.characters,
         music: parsed.music,
       },
       limits: FILM_LIMITS,
@@ -422,6 +438,7 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
     result.facts.mapped_chapters = parsed.mapContext?.chapters.length ?? 0;
     result.facts.crew_count = parsed.crew?.members.length ?? 0;
     result.facts.has_music = Boolean(parsed.music);
+    result.facts.character_assets = parsed.characters?.assets.length ?? 0;
     return result;
   } finally {
     // The stage holds a copy of somebody's photos. It goes whether the

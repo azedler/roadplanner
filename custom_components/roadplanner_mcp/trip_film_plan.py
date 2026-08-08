@@ -130,14 +130,66 @@ _TEXT_FRAMES = {
     IMPORTANCE_MAJOR: 180,
 }
 
-# How many pictures a day is worth. The budget is shared, so a highlight
-# takes room from a transfer day rather than from nowhere.
+# How many pictures a day is worth - the MEDIA budget.
+#
+# Raised sharply from 1/2/3/4, because the film it produced was thin in a
+# way the numbers did not show: most days were "title card, one
+# photograph, next day", over and over, while the library held hundreds
+# of curated pictures that never appeared. A day of a real journey is not
+# one picture.
+#
+# This is deliberately no longer the same decision as how LONG a day
+# runs. They were the same number before - each picture bought its own
+# seconds - so more memories could only mean a longer film. Separating
+# them is what makes "a more detailed film shows more good material"
+# possible without "a more detailed film is the same film, slower", and
+# it is the foundation the planned length control needs.
 PHOTO_WEIGHTS = {
-    IMPORTANCE_TRANSITION: 1,
-    IMPORTANCE_NORMAL: 2,
-    IMPORTANCE_HIGHLIGHT: 3,
-    IMPORTANCE_MAJOR: 4,
+    IMPORTANCE_TRANSITION: 2,
+    IMPORTANCE_NORMAL: 4,
+    IMPORTANCE_HIGHLIGHT: 6,
+    IMPORTANCE_MAJOR: 8,
 }
+
+# How long a day runs, before its map - the TIME budget, in frames at 30
+# fps. A day is worth this much screen time because of what it *was*, not
+# because of how many photographs survived the cull.
+#
+# The pictures are then fitted into it: many pictures means each is shown
+# more briefly and more of them are grouped, few pictures means each gets
+# room. What must not happen is a chapter growing linearly with its
+# library, which is what a per-picture duration guarantees.
+_CHAPTER_FRAMES = {
+    IMPORTANCE_TRANSITION: 240,
+    IMPORTANCE_NORMAL: 375,
+    IMPORTANCE_HIGHLIGHT: 495,
+    IMPORTANCE_MAJOR: 630,
+}
+
+# What a shot is worth when nothing is competing for the time: the
+# comfortable duration, used as a CEILING rather than as a price.
+#
+# Without this the time budget alone would pad a thin day: a highlight
+# with one photograph would run as long as a highlight with eight, which
+# is inflating a day with screen time and says something untrue about it.
+# So a day is worth the smaller of "what its importance buys" and "what
+# its material can honestly fill".
+_NATURAL_FRAMES = {
+    SCENE_HERO: 165,
+    SCENE_COLLAGE: 180,
+    SCENE_PHOTO: 110,
+}
+
+# The shortest a single picture may be held, and the shortest a group may.
+# Below the first a photograph is a flicker rather than a memory; a group
+# needs longer because there is more in it to look at.
+MIN_PHOTO_FRAMES = 52
+MIN_GROUP_FRAMES = 95
+# Above this many single pictures in one day, the rest are grouped. Four
+# stills in a row is a sequence; nine is a slideshow.
+MAX_SINGLES_PER_CHAPTER = 3
+# How many pictures one grouped scene holds.
+GROUP_SIZE = 4
 
 # How long the map gets, as a SHARE of the day it belongs to.
 #
@@ -162,8 +214,11 @@ _MAP_SHARE = {
 # introduction to it.
 MAP_FOCUS_SHARE = 0.60
 # Below the first, a map is a flash nobody can read; above the second, it
-# is a screensaver.
-MAP_FRAMES_MIN = 45
+# is a screensaver. The floor was raised when the richer picture budget
+# started squeezing the map: a leg is recap, then a glide, then the drive,
+# and at a second and a half the recap is a sixth of a second. A map that
+# short is not a short map, it is a glitch.
+MAP_FRAMES_MIN = 78
 MAP_FRAMES_MAX = 210
 # How short the pictures of a mapped day may be scaled, and how short any
 # single scene may become. Below these a photograph is a flicker.
@@ -390,84 +445,33 @@ def _caption(chapter: dict[str, Any]) -> str:
 def _chapter_scenes(
     chapter: dict[str, Any], *, photo_count: int, index: int, has_map: bool = False
 ) -> list[dict[str, Any]]:
-    """The shots for one day, with its map if it has one.
+    """The shots for one day, priced from one budget rather than summed up.
 
-    Two steps rather than one, because the map's length is a fraction of
-    the day and the day has to be priced before it can be divided. The
-    first version tried to do both at once, and it showed: the reclaim
-    only reached plain photo scenes, so a day whose style was a collage
-    or a hero paid nothing back and grew by half.
+    The day is worth `_CHAPTER_FRAMES[importance]` seconds of film because
+    of what it *was*. Everything it contains - the card, the map, the
+    pictures - is paid for out of that, in that order of precedence. So
+    adding pictures makes each one shorter or groups more of them; it does
+    not make the day longer.
+
+    This is the separation the length control will need: the media budget
+    decides how many memories a day may show, this decides how long the
+    day runs, and the two are no longer the same number. Before, each
+    picture bought its own seconds, so "show more" and "run longer" were
+    the same instruction and there was no way to ask for one without the
+    other.
+
+    A day can still overrun, when the floors bind: ten pictures do not fit
+    into nine seconds without becoming flickers, and a flicker is not a
+    memory. A genuinely full day being longer than a thin one is right;
+    every day growing with its library is not.
     """
-    scenes = _plain_chapter_scenes(chapter, photo_count=photo_count, index=index)
-    if not has_map:
-        return scenes
-    return _with_map(scenes, chapter)
-
-
-def _with_map(
-    scenes: list[dict[str, Any]], chapter: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Insert the day's map and take most of its time back out of the day.
-
-    The map goes after the card - you are told where you are going, then
-    shown the going - and everything after it is scaled down so the day
-    does not simply become longer. The scaling is uniform, which is the
-    whole point: a hero shot and a collage give back the same share a
-    plain photograph does.
-    """
-    importance = _importance(chapter)
-    style = str(chapter.get("visual_style") or "normal")
-    baseline = sum(int(scene["frames"]) for scene in scenes)
-    share = MAP_FOCUS_SHARE if style == "map_focus" else _MAP_SHARE[importance]
-    map_frames = max(MAP_FRAMES_MIN, min(MAP_FRAMES_MAX, round(baseline * share)))
-
-    card, body = scenes[0], scenes[1:]
-    shown = sum(int(scene["frames"]) for scene in body)
-    if shown:
-        reclaim = int(map_frames * MAP_TIME_TAKEN_BACK)
-        # A floor, so the pictures stay pictures. Below this a photograph
-        # is a flicker, and a map that ate the day would have turned a
-        # travel film into an atlas.
-        target = max(int(shown * MIN_PICTURE_SHARE), shown - reclaim)
-        factor = target / shown
-        for scene in body:
-            scene["frames"] = max(MIN_SCENE_FRAMES, round(int(scene["frames"]) * factor))
-    return [
-        card,
-        {
-            "type": SCENE_MAP_LEG,
-            "chapter_id": card["chapter_id"],
-            "chapter_index": card["chapter_index"],
-            "frames": map_frames,
-            "enter": card["enter"],
-            "photos": [],
-        },
-        *body,
-    ]
-
-
-def _plain_chapter_scenes(
-    chapter: dict[str, Any], *, photo_count: int, index: int
-) -> list[dict[str, Any]]:
-    """The shots for one day. Style picks the shape, importance the size."""
     importance = _importance(chapter)
     style = str(chapter.get("visual_style") or "normal")
     enter = _enter(chapter)
     chapter_id = str(chapter.get("chapter_id") or "")
     caption = _caption(chapter)
 
-    scenes: list[dict[str, Any]] = [
-        {
-            "type": SCENE_CHAPTER_CARD,
-            "chapter_id": chapter_id,
-            "chapter_index": index,
-            "frames": _CARD_FRAMES[importance],
-            "enter": enter,
-            "photos": [],
-        }
-    ]
-
-    def photo_scene(kind: str, indices: list[int], frames: int) -> dict[str, Any]:
+    def scene(kind: str, indices: list[int], frames: int) -> dict[str, Any]:
         return {
             "type": kind,
             "chapter_id": chapter_id,
@@ -477,43 +481,197 @@ def _plain_chapter_scenes(
             "photos": indices,
         }
 
+    total = _CHAPTER_FRAMES[importance]
+
+    # A transfer day and a map-focus day get no card of their own. The map
+    # scene already carries the day number, the date, the country and the
+    # title along its lower edge; the same words on a black screen first
+    # are a second title for the same thing, and twenty-three of those in
+    # a row are most of why the film read as "announcement, one photo,
+    # announcement, one photo".
+    folded = has_map and (importance == IMPORTANCE_TRANSITION or style == "map_focus")
+    card_frames = 0 if folded else _CARD_FRAMES[importance]
+
+    map_frames = 0
+    if has_map:
+        share = MAP_FOCUS_SHARE if style == "map_focus" else _MAP_SHARE[importance]
+        map_frames = max(MAP_FRAMES_MIN, min(MAP_FRAMES_MAX, round(total * share)))
+        if folded:
+            # The card's time is not saved, it is handed to the map, which
+            # is now where the caption has to be read.
+            map_frames = min(MAP_FRAMES_MAX, map_frames + _CARD_FRAMES[importance])
+        # The map may not eat the room the day's content actually needs -
+        # and "actually" means asking the shots rather than guessing. An
+        # earlier version reserved a single picture's floor and then found
+        # the day opening on a hero, whose floor is nearly twice that, so
+        # the day ran over anyway. Without any reserve, a day with nothing
+        # to show was inflated by its own map, which is the exact opposite
+        # of what a share was for.
+        reserved = (
+            MIN_GROUP_FRAMES
+            if photo_count <= 0
+            else sum(_minimum_for(kind) for kind, _, _ in _shot_list(style, photo_count))
+        )
+        map_frames = max(
+            MAP_FRAMES_MIN, min(map_frames, total - card_frames - reserved)
+        )
+
+    scenes: list[dict[str, Any]] = []
+    if card_frames:
+        scenes.append(scene(SCENE_CHAPTER_CARD, [], card_frames))
+    if map_frames:
+        scenes.append(scene(SCENE_MAP_LEG, [], map_frames))
+
     if photo_count <= 0:
         # Not "keine Fotos vorhanden" on screen - that is a diagnostic and
         # belongs in a log. The day gets a written page instead, which is
         # also what makes a photo-less last day flow into the outro.
-        scenes.append(photo_scene(SCENE_TEXT, [], _TEXT_FRAMES[importance]))
+        text_frames = max(MIN_GROUP_FRAMES, total - card_frames - map_frames)
+        scenes.append(scene(SCENE_TEXT, [], text_frames))
         return scenes
 
-    photo_frames = _PHOTO_FRAMES[importance]
-    if style == "map_focus":
-        # The map is the act; one picture closes the day and that is all.
-        photo_count = 1
+    shots = _shot_list(style, photo_count)
+    # The smaller of what the day is worth and what it can honestly fill.
+    natural = sum(_NATURAL_FRAMES.get(kind, MIN_PHOTO_FRAMES) for kind, _, _ in shots)
+    picture_budget = max(
+        MIN_PHOTO_FRAMES, min(total - card_frames - map_frames, natural)
+    )
+    for kind, indices, frames in _fit_to_budget(shots, picture_budget):
+        scenes.append(scene(kind, indices, frames))
 
-    remaining = list(range(photo_count))
-    if style == "collage" and photo_count >= 2:
-        scenes.append(photo_scene(SCENE_COLLAGE, remaining, _COLLAGE_FRAMES[importance]))
-        return scenes
-    # map_focus gets a hero here too. When the day has a map, the caller
-    # puts it in front of this and shortens what follows; when it has
-    # none, this IS the day - because a style is a wish and geography is
-    # a fact.
-    if style == "hero" or style == "map_focus" or (
-        style == "collage" and photo_count == 1
-    ):
-        scenes.append(photo_scene(SCENE_HERO, [remaining[0]], _HERO_FRAMES[importance]))
-        remaining = remaining[1:]
-    if style == "compact":
-        # One picture, one line, move on.
-        if remaining:
-            scenes.append(photo_scene(SCENE_PHOTO, [remaining[0]], photo_frames))
-        return scenes
-    for position in remaining:
-        scenes.append(photo_scene(SCENE_PHOTO, [position], photo_frames))
-
-    if not caption:
-        # Nothing to read anywhere in this chapter: the card carries it.
+    if not caption and scenes:
+        # Nothing to read anywhere in this chapter: the first scene keeps
+        # it on screen a moment longer.
         scenes[0]["frames"] += 15
     return scenes
+
+
+def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float]]:
+    """Which shots a day is made of, and their relative weights.
+
+    Shape only - no durations. That separation is the point of this
+    rewrite: how a day is *composed* depends on its style and how much
+    material it has, while how long it *runs* is a property of the day
+    itself. Deciding both in one pass is what made a picture buy its own
+    seconds, and therefore what made a richer day only a longer one.
+
+    The weights say how the day's time is shared, not how much it is. A
+    hero is worth more than a plain still because it is meant to be
+    looked at; a group is worth more than a single because there is more
+    in it - but four pictures in one group still cost far less than four
+    pictures in a row, which is what lets a day show more memories inside
+    the same minute.
+    """
+    indices = list(range(photo_count))
+    shots: list[tuple[str, list[int], float]] = []
+    if not indices:
+        return shots
+
+    if style == "collage":
+        # Everything grouped, in chunks a viewer can actually read.
+        for position in range(0, len(indices), GROUP_SIZE):
+            shots.append((SCENE_COLLAGE, indices[position : position + GROUP_SIZE], 1.5))
+        return shots
+
+    if style == "map_focus":
+        # The map is the act. One picture closes the day, and anything
+        # else the day has is grouped behind it rather than thrown away -
+        # which is what the previous version claimed and did not do: it
+        # took the first four of the rest and dropped the remainder, so a
+        # map-focus day with seven pictures quietly showed five.
+        shots.append((SCENE_HERO, indices[:1], 1.6))
+        rest = indices[1:]
+        if len(rest) == 1:
+            shots.append((SCENE_PHOTO, rest, 1.0))
+        else:
+            for position in range(0, len(rest), GROUP_SIZE):
+                shots.append((SCENE_COLLAGE, rest[position : position + GROUP_SIZE], 1.3))
+        return shots
+
+    rest = indices
+    if style in ("hero", "compact") or len(indices) >= 3:
+        # A day with real material opens on one picture rather than
+        # starting straight into a sequence.
+        shots.append((SCENE_HERO, rest[:1], 1.7))
+        rest = rest[1:]
+
+    singles = rest[:MAX_SINGLES_PER_CHAPTER]
+    grouped = rest[MAX_SINGLES_PER_CHAPTER:]
+    for position in singles:
+        shots.append((SCENE_PHOTO, [position], 1.0))
+    # Beyond a few stills in a row the day stops being a sequence and
+    # becomes a slideshow, so the remainder is grouped.
+    for position in range(0, len(grouped), GROUP_SIZE):
+        shots.append((SCENE_COLLAGE, grouped[position : position + GROUP_SIZE], 1.4))
+    return shots
+
+
+def _minimum_for(kind: str) -> int:
+    """The shortest a shot of this kind may be held."""
+    return MIN_GROUP_FRAMES if kind in (SCENE_COLLAGE, SCENE_HERO) else MIN_PHOTO_FRAMES
+
+
+def _compress(
+    shots: list[tuple[str, list[int], float]], budget: int
+) -> list[tuple[str, list[int], float]]:
+    """Group singles until the day fits, instead of letting it run over.
+
+    This is where "more pictures, not more minutes" actually happens. When
+    the floors add up to more than the day is worth, the choice is between
+    a longer day, shorter-than-readable stills, or showing the same
+    memories together instead of one after another. The third is the only
+    one that costs nothing: four pictures in a group take roughly the time
+    of one and a half stills, and the viewer sees all four.
+
+    Singles are merged from the back, so the day keeps its opening shot
+    and loses its repetition rather than its shape.
+    """
+    working = list(shots)
+    while sum(_minimum_for(kind) for kind, _, _ in working) > budget:
+        singles = [i for i, (kind, _, _) in enumerate(working) if kind == SCENE_PHOTO]
+        if len(singles) >= 2:
+            last, before = singles[-1], singles[-2]
+            merged = working[before][1] + working[last][1]
+            working[before] = (SCENE_COLLAGE, merged, 1.4)
+            del working[last]
+            continue
+        # No two singles left. Merge the last two shots of any kind
+        # instead - a bigger group is still every picture on screen,
+        # while overrunning by half a minute is a day pretending to be
+        # more important than it is. Merging stops at twice the normal
+        # group, beyond which nobody can read it.
+        if len(working) >= 2 and len(working[-2][1]) + len(working[-1][1]) <= GROUP_SIZE * 2:
+            merged = working[-2][1] + working[-1][1]
+            working[-2] = (SCENE_COLLAGE, merged, 1.5)
+            working.pop()
+            continue
+        # Nothing further can be merged without throwing a picture away,
+        # and a day that is genuinely full is allowed to be longer than a
+        # day that is not.
+        break
+    return working
+
+
+def _fit_to_budget(
+    shots: list[tuple[str, list[int], float]], budget: int
+) -> list[tuple[str, list[int], int]]:
+    """Divide a day's time among its shots, by weight and never below a floor.
+
+    The budget may honestly not be enough: ten pictures cannot all be
+    shown for two seconds inside nine seconds of film. When that happens
+    the day runs over rather than showing flickers - the floors win. A
+    day that is genuinely full is allowed to be longer than a day that is
+    not, which is different from every day growing with its library.
+    """
+    if not shots:
+        return []
+    shots = _compress(shots, budget)
+    total_weight = sum(weight for _, _, weight in shots) or 1.0
+    fitted: list[tuple[str, list[int], int]] = []
+    for kind, indices, weight in shots:
+        share = round(budget * (weight / total_weight))
+        fitted.append((kind, indices, max(_minimum_for(kind), share)))
+    return fitted
 
 
 def build_scene_plan(

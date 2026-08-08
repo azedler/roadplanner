@@ -72,7 +72,11 @@ export type MapChapter = {
   bbox: [number, number, number, number];
   hasFerry: boolean;
   estimated: boolean;
+  places: MapPlace[];
 };
+
+/** A named stop the map may label, rank 0 being the day's destination. */
+export type MapPlace = { name: string; point: MapPoint; rank: number };
 
 export type MapContext = {
   bbox: [number, number, number, number];
@@ -87,12 +91,18 @@ export type MapContext = {
 // are the only two things on this map allowed to be bright.
 const WATER = "#0e1723";
 const LAND = "#33404f";
-const BORDER = "#5b6d81";
-const ROUTE_DONE = "#6d7b8d";
+const BORDER = "#71879e";
+// The route already travelled. Brighter than it was: it is the film's
+// memory of the journey and has to stay readable next to today's leg
+// without competing with it.
+const ROUTE_DONE = "#8595a8";
 const ROUTE_LIVE = "#e8823f";
 const FERRY = "#5fb3c4";
 const LABEL = "#cfdae6";
 const COUNTRY_LABEL = "#8296ab";
+// Roughly the drawn width of the camper, so a label is dropped when it
+// would sit behind it rather than beside it.
+const CAMPER_LABEL_CLEARANCE = 46;
 
 const worldTopology = world as unknown as {
   objects: { land: GeometryCollection; countries: GeometryCollection };
@@ -395,6 +405,10 @@ export const TripMap: React.FC<TripMapProps> = ({
   children,
 }) => {
   const transform = cameraTransform(projection, camera);
+  // Where the vehicle is on screen, so labels can keep out of its way.
+  const camperScreen = camper
+    ? onScreen(projection, camera, projection.project(camper.position))
+    : null;
   return (
     <svg
       width={projection.width}
@@ -408,10 +422,10 @@ export const TripMap: React.FC<TripMapProps> = ({
           d={projection.borderPath}
           fill="none"
           stroke={BORDER}
-          strokeWidth={1.4}
+          strokeWidth={1.7}
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
-          opacity={0.85}
+          opacity={0.95}
         />
         {past.map((chapter) =>
           chapter.segments.map((segment, position) => (
@@ -427,7 +441,7 @@ export const TripMap: React.FC<TripMapProps> = ({
               strokeDasharray={
                 segment.mode === "ferry" ? "9 7" : segment.mode === "direct" ? "3 8" : undefined
               }
-              opacity={pastStroke === ROUTE_DONE ? 0.7 : 0.95}
+              opacity={pastStroke === ROUTE_DONE ? 0.82 : 0.95}
             />
           )),
         )}
@@ -455,6 +469,15 @@ export const TripMap: React.FC<TripMapProps> = ({
         const [x, y] = onScreen(projection, camera, projection.project(label.point));
         if (x < -200 || y < -200 || x > projection.width + 200 || y > projection.height + 200) {
           return null;
+        }
+        // The camper stands on the place it has just reached, so its
+        // label lands underneath the vehicle. Dropping it is right
+        // rather than nudging it: the caption along the bottom already
+        // names where the day ends, and a name half behind a van reads
+        // as a mistake in a way that no name does not.
+        if (camperScreen) {
+          const gap = Math.hypot(x - camperScreen[0], y - camperScreen[1]);
+          if (gap < CAMPER_LABEL_CLEARANCE) return null;
         }
         return label.kind === "country" ? (
           <text

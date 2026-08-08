@@ -6,6 +6,50 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.49.0] - 2026-08-08
+
+### Fixed
+
+- **Ein Halt unterwegs wurde als Tagesziel erzählt.** Am ersten echten Reisetag gab es drei Stopps: zuhause los, ein Spielplatz am See, und danach der tatsächliche Übernachtungsplatz – 313,8 km für den ganzen Tag. Geschrieben wurde daraus „Nach den ersten 313,8 Kilometern Fahrt haben wir den Nugget direkt am Spielplatz am See geparkt". Der mittlere Stopp wird damit zum Ziel, und die Tageskilometer fallen der Strecke davor zu. Dass es danach weiterging, fehlt ganz.
+
+  **Erfunden war daran nichts** – und genau deshalb konnte die Regel „erfinde nichts" es nicht verhindern. Beide Tatsachen standen in den Daten; keine stand in einer Form, die lesbar war. Der Erzähler bekam eine Liste von Namen, und eine Liste von Namen sagt nicht, an welchem davon der Tag endete.
+
+  Jeder Stopp trägt jetzt mit, **was er für den Tag war** – Start, unterwegs, Tagesziel –, abgeleitet aus der Position, die verbindlich ist, weil die Stopps in Fahrtreihenfolge stehen. Dazu Ankunftszeit und Art (etwa „wildcamp"), soweit vorhanden. Und die Anweisung sagt ausdrücklich, dass ein Halt unterwegs **nie** das Tagesziel ist, dass die Reise danach weiterging, und dass Kilometer und Fahrzeit für den **ganzen Tag** gelten und nicht für die Strecke bis zu einem einzelnen Stopp. Der Untertitel im Film stammt aus demselben Durchgang und wird damit ebenfalls richtig.
+
+### Changed
+
+- **Ein Reisetag zeigt jetzt so viele Erinnerungen, wie er hergibt – ohne dass der Film proportional länger wird.** Der fertige Film las sich über weite Strecken als „Anmoderation, ein Foto, nächster Tag", während die Mediathek hunderte kuratierte Bilder hielt. Die Ursache war, dass **Medienbudget und Zeitbudget dieselbe Zahl waren**: Jedes Bild kaufte seine eigenen Sekunden, also konnte „mehr zeigen" nur „länger laufen" heißen, und die einzige Art, den Film kurz zu halten, war, Bilder wegzulassen.
+
+  Die beiden sind jetzt getrennt. Ein Tag ist **seiner Bedeutung nach** eine bestimmte Zeit wert (Transfertag 8 s, normal 12,5 s, Highlight 16,5 s, großes Highlight 21 s), und was er hat, wird da hineingelegt: Viele Bilder heißen kürzer stehen und mehr gruppieren, wenige Bilder heißen mehr Raum je Bild. Die Bildzahl je Tag steigt von 1/2/3/4 auf **2/4/6/8**, die Obergrenze je Tag von 4 auf 10 und für die ganze Reise von 90 auf 180.
+
+  Gemessen am 25-Tage-Testfilm: **112 statt 60 gezeigte Bilder bei 23 % mehr Länge** statt 87 %. Reicht die Zeit nicht für alle Einzelbilder, werden sie zu Gruppen zusammengefasst statt den Tag zu verlängern – vier Bilder in einer Gruppe kosten etwa so viel wie anderthalb Einzelbilder, und man sieht alle vier.
+
+  Ein Tag, der wenig hat, bleibt weiterhin kurz: Das Zeitbudget ist eine Obergrenze, keine Vorgabe. Einen dünnen Tag auf Highlight-Länge aufzublasen wäre eine Behauptung, die mit Bildschirmzeit gemacht wird.
+
+- **Transfertage und Map-Focus-Tage bekommen keine eigene Titelkarte mehr**, wenn sie eine Karte haben. Die Kartenszene trägt Tagesnummer, Datum, Land und Titel ohnehin an ihrer Unterkante – dieselben Worte vorher auf schwarzem Grund sind ein zweiter Titel für dieselbe Sache, und dreiundzwanzig davon hintereinander waren ein guter Teil der Monotonie. Ohne Karte bleibt die Karte, denn dann benennt nichts anderes den Tag.
+
+### Added
+
+- **Die Karte beschriftet, wo die Reise hinführt.** Das Tagesziel steht an jedem Zoom auf der Karte; zoomt die Kamera in die Tagesetappe hinein, kommen die übrigen Stopps des Tages dazu; auf dem Überblick sind es die Ziele früherer Tage, über die Reise verteilt statt vom Anfang gezählt. Höchstens fünf Beschriftungen gleichzeitig – darüber ist es die überladene Straßenkarte, die ausdrücklich nicht gewollt ist.
+
+  Die Namen kommen aus den **eigenen Stopps der Reise**, nicht aus einem Ortsverzeichnis. Eine Liste großer Städte würde Namen auf die Karte setzen, die mit der Reise nichts zu tun haben – und was man auf seiner eigenen Karte lesen will, ist, wo man war.
+
+- **Character Assets: eine bestätigte Zeichnung des echten Campers.** Aus dem vorhandenen Fahrzeugfoto wird **einmal** eine Illustration abgeleitet, jemand sieht sie sich an, und ab dann liest jeder Render dieselbe Datei. Ein Bild pro Rendervorgang wäre langsam, teuer und – der eigentliche Punkt – würde zwei Renders derselben Reise zu zwei verschiedenen Filmen machen. Ein Modell liefert nie zweimal dasselbe Bild.
+
+  Erzeugtes landet als **Kandidat** und wird erst durch eine Bestätigung zu dem Bild, das Filme verwenden dürfen. Der Dateiname folgt dem, woraus das Bild entstand: neues Foto oder neue Beschreibung heißt neuer Name, also kann nie ein veraltetes Bild für eine geänderte Anfrage ausgeliefert werden. Zwei Ansichten sind vorgesehen – Dreiviertelansicht für die Karte, Seitenansicht für Vor- und Abspann –, und dieselbe Struktur trägt später die Crewfiguren.
+
+  Ohne bestätigtes Asset zeichnet der Film den Camper wie bisher. Das ist ein schlechteres Bild und ein vollständiger Film.
+
+- **Lyria als optionale KI-Musikquelle.** Standardmäßig **aus**. Es gibt keinen Weg von „Film rendern" zu „Lyria aufrufen": Der Export liest einen Ordner mit Audiodateien, mehr nicht. Erzeugen ist eine eigene Aktion, die man bewusst auslöst, nachdem ein **Preis genannt** wurde – Modell, Länge, geschätzte Kosten in Euro und der Hinweis, dass es eine Schätzung ist.
+
+  Erzeugte Musik landet **im selben Ordner** wie eigene Dateien, unter einem aus dem Reisebrief abgeleiteten Namen. Damit ist der Cache der Ordner: Ein zweiter Render findet den Titel auf dem ganz normalen Weg und kostet nichts, und zwei Filme derselben Reise klingen gleich. Der Musikbrief kommt aus den Motiven, die die Erzählebene ohnehin schon gefunden hat – warm, nordisch, leicht verspielt, instrumental, zurückhaltend.
+
+### Changed
+
+- **Die Kamera folgt dem Camper leicht gedämpft**, statt während der Fahrt stillzustehen. Nur ein Teil des Weges und höchstens bis zu einer festen Grenze: Wäre sie starr am Fahrzeug, klebte der Camper in der Bildmitte und die Karte glitte darunter weg – das liest sich als bewegte Welt statt als Reise. Bliebe sie ganz stehen, liefe der Camper an langen Tagen aus dem Bild.
+
+- **Die bereits gefahrene Strecke ist deutlicher zu sehen** und die Ländergrenzen ebenfalls. Die vergangene Route ist das Gedächtnis des Films; sie muss neben der heutigen Etappe lesbar bleiben, ohne mit ihr zu konkurrieren.
+
 ## [4.48.0] - 2026-08-08
 
 ### Changed

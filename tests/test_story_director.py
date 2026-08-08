@@ -262,3 +262,63 @@ verify_the_stored_pass_names_the_material_it_was_written_for()
 verify_the_directed_text_reaches_the_manifest_but_loses_to_a_person()
 verify_the_prompt_forbids_what_no_filter_could_catch()
 print("Story director tests passed.")
+
+def verify_a_stop_says_what_it_was_to_the_day() -> None:
+    """The lake was a stop on the way, and the story parked there for the night.
+
+    First real day of the first real trip: three stops - home, a lake
+    where the family swam and ate, then the actual overnight place - and
+    313.8 km for the whole day. What came back was "after the first 313.8
+    kilometres we parked the Nugget at the lake", which makes the middle
+    stop the destination and puts the entire day's driving before it.
+    Both facts were in the data. Neither was in a form a reader could
+    use: the brief was a list of names, and a list of names does not say
+    which of them the day ended at.
+
+    So the position - which is authoritative, because the stops are in
+    travel order - is now stated rather than left to be inferred.
+    """
+    chapter = {
+        "chapter_id": "day-1",
+        "date": "2026-07-14",
+        "base": {"title": "Abfahrt"},
+        "facts": {"day_number": 1, "stop_count": 3, "distance_km": 313.8},
+        "stops": [
+            {"name": "Krumhermsdorf", "kind": "", "arrival_time": "16:01"},
+            {"name": "Spielplatz am See", "kind": "Wegpunkt", "arrival_time": ""},
+            {"name": "Uebernachtungsplatz", "kind": "wildcamp", "arrival_time": ""},
+        ],
+    }
+    stops = director.chapter_brief(chapter)["stops"]
+    assert "Start" in stops[0], stops
+    assert "unterwegs" in stops[1], stops
+    assert "Tagesziel" in stops[2], stops
+    # The kind still travels: "wildcamp" says something a position cannot.
+    assert "wildcamp" in stops[2], stops
+    assert "16:01" in stops[0], stops
+
+    # A day with a single stop ends there; it is not a stop on the way to
+    # nowhere.
+    single = director.chapter_brief({**chapter, "stops": [chapter["stops"][1]]})["stops"]
+    assert "Tagesziel" in single[0], single
+    assert "unterwegs" not in single[0], single
+
+
+def verify_the_prompt_explains_what_a_stop_on_the_way_means() -> None:
+    """Naming the role is only half of it; the reader has to know the word.
+
+    A rule that says "do not invent" cannot prevent this mistake, because
+    nothing was invented - the model read a real list and drew the wrong
+    conclusion from it. What stops it is saying, in the instructions,
+    that a stop in the middle is not a destination and that the day's
+    kilometres belong to the day.
+    """
+    prompt = director.CHAPTER_SYSTEM_PROMPT
+    assert "unterwegs" in prompt
+    assert "Tagesziel" in prompt
+    assert "weitergegangen" in prompt, "der Prompt muss sagen, dass es danach weitergeht"
+    assert "ganzen Tag" in prompt, "die Tageskilometer duerfen keinem Einzelstopp zufallen"
+
+
+verify_a_stop_says_what_it_was_to_the_day()
+verify_the_prompt_explains_what_a_stop_on_the_way_means()

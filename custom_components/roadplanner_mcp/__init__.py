@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, llm
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .assistant import RoadplannerAssistant
@@ -190,7 +191,9 @@ from .story_direction_store import StoryDirectionStore
 from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
+from .character_asset_store import CharacterAssetStore
 from .trip_film_export import TripFilmExporter
+from .trip_film_music_service import TripFilmMusicService
 from .trip_summary_service import TripSummaryService
 from .trip_video_export import TripVideoExporter
 from .trip_pdf_library_http import async_register_trip_pdf_library_view
@@ -236,6 +239,8 @@ class RoadplannerRuntimeData:
     story_director: StoryDirectorService
     story_overrides: StoryOverrideService
     trip_film: TripFilmExporter
+    film_music: TripFilmMusicService
+    character_assets: CharacterAssetStore
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -749,6 +754,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     # The first consumer of the manifest. It reads the description and
     # translates it; it never decides what a day is about.
+    # Confirmed illustrations of the camper and, later, the crew. Beside
+    # the portraits rather than inside them: a portrait is derived from a
+    # photograph and can be re-made, a generated illustration cannot.
+    character_assets = CharacterAssetStore(archive_root / "character_assets")
     trip_film = TripFilmExporter(
         hass,
         manager,
@@ -758,6 +767,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         media_cache=media_cache,
         crew=crew,
         crew_portraits=crew_portraits,
+        characters=character_assets,
+    )
+    # Its own service, and deliberately not a method on the exporter: the
+    # exporter must have no way to reach a paid call, however convenient
+    # a "generate if missing" would look in a future edit.
+    film_music = TripFilmMusicService(
+        hass,
+        story_context,
+        lambda: async_get_clientsession(hass),
+        api_key_provider=lambda: str(options.get(CONF_GEMINI_API_KEY, "") or ""),
     )
 
     trip_summaries = TripSummaryService(
@@ -799,6 +818,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         story_director=story_director,
         story_overrides=story_overrides,
         trip_film=trip_film,
+        film_music=film_music,
+        character_assets=character_assets,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
