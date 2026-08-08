@@ -1,3 +1,4 @@
+import { actionButton } from "../lib/action-button.js";
 import { escapeHtml, cleanText } from "../lib/core-helpers.js";
 import { stopIcons } from "../lib/constants.js";
 
@@ -623,7 +624,10 @@ export const routeMapMixin = {
             </div>
             ${this._canEdit() ? `
               <div class="action-group-row">
-                <button class="secondary-button" type="button" data-action="generate-trip-summaries"${this._generatingSummaries || this._tripSummaryStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:text-box-edit-outline"></ha-icon> ${this._tripSummaryStatus?.state === "running" ? "Zusammenfassungen werden geschrieben …" : "Zusammenfassungen schreiben"}</button>
+                ${actionButton(this._actionCosts(), "generate-trip-summaries", "Zusammenfassungen schreiben lassen", {
+                  busy: this._generatingSummaries || this._tripSummaryStatus?.state === "running",
+                  busyLabel: "Zusammenfassungen werden geschrieben …",
+                })}
               </div>` : ""}
             ${this._data?.settings?.video_export_available ? `
               <div class="action-group-row">

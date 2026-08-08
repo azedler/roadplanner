@@ -5,13 +5,17 @@ const source =
   fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/media.js", "utf8") +
   fs.readFileSync("custom_components/roadplanner_mcp/frontend/features/trip-day-stop.js", "utf8");
 
-if (!source.includes('data-action="media-curate-stop"')) {
+// The action has to be offered; the markup that draws it is not this
+// test's business. Both curation buttons now go through the shared
+// action helper, which is what marks them as costing quota - checking
+// for the raw attribute checked the spelling instead of the feature.
+if (!source.includes('"media-curate-stop"')) {
   throw new Error("Stop albums must expose manual Vision re-evaluation when enabled");
 }
 if (!source.includes('"media_curate_stop"')) {
   throw new Error("The panel must call the media_curate_stop backend action");
 }
-if (!source.includes('data-action="media-curate-trip"')) {
+if (!source.includes('"media-curate-trip"')) {
   throw new Error("The media page must allow a bounded trip-level re-evaluation when Vision is enabled");
 }
 if (!source.includes('"media_curate_trip"')) {

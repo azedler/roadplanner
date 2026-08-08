@@ -32,7 +32,11 @@ assert 'in {"hybrid_vision", "manual"}' in MANAGER
 
 assert 'DEFAULT_MEDIA_CURATION_MODE = "local"' in CONFIG
 assert 'MEDIA_CURATION_MODES = ("local", "hybrid")' in CONFIG
-assert 'data-action="media-curate-stop"' in PANEL
+# The per-stop curation has to be offered; how it is drawn is not this
+# test's business. It used to be a hand-written button and is now rendered
+# through the shared action helper, which is what puts a price on it -
+# pinning the markup pinned the spelling rather than the feature.
+assert '"media-curate-stop"' in PANEL
 assert "Lokal vorgefiltert · KI kuratiert" in PANEL
 
 print("Gemini Vision local-first contract tests passed.")
