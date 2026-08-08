@@ -39,6 +39,7 @@ def load(name: str):
 
 maps = load("trip_map_context")
 plan = load("trip_film_plan")
+bounded = load("bounded_json")
 
 
 def _line(points: list[tuple[float, float]]) -> dict:
@@ -285,7 +286,95 @@ def verify_the_map_takes_time_rather_than_adding_it() -> None:
                     )
 
 
+def verify_the_map_reads_the_projection_that_still_has_coordinates() -> None:
+    """The bug a real trip found, in the shape that produced it.
+
+    A day carries its route twice, and the two are not interchangeable.
+    Both pass through the same sanitiser, but the copy inside ``details``
+    starts two levels deeper - and the depth limit lands exactly on the
+    coordinate pairs, so every ``[lon, lat]`` in there is the string
+    "<gekürzt: maximale Verschachtelung>".
+
+    Reading ``details`` made a 23-day trip with routes on every day
+    report "Karte: keine". The earlier test did not catch it because it
+    handed ``chapter_map`` a day of its own making, in exactly the shape
+    the code expected. This one runs the real sanitiser first.
+    """
+    line = [[10.0 + step * 0.01, 54.0 + step * 0.01] for step in range(60)]
+    segments = [{"mode": "driving", "geometry": {"type": "LineString", "coordinates": line}}]
+
+    # What `_compact_day` actually produces: the summary beside the day,
+    # and the same route inside `details`, both sanitised.
+    day = {
+        "id": "day-1",
+        "routing": {"segments": bounded._bounded_json_value(segments, max_items=200, max_string=500)},
+        "details": bounded._bounded_json_value(
+            {"routing": {"segments": segments}}, max_items=100, max_string=4_000
+        ),
+    }
+    # The trap itself, asserted so nobody has to rediscover it.
+    buried = day["details"]["routing"]["segments"][0]["geometry"]["coordinates"]
+    assert all(isinstance(point, str) for point in buried), (
+        "wenn das je wieder Koordinaten sind, darf diese Regel neu bewertet werden"
+    )
+
+    result = maps.chapter_map(day, [])
+    assert result is not None, "die Karte muss die brauchbare Kopie finden"
+    assert result["point_count"] >= 2
+    assert result["estimated"] is False
+
+
+def verify_a_stop_coordinate_is_read_under_its_real_name() -> None:
+    """Roadplanner stores latitude/longitude. Only lat/lon was read.
+
+    Every stop of a real trip had a coordinate and the map reported
+    having none - the second half of the same failure.
+    """
+    day = {"id": "day-1", "details": {}}
+    stops = [
+        {"id": "a", "name": "Ort", "location": {"latitude": 54.0, "longitude": 10.0}},
+        {"id": "b", "name": "Ort", "location": {"latitude": 55.0, "longitude": 11.0}},
+    ]
+    result = maps.chapter_map(day, stops)
+    assert result is not None, "latitude/longitude muss gelesen werden"
+    assert result["estimated"] is True
+    assert result["segments"][0]["points"] == [[10.0, 54.0], [11.0, 55.0]]
+
+    # The short names keep working, and so does lng.
+    short = maps.chapter_map(
+        day,
+        [
+            {"id": "a", "location": {"lat": 54.0, "lon": 10.0}},
+            {"id": "b", "location": {"lat": 55.0, "lng": 11.0}},
+        ],
+    )
+    assert short is not None
+
+
+def verify_a_route_without_segments_is_still_a_route() -> None:
+    """Routes calculated before segments existed have one line for the day.
+
+    Skipping them would have left older trips mapless for a reason that
+    has nothing to do with where they went.
+    """
+    line = [[10.0, 54.0], [10.4, 54.3], [10.9, 54.9]]
+    day = {
+        "id": "day-1",
+        "routing": {"geometry": {"type": "LineString", "coordinates": line}},
+    }
+    result = maps.chapter_map(day, [])
+    assert result is not None
+    assert [segment["mode"] for segment in result["segments"]] == [maps.MODE_DRIVING]
+    # It is a real road route, so it is not marked as a guess - it simply
+    # cannot say where a ferry was, and nothing here pretends otherwise.
+    assert result["estimated"] is False
+    assert result["has_ferry"] is False
+
+
 verify_a_ferry_is_a_fact_and_not_a_guess()
+verify_the_map_reads_the_projection_that_still_has_coordinates()
+verify_a_stop_coordinate_is_read_under_its_real_name()
+verify_a_route_without_segments_is_still_a_route()
 verify_a_deliberate_gap_is_drawn_as_nothing()
 verify_an_uncalculated_day_says_so()
 verify_the_shape_survives_the_budget()
