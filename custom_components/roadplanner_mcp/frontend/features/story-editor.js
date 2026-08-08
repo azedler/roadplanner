@@ -82,9 +82,51 @@ export const storyEditorMixin = {
     return this._storyChapters().some((chapter) => this._storyDirty(chapter));
   },
 
-  async _storyLoad({ force = false } = {}) {
+  /**
+   * Load the story when the tab is opened, rather than asking first.
+   *
+   * There used to be a button, and the reason for it has gone. Building
+   * a manifest calls no model and costs nothing: it is a read of the
+   * roadbook, cached against the revision. So "Reisegeschichte öffnen"
+   * asked the reader to confirm the very thing they had already asked
+   * for by opening the tab - a click whose only possible answer was yes.
+   *
+   * Once per trip, and free after that, in the same shape as
+   * `_rendererAppAdoptOnce`: called from render, never making the render
+   * wait on it.
+   */
+  _storyLoadOnce() {
+    if (this._storyLoadTriedFor === this._selectedTripId) return;
+    this._storyLoadTriedFor = this._selectedTripId;
+    // Quiet: this is the tab loading itself, not the reader asking for
+    // something. A failure becomes the card's own state below.
+    // Deferred by a microtask, not called straight away. `_storyLoad`
+    // renders before its first await, and this runs FROM a render - so a
+    // direct call would rebuild the page in the middle of building it.
+    void Promise.resolve().then(() => this._storyLoad({ quiet: true }));
+  },
+
+  /**
+   * Forget the story when the trip changes.
+   *
+   * Nothing did this, so switching trips left the previous trip's
+   * chapters on screen under the new trip's name - and its drafts in the
+   * editor, one save away from being written to a day that belongs to
+   * somebody else's journey.
+   */
+  _storyResetForTrip() {
+    this._storyManifest = null;
+    this._storyChapterId = "";
+    this._storyDrafts = {};
+    this._storyDirector = null;
+    this._storyLoadTriedFor = null;
+    this._storyLoadFailed = false;
+  },
+
+  async _storyLoad({ force = false, quiet = false } = {}) {
     if (this._storyLoading) return;
     this._storyLoading = true;
+    this._storyLoadFailed = false;
     this._render({ preserveScroll: true });
     try {
       const result = await this._runAction(
@@ -94,6 +136,7 @@ export const storyEditorMixin = {
         {
           refresh: false,
           blockUi: false,
+          errorMode: quiet ? "silent" : "toast",
           errorTitle: "Die Reisegeschichte konnte nicht geladen werden",
         },
       );
@@ -102,6 +145,11 @@ export const storyEditorMixin = {
         if (!this._storyChapterId) {
           this._storyChapterId = this._storyChapters()[0]?.chapter_id || "";
         }
+      } else {
+        // `_runAction` never throws - it returns null and shows a toast.
+        // Remembered here because the automatic attempt happens once, so
+        // without this the card would have no way back from a failure.
+        this._storyLoadFailed = true;
       }
     } finally {
       this._storyLoading = false;
@@ -228,7 +276,7 @@ export const storyEditorMixin = {
       "story_director_status",
       { trip_id: this._selectedTripId },
       "",
-      { refresh: false, blockUi: false, errorTitle: "" },
+      { refresh: false, blockUi: false, errorMode: "silent", errorTitle: "" },
     );
     if (result?.story_director) {
       this._storyDirector = result.story_director;
@@ -520,17 +568,24 @@ export const storyEditorMixin = {
     // A film started here can outlive the page. Asking once, on the way
     // in, is what makes it findable again after a reload.
     this._rendererAppAdoptOnce();
+    // Opening the tab IS the request. See _storyLoadOnce.
+    this._storyLoadOnce();
     const manifest = this._storyManifest;
     if (!manifest) {
       return `<section class="panel-card">
         <div class="section-heading compact"><div><span class="eyebrow">Redaktion</span><h2>Reisegeschichte</h2></div></div>
         <p class="hint">Die Kapitel entstehen aus dem Roadbook, den Tageszusammenfassungen und den zugeordneten Fotos. Bearbeitet werden nur Titel und Text – Stopps, Zeiten und Strecken bleiben unberührt.</p>
-        <div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:book-open-page-variant-outline"></ha-icon> ${this._storyLoading ? "Lädt …" : "Reisegeschichte öffnen"}</button></div>
         ${
-          // Below the primary action, not above it. On the closed card
-          // this block is a footnote about the last film; putting it
-          // first pushed "Reisegeschichte öffnen" - the thing the card
-          // exists for - underneath a download link (live screenshot).
+          this._storyLoadFailed
+            ? `<p class="hint">Die Reisegeschichte ließ sich gerade nicht laden – oft ist die Verbindung nur kurz weg gewesen. Der Reise ist dabei nichts passiert: gelesen wird hier nur.</p>
+               <div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon> ${this._storyLoading ? "Lädt …" : "Erneut versuchen"}</button></div>`
+            : `<p class="hint"><ha-icon icon="mdi:book-open-page-variant-outline"></ha-icon> Die Reisegeschichte wird geladen …</p>`
+        }
+        ${
+          // Below the rest, not above it: on the closed card this block
+          // is a footnote about the last film, and putting it first
+          // pushed the thing the card exists for underneath a download
+          // link (live screenshot).
           this._renderStoryFilmJobLine()
         }
       </section>`;
