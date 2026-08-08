@@ -356,6 +356,9 @@ export const FILM_SCENE_TYPES = new Set([
   "text",
   "outro",
   "outro_collage",
+  "map_start",
+  "map_leg",
+  "map_full",
 ]);
 // Bounds, so a malformed plan cannot ask for an hour of video or ten
 // thousand sequences.
@@ -438,6 +441,20 @@ export function parseFilmPackage(raw) {
         path: filmPhotoPath(image.path, index, position + 1),
         sizeBytes: size,
         sha256: image.sha256,
+        // How the picture is shaped. A portrait photograph filled into a
+        // 16:9 frame loses its top and bottom, which is where the sky and
+        // the person are, so the composition needs to know before it
+        // decides how to place it.
+        width: Number.isInteger(image.width) && image.width > 0 ? image.width : 0,
+        height: Number.isInteger(image.height) && image.height > 0 ? image.height : 0,
+        orientation: FILM_ORIENTATIONS.has(image.orientation)
+          ? image.orientation
+          : "landscape",
+        // Two colours sampled from the picture itself, so the space
+        // beside an upright photograph can be filled without filtering
+        // a full frame thirty times a second.
+        colorTop: filmColour(image.color_top, "#161d29"),
+        colorBottom: filmColour(image.color_bottom, "#0d121a"),
       };
     });
     return {
@@ -480,8 +497,139 @@ export function parseFilmPackage(raw) {
     },
     chapters: parsed,
     narrative: parseNarrative(payload.narrative),
+    mapContext: parseMapContext(payload.map_context),
     scenes: parseScenePlan(payload.scene_plan, parsed.length),
   };
+}
+
+export const FILM_ORIENTATIONS = new Set(["landscape", "portrait", "square"]);
+
+const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
+
+/** A colour, or the fallback. It reaches a stylesheet, so it is matched. */
+function filmColour(value, fallback) {
+  const text = String(value ?? "").toLowerCase();
+  return HEX_COLOUR_RE.test(text) ? text : fallback;
+}
+
+// --- the map context ----------------------------------------------------
+
+export const MAP_CONTEXT_VERSION = 1;
+export const MAP_SEGMENT_MODES = new Set(["driving", "ferry", "break", "direct"]);
+export const MAX_MAP_POINTS = 6000;
+
+/**
+ * The trip's geography, checked coordinate by coordinate.
+ *
+ * It is the only numeric input that reaches a projection, and a
+ * projection given NaN silently draws nothing rather than failing — a
+ * blank map with a successful exit code is the worst outcome available
+ * here, so every value is proven finite and in range before it is used.
+ *
+ * Absent is legal and is not the same as broken: a trip whose roadbook
+ * has no coordinates simply has no map, and the film renders without
+ * one. Present-but-malformed is refused.
+ */
+export function parseMapContext(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkontext ist kein Objekt.");
+  }
+  if (value.map_context_version !== MAP_CONTEXT_VERSION) {
+    throw new ProtocolError(
+      ERROR_UNSUPPORTED_PROTOCOL,
+      "Nicht unterstützte Version des Kartenkontexts.",
+    );
+  }
+  const chapters = value.chapters;
+  if (!Array.isArray(chapters) || !chapters.length || chapters.length > MAX_FILM_CHAPTERS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkontext ohne gültige Kapitelliste.");
+  }
+  let points = 0;
+  const parsed = chapters.map((chapter) => {
+    if (chapter === null || typeof chapter !== "object" || Array.isArray(chapter)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkapitel ist kein Objekt.");
+    }
+    const chapterId = cleanText(chapter.chapter_id, 200);
+    if (!chapterId) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkapitel ohne Kennung.");
+    }
+    const segments = chapter.segments;
+    if (!Array.isArray(segments) || !segments.length) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkapitel ohne Streckenabschnitte.");
+    }
+    const lines = segments.map((segment) => {
+      if (segment === null || typeof segment !== "object" || Array.isArray(segment)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Streckenabschnitt ist kein Objekt.");
+      }
+      if (!MAP_SEGMENT_MODES.has(segment.mode)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Streckenabschnitt mit unbekannter Art.");
+      }
+      const raw = segment.points;
+      if (!Array.isArray(raw) || raw.length < 2) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Streckenabschnitt ohne Punkte.");
+      }
+      points += raw.length;
+      return { mode: segment.mode, points: raw.map(mapPoint) };
+    });
+    return {
+      chapterId,
+      index: Number.isInteger(chapter.index) ? chapter.index : 0,
+      segments: lines,
+      start: mapPoint(chapter.start),
+      end: mapPoint(chapter.end),
+      bbox: mapBbox(chapter.bbox),
+      hasFerry: Boolean(chapter.has_ferry),
+      estimated: Boolean(chapter.estimated),
+    };
+  });
+  if (points > MAX_MAP_POINTS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Kartenkontext enthält zu viele Punkte.");
+  }
+  return {
+    bbox: mapBbox(value.bbox),
+    start: mapPoint(value.start),
+    end: mapPoint(value.end),
+    hasFerry: Boolean(value.has_ferry),
+    pointCount: points,
+    chapters: parsed,
+  };
+}
+
+/** One [lon, lat] pair, refused unless it is a real place on Earth. */
+function mapPoint(value) {
+  if (!Array.isArray(value) || value.length < 2) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Ungültige Koordinate im Kartenkontext.");
+  }
+  const lon = value[0];
+  const lat = value[1];
+  if (
+    typeof lon !== "number" ||
+    typeof lat !== "number" ||
+    !Number.isFinite(lon) ||
+    !Number.isFinite(lat) ||
+    lon < -180 ||
+    lon > 180 ||
+    lat < -90 ||
+    lat > 90
+  ) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Ungültige Koordinate im Kartenkontext.");
+  }
+  return [lon, lat];
+}
+
+function mapBbox(value) {
+  if (!Array.isArray(value) || value.length !== 4) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Ungültiger Kartenausschnitt.");
+  }
+  const [west, south, east, north] = [
+    mapPoint([value[0], value[1]]),
+    mapPoint([value[2], value[3]]),
+  ].flat();
+  if (east < west || north < south) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Kartenausschnitt ist verdreht.");
+  }
+  return [west, south, east, north];
 }
 
 /** The trip-level arc, or null. Absent and empty must stay different. */
@@ -549,6 +697,10 @@ function parseScenePlan(value, chapterCount) {
     return {
       type,
       chapterIndex,
+      // The map is addressed by chapter id, not by position: the map
+      // context skips chapters that have no geography, so its list and
+      // the film's list are deliberately not the same length.
+      chapterId: cleanText(scene.chapter_id, 200),
       frames,
       enter: cleanText(scene.enter, 20) || "fade",
       photos: (Array.isArray(scene.photos) ? scene.photos : [])

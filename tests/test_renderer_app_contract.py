@@ -406,6 +406,52 @@ def verify_every_planned_scene_type_has_a_component() -> None:
     assert not missing, f"Szenentypen ohne Komponente: {sorted(missing)}"
 
 
+def verify_the_world_outline_is_projected_once_per_view() -> None:
+    """Live failure: the 25-day CI film ran past its 1500-second limit.
+
+    Projecting Natural Earth is about a hundred thousand coordinate
+    transforms plus a path string of similar size. A React memo does not
+    save it: Remotion renders frames across several browser tabs that
+    each seek to arbitrary frames, so a component rarely gets to reuse
+    its own previous result and the outline was rebuilt for every one of
+    four thousand frames.
+
+    The fix is a module-level cache keyed by the view, which is checked
+    here because nothing else would notice it being removed - the film
+    would still be correct, just too slow to finish.
+    """
+    map_source = _js_code(APP / "src" / "remotion" / "TripMap.tsx")
+    assert "VIEW_CACHE" in map_source, "der Kartenausschnitt braucht einen Cache"
+    body = map_source.split("export const buildView", 1)[1]
+    assert "VIEW_CACHE.get(" in body, "buildView muss den Cache lesen"
+    assert "VIEW_CACHE.set(" in body, "buildView muss den Cache fuellen"
+    # And the projection happens there and nowhere else: a second call
+    # site would reintroduce the per-frame cost past the cache.
+    assert map_source.count("geoPath(") == 1, "geoPath gehoert genau an eine Stelle"
+
+
+def verify_no_full_frame_filter_reaches_the_film() -> None:
+    """Measured, not guessed: a blur was the most expensive thing here.
+
+    An upright photograph was shown whole with the same picture blurred
+    behind it. It looked good and cost 210 ms per frame against 46 ms for
+    the same picture shown landscape - a software renderer re-rasterises
+    a full-frame filter for every single frame - and on the 25-day film
+    that one effect was most of the reason the render passed its limit.
+
+    The surround is now two colours sampled from the picture in the
+    package, once, where the pixels are already open. This check exists
+    because the blur is the obvious thing to reach for again.
+    """
+    composition = _js_code(APP / "src" / "remotion" / "RoadplannerTripFilm.tsx")
+    assert "blur(" not in composition, "ein Vollbildfilter gehoert nicht in den Film"
+    # The colours have to arrive from the package rather than be invented
+    # in the composition, or the surround stops coming from the picture.
+    assert "colorTop" in composition and "colorBottom" in composition
+    package = (INTEGRATION / "trip_film_package.py").read_text(encoding="utf-8")
+    assert "def image_palette" in package
+
+
 def verify_the_film_gets_the_plan_rather_than_deriving_one() -> None:
     """Two places computing a length is one place computing it wrong."""
     render = (APP / "src" / "render.mjs").read_text(encoding="utf-8")
@@ -570,6 +616,8 @@ verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()
 verify_the_render_can_actually_be_triggered()
 verify_every_planned_scene_type_has_a_component()
+verify_the_world_outline_is_projected_once_per_view()
+verify_no_full_frame_filter_reaches_the_film()
 verify_the_film_gets_the_plan_rather_than_deriving_one()
 verify_no_diagnostic_text_reaches_the_film()
 verify_the_mini_export_is_wired_end_to_end()

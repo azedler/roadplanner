@@ -395,6 +395,12 @@ jobs:
           )
           plan_module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(plan_module)
+          map_spec = importlib.util.spec_from_file_location(
+              "trip_map_context",
+              "custom_components/roadplanner_mcp/trip_map_context.py",
+          )
+          map_module = importlib.util.module_from_spec(map_spec)
+          map_spec.loader.exec_module(map_module)
 
           DAYS = 25
           # The film has to look different from day to day, so the CI film
@@ -416,9 +422,15 @@ jobs:
               importance = WEIGHTS[day % len(WEIGHTS)]
               count = 0 if day == 6 else plan_module.PHOTO_WEIGHTS[importance]
               for slot in range(1, count + 1):
-                  picture = Image.new("RGB", (900, 600))
-                  for x in range(0, 900, 20):
-                      for y in range(0, 600, 20):
+                  # Every third picture is upright. A portrait photograph
+                  # filled into a 16:9 frame loses its top and bottom, so
+                  # the CI film has to contain some or the composition's
+                  # handling of them is never exercised.
+                  upright = (day + slot) % 3 == 0
+                  width, height = (600, 900) if upright else (900, 600)
+                  picture = Image.new("RGB", (width, height))
+                  for x in range(0, width, 20):
+                      for y in range(0, height, 20):
                           picture.paste(
                               ((x + day * 9) % 256, (y + slot * 40) % 256, (x + y) % 256),
                               (x, y, x + 20, y + 20),
@@ -434,6 +446,9 @@ jobs:
                           "path": relative,
                           "size_bytes": len(blob),
                           "sha256": hashlib.sha256(blob).hexdigest(),
+                          "width": width,
+                          "height": height,
+                          "orientation": "portrait" if upright else "landscape",
                       }
                   )
               chapters.append(
@@ -460,6 +475,46 @@ jobs:
                   }
               )
 
+          # The map, built by the real module from routing-shaped data -
+          # including a ferry, which the roadbook records as a mode rather
+          # than leaving to a guess.
+          map_chapters = []
+          for day in range(DAYS):
+              start = (23.0 + day * 0.35, 61.0 + day * 0.22)
+              end = (23.0 + (day + 1) * 0.35, 61.0 + (day + 1) * 0.22)
+              mode = "ferry" if day == 11 else "driving"
+              line = [
+                  [
+                      start[0] + (end[0] - start[0]) * step / 40,
+                      start[1] + (end[1] - start[1]) * step / 40,
+                  ]
+                  for step in range(41)
+              ]
+              routed = {
+                  "id": f"day-{day + 1}",
+                  "details": {
+                      "routing": {
+                          "segments": [
+                              {"mode": mode, "geometry": {"type": "LineString", "coordinates": line}}
+                          ]
+                      }
+                  },
+              }
+              map_chapters.append(
+                  {
+                      "chapter_id": f"day-{day + 1}",
+                      "index": day,
+                      "map": map_module.chapter_map(routed, []),
+                  }
+              )
+          map_context = map_module.validate_map_context(
+              map_module.build_map_context(map_chapters)
+          )
+          print(
+              f"Kartenkontext: {map_context['chapter_count']} Kapitel, "
+              f"{map_context['point_count']} Punkte, Faehre: {map_context['has_ferry']}"
+          )
+
           package = {
               "film_package_version": 1,
               "job_id": job_id,
@@ -480,6 +535,7 @@ jobs:
                   "closing": "Und endete mit Sand im Auto.",
                   "motifs": ["Wasser", "lange Abende"],
               },
+              "map_context": map_context,
               "chapters": chapters,
               "total_image_bytes": total,
           }
@@ -488,6 +544,7 @@ jobs:
               chapters=chapters,
               narrative=package["narrative"],
               outro_photos=[c["images"][0] for c in chapters if c["images"]][:6],
+              map_context=map_context,
           )
           seconds = plan_module.plan_seconds(package["scene_plan"])
           print(

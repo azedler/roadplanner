@@ -42,6 +42,7 @@ import io
 import logging
 from typing import Any
 
+from .trip_map_context import validate_map_context
 from .trip_film_plan import (
     OUTRO_COLLAGE_PHOTOS,
     build_scene_plan,
@@ -154,11 +155,88 @@ def shrink_film_photo(data: bytes) -> bytes | None:
     return shrunk
 
 
+# What a picture is shaped like. The film needs this because "object-fit:
+# cover" on a portrait photograph in a 16:9 frame cuts off the top and the
+# bottom - which is where the sky and the person usually are. Derived
+# here, in the rendering package, never in the story manifest: a
+# description of a journey does not care about aspect ratios.
+ORIENTATION_LANDSCAPE = "landscape"
+ORIENTATION_PORTRAIT = "portrait"
+ORIENTATION_SQUARE = "square"
+# Deliberately generous. A 4:3 photograph is not "square-ish" in any way
+# that changes how it should be shown; only something close to 1:1 is.
+_SQUARE_LOW = 0.9
+_SQUARE_HIGH = 1.1
+
+
+def image_shape(data: bytes) -> tuple[int, int, str]:
+    """Width, height and orientation of an already-prepared photo."""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as image:
+            width, height = image.size
+    except Exception:  # noqa: BLE001 - an unreadable size is not fatal
+        return 0, 0, ORIENTATION_LANDSCAPE
+    if not width or not height:
+        return 0, 0, ORIENTATION_LANDSCAPE
+    ratio = width / height
+    if _SQUARE_LOW <= ratio <= _SQUARE_HIGH:
+        orientation = ORIENTATION_SQUARE
+    elif ratio < 1:
+        orientation = ORIENTATION_PORTRAIT
+    else:
+        orientation = ORIENTATION_LANDSCAPE
+    return int(width), int(height), orientation
+
+
+# What a picture is made of, in two colours. The film shows an upright
+# photograph whole and has to fill the space beside it with something.
+#
+# The obvious answer - the same photograph, blurred and darkened - was
+# the first one built, and it was measured at 210 ms per frame against
+# 46 ms for the same picture shown landscape. A full-frame blur is
+# re-rasterised for every frame in a software renderer, and on the CI
+# film that one effect was most of the reason the render ran past its
+# time limit.
+#
+# Sampling the colours here instead costs a few milliseconds ONCE, in
+# the process that already has the pixels open. The surround is still
+# derived from the photograph rather than invented, and drawing it is a
+# gradient, which is free.
+_BACKDROP_DARKEN = 0.42
+
+
+def image_palette(data: bytes) -> tuple[str, str]:
+    """Two darkened colours: the top half of the picture, then the bottom."""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as image:
+            small = image.convert("RGB").resize((8, 8))
+            pixels = list(small.getdata())
+    except Exception:  # noqa: BLE001 - a picture nobody can read gets the default
+        return "#161d29", "#0d121a"
+
+    def average(values: list[tuple[int, int, int]]) -> str:
+        if not values:
+            return "#161d29"
+        count = len(values)
+        channels = [
+            min(255, max(0, int(sum(pixel[band] for pixel in values) / count * _BACKDROP_DARKEN)))
+            for band in range(3)
+        ]
+        return "#{:02x}{:02x}{:02x}".format(*channels)
+
+    return average(pixels[:32]), average(pixels[32:])
+
+
 def build_film_package(
     *,
     job_id: str,
     manifest: dict[str, Any],
     photos_by_chapter: dict[str, list[bytes]],
+    map_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Translate the manifest into a film package.
 
@@ -190,11 +268,20 @@ def build_film_package(
             path = photo_filename(index, slot)
             files[path] = blob
             total_bytes += len(blob)
+            width, height, orientation = image_shape(blob)
+            top, bottom = image_palette(blob)
             images.append(
                 {
                     "path": path,
                     "size_bytes": len(blob),
                     "sha256": hashlib.sha256(blob).hexdigest(),
+                    "width": width,
+                    "height": height,
+                    "orientation": orientation,
+                    # Sampled once here so the composition never has to
+                    # filter a full frame. See image_palette.
+                    "color_top": top,
+                    "color_bottom": bottom,
                 }
             )
         facts = source.get("facts") or {}
@@ -223,6 +310,12 @@ def build_film_package(
                 # its absence would cost another package version.
                 "importance": source.get("importance") or "normal",
                 "story_role": source.get("story_role") or "journey",
+                # The third of the director's three fields, and the one
+                # that was quietly lost here: the plan is built from these
+                # chapters, so a style that did not survive the
+                # translation could never reach the screen. Every day came
+                # out as "normal" no matter what the editor decided.
+                "visual_style": source.get("visual_style") or "normal",
                 "day_number": facts.get("day_number") or index + 1,
                 "distance_km": facts.get("distance_km"),
                 "duration_minutes": facts.get("duration_minutes"),
@@ -268,6 +361,10 @@ def build_film_package(
         # the composition can tell "no arc" from "an arc that says
         # nothing" and fall back to the plain title card.
         "narrative": _narrative(manifest.get("narrative")),
+        # Where the trip happened. Built from the canonical routing data
+        # by its own module and carried here rather than in the manifest,
+        # which answers what is told and not where.
+        "map_context": validate_map_context(map_context) if map_context else None,
         "chapters": chapters,
         "total_image_bytes": total_bytes,
     }
@@ -279,6 +376,7 @@ def build_film_package(
         chapters=chapters,
         narrative=package["narrative"],
         outro_photos=_outro_photos(chapters),
+        map_context=package["map_context"],
     )
     return package, files
 

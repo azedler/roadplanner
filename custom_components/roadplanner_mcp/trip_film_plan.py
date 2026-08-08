@@ -56,6 +56,12 @@ SCENE_COLLAGE = "collage"
 SCENE_TEXT = "text"
 SCENE_OUTRO = "outro"
 SCENE_OUTRO_COLLAGE = "outro_collage"
+# The map. Three scenes rather than one, because the map does three
+# different jobs: it opens the journey, it carries a travelling day, and
+# it closes the whole thing.
+SCENE_MAP_START = "map_start"
+SCENE_MAP_LEG = "map_leg"
+SCENE_MAP_FULL = "map_full"
 SCENE_TYPES = (
     SCENE_INTRO,
     SCENE_CHAPTER_CARD,
@@ -65,6 +71,9 @@ SCENE_TYPES = (
     SCENE_TEXT,
     SCENE_OUTRO,
     SCENE_OUTRO_COLLAGE,
+    SCENE_MAP_START,
+    SCENE_MAP_LEG,
+    SCENE_MAP_FULL,
 )
 
 IMPORTANCE_TRANSITION = "transition"
@@ -124,6 +133,46 @@ PHOTO_WEIGHTS = {
     IMPORTANCE_HIGHLIGHT: 3,
     IMPORTANCE_MAJOR: 4,
 }
+
+# How long the map gets, as a SHARE of the day it belongs to.
+#
+# This was a fixed table first, and the table was wrong. A transfer day
+# with one photograph runs about five seconds; giving it five and a half
+# seconds of map more than doubled it, and across a trip the film grew by
+# a third - the exact "simply longer" the brief rules out. Measured on
+# the 25-day test film: 239 s became 325 s.
+#
+# A share fixes that by construction, because a thin day is short and its
+# map is short with it. The numbers still say the same thing the table
+# meant to: a transfer day IS the journey, so its map may take half of
+# it; a major highlight wants to arrive and then be about the place, so
+# the approach is as brief as it can be.
+_MAP_SHARE = {
+    IMPORTANCE_TRANSITION: 0.50,
+    IMPORTANCE_NORMAL: 0.40,
+    IMPORTANCE_HIGHLIGHT: 0.30,
+    IMPORTANCE_MAJOR: 0.25,
+}
+# map_focus is the one style where the map is the act rather than the
+# introduction to it.
+MAP_FOCUS_SHARE = 0.60
+# Below the first, a map is a flash nobody can read; above the second, it
+# is a screensaver.
+MAP_FRAMES_MIN = 45
+MAP_FRAMES_MAX = 210
+# How short the pictures of a mapped day may be scaled, and how short any
+# single scene may become. Below these a photograph is a flicker.
+MIN_PICTURE_SHARE = 0.6
+MIN_SCENE_FRAMES = 45
+
+# What the map costs is taken back out of the same day. A day keeps at
+# least one picture - a map that ate the last photograph would have
+# turned a travel film into an atlas - so the day still grows a little,
+# and that residue is the price of having a map at all.
+MAP_TIME_TAKEN_BACK = 0.75
+
+MAP_START_FRAMES = 120
+MAP_FULL_FRAMES = 165
 
 INTRO_FRAMES = 135
 OUTRO_FRAMES = 135
@@ -324,6 +373,65 @@ def _caption(chapter: dict[str, Any]) -> str:
 
 
 def _chapter_scenes(
+    chapter: dict[str, Any], *, photo_count: int, index: int, has_map: bool = False
+) -> list[dict[str, Any]]:
+    """The shots for one day, with its map if it has one.
+
+    Two steps rather than one, because the map's length is a fraction of
+    the day and the day has to be priced before it can be divided. The
+    first version tried to do both at once, and it showed: the reclaim
+    only reached plain photo scenes, so a day whose style was a collage
+    or a hero paid nothing back and grew by half.
+    """
+    scenes = _plain_chapter_scenes(chapter, photo_count=photo_count, index=index)
+    if not has_map:
+        return scenes
+    return _with_map(scenes, chapter)
+
+
+def _with_map(
+    scenes: list[dict[str, Any]], chapter: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Insert the day's map and take most of its time back out of the day.
+
+    The map goes after the card - you are told where you are going, then
+    shown the going - and everything after it is scaled down so the day
+    does not simply become longer. The scaling is uniform, which is the
+    whole point: a hero shot and a collage give back the same share a
+    plain photograph does.
+    """
+    importance = _importance(chapter)
+    style = str(chapter.get("visual_style") or "normal")
+    baseline = sum(int(scene["frames"]) for scene in scenes)
+    share = MAP_FOCUS_SHARE if style == "map_focus" else _MAP_SHARE[importance]
+    map_frames = max(MAP_FRAMES_MIN, min(MAP_FRAMES_MAX, round(baseline * share)))
+
+    card, body = scenes[0], scenes[1:]
+    shown = sum(int(scene["frames"]) for scene in body)
+    if shown:
+        reclaim = int(map_frames * MAP_TIME_TAKEN_BACK)
+        # A floor, so the pictures stay pictures. Below this a photograph
+        # is a flicker, and a map that ate the day would have turned a
+        # travel film into an atlas.
+        target = max(int(shown * MIN_PICTURE_SHARE), shown - reclaim)
+        factor = target / shown
+        for scene in body:
+            scene["frames"] = max(MIN_SCENE_FRAMES, round(int(scene["frames"]) * factor))
+    return [
+        card,
+        {
+            "type": SCENE_MAP_LEG,
+            "chapter_id": card["chapter_id"],
+            "chapter_index": card["chapter_index"],
+            "frames": map_frames,
+            "enter": card["enter"],
+            "photos": [],
+        },
+        *body,
+    ]
+
+
+def _plain_chapter_scenes(
     chapter: dict[str, Any], *, photo_count: int, index: int
 ) -> list[dict[str, Any]]:
     """The shots for one day. Style picks the shape, importance the size."""
@@ -361,15 +469,20 @@ def _chapter_scenes(
         scenes.append(photo_scene(SCENE_TEXT, [], _TEXT_FRAMES[importance]))
         return scenes
 
+    photo_frames = _PHOTO_FRAMES[importance]
+    if style == "map_focus":
+        # The map is the act; one picture closes the day and that is all.
+        photo_count = 1
+
     remaining = list(range(photo_count))
     if style == "collage" and photo_count >= 2:
         scenes.append(photo_scene(SCENE_COLLAGE, remaining, _COLLAGE_FRAMES[importance]))
         return scenes
-    # map_focus has no map yet. Rather than a placeholder nobody asked
-    # for, it becomes the strongest single-image form available - and
-    # says so in the plan, so the substitution is visible rather than
-    # silently identical to "hero".
-    if style in {"hero", "map_focus"} or (
+    # map_focus gets a hero here too. When the day has a map, the caller
+    # puts it in front of this and shortens what follows; when it has
+    # none, this IS the day - because a style is a wish and geography is
+    # a fact.
+    if style == "hero" or style == "map_focus" or (
         style == "collage" and photo_count == 1
     ):
         scenes.append(photo_scene(SCENE_HERO, [remaining[0]], _HERO_FRAMES[importance]))
@@ -377,12 +490,10 @@ def _chapter_scenes(
     if style == "compact":
         # One picture, one line, move on.
         if remaining:
-            scenes.append(
-                photo_scene(SCENE_PHOTO, [remaining[0]], _PHOTO_FRAMES[importance])
-            )
+            scenes.append(photo_scene(SCENE_PHOTO, [remaining[0]], photo_frames))
         return scenes
     for position in remaining:
-        scenes.append(photo_scene(SCENE_PHOTO, [position], _PHOTO_FRAMES[importance]))
+        scenes.append(photo_scene(SCENE_PHOTO, [position], photo_frames))
 
     if not caption:
         # Nothing to read anywhere in this chapter: the card carries it.
@@ -396,6 +507,7 @@ def build_scene_plan(
     chapters: list[dict[str, Any]],
     narrative: dict[str, Any] | None = None,
     outro_photos: list[dict[str, Any]] | None = None,
+    map_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The whole film as an ordered list of scenes with frame counts.
 
@@ -407,6 +519,12 @@ def build_scene_plan(
         raise FilmPlanError("Ein Film ohne Kapitel kann nicht geplant werden")
 
     arc = narrative if isinstance(narrative, dict) else {}
+    mapped = {
+        str(entry.get("chapter_id") or "")
+        for entry in ((map_context or {}).get("chapters") or [])
+    }
+    mapped.discard("")
+
     scenes: list[dict[str, Any]] = [
         {
             "type": SCENE_INTRO,
@@ -418,13 +536,42 @@ def build_scene_plan(
             "photos": [],
         }
     ]
+    if mapped:
+        # "Here is where it begins." The starting point and the camper,
+        # and deliberately NOT the route ahead: a film that shows the
+        # whole journey in its first ten seconds has spent the one thing
+        # a map can give it.
+        scenes.append(
+            {
+                "type": SCENE_MAP_START,
+                "chapter_id": "",
+                "chapter_index": -1,
+                "frames": MAP_START_FRAMES,
+                "enter": "rise",
+                "photos": [],
+            }
+        )
     for index, chapter in enumerate(chapters):
         scenes.extend(
             _chapter_scenes(
                 chapter,
                 photo_count=len(chapter.get("images") or []),
                 index=index,
+                has_map=str(chapter.get("chapter_id") or "") in mapped,
             )
+        )
+    if mapped:
+        # The whole route at last. Everything before this showed only how
+        # far the journey had got by that day.
+        scenes.append(
+            {
+                "type": SCENE_MAP_FULL,
+                "chapter_id": "",
+                "chapter_index": -1,
+                "frames": MAP_FULL_FRAMES,
+                "enter": "settle",
+                "photos": [],
+            }
         )
 
     scenes.append(

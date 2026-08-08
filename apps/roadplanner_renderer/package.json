@@ -1,6 +1,6 @@
 {
   "name": "roadplanner-renderer-poc",
-  "version": "0.6.0-scenes.1",
+  "version": "0.7.0-map.1",
   "private": true,
   "description": "Renderer app for Roadplanner. Remotion render in a slimmed image: headless shell, ffprobe only, multi-stage build.",
   "license": "MIT",
@@ -24,7 +24,12 @@
   },
   "devDependencies": {
     "@remotion/bundler": "4.0.506",
+    "@types/d3-geo": "3.1.1",
     "@types/react": "19.2.2",
-    "typescript": "5.9.3"
+    "@types/topojson-client": "3.1.5",
+    "d3-geo": "3.1.1",
+    "topojson-client": "3.1.0",
+    "typescript": "5.9.3",
+    "world-atlas": "2.0.2"
   }
 }

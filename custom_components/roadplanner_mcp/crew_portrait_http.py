@@ -25,6 +25,32 @@ none of which appears in a URL anybody else sees.
 Portraits are immutable per filename - the source photo and the crop are
 both part of the hash - so they can be cached hard. A new crop is a new
 name, never a stale image.
+
+What this route is, stated plainly
+----------------------------------
+
+An unguessable filename is a **bearer secret, not a session**. Anyone
+holding the URL can fetch the picture, and it does not expire. That is an
+acceptable trade for a photograph shown in a panel the household already
+has access to, and it is the same trade every other file-serving view
+here makes - but it only holds while the URL stays inside the panel.
+
+So a portrait URL must never travel into:
+
+- a model context (the story layer sends crew **names** and nothing else,
+  which is why ``story_context_builder`` builds its crew dictionary from
+  ``name`` alone);
+- a render package (the film carries trip photos by generated path and
+  has no crew section at all);
+- a log line;
+- exported story data.
+
+Those four are checked in ``tests/test_story_layer_contract.py`` rather
+than left to memory. Widening this into real per-request authentication
+would be a larger change than this route justifies today, and nothing in
+the current failure modes calls for it - but the reason it is acceptable
+is written here so that a future reader can disagree with the reasoning
+instead of guessing at it.
 """
 
 from __future__ import annotations

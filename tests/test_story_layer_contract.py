@@ -421,6 +421,71 @@ def verify_the_manifest_still_carries_no_coordinates() -> None:
         assert forbidden not in manifest, f"{forbidden} gehoert nicht ins Manifest"
 
 
+def verify_the_map_is_built_beside_the_manifest_and_not_inside_it() -> None:
+    """The film needs geography. The description of a journey does not.
+
+    So the map has its own layer, it asks for its data with the manifest's
+    own identifiers, and it reads the routing Roadplanner already stored
+    rather than deriving a second geography. All three are checkable from
+    the source, and each one of them is a rule this step was given.
+    """
+    builder = _code(INTEGRATION / "trip_map_builder.py")
+    # It looks the day up by the chapter's id - the manifest is the index,
+    # the roadbook is the truth.
+    assert "chapter_id" in builder and "async_get_assistant_payload" in builder
+    # No second geography: nothing here routes, geocodes or fetches.
+    for forbidden in ("async_get_clientsession", "geocod", "routing_helpers", "requests"):
+        assert forbidden not in builder, f"{forbidden} gehoert nicht in den Kartenaufbau"
+
+    context = _code(INTEGRATION / "trip_map_context.py")
+    # The ferry distinction is read, never guessed. If the mode were
+    # derived here from distance or straightness, the film would be
+    # inventing crossings.
+    assert 'segment.get("mode")' in context
+    assert "details" in context and "routing" in context
+
+    # And the map still does not travel in the manifest: the film package
+    # carries it, beside the story rather than inside it.
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    assert "map_context" not in manifest
+    package = _code(INTEGRATION / "trip_film_package.py")
+    assert "map_context" in package
+
+
+def verify_a_portrait_url_never_leaves_the_panel() -> None:
+    """An unguessable filename is a bearer secret, not a session.
+
+    It is a fine trade for a picture inside the household's own panel and
+    a bad one everywhere else, because it does not expire and anyone
+    holding it can fetch the face. So the four places it must never reach
+    are checked here rather than remembered: a model context, a render
+    package, a log line and exported story data.
+    """
+    # The story layer takes names. Not entries, not payloads - names.
+    builder = _code(INTEGRATION / "story_context_builder.py")
+    assert "portrait" not in builder, "die Story-Ebene darf kein Portrait sehen"
+    for consumer in ("story_director.py", "story_director_service.py"):
+        source = _code(INTEGRATION / consumer)
+        assert "portrait" not in source, f"{consumer} darf kein Portrait an ein Modell geben"
+    # The manifest is what a model and an export both read.
+    manifest = _code(INTEGRATION / "travel_story_manifest.py")
+    assert "portrait" not in manifest
+
+    # The film package has no crew section at all, so nothing to leak.
+    # Checked on the URL and the store rather than on the word: the
+    # package legitimately calls an upright photograph a portrait, and a
+    # rule that tripped over that would be deleted by the next reader.
+    for consumer in ("trip_film_package.py", "trip_film_export.py", "trip_map_builder.py"):
+        source = _code(INTEGRATION / consumer)
+        for forbidden in ("portrait_url", "crew_portrait", "PORTRAIT_URL"):
+            assert forbidden not in source, f"{consumer} darf {forbidden} nicht mitschicken"
+
+    # And the route itself does not log the name it was asked for.
+    view = (INTEGRATION / "crew_portrait_http.py").read_text(encoding="utf-8")
+    body = view.split('"""', 2)[-1]
+    assert "_LOGGER" not in body, "die Portraitroute darf keinen Dateinamen protokollieren"
+
+
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     """Live report: the view flew back to the top every two seconds.
 
@@ -438,6 +503,30 @@ def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     assert 'data-renderer-progress="card"' in renderer
     editor = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
     assert 'data-renderer-progress="story"' in editor
+
+
+def verify_a_render_in_progress_never_rebuilds_an_open_dialog() -> None:
+    """Live report: a vehicle form jumped every two seconds during a film.
+
+    A render replaces the whole shadow DOM, so doing it under an open
+    dialog tears that dialog down and builds a new one - visibly, and
+    with whatever was typed into it at risk. The rule already existed
+    for background refreshes; the progress poll had not been told.
+    """
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    guard = renderer.split("_rendererAppRedraw() {", 1)[1].split("\n  },", 1)[0]
+    assert "this._dialog" in guard, "ein offener Dialog darf nicht neu gebaut werden"
+    assert "_storyAnyDirty" in guard, "ungespeicherter Text ebenso wenig"
+    # And the poll has to go through it rather than around it.
+    poll = renderer.split("_pollRendererAppJob(jobId) {", 1)[1].split("\n  },", 1)[0]
+    assert "_rendererAppRedraw()" in poll
+    assert "this._render(" not in poll, "die Abfrage darf nicht direkt zeichnen"
+    # And the tick must not redraw merely because the percentage is not on
+    # screen. That fallback fired on every tab except the two that show
+    # the card, which is how the Erinnerungen tab twitched every two
+    # seconds. Nothing to update is a reason NOT to rebuild the page.
+    assert "if (structural) this._rendererAppRedraw();" in poll, poll[:400]
+    assert "!this._rendererAppPatchProgress()" not in poll
 
 
 def verify_the_finished_video_can_be_fetched() -> None:
@@ -482,6 +571,7 @@ verify_a_running_film_survives_a_page_reload()
 verify_the_poll_outlasts_a_whole_film()
 verify_a_progress_tick_does_not_rebuild_the_page()
 verify_the_finished_video_can_be_fetched()
+verify_a_render_in_progress_never_rebuilds_an_open_dialog()
 verify_nobody_reads_a_field_the_provider_results_do_not_have()
 verify_not_knowing_is_not_reported_as_not_working()
 verify_the_director_has_no_route_to_the_roadbook()
@@ -489,4 +579,6 @@ verify_the_director_module_stays_testable_without_home_assistant()
 verify_the_builder_still_cannot_spend_money()
 verify_an_ai_text_is_never_stored_where_a_human_one_belongs()
 verify_the_manifest_still_carries_no_coordinates()
+verify_the_map_is_built_beside_the_manifest_and_not_inside_it()
+verify_a_portrait_url_never_leaves_the_panel()
 print("Story layer contract tests passed.")

@@ -202,7 +202,7 @@ export const rendererAppMixin = {
       });
       if (status?.renderer_app_status) {
         this._rendererAppStatus = status.renderer_app_status;
-        this._render({ preserveScroll: true });
+        this._rendererAppRedraw();
       }
     } finally {
       this._rendererAppStatusLoading = false;
@@ -229,7 +229,7 @@ export const rendererAppMixin = {
     const active = result?.renderer_app_active_job;
     const recent = this._rendererAppRecent;
     if (!recent.length) {
-      this._render({ preserveScroll: true });
+      this._rendererAppRedraw();
       return;
     }
     const adopted = active || recent[0];
@@ -240,7 +240,7 @@ export const rendererAppMixin = {
     // job. Rather than invent them, the card shows the job without them.
     this._rendererAppPackage = null;
     this._rendererAppResult = active ? null : result?.renderer_app_result || null;
-    this._render({ preserveScroll: true });
+    this._rendererAppRedraw();
     if (active) this._pollRendererAppJob(active.job_id);
   },
 
@@ -278,11 +278,18 @@ export const rendererAppMixin = {
         // laying out - so every two seconds the view jumped back to the
         // top while the render was still going (live report). Structural
         // change earns a render; a number does not.
+        //
+        // And when the number is not on screen at all - the user is on
+        // another tab, a dialog covers the card - there is nothing to
+        // show, so nothing is drawn. The earlier version fell back to a
+        // full render in exactly that case, which is how the Erinnerungen
+        // tab and an open form both ended up twitching every two seconds
+        // (live reports). "Nothing to update" is not a reason to rebuild
+        // the page; it is the reason not to.
         const structural =
           !before || Boolean(before.terminal) !== Boolean(result.renderer_app_job.terminal);
-        if (structural || !this._rendererAppPatchProgress()) {
-          this._render({ preserveScroll: true });
-        }
+        if (structural) this._rendererAppRedraw();
+        else this._rendererAppPatchProgress();
         if (result.renderer_app_job.terminal) {
           // The App line otherwise keeps showing whatever the last
           // environment probe saw - which is stale after an app update.
@@ -293,7 +300,7 @@ export const rendererAppMixin = {
           }).catch(() => null);
           if (status?.renderer_app_status) {
             this._rendererAppStatus = status.renderer_app_status;
-            this._render({ preserveScroll: true });
+            this._rendererAppRedraw();
           }
           return;
         }
@@ -335,6 +342,24 @@ export const rendererAppMixin = {
     }
   },
 
+  /**
+   * Redraw, unless the user is in the middle of something.
+   *
+   * A render replaces the whole shadow DOM, so doing it under an open
+   * dialog tears that dialog down and builds a new one - which is why a
+   * vehicle form visibly jumped every two seconds while a film rendered
+   * (live report), and why anything typed into it was at risk.
+   *
+   * Skipping costs nothing: `_closeDialog` renders on its way out, so
+   * whatever changed while the dialog was open is drawn the moment it
+   * closes. The same rule already governs background refreshes; the
+   * progress poll had simply not been told about it.
+   */
+  _rendererAppRedraw() {
+    if (this._dialog || this._storyAnyDirty?.()) return;
+    this._render({ preserveScroll: true });
+  },
+
   _rendererAppProgressPercent() {
     return Math.round((Number(this._rendererAppJob?.progress) || 0) * 100);
   },
@@ -342,11 +367,11 @@ export const rendererAppMixin = {
   /**
    * Write the new percentage into the nodes that already show it.
    *
-   * Returns false when no such node is on screen - the caller then falls
-   * back to a full render, so a card that appeared meanwhile still gets
-   * drawn. Nothing else in the page is touched, which is the point: the
-   * user may be reading, scrolling or typing while a render runs, and a
-   * progress tick has no business interrupting any of that.
+   * Does nothing when no such node is on screen, and that is the whole
+   * point: the user may be on another tab, reading, scrolling or typing
+   * while a render runs, and a progress tick has no business
+   * interrupting any of that. The card is drawn by the normal render
+   * path when it next appears; it does not need this poll to fetch it.
    */
   _rendererAppPatchProgress() {
     const job = this._rendererAppJob;

@@ -6,6 +6,44 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.0] - 2026-08-07
+
+### Added
+
+- **Der Reisefilm hat jetzt eine Karte, und auf ihr fährt ein Wohnmobil.** Tag für Tag bewegt es sich die tatsächlich gefahrene Strecke entlang; das bereits Zurückgelegte bleibt sichtbar und wächst mit, das noch Kommende wird nicht vorweggenommen. Am Anfang steht der Startpunkt, am Ende einmal die ganze Route.
+- **Fährstrecken sehen anders aus als Straßen** – gestrichelt und in einer anderen Farbe. Das ist keine Schätzung: Roadplanner schreibt bei jeder Streckenberechnung mit, welcher Abschnitt eine Fähre war. Wo nichts berechnet wurde, wird eine Luftlinie zwischen den Stopps gezogen und als das gezeichnet, was sie ist – nie als Straße.
+- **Die Karte kommt ohne Kartendienst aus.** Küstenlinien und Grenzen sind Natural Earth und liegen im Image. Kein Kachelserver, kein API-Schlüssel, keine Anfrage während eines Renderlaufs, keine laufenden Kosten.
+
+### Changed
+
+- **Hochkantfotos werden nicht mehr beschnitten.** Sie stehen vollständig im Bild, der Platz daneben bekommt zwei Farben, die aus demselben Foto stammen. Vorher schnitt das 16:9-Format oben den Himmel und unten die Person ab.
+- **Die Collage ist eine Fotowand statt einer Tabelle.** Die Bilder überlappen sich, haben unterschiedliche Größen und behalten ihre eigenen Seitenverhältnisse.
+- **Weniger Text über den Bildern.** Der Tagessatz steht einmal pro Tag über dem ersten Foto, zweizeilig und kleiner – vorher lag derselbe Satz dreizeilig über jedem Bild des Tages.
+- **Die Karte verlängert den Film nur wenig.** Wie lang die Karte eines Tages läuft, ist ein Anteil dieses Tages – ein Überführungstag darf die Hälfte dafür verwenden, ein großer Höhepunkt ein Viertel –, und drei Viertel davon holt der Tag sich aus seiner eigenen Bildzeit zurück. Gemessen am 25-Tage-Testfilm: 239 s werden 279 s. Ein fester Zeitwert stand zuerst dort, und der war falsch: ein Tag mit einem einzigen Foto läuft fünf Sekunden und wurde von fünfeinhalb Sekunden Karte mehr als verdoppelt.
+
+### Fixed
+
+- **`visual_style` erreichte den Film überhaupt nicht.** Die Reiseredaktion entscheidet je Tag zwischen Hero, Collage, kompakt und kartenbetont – beim Übersetzen in das Filmpaket ging das Feld verloren, und jeder Tag wurde als „normal" gebaut. Zwei der drei Entscheidungen der Redaktion kamen an, die dritte nie. Der eigene Testlauf hatte das nicht gefunden, weil er den Planer direkt mit selbst gebauten Kapiteln fütterte und damit genau die Stelle übersprang, an der das Feld verschwand.
+
+## [4.44.6] - 2026-08-07
+
+### Changed
+
+- **Auf der geschlossenen Reisegeschichte-Karte steht „Reisegeschichte öffnen" wieder oben.** Der Hinweis auf den letzten Film samt Downloadknopf hatte sich davorgeschoben – ein Nachsatz über etwas Vergangenes stand damit vor der Sache, für die die Karte da ist. Er sitzt jetzt darunter.
+
+## [4.44.5] - 2026-08-07
+
+### Fixed
+
+- **Auch der Reiter „Erinnerungen" wackelte während einer Videoerstellung** – und aus demselben Grund wie der Dialog, nur eine Stufe allgemeiner. Wenn die Prozentzahl gar nicht auf dem Bildschirm ist, weil man auf einem anderen Reiter steht, zeichnete die Fortschrittsabfrage vorsichtshalber die ganze Seite neu. Diese Rückfallebene griff also auf **jedem** Reiter außer den zweien, die die Karte zeigen. Sie ist ersatzlos entfallen: **„Es gibt nichts zu aktualisieren" ist kein Grund, die Seite neu zu bauen, sondern der Grund, es nicht zu tun.** Die Karte wird ohnehin gezeichnet, wenn man sie das nächste Mal öffnet.
+
+## [4.44.4] - 2026-08-07
+
+### Fixed
+
+- **Während einer Videoerstellung zuckte ein offener Dialog alle zwei Sekunden.** Ein Neuzeichnen ersetzt das gesamte Shadow DOM – unter einem offenen Dialog reißt es diesen ab und baut einen neuen. Sichtbar als Wackeln, und alles, was gerade eingetippt war, stand dabei auf dem Spiel. In 4.41.0 hatte ich den Fortschritt so umgebaut, dass er nur noch die Prozentzahl schreibt; die Rückfallebene für den Fall, dass diese Zahl gerade nicht auf dem Bildschirm ist – etwa weil ein Dialog offen ist –, zeichnete weiterhin alles neu. **Die halbe Behebung war die gefährlichere Hälfte.**
+- Die Regel „nie neu zeichnen, solange ein Dialog offen ist oder Text ungespeichert" galt schon für Hintergrundaktualisierungen; die Fortschrittsabfrage kannte sie nur nicht. Sie geht jetzt durch dieselbe Sperre. Kosten: keine – beim Schließen eines Dialogs wird ohnehin gezeichnet, der aktuelle Stand erscheint also sofort danach.
+
 ## [4.44.3] - 2026-08-07
 
 ### Fixed
