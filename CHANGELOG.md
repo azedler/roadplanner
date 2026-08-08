@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.2] - 2026-08-08
+
+### Fixed
+
+- **„Unbekannter Roadplanner-Fehler" über einer Seite, die funktioniert.** Drei Abfragen laufen von selbst los, sobald eine Karte aufgeht – die Reisegeschichte, der Zustand der Renderer-App und die Übernahme eines laufenden Films. Ein Handy, das aus dem Standby kommt, trifft sie mitten im Neuverbinden, und eine abgerissene WebSocket-Verbindung meldet sich mit einem nackten Fehlercode ganz ohne Text. Daraus wurde ein roter Balken mit einem Satz, der nichts benennt. **Eine Abfrage, die niemand ausgelöst hat, meldet ihren Fehlschlag jetzt in ihrer eigenen Karte statt im Balken** – dort steht dann „Erneut versuchen" und der Hinweis, dass an der Reise nichts passiert ist, weil hier nur gelesen wird.
+- **Ein Verbindungsabbruch heißt jetzt Verbindungsabbruch.** Er war der häufigste Fehler auf dem Handy und der einzige, der als „unbekannt" ausgegeben wurde.
+
 ## [4.45.1] - 2026-08-08
 
 ### Changed

@@ -57,6 +57,9 @@ export const rendererAppMixin = {
       const status = await this._runAction("renderer_app_status", {}, "", {
         refresh: false,
         blockUi: false,
+        // Asked automatically when a card opens. Not knowing is a state
+        // the card already renders; it is not news to shout about.
+        errorMode: "silent",
         errorTitle: "",
       }).catch(() => null);
       if (status?.renderer_app_status) {
@@ -198,6 +201,9 @@ export const rendererAppMixin = {
       const status = await this._runAction("renderer_app_status", {}, "", {
         refresh: false,
         blockUi: false,
+        // Asked automatically when a card opens. Not knowing is a state
+        // the card already renders; it is not news to shout about.
+        errorMode: "silent",
         errorTitle: "",
       });
       if (status?.renderer_app_status) {
@@ -215,6 +221,8 @@ export const rendererAppMixin = {
     const result = await this._runAction("renderer_app_recent_jobs", {}, "", {
       refresh: false,
       blockUi: false,
+      // Also automatic - see _rendererAppEnsureStatus.
+      errorMode: "silent",
       errorTitle: "",
     });
     this._rendererAppRecentPending = false;

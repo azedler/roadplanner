@@ -98,10 +98,12 @@ export const storyEditorMixin = {
   _storyLoadOnce() {
     if (this._storyLoadTriedFor === this._selectedTripId) return;
     this._storyLoadTriedFor = this._selectedTripId;
+    // Quiet: this is the tab loading itself, not the reader asking for
+    // something. A failure becomes the card's own state below.
     // Deferred by a microtask, not called straight away. `_storyLoad`
     // renders before its first await, and this runs FROM a render - so a
     // direct call would rebuild the page in the middle of building it.
-    void Promise.resolve().then(() => this._storyLoad());
+    void Promise.resolve().then(() => this._storyLoad({ quiet: true }));
   },
 
   /**
@@ -121,7 +123,7 @@ export const storyEditorMixin = {
     this._storyLoadFailed = false;
   },
 
-  async _storyLoad({ force = false } = {}) {
+  async _storyLoad({ force = false, quiet = false } = {}) {
     if (this._storyLoading) return;
     this._storyLoading = true;
     this._storyLoadFailed = false;
@@ -134,6 +136,7 @@ export const storyEditorMixin = {
         {
           refresh: false,
           blockUi: false,
+          errorMode: quiet ? "silent" : "toast",
           errorTitle: "Die Reisegeschichte konnte nicht geladen werden",
         },
       );
@@ -273,7 +276,7 @@ export const storyEditorMixin = {
       "story_director_status",
       { trip_id: this._selectedTripId },
       "",
-      { refresh: false, blockUi: false, errorTitle: "" },
+      { refresh: false, blockUi: false, errorMode: "silent", errorTitle: "" },
     );
     if (result?.story_director) {
       this._storyDirector = result.story_director;
@@ -574,7 +577,8 @@ export const storyEditorMixin = {
         <p class="hint">Die Kapitel entstehen aus dem Roadbook, den Tageszusammenfassungen und den zugeordneten Fotos. Bearbeitet werden nur Titel und Text – Stopps, Zeiten und Strecken bleiben unberührt.</p>
         ${
           this._storyLoadFailed
-            ? `<div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon> ${this._storyLoading ? "Lädt …" : "Erneut versuchen"}</button></div>`
+            ? `<p class="hint">Die Reisegeschichte ließ sich gerade nicht laden – oft ist die Verbindung nur kurz weg gewesen. Der Reise ist dabei nichts passiert: gelesen wird hier nur.</p>
+               <div class="button-row"><button class="primary-button" type="button" data-action="story-load"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon> ${this._storyLoading ? "Lädt …" : "Erneut versuchen"}</button></div>`
             : `<p class="hint"><ha-icon icon="mdi:book-open-page-variant-outline"></ha-icon> Die Reisegeschichte wird geladen …</p>`
         }
         ${

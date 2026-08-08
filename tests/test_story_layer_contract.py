@@ -530,6 +530,40 @@ def verify_a_story_belongs_to_exactly_one_trip() -> None:
     )
 
 
+def verify_an_automatic_read_does_not_shout() -> None:
+    """Live report: a red banner saying "Unbekannter Roadplanner-Fehler".
+
+    Three reads fire by themselves when a card opens - the story, the
+    renderer status, the adoption of a running film. A phone coming back
+    from standby reaches them mid-reconnect, and a dropped WebSocket
+    rejects with a bare `{code: 3}` and no text, so the generic fallback
+    produced a sentence naming nothing over a page that was working.
+
+    Two rules, both checked: an automatic read reports its failure into
+    its own card rather than into a banner, and a lost connection is
+    called a lost connection.
+    """
+    panel = _js_code(INTEGRATION / "frontend" / "roadplanner-panel.js")
+    assert 'errorMode === "silent"' in panel, "stille Fehler brauchen einen Modus"
+    # The definition, not the first call site.
+    body = panel.split("_errorMessage(error) {", 1)[1].split("\n  }", 1)[0]
+    assert "_isConnectionLostError(error)" in body, (
+        "ein Verbindungsabbruch darf nicht als unbekannt gelten"
+    )
+
+    story = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    once = story.split("_storyLoadOnce()", 1)[1].split("},", 1)[0]
+    assert "quiet: true" in once, "die automatische Ladung muss still sein"
+    # The button press is NOT silent: somebody asked, so somebody is told.
+    load = story.split("async _storyLoad(", 1)[1].split("\n  },", 1)[0]
+    assert 'quiet ? "silent" : "toast"' in load
+
+    renderer = _js_code(INTEGRATION / "frontend" / "features" / "renderer-app.js")
+    assert renderer.count('errorMode: "silent"') >= 2, (
+        "auch Status und Übernahme fragen ungefragt"
+    )
+
+
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     """Live report: the view flew back to the top every two seconds.
 
@@ -627,4 +661,5 @@ verify_the_map_is_built_beside_the_manifest_and_not_inside_it()
 verify_a_portrait_url_never_leaves_the_panel()
 verify_opening_the_tab_is_the_request()
 verify_a_story_belongs_to_exactly_one_trip()
+verify_an_automatic_read_does_not_shout()
 print("Story layer contract tests passed.")
