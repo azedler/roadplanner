@@ -61,6 +61,11 @@ _LOGGER = logging.getLogger(__name__)
 FILM_PACKAGE_VERSION = 1
 FILM_MANIFEST_FILENAME = "film.json"
 FILM_PHOTO_DIR = "photos"
+FILM_CLIP_DIR = "clips"
+# A rendered clip is already cut and re-encoded to the film's own
+# profile, so it is small. The cap is a backstop against a proxy step
+# that went wrong, not a target.
+MAX_FILM_CLIP_BYTES = 24 * 1024 * 1024
 
 # --- limits -------------------------------------------------------------
 
@@ -250,6 +255,7 @@ def build_film_package(
     crew_files: dict[str, bytes] | None = None,
     music: dict[str, Any] | None = None,
     characters: dict[str, Any] | None = None,
+    clips_by_chapter: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Translate the manifest into a film package.
 
@@ -394,6 +400,21 @@ def build_film_package(
     # The shot list. A rendering derivation, computed here and carried in
     # the package - never written back into the manifest, where frame
     # counts would have no business being.
+    package["clips"] = {
+        chapter_id: [
+            {
+                "path": clip["path"],
+                "frames": int(clip.get("frames") or 0),
+                "sha256": clip.get("sha256", ""),
+                "size_bytes": int(clip.get("size_bytes") or 0),
+                "width": int(clip.get("width") or 0),
+                "height": int(clip.get("height") or 0),
+            }
+            for clip in entries
+        ]
+        for chapter_id, entries in (clips_by_chapter or {}).items()
+        if entries
+    } or None
     package["scene_plan"] = build_scene_plan(
         trip=package["trip"],
         chapters=chapters,
@@ -401,6 +422,7 @@ def build_film_package(
         outro_photos=_outro_photos(chapters),
         map_context=package["map_context"],
         crew=package["crew"],
+        clips_by_chapter=clips_by_chapter,
     )
     for path, blob in (crew_files or {}).items():
         files[path] = blob

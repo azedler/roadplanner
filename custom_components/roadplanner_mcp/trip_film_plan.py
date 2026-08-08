@@ -53,6 +53,10 @@ SCENE_CHAPTER_CARD = "chapter_card"
 SCENE_PHOTO = "photo"
 SCENE_HERO = "hero"
 SCENE_COLLAGE = "collage"
+# A real video clip, cut to the moment somebody chose. Its own scene type
+# rather than a photo with a flag: the composition has to play it, and a
+# renderer that mistakes one for the other shows a frozen frame.
+SCENE_CLIP = "clip"
 SCENE_TEXT = "text"
 SCENE_OUTRO = "outro"
 SCENE_OUTRO_COLLAGE = "outro_collage"
@@ -67,6 +71,7 @@ SCENE_MAP_FULL = "map_full"
 # contain it rather than render an empty row of circles.
 SCENE_CREW = "crew"
 SCENE_TYPES = (
+    SCENE_CLIP,
     SCENE_INTRO,
     SCENE_CHAPTER_CARD,
     SCENE_PHOTO,
@@ -178,6 +183,10 @@ _NATURAL_FRAMES = {
     SCENE_HERO: 165,
     SCENE_COLLAGE: 180,
     SCENE_PHOTO: 110,
+    # A clip is worth what it was cut to, so it has no natural length of
+    # its own - the value here is only a fallback for a clip that arrived
+    # without one.
+    SCENE_CLIP: 150,
 }
 
 # The shortest a single picture may be held, and the shortest a group may.
@@ -190,6 +199,16 @@ MIN_GROUP_FRAMES = 95
 MAX_SINGLES_PER_CHAPTER = 3
 # How many pictures one grouped scene holds.
 GROUP_SIZE = 4
+
+# How many video clips a day may show. Movement is an addition to a day,
+# not a replacement for it: a day whose whole record is one long phone
+# video is not a day anybody remembers in one long phone video.
+_CLIPS_BY_IMPORTANCE = {
+    IMPORTANCE_TRANSITION: 1,
+    IMPORTANCE_NORMAL: 1,
+    IMPORTANCE_HIGHLIGHT: 2,
+    IMPORTANCE_MAJOR: 3,
+}
 
 # How long the map gets, as a SHARE of the day it belongs to.
 #
@@ -443,7 +462,12 @@ def _caption(chapter: dict[str, Any]) -> str:
 
 
 def _chapter_scenes(
-    chapter: dict[str, Any], *, photo_count: int, index: int, has_map: bool = False
+    chapter: dict[str, Any],
+    *,
+    photo_count: int,
+    index: int,
+    has_map: bool = False,
+    clips: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The shots for one day, priced from one budget rather than summed up.
 
@@ -530,12 +554,38 @@ def _chapter_scenes(
         scenes.append(scene(SCENE_TEXT, [], text_frames))
         return scenes
 
+    chosen_clips = list(clips or [])
+    clip_shots = _clip_shots(chosen_clips, importance)
+    # A clip's length is not negotiable the way a photograph's is - it was
+    # cut to a moment, and trimming it is cutting it again. So its
+    # seconds come off the top and the photographs share what is left.
+    clip_frames = sum(
+        max(MIN_PHOTO_FRAMES, round(float(chosen_clips[indices[0]].get("frames") or 0)))
+        for _, indices, _ in clip_shots
+    )
     shots = _shot_list(style, photo_count)
     # The smaller of what the day is worth and what it can honestly fill.
     natural = sum(_NATURAL_FRAMES.get(kind, MIN_PHOTO_FRAMES) for kind, _, _ in shots)
     picture_budget = max(
-        MIN_PHOTO_FRAMES, min(total - card_frames - map_frames, natural)
+        MIN_PHOTO_FRAMES,
+        min(total - card_frames - map_frames - clip_frames, natural),
     )
+    # Movement first, then the stills. A clip after the photographs reads
+    # as an afterthought; a clip before them reads as arriving somewhere
+    # and then looking around.
+    for _, indices, _ in clip_shots:
+        clip = chosen_clips[indices[0]]
+        scenes.append(
+            {
+                "type": SCENE_CLIP,
+                "chapter_id": chapter_id,
+                "chapter_index": index,
+                "frames": max(MIN_PHOTO_FRAMES, round(float(clip.get("frames") or 0))),
+                "enter": enter,
+                "photos": [],
+                "clip": indices[0],
+            }
+        )
     for kind, indices, frames in _fit_to_budget(shots, picture_budget):
         scenes.append(scene(kind, indices, frames))
 
@@ -544,6 +594,28 @@ def _chapter_scenes(
         # it on screen a moment longer.
         scenes[0]["frames"] += 15
     return scenes
+
+
+def _clip_shots(clips: list[dict[str, Any]], importance: str) -> list[tuple[str, list[int], float]]:
+    """The video clips a day may show, as shots.
+
+    How many depends on importance for the same reason photographs do: a
+    transfer day is not the place for three films, and a major highlight
+    with strong material should not be held to one.
+
+    Clips are placed **before** the photographs of the day rather than
+    after. Movement after stills reads as an afterthought; movement first
+    and stills after reads as arriving somewhere and then looking around.
+
+    The weight is high because a clip has to play at its own length -
+    unlike a photograph, shortening it is cutting it, and a two-second
+    fragment of a five-second moment is not the moment.
+    """
+    allowance = _CLIPS_BY_IMPORTANCE.get(importance, 1)
+    return [
+        (SCENE_CLIP, [index], 2.2)
+        for index in range(min(len(clips), allowance))
+    ]
 
 
 def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float]]:
@@ -682,6 +754,7 @@ def build_scene_plan(
     outro_photos: list[dict[str, Any]] | None = None,
     map_context: dict[str, Any] | None = None,
     crew: dict[str, Any] | None = None,
+    clips_by_chapter: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """The whole film as an ordered list of scenes with frame counts.
 
@@ -749,6 +822,7 @@ def build_scene_plan(
                 photo_count=len(chapter.get("images") or []),
                 index=index,
                 has_map=str(chapter.get("chapter_id") or "") in mapped,
+                clips=(clips_by_chapter or {}).get(str(chapter.get("chapter_id") or "")),
             )
         )
     if mapped:

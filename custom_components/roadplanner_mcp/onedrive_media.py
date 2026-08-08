@@ -32,7 +32,9 @@ _TOKEN_STORE_KEY = f"{DOMAIN}.onedrive_personal"
 _TOKEN_STORE_VERSION = 1
 _DRIVE_ITEM_SELECT = (
     "id,name,size,webUrl,createdDateTime,lastModifiedDateTime,"
-    "file,fileSystemInfo,image,photo,location,parentReference,folder,package,deleted"
+    # `video` is what carries a clip's length and dimensions; without it in
+    # the select, every video arrives looking like a file with no facts.
+    "file,fileSystemInfo,image,photo,video,location,parentReference,folder,package,deleted"
 )
 
 def normalize_onedrive_folder_path(
