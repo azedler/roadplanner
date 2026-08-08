@@ -8,6 +8,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [4.49.0] - 2026-08-08
 
+### Fixed
+
+- **Ein Halt unterwegs wurde als Tagesziel erzählt.** Am ersten echten Reisetag gab es drei Stopps: zuhause los, ein Spielplatz am See, und danach der tatsächliche Übernachtungsplatz – 313,8 km für den ganzen Tag. Geschrieben wurde daraus „Nach den ersten 313,8 Kilometern Fahrt haben wir den Nugget direkt am Spielplatz am See geparkt". Der mittlere Stopp wird damit zum Ziel, und die Tageskilometer fallen der Strecke davor zu. Dass es danach weiterging, fehlt ganz.
+
+  **Erfunden war daran nichts** – und genau deshalb konnte die Regel „erfinde nichts" es nicht verhindern. Beide Tatsachen standen in den Daten; keine stand in einer Form, die lesbar war. Der Erzähler bekam eine Liste von Namen, und eine Liste von Namen sagt nicht, an welchem davon der Tag endete.
+
+  Jeder Stopp trägt jetzt mit, **was er für den Tag war** – Start, unterwegs, Tagesziel –, abgeleitet aus der Position, die verbindlich ist, weil die Stopps in Fahrtreihenfolge stehen. Dazu Ankunftszeit und Art (etwa „wildcamp"), soweit vorhanden. Und die Anweisung sagt ausdrücklich, dass ein Halt unterwegs **nie** das Tagesziel ist, dass die Reise danach weiterging, und dass Kilometer und Fahrzeit für den **ganzen Tag** gelten und nicht für die Strecke bis zu einem einzelnen Stopp. Der Untertitel im Film stammt aus demselben Durchgang und wird damit ebenfalls richtig.
+
 ### Changed
 
 - **Ein Reisetag zeigt jetzt so viele Erinnerungen, wie er hergibt – ohne dass der Film proportional länger wird.** Der fertige Film las sich über weite Strecken als „Anmoderation, ein Foto, nächster Tag", während die Mediathek hunderte kuratierte Bilder hielt. Die Ursache war, dass **Medienbudget und Zeitbudget dieselbe Zahl waren**: Jedes Bild kaufte seine eigenen Sekunden, also konnte „mehr zeigen" nur „länger laufen" heißen, und die einzige Art, den Film kurz zu halten, war, Bilder wegzulassen.

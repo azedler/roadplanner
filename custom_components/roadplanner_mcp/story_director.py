@@ -88,6 +88,18 @@ Faktenregeln, die über allem stehen:
   nicht zu etwas anderem.
 - Humor entsteht aus der Formulierung und aus echten Konstellationen, die
   in den Daten stehen - nie aus einer ausgedachten Anekdote.
+
+So liest du die Stopps eines Tages:
+- Sie stehen in der Reihenfolge, in der sie gefahren wurden. In eckigen
+  Klammern steht, was der Stopp für den Tag war.
+- "Start" ist, wo der Tag begann. "Tagesziel" ist, wo er endete - dort
+  wurde übernachtet.
+- "unterwegs" heißt: ein Halt auf dem Weg. Dort wurde angehalten, und
+  danach ist die Reise an diesem Tag weitergegangen. Ein solcher Halt ist
+  **nie** das Ziel des Tages, und man kommt dort nicht an, um zu bleiben.
+- Die Kilometer- und Zeitangaben gelten für den **ganzen Tag**, nicht für
+  die Strecke bis zu einem einzelnen Stopp. Schreibe also nicht, nach den
+  Tageskilometern sei man an einem Zwischenhalt angekommen.
 """
 
 _TONE_RULES = """
@@ -138,10 +150,41 @@ Rolle jeder Tag spielt - ein Überführungstag bekommt zwei Sätze, ein
 großer Höhepunkt darf ausholen."""
 
 
-def _brief_stop(stop: dict[str, Any]) -> str:
+def _brief_stop(stop: dict[str, Any], role: str) -> str:
+    """One stop, with what it *was* to the day rather than just its name.
+
+    A bare list of names is an invitation to guess which of them the day
+    ended at, and the guess is wrong more often than not. It was wrong on
+    the first real day of the first real trip: the lake was the second of
+    three stops - somewhere the family swam and ate on the way through -
+    and the story had them parking there for the night and the whole
+    day's distance behind them. Both facts were in the data; neither was
+    in a form the model could read.
+
+    The role comes from position, which is authoritative: the stops are
+    in travel order. `kind` still travels, because "wildcamp" says
+    something a position cannot.
+    """
     name = clean_line(stop.get("name"), limit=MAX_TITLE_LENGTH)
+    if not name:
+        return ""
     kind = clean_line(stop.get("kind"), limit=40)
-    return f"{name} ({kind})" if kind else name
+    arrival = clean_line(stop.get("arrival_time"), limit=10)
+    parts = [role]
+    if kind:
+        parts.append(kind)
+    if arrival:
+        parts.append(arrival)
+    return f"{name} [{', '.join(parts)}]"
+
+
+def _stop_roles(count: int) -> list[str]:
+    """What each position in a day's stop list means."""
+    if count <= 0:
+        return []
+    if count == 1:
+        return ["Tagesziel"]
+    return ["Start"] + ["unterwegs"] * (count - 2) + ["Tagesziel"]
 
 
 def chapter_brief(chapter: dict[str, Any]) -> dict[str, Any]:
@@ -153,7 +196,11 @@ def chapter_brief(chapter: dict[str, Any]) -> dict[str, Any]:
     """
     facts = chapter.get("facts") or {}
     base = chapter.get("base") or {}
-    stops = [_brief_stop(stop) for stop in (chapter.get("stops") or [])[:MAX_BRIEF_STOPS]]
+    raw_stops = (chapter.get("stops") or [])[:MAX_BRIEF_STOPS]
+    stops = [
+        _brief_stop(stop, role)
+        for stop, role in zip(raw_stops, _stop_roles(len(raw_stops)))
+    ]
     brief = {
         "chapter_id": clean_line(chapter.get("chapter_id"), limit=200),
         "day_number": facts.get("day_number"),
