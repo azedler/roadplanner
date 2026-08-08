@@ -65,21 +65,97 @@ export function arcLengths(points) {
 }
 
 /** A route prepared once, then asked many times where the camper is. */
-export function prepareRoute(points) {
+/**
+ * How long a metre takes, by what you are travelling on.
+ *
+ * A day was spread evenly over its metres, which quietly claimed that a
+ * ferry crosses the Baltic as fast as a van drives an autobahn. On a day
+ * that is mostly water the camper shot across the sea and then crawled
+ * the last twenty kilometres to the campsite - the one thing left in the
+ * finished picture that was visibly untrue.
+ *
+ * The numbers are ratios, not speeds, and only their ratio matters: a
+ * ferry at around twenty knots against a travel day averaging perhaps
+ * seventy-five on the road is a bit over two to one. A crossing therefore
+ * takes about twice the screen time per kilometre that driving does, and
+ * a day with a long crossing spends most of itself on the water - which
+ * is also how that day actually felt.
+ *
+ * A straight-line fallback between two stops is left at driving pace. It
+ * is already an admission that nothing was measured; inventing a speed
+ * for it on top would be a second invention.
+ */
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+export const MODE_PACE = { driving: 1, direct: 1, break: 1, ferry: 2.2 };
+
+export function paceFor(mode) {
+  const pace = MODE_PACE[mode];
+  return Number.isFinite(pace) && pace > 0 ? pace : 1;
+}
+
+/**
+ * The route, its arc length, and how long it takes.
+ *
+ * `modes[i]` is how the leg from vertex i to vertex i+1 is travelled. It
+ * is optional: without it every leg is driven and time is proportional
+ * to distance, exactly as before.
+ *
+ * `times` is cumulative *pace-weighted* length - not seconds, and never
+ * shown to anybody. All that is asked of it is which fraction of a
+ * scene has passed by the time the camper reaches a given vertex.
+ */
+export function prepareRoute(points, modes) {
   const clean = [];
-  for (const point of points || []) {
+  const legs = [];
+  for (let index = 0; index < (points || []).length; index += 1) {
+    const point = points[index];
     if (!Array.isArray(point) || point.length < 2) continue;
     const last = clean[clean.length - 1];
     // A repeated coordinate contributes a zero-length segment, which is a
     // division by zero waiting to happen and says nothing about the road.
     if (last && last[0] === point[0] && last[1] === point[1]) continue;
     clean.push([point[0], point[1]]);
+    legs.push(modes && modes[index] ? modes[index] : "driving");
   }
   const lengths = arcLengths(clean);
-  return { points: clean, lengths, total: lengths[lengths.length - 1] || 0 };
+  const times = [0];
+  for (let index = 1; index < clean.length; index += 1) {
+    const span = lengths[index] - lengths[index - 1];
+    times.push(times[index - 1] + span * paceFor(legs[index - 1]));
+  }
+  return {
+    points: clean,
+    lengths,
+    total: lengths[lengths.length - 1] || 0,
+    times,
+    timeTotal: times[times.length - 1] || 0,
+  };
 }
 
-const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+/**
+ * How far along the route the camper is when `fraction` of the travelling
+ * has happened.
+ *
+ * Without ferries this is just `fraction * total`. With one it is not,
+ * and that is the whole point: equal shares of the scene buy fewer
+ * metres on the water than on the road.
+ */
+export function distanceAtFraction(route, fraction) {
+  const { times, timeTotal, lengths, total } = route;
+  if (!times || times.length < 2 || timeTotal <= 0) return total * clamp(fraction, 0, 1);
+  const target = clamp(fraction, 0, 1) * timeTotal;
+  let low = 1;
+  let high = times.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (times[middle] < target) low = middle + 1;
+    else high = middle;
+  }
+  const span = times[low] - times[low - 1];
+  const t = span > 0 ? (target - times[low - 1]) / span : 0;
+  return lengths[low - 1] + (lengths[low] - lengths[low - 1]) * t;
+}
 
 /**
  * The point `distance` metres along the route.
