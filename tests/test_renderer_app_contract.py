@@ -442,6 +442,15 @@ def verify_the_world_outline_is_projected_once() -> None:
     # Strokes must not grow with the zoom, or a magnified map turns into
     # a diagram of fat lines.
     assert "non-scaling-stroke" in map_source
+    # The camera arithmetic itself lives outside the component, in plain
+    # JavaScript, so that "the view does not jump" is something a test
+    # can measure rather than something a comment claims. Inlining it
+    # back into the component would take the measurement away without
+    # changing a single frame.
+    camera_source = _js_code(APP / "src" / "camera.mjs")
+    for name in ("export function cameraFor", "export function blendCamera", "CAPTION_STRIP"):
+        assert name in camera_source, f"{name} gehoert in die pruefbare Kameramathematik"
+    assert 'from "../camera.mjs"' in map_source, "die Karte muss diese Mathematik benutzen"
 
 
 def verify_no_full_frame_filter_reaches_the_film() -> None:

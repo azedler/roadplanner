@@ -17,6 +17,8 @@ The project follows Semantic Versioning for public releases.
 
   Bewegung, Richtung und sichtbare Linie kommen jetzt aus einem gemeinsamen, in **Metern** gerechneten Streckenmodell mit sanftem Anfahren und Abbremsen. Die Linie endet konstruktionsbedingt exakt am Camper.
 
+- **Die Beschriftung lag über der Route, die sie beschreibt.** Der Streifen am unteren Rand trägt Tag, Ort und Land – er ist die Orientierung, nicht Dekoration, und er ist immer da. Die Kamera hat trotzdem auf das ganze Bild eingepasst, also landete regelmäßig ein Stück Strecke darunter. Die nutzbare Fläche ist jetzt das Bild **ohne** diesen Streifen, und die Kamera zielt auf dessen Mitte.
+
 ### Added
 
 - **Die Karte ist eine durchgehende Reise statt 23 Einzelkarten.** Die ganze Reise wird **einmal** projiziert, die Kamera ist eine Transformation darüber. Damit gleitet der Film vom Gesamtüberblick in die Tagesetappe, statt zwischen zwei unabhängigen Bildern zu schneiden: Erst „bis hierher", dann eine weiche Kamerafahrt hinunter zur heutigen Route, dann die Fahrt selbst. Im Abspann wieder heraus auf die vollständige Strecke.

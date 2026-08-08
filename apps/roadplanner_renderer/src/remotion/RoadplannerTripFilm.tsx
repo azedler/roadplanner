@@ -40,6 +40,7 @@ import {
   TripMap,
   blendCamera,
   buildProjection,
+  CAPTION_STRIP,
   cameraFor,
   countryAt,
   driveState,
@@ -565,7 +566,7 @@ const useMapStage = (map: MapContext) => {
         map.chapters.flatMap((chapter) =>
           chapter.segments.flatMap((segment) => segment.points.map(projection.project)),
         ),
-        { fill: 0.78, maxZoom: 1.6 },
+        { fill: 0.78, maxZoom: 1.6, bottom: CAPTION_STRIP },
       ),
     [projection, map],
   );
@@ -579,7 +580,7 @@ const chapterCamera = (projection: Projection, chapter: MapChapter, previous?: M
   // The previous day's end is included so the view still contains where
   // we came from - the journey continues rather than teleports.
   if (previous) points.push(projection.project(previous.end));
-  return cameraFor(projection, points, { fill: 0.58, maxZoom: 22 });
+  return cameraFor(projection, points, { fill: 0.58, maxZoom: 22, bottom: CAPTION_STRIP });
 };
 
 /**
@@ -602,7 +603,11 @@ const MapStartScene: React.FC<{
   // A slow settle towards the start, so the opening breathes rather than
   // sitting still.
   const near = React.useMemo(
-    () => cameraFor(projection, [projection.project(map.start)], { fill: 0.2, maxZoom: 3.2 }),
+    () => cameraFor(projection, [projection.project(map.start)], {
+        fill: 0.2,
+        maxZoom: 3.2,
+        bottom: CAPTION_STRIP,
+      }),
     [projection, map.start],
   );
   const camera = blendCamera(
@@ -619,7 +624,7 @@ const MapStartScene: React.FC<{
         past={[]}
         markPoint={map.start}
         camper={{ position: map.start, heading: 0, scale: 1.4 }}
-        labels={firstPlace ? [{ text: firstPlace, point: map.start }] : []}
+        labels={[]}
       />
       <MapLabel
         lead="START"

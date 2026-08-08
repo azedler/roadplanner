@@ -267,62 +267,19 @@ export const buildProjection = (
   return built;
 };
 
-/** Where the camera is: a point in projected pixels, and a magnification. */
-export type Camera = { x: number; y: number; zoom: number };
-
-/** The camera that shows a whole box of projected points. */
-export const cameraFor = (
-  projection: Projection,
-  points: [number, number][],
-  { fill = 0.62, maxZoom = 26 } = {},
-): Camera => {
-  if (!points.length) {
-    return { x: projection.width / 2, y: projection.height / 2, zoom: 1 };
-  }
-  const xs = points.map((point) => point[0]);
-  const ys = points.map((point) => point[1]);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const spanX = Math.max(maxX - minX, 1);
-  const spanY = Math.max(maxY - minY, 1);
-  const zoom = Math.min(
-    maxZoom,
-    Math.max(1, Math.min((projection.width * fill) / spanX, (projection.height * fill) / spanY)),
-  );
-  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, zoom };
-};
-
 /**
- * A camera between two others.
+ * Where the camera is, and how it moves.
  *
- * The magnification is interpolated logarithmically, because zoom is a
- * ratio: half way between 1× and 16× should look like 4×, not like 8.5×.
- * Interpolating it linearly is what makes an automatic zoom feel like it
- * rushes at the start and crawls at the end.
+ * The arithmetic lives in `../camera.mjs` so that a test can drive it
+ * without a browser; it is re-exported here because the map is where
+ * every caller already looks for it.
  */
-export const blendCamera = (from: Camera, to: Camera, t: number): Camera => {
-  const eased = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-  return {
-    x: from.x + (to.x - from.x) * eased,
-    y: from.y + (to.y - from.y) * eased,
-    zoom: Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * eased),
-  };
-};
+export type { Camera } from "../camera.mjs";
+import { cameraTransform, onScreen } from "../camera.mjs";
+import type { Camera } from "../camera.mjs";
 
-const cameraTransform = (projection: Projection, camera: Camera): string =>
-  `translate(${projection.width / 2} ${projection.height / 2}) scale(${camera.zoom}) translate(${-camera.x} ${-camera.y})`;
+export { CAPTION_STRIP, blendCamera, cameraFor, onScreen } from "../camera.mjs";
 
-/** Apply the camera by hand, for things that must not be scaled. */
-export const onScreen = (
-  projection: Projection,
-  camera: Camera,
-  point: [number, number],
-): [number, number] => [
-  projection.width / 2 + (point[0] - camera.x) * camera.zoom,
-  projection.height / 2 + (point[1] - camera.y) * camera.zoom,
-];
 
 const polyline = (projection: Projection, points: MapPoint[]): string => {
   if (points.length < 2) return "";
