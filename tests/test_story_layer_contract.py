@@ -486,6 +486,50 @@ def verify_a_portrait_url_never_leaves_the_panel() -> None:
     assert "_LOGGER" not in body, "die Portraitroute darf keinen Dateinamen protokollieren"
 
 
+def verify_opening_the_tab_is_the_request() -> None:
+    """A click whose only possible answer is yes is not a question.
+
+    The story card used to open with a button. Building a manifest calls
+    no model and costs nothing - it is a cached read of the roadbook - so
+    the button asked the reader to confirm the thing they had already
+    asked for by opening the tab.
+
+    Two things make the automatic load safe, and both are checked because
+    both were nearly got wrong: it happens once per trip rather than on
+    every render, and it is deferred by a microtask, because `_storyLoad`
+    renders before its first await and this is called FROM a render.
+    """
+    feature = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "_storyLoadOnce()" in feature, "die Karte muss sich selbst laden"
+    assert "_storyLoadTriedFor" in feature, "einmal pro Reise, nicht pro Render"
+    once = feature.split("_storyLoadOnce()", 1)[1].split("},", 1)[0]
+    assert "Promise.resolve().then" in once, "der Aufruf muss aufgeschoben werden"
+    # And a failure still has a way back: the automatic attempt happens
+    # once, so without this the card would be a dead end.
+    assert "_storyLoadFailed" in feature
+    assert 'data-action="story-load"' in feature
+
+
+def verify_a_story_belongs_to_exactly_one_trip() -> None:
+    """Nothing cleared it, so switching trips kept the old chapters.
+
+    Worse than a stale display: the drafts came along too, one save away
+    from being written onto a day belonging to a different journey.
+    """
+    feature = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "_storyResetForTrip()" in feature
+    reset = feature.split("_storyResetForTrip()", 1)[1].split("},", 1)[0]
+    for cleared in ("_storyManifest", "_storyChapterId", "_storyDrafts"):
+        assert cleared in reset, f"{cleared} muss beim Reisewechsel fallen"
+
+    dispatcher = _js_code(INTEGRATION / "frontend" / "roadplanner-panel.js")
+    # Every place the selected trip can change, including the one where
+    # the backend changes it rather than the user.
+    assert dispatcher.count("_storyResetForTrip()") >= 4, (
+        "jeder Reisewechsel muss die Geschichte verwerfen"
+    )
+
+
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     """Live report: the view flew back to the top every two seconds.
 
@@ -581,4 +625,6 @@ verify_an_ai_text_is_never_stored_where_a_human_one_belongs()
 verify_the_manifest_still_carries_no_coordinates()
 verify_the_map_is_built_beside_the_manifest_and_not_inside_it()
 verify_a_portrait_url_never_leaves_the_panel()
+verify_opening_the_tab_is_the_request()
+verify_a_story_belongs_to_exactly_one_trip()
 print("Story layer contract tests passed.")

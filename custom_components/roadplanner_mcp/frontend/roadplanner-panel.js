@@ -354,6 +354,14 @@ class RoadplannerPanel extends HTMLElement {
       if (force || signature !== this._signature) {
         this._data = payload;
         this._signature = signature;
+        // The backend can hand back a different trip than the one this
+        // page was showing - on first load, or when the active trip was
+        // changed elsewhere. A story belongs to exactly one trip, so it
+        // is dropped whenever that changes under us rather than only
+        // where the user did the changing.
+        if (payload.selected_trip_id !== this._selectedTripId) {
+          this._storyResetForTrip();
+        }
         this._selectedTripId = payload.selected_trip_id;
         const availableDayIds = new Set((payload.days?.days || []).map((day) => day.id));
         if (!this._selectedDayId || !availableDayIds.has(this._selectedDayId)) {
@@ -772,6 +780,7 @@ class RoadplannerPanel extends HTMLElement {
     if (select.dataset.action === "select-trip") {
       this._selectedTripId = select.value;
       this._selectedDayId = null;
+      this._storyResetForTrip();
       this._loadData({ force: true });
     } else if (select.dataset.action === "select-day") {
       this._selectedDayId = select.value;
@@ -1377,6 +1386,7 @@ class RoadplannerPanel extends HTMLElement {
       this._selectedTripId = tripId;
       this._selectedDayId = null;
       this._activeTab = "overview";
+      this._storyResetForTrip();
       this._loadData({ force: true });
     } else if (action === "activate-trip" && this._canActivate()) {
       const trip = this._data?.trips?.trips?.find((item) => item.id === tripId);
@@ -1392,6 +1402,7 @@ class RoadplannerPanel extends HTMLElement {
           }, "Aktive Reise gewechselt");
           if (result) {
             this._selectedTripId = tripId;
+            this._storyResetForTrip();
             await this._loadData({ force: true });
           }
         },

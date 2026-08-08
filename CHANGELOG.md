@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.1] - 2026-08-08
+
+### Changed
+
+- **Die Reisegeschichte lädt sich beim Öffnen des Reiters selbst.** Der Knopf „Reisegeschichte öffnen" ist entfallen: Die Kapitel aufzubauen ruft kein Modell auf und kostet nichts – es ist ein zwischengespeicherter Blick ins Roadbook. Der Knopf hat also nachgefragt, ob man wirklich will, was man durch das Öffnen des Reiters schon verlangt hatte. Scheitert das Laden, steht dort „Erneut versuchen".
+
+### Fixed
+
+- **Beim Wechsel der Reise blieb die Geschichte der vorherigen stehen.** Nichts hat sie verworfen, also zeigte der Reiter die Kapitel der alten Reise unter dem Namen der neuen – samt der unfertigen Textentwürfe, die einen Klick davon entfernt waren, in einen Tag einer ganz anderen Reise geschrieben zu werden. Die Geschichte fällt jetzt bei jedem Reisewechsel, auch bei dem, den nicht der Nutzer ausgelöst hat.
+
 ## [4.45.0] - 2026-08-07
 
 ### Added
