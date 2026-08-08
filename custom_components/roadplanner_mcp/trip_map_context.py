@@ -47,6 +47,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .trip_film_plan import readable_place
+
 MAP_CONTEXT_VERSION = 1
 
 MODE_DRIVING = "driving"
@@ -252,6 +254,14 @@ def _places(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     trip, and the one thing this module refuses to do is invent geography.
     What a traveller wants labelled on their own map is where they stopped.
 
+    The name is the one a film may show, not the one the roadbook stores.
+    ``park4night - (595 50) Mjölby - 24 Vetagatan`` is a real stop name
+    from a real trip; on a map it reads as a database export. The story
+    editor's ``story_name`` wins when somebody wrote one, and otherwise
+    the same conservative reduction the title cards already use turns it
+    into "Mjölby" - shared with them rather than reimplemented, because
+    two rules for the same question end up disagreeing.
+
     Rank is what the film thins by when it is zoomed out: rank 0 is the
     day's destination and is shown at every magnification, rank 1 is the
     rest, in order.
@@ -267,7 +277,7 @@ def _places(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = (point[0], point[1])
         if key in seen:
             continue
-        name = " ".join(str(stop.get("name") or "").split())[:MAX_NAME_LENGTH]
+        name = readable_place(stop)[:MAX_NAME_LENGTH]
         if not name:
             continue
         seen.add(key)

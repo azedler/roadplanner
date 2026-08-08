@@ -6,6 +6,27 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.51.0] - 2026-08-08
+
+### Added
+
+- **Zwei Schalter, die aus sind, bis jemand sie einschaltet:** KI-Videoanalyse und KI-Musik. Beide kosten Geld und beide schicken private Familienmedien in eine Cloud – das ist eine Entscheidung, keine Einstellung mit einem sinnvollen Standardwert. Das Panel meldet ihren Zustand, damit niemand raten muss, ob gerade Videos hochgeladen werden.
+
+
+- **Videos sind jetzt Medien wie Fotos.** Roadplanner hat beim Anlegen eines Medieneintrags alles verworfen, was kein Bild war – deshalb waren die Filme einer Familie für einen Film unsichtbar. Ein Video ist jetzt derselbe Datensatz mit `media_type: "video"` und eigenen Angaben (Länge, Maße), nicht eine zweite Art von Ding. Nichts, was Fotos liest, musste etwas dazulernen. OneDrive wird zusätzlich nach der `video`-Facette gefragt, ohne die ein Video ohne jede Angabe ankommt.
+
+- **Lokale Vorauswahl, bevor irgendetwas das Haus verlässt** (`video_prefilter.py`). Kostenlos und offline: zu kurz, zu klein, durchgehend dunkel, praktisch unbewegt, oder derselbe Take zweimal. Lange Aufnahmen werden in überlappende Fenster geschnitten – zwölf Minuten Autobahn sind nicht *ein* Kandidat, und als einer gefragt bekommt man eine Antwort über den Durchschnitt. **Jede Ablehnung nennt ihren Grund**, weil „nur drei deiner vierzig Videos wurden angesehen" sonst ein Verdacht statt einer Auskunft ist.
+
+- **Analysevertrag für gute Momente** (`video_analysis.py`). Das Modell wird nach einem **Zeitbereich** gefragt, nicht nach einer Zusammenfassung – eine Bildunterschrift ist kein Schnitt. Es erfährt bewusst **nichts** über Tag, Ort oder Reise: alles, was es erfährt, kann es zurückgeben, als hätte es das gesehen. Tag und Stopp kommen aus dem Roadbook und werden hinterher angehängt. Antworten werden als Arithmetik geprüft und bei Verstoß **verworfen statt zurechtgebogen** – eine still korrigierte falsche Zahl sieht aus wie eine richtige. Ergebnisse werden über einen Schlüssel aus Dateihash, Fenster und Vertragsversion gecacht.
+
+- **Clips im Film.** Eigener Szenentyp, mit `OffthreadVideo` abgespielt (ein `<video>`-Element, das viertausendmal springt, ist das Ende jedes Renderlaufs). **Stumm, und das ist eine Entscheidung**: ein Clip trägt mit, was gerade gesprochen wurde. Originalton bleibt eine Empfehlung in den Metadaten, die jemand bewusst freigeben muss. Hochkantvideos behalten ihre Form, statt beschnitten zu werden.
+
+### Changed
+
+- **Videos ersetzen Fotozeit, verdrängen aber keine Erinnerungen.** Die Sekunden eines Clips gehen vom Tagesbudget ab, bevor die Bilder sich den Rest teilen – ein Clip ist auf einen Moment geschnitten, ihn zu kürzen hieße ihn erneut zu schneiden. Gemessen an einem großen Höhepunkt mit acht Bildern: mit drei Clips bleibt der Tag bei 21 Sekunden und zeigt **weiterhin alle acht Bilder**, nur gruppiert statt einzeln. Wie viele Clips ein Tag zeigen darf, hängt an seiner Bedeutung: 1 / 1 / 2 / 3.
+
+- **Technische Stoppnamen erscheinen nicht mehr auf der Karte.** `park4night - (595 50) Mjölby - 24 Vetagatan` wird zu **Mjölby**. Die Regel dafür gab es längst für die Titelkarten – die Karte hat sie nur nie benutzt, und zwei Regeln für dieselbe Frage werden irgendwann verschiedener Meinung.
+
 ## [4.50.0] - 2026-08-08
 
 ### Changed

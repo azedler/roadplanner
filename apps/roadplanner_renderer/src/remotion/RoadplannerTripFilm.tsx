@@ -34,6 +34,7 @@ import {
   interpolate,
   useCurrentFrame,
   useVideoConfig,
+  OffthreadVideo,
 } from "remotion";
 
 import {
@@ -115,6 +116,8 @@ export type FilmScene = {
   enter: string;
   photos: number[];
   paths: string[];
+  /** Which of the chapter's clips this scene plays, when it is a clip. */
+  clip?: number;
 };
 
 export type FilmCrewMember = { name: string; path: string };
@@ -130,6 +133,7 @@ export type RoadplannerTripFilmProps = {
   crew?: FilmCrew | null;
   music?: FilmMusic | null;
   characters?: { assets: CharacterAsset[] } | null;
+  clips?: Record<string, FilmClip[]> | null;
 };
 
 export const filmDurationInFrames = (scenes: { frames: number }[]): number =>
@@ -929,6 +933,45 @@ const MapFullScene: React.FC<{ map: MapContext; trip: FilmTrip; scene: FilmScene
   );
 };
 
+
+/** One video clip, already cut and already in the film's own profile. */
+export type FilmClip = { path: string; frames: number; width: number; height: number };
+
+/**
+ * A real moment from a real recording.
+ *
+ * `OffthreadVideo` rather than `<Video>`: Remotion renders frames across
+ * parallel tabs that seek to arbitrary positions, and a `<video>`
+ * element asked to seek four thousand times is where a render goes to
+ * die. Offthread extracts the frame it needs instead.
+ *
+ * Muted by default and deliberately. A clip carries whatever was being
+ * said when it was recorded, and a family film that suddenly plays a
+ * private conversation under its music is not a feature anybody asked
+ * for. Original sound is a decision somebody makes per clip, not a
+ * default.
+ *
+ * Contained rather than cropped, like the photographs: an upright phone
+ * video keeps its shape instead of losing its subject to a 16:9 crop.
+ */
+const ClipScene: React.FC<{
+  chapter: FilmChapter;
+  scene: FilmScene;
+  clip: FilmClip;
+}> = ({ chapter, scene, clip }) => {
+  const opacity = useFade(scene.frames);
+  return (
+    <AbsoluteFill style={{ ...base, opacity, backgroundColor: "#0b1017" }}>
+      <OffthreadVideo
+        src={`/${clip.path}`}
+        muted
+        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+      />
+      <Caption text={chapter.story} overPhoto />
+    </AbsoluteFill>
+  );
+};
+
 /**
  * Who is travelling.
  *
@@ -1180,6 +1223,7 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
   scenes,
   mapContext = null,
   characters = null,
+  clips = null,
   crew = null,
   music = null,
 }) => {
@@ -1252,6 +1296,19 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
         />
       ) : (
         <ChapterCardScene chapter={chapter} scene={scene} />
+      );
+    } else if (scene.type === "clip") {
+      const chapterClips = clips?.[chapter.chapterId] ?? [];
+      const clip = chapterClips[scene.clip ?? -1];
+      // A clip scene whose clip did not travel falls back to the day's
+      // pictures rather than to a black frame. The plan and the package
+      // are built together, so this is unreachable - and a black frame
+      // nobody can explain is the worst possible way to find out it was
+      // not.
+      body = clip ? (
+        <ClipScene chapter={chapter} scene={scene} clip={clip} />
+      ) : (
+        <PhotoScene chapter={chapter} scene={scene} />
       );
     } else if (scene.type === "hero") {
       body = <PhotoScene chapter={chapter} scene={scene} hero />;

@@ -21,6 +21,7 @@ from .onedrive_media import normalize_onedrive_folder_path
 from .roadplanner import ValidationError
 
 _IMAGE_MIME_PREFIX = "image/"
+_VIDEO_MIME_PREFIX = "video/"
 
 _HIDDEN_MEDIA_FOLDERS = frozenset({
     ".picasaoriginals",
@@ -282,7 +283,18 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
         return None
     file_data = item.get("file") if isinstance(item.get("file"), dict) else {}
     mime = str(file_data.get("mimeType") or "")
-    if not mime.startswith(_IMAGE_MIME_PREFIX) and not isinstance(item.get("photo"), dict):
+    # Videos are media too. Roadplanner refused everything that was not an
+    # image here, which is why a family's films were invisible to a film.
+    # The record keeps the same shape - a video is a MediaAsset with a
+    # different `media_type`, not a second kind of thing - so nothing that
+    # reads photos has to learn about a new structure to keep working.
+    video_facet = item.get("video") if isinstance(item.get("video"), dict) else {}
+    is_video = mime.startswith(_VIDEO_MIME_PREFIX) or bool(video_facet)
+    if (
+        not mime.startswith(_IMAGE_MIME_PREFIX)
+        and not isinstance(item.get("photo"), dict)
+        and not is_video
+    ):
         return None
     photo = item.get("photo") if isinstance(item.get("photo"), dict) else {}
     location = item.get("location") if isinstance(item.get("location"), dict) else {}
@@ -297,8 +309,8 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
         "provider_item_id": str(item.get("id") or ""),
         "drive_id": str((item.get("parentReference") or {}).get("driveId") or "") if isinstance(item.get("parentReference"), dict) else None,
         "name": str(item.get("name") or "Foto"),
-        "mime_type": mime or "image/jpeg",
-        "media_type": "photo",
+        "mime_type": mime or ("video/mp4" if is_video else "image/jpeg"),
+        "media_type": "video" if is_video else "photo",
         "size_bytes": int(item.get("size") or 0),
         "taken_at": photo.get("takenDateTime") or (
             item.get("fileSystemInfo", {}).get("createdDateTime")
@@ -310,8 +322,18 @@ def _provider_media(item: dict[str, Any]) -> dict[str, Any] | None:
         "web_url": item.get("webUrl"),
         "location": normalized_location,
         "file_hash": hashes.get("quickXorHash") or hashes.get("sha1Hash") or hashes.get("sha256Hash"),
-        "width": image_data.get("width"),
-        "height": image_data.get("height"),
+        # A video carries its size in its own facet, and its length only
+        # there. Duration is in milliseconds in Graph and in seconds here,
+        # because every other duration in Roadplanner is in seconds and a
+        # unit that changes between modules is a bug waiting for a
+        # deadline.
+        "width": video_facet.get("width") or image_data.get("width"),
+        "height": video_facet.get("height") or image_data.get("height"),
+        "duration_seconds": (
+            round(float(video_facet["duration"]) / 1000.0, 3)
+            if isinstance(video_facet.get("duration"), (int, float))
+            else None
+        ),
         "thumbnail_available": True,
         "last_seen_at": utc_now_iso(),
     }

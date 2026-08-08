@@ -363,6 +363,7 @@ export const FILM_SCENE_TYPES = new Set([
   "text",
   "outro",
   "outro_collage",
+  "clip",
   "map_start",
   "map_leg",
   "map_full",
@@ -507,6 +508,7 @@ export function parseFilmPackage(raw) {
     narrative: parseNarrative(payload.narrative),
     crew: parseCrew(payload.crew),
     characters: parseCharacters(payload.characters),
+    clips: parseClips(payload.clips),
     music: parseMusic(payload.music),
     mapContext: parseMapContext(payload.map_context),
     scenes: parseScenePlan(payload.scene_plan, parsed.length),
@@ -573,6 +575,56 @@ export function parseCharacters(value) {
       };
     }),
   };
+}
+
+
+export const MAX_FILM_CLIP_BYTES = 24 * 1024 * 1024;
+const CLIP_PATH_RE = /^clips\/c(\d{2})-(\d)\.mp4$/;
+
+/**
+ * The video clips that travel with a job.
+ *
+ * Already cut and already re-encoded to the film's own profile by the
+ * time they get here: the renderer plays what it is given and never
+ * transcodes, because a phone's original container is exactly the thing
+ * that turns a render into an hour of guessing.
+ *
+ * Absent is normal. A trip with no video is a trip with no video.
+ */
+export function parseClips(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Clipangaben sind kein Objekt.");
+  }
+  const parsed = {};
+  for (const [chapterId, entries] of Object.entries(value)) {
+    if (!Array.isArray(entries) || !entries.length) continue;
+    parsed[chapterId] = entries.map((clip) => {
+      if (clip === null || typeof clip !== "object" || Array.isArray(clip)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Clip ist kein Objekt.");
+      }
+      const path = String(clip.path ?? "");
+      if (!CLIP_PATH_RE.test(path)) {
+        throw new ProtocolError(ERROR_INVALID_JOB, `Ungültiger Clippfad: ${path.slice(0, 60)}`);
+      }
+      if (!/^[0-9a-f]{64}$/.test(String(clip.sha256 ?? ""))) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Clip ohne gültige Prüfsumme.");
+      }
+      const size = clip.size_bytes;
+      if (!Number.isInteger(size) || size <= 0 || size > MAX_FILM_CLIP_BYTES) {
+        throw new ProtocolError(ERROR_INVALID_JOB, "Clip mit ungültiger Größe.");
+      }
+      return {
+        path,
+        frames: Number.isInteger(clip.frames) && clip.frames > 0 ? clip.frames : 0,
+        sha256: clip.sha256,
+        sizeBytes: size,
+        width: Number.isInteger(clip.width) ? clip.width : 0,
+        height: Number.isInteger(clip.height) ? clip.height : 0,
+      };
+    });
+  }
+  return Object.keys(parsed).length ? parsed : null;
 }
 
 // --- the crew, and the music -------------------------------------------
@@ -919,6 +971,11 @@ function parseScenePlan(value, chapterCount) {
         .map((path, position) => filmPhotoPathAnywhere(path))
         .filter(Boolean)
         .slice(0, 8),
+      // Which of the chapter's clips a clip scene plays. An index rather
+      // than a path: the plan addresses media by position everywhere
+      // else, and a second convention here would be a second way to get
+      // it wrong.
+      clip: Number.isInteger(scene.clip) && scene.clip >= 0 ? scene.clip : undefined,
     };
   });
   if (total !== value.total_frames) {

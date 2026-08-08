@@ -1843,6 +1843,11 @@ async def websocket_get_panel_data(
                 "destination_image_auto_fill": True,
                 "media_curation_mode": runtime.experience.media_curation_mode,
                 "media_vision_enabled": runtime.experience.vision_enabled,
+                # The two paid, cloud-touching switches. Reported so the
+                # panel can say "off" rather than leaving somebody to
+                # guess whether their videos are being uploaded.
+                "video_analysis_enabled": runtime.video_analysis_enabled,
+                "ai_music_enabled": runtime.ai_music_enabled,
                 "media_vision_max_candidates": runtime.experience.media_vision_max_candidates,
                 "media_vision_max_highlights": runtime.experience.media_vision_max_highlights,
                 "media_vision_daily_limit": runtime.experience.media_vision_daily_limit,
