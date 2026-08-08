@@ -575,13 +575,17 @@ def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float
 
     if style == "map_focus":
         # The map is the act. One picture closes the day, and anything
-        # else the day has is grouped behind it rather than thrown away.
+        # else the day has is grouped behind it rather than thrown away -
+        # which is what the previous version claimed and did not do: it
+        # took the first four of the rest and dropped the remainder, so a
+        # map-focus day with seven pictures quietly showed five.
         shots.append((SCENE_HERO, indices[:1], 1.6))
         rest = indices[1:]
-        if len(rest) >= 2:
-            shots.append((SCENE_COLLAGE, rest[:GROUP_SIZE], 1.3))
-        elif rest:
-            shots.append((SCENE_PHOTO, rest[:1], 1.0))
+        if len(rest) == 1:
+            shots.append((SCENE_PHOTO, rest, 1.0))
+        else:
+            for position in range(0, len(rest), GROUP_SIZE):
+                shots.append((SCENE_COLLAGE, rest[position : position + GROUP_SIZE], 1.3))
         return shots
 
     rest = indices

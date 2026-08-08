@@ -398,3 +398,45 @@ verify_a_technical_stop_name_does_not_reach_a_title_card()
 verify_the_route_line_is_short_and_without_repeats()
 verify_a_broken_plan_is_refused()
 print("Trip film plan tests passed.")
+
+def verify_no_curated_picture_is_ever_dropped() -> None:
+    """A photograph somebody kept must reach the screen, or nothing works.
+
+    This failed twice in one evening, both times silently. The map-focus
+    shape took the first four of what followed its hero and discarded the
+    rest - under a comment saying "rather than thrown away". The collage
+    component did the same at the other end, showing four of however many
+    the plan gave it.
+
+    Both were invisible: the plan was valid, the film rendered, and the
+    only trace was a count nobody was looking at. So the count is looked
+    at here, for every style and every plausible number of pictures - the
+    cheapest possible check for the most expensive possible failure.
+    """
+    for style in ("normal", "compact", "hero", "collage", "map_focus", "erfunden"):
+        for count in range(0, 11):
+            chapter = _chapter(0, style=style, photos=count)
+            for mapped in (False, True):
+                plan = _plan(
+                    [chapter],
+                    map_context=(
+                        {"chapters": [{"chapter_id": "day-1", "index": 0}]}
+                        if mapped
+                        else None
+                    ),
+                )
+                shown = [
+                    position
+                    for scene in plan["scenes"]
+                    if scene.get("chapter_index") == 0
+                    for position in scene["photos"]
+                ]
+                assert sorted(shown) == list(range(count)), (
+                    style,
+                    count,
+                    mapped,
+                    sorted(shown),
+                )
+
+
+verify_no_curated_picture_is_ever_dropped()
