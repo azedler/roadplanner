@@ -82,6 +82,13 @@ class TripFilmExporter:
         with_photos = sum(1 for chapter in chapters if (chapter.get("media") or []))
         planned = sum(budget.values())
         per_chapter = max(budget.values()) if budget else 0
+        # The map belongs in the answer to "what would be in the film?".
+        # It was left out, and the first thing a real trip asked was
+        # exactly this: the film came back without a map and there was no
+        # way to tell whether the reason was the trip's data or the
+        # version that rendered it. Built by the same builder the render
+        # uses, so the count cannot disagree with what gets drawn.
+        map_context = await self._map.async_build(trip_id, manifest)
         return {
             "trip_title": (manifest.get("trip") or {}).get("title") or "",
             "manifest_content_hash": manifest.get("content_hash") or "",
@@ -91,6 +98,13 @@ class TripFilmExporter:
             "photos_per_chapter": per_chapter,
             "planned_photo_count": planned,
             "story_sources": manifest.get("story_sources") or {},
+            "mapped_chapters": (map_context or {}).get("chapter_count", 0),
+            "map_has_ferry": bool((map_context or {}).get("has_ferry")),
+            # Days whose line is a straight guess between stops because no
+            # route was ever calculated. Named, because "the map looks
+            # wrong" and "the map is honest about not knowing" are two
+            # different findings.
+            "estimated_map_chapters": (map_context or {}).get("estimated_chapters", 0),
         }
 
     async def async_submit(self, trip_id: str) -> dict[str, Any]:

@@ -445,7 +445,16 @@ export const storyEditorMixin = {
       <small>Ein Film über die ganze Reise, ein Kapitel je Tag, aus genau diesen Titeln, Texten und Bildern. Tage ohne Fotos werden als solche gezeigt und nicht übersprungen.</small>
       ${
         film
-          ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>`
+          ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>
+             ${
+               // Whether the film gets a map is a property of the trip's
+               // stored routes, and it used to be invisible until the
+               // film came back without one - with no way to tell the
+               // data apart from the version that rendered it.
+               Number(film.mapped_chapters || 0) > 0
+                 ? `<small>Karte: ${escapeHtml(String(film.mapped_chapters))} von ${escapeHtml(String(film.chapter_count))} Tagen${film.map_has_ferry ? " · mit Fährstrecke" : ""}${Number(film.estimated_map_chapters || 0) > 0 ? ` · ${escapeHtml(String(film.estimated_map_chapters))} davon nur als Luftlinie` : ""}</small>`
+                 : `<small>Karte: keine. Für diese Reise sind weder berechnete Routen noch Koordinaten an den Stopps gespeichert – der Film läuft ohne Kartenszenen.</small>`
+             }`
           : ""
       }
       ${

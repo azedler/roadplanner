@@ -564,6 +564,30 @@ def verify_an_automatic_read_does_not_shout() -> None:
     )
 
 
+def verify_the_preview_says_whether_there_is_a_map() -> None:
+    """Live question: "wir haben keine Karte gesehen" - and no way to know why.
+
+    A film without a map has two very different causes: the trip has no
+    stored routes, or the version that rendered it did not have the
+    feature. The preview exists to answer "what would be in the film?",
+    so it has to answer that too - and it answers it with the same
+    builder the render uses, because a second counter would eventually
+    disagree with what actually gets drawn.
+    """
+    export = _code(INTEGRATION / "trip_film_export.py")
+    preview = export.split("async def async_preview", 1)[1].split("async def ", 1)[0]
+    assert "_map.async_build" in preview, "die Vorschau muss den echten Aufbau nutzen"
+    assert "mapped_chapters" in preview
+    # "No route was ever calculated" is a different answer from "here is
+    # the route", and the film draws it differently, so the preview names
+    # it rather than counting it as a map like any other.
+    assert "estimated_map_chapters" in preview
+
+    card = _js_code(INTEGRATION / "frontend" / "features" / "story-editor.js")
+    assert "mapped_chapters" in card, "die Karte muss in der Vorschau auftauchen"
+    assert "Karte: keine" in card, "auch das Fehlen muss dastehen"
+
+
 def verify_a_progress_tick_does_not_rebuild_the_page() -> None:
     """Live report: the view flew back to the top every two seconds.
 
@@ -662,4 +686,5 @@ verify_a_portrait_url_never_leaves_the_panel()
 verify_opening_the_tab_is_the_request()
 verify_a_story_belongs_to_exactly_one_trip()
 verify_an_automatic_read_does_not_shout()
+verify_the_preview_says_whether_there_is_a_map()
 print("Story layer contract tests passed.")
