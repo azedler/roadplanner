@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.50.0] - 2026-08-08
+
+### Changed
+
+- **Aufräumen bei den Auffrischungs-Schaltern.** Aus der Rückmeldung „ich finde ja es gibt zu viele Schalter für Auffrischungen": Es waren neun, verteilt auf fünf Karten, in sechs verschiedenen Verben – auffrischen, neu berechnen, neu bewerten, neu einlesen, synchronisieren, aktualisieren.
+
+  Die Anzahl war dabei das kleinere Problem. Die Beschriftungen beschrieben, **was der Code tut**. Was man im Moment des Drückens wissen will, ist etwas anderes und viel kürzer: Kostet das Geld? Verändert es etwas, das ich schon entschieden habe? Dauert es?
+
+  Diese drei Angaben stehen jetzt **an einer Stelle** (`panel_action_costs.py`) und werden vom Panel gerendert, statt dass jede Karte ihren Knopf selbst formuliert. Vier Klassen: liest nur, rechnet neu aus vorhandenen Daten, holt aus dem Netz, ruft ein Modell auf.
+
+  **Eine bezahlte Aktion darf nie aussehen wie eine kostenlose.** Alles andere hier ist Einheitlichkeit; das ist Sicherheit. Die fünf Knöpfe, die Kontingent oder Geld verbrauchen, tragen jetzt eine sichtbare Markierung, das Modell-Symbol und ihren Preis im Hinweis. Ein Kontrakttest prüft, dass keiner von Hand gezeichnet wird – so sind die sechs Verben überhaupt erst entstanden – und dass jeder von ihnen benennt, was er verbraucht.
+
+  Konkret umbenannt, damit gleiche Dinge gleich heißen: „Highlights neu bewerten" → **„Fotos neu bewerten lassen"**, „Redaktion auffrischen" → **„Reise neu schreiben lassen"**, „Zusammenfassungen schreiben" → **„Zusammenfassungen schreiben lassen"**, „Jetzt synchronisieren" → **„Neue Fotos holen"**, „Neu ab Reisebeginn einlesen" → **„Alles neu einlesen"**. Das angehängte „lassen" ist die Unterscheidung, auf die es ankommt: Da arbeitet etwas anderes, und das kostet.
+
+### Removed
+
+- **„Neu aufbauen" in der Reisegeschichte entfällt.** Der Reiter lädt sich seit 4.45.1 beim Öffnen selbst, und der Aufbau ruft kein Modell auf. Der Knopf fragte also nach, ob man wirklich will, was man durch das Öffnen schon verlangt hatte – dieselbe Begründung, mit der „Reisegeschichte öffnen" entfallen ist. Scheitert das Laden, steht dort weiterhin „Erneut versuchen"; das ist ein Zustand und kein Schalter.
+
 ## [4.49.0] - 2026-08-08
 
 ### Fixed

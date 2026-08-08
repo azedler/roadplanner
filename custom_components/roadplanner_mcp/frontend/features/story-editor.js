@@ -1,3 +1,4 @@
+import { actionButton } from "../lib/action-button.js";
 import { escapeHtml } from "../lib/core-helpers.js";
 
 /**
@@ -378,7 +379,12 @@ export const storyEditorMixin = {
       ${
         canEdit
           ? `<div class="button-row">
-        <button class="secondary-button" type="button" data-action="story-direct"${busy ? " disabled" : ""}><ha-icon icon="mdi:auto-awesome"></ha-icon> ${busy ? "Redigiert …" : status?.has_direction ? "Redaktion auffrischen" : "Reise redigieren lassen"}</button>
+        ${actionButton(
+          this._actionCosts(),
+          "story-direct",
+          status?.has_direction ? "Reise neu schreiben lassen" : "Reise redigieren lassen",
+          { busy, busyLabel: "Redigiert …" },
+        )}
         ${status?.has_direction ? `<button class="text-button" type="button" data-action="story-direct-discard"${busy ? " disabled" : ""}><ha-icon icon="mdi:backup-restore"></ha-icon> Redaktion verwerfen</button>` : ""}
       </div>`
           : ""
@@ -661,7 +667,7 @@ export const storyEditorMixin = {
     return `<section class="panel-card story-card">
       <div class="section-heading compact">
         <div><span class="eyebrow">Redaktion</span><h2>Reisegeschichte</h2></div>
-        <button class="text-button" type="button" data-action="story-reload"${this._storyLoading ? " disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon> Neu aufbauen</button>
+
       </div>
       <div class="story-overview">
         <span><strong>${escapeHtml(String(chapters.length))}</strong> Kapitel</span>

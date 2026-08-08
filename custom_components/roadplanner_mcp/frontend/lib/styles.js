@@ -883,6 +883,19 @@ export const PANEL_STYLES = `<style>
         .assistant-input-row { grid-template-columns: minmax(0, 1fr); }
         .assistant-input-actions { width: 100%; min-width: 0; }
         .assistant-send { width: 100%; }
+        /* A paid action carries a visible mark. Everything else in
+           this cleanup is consistency; this one is safety - a button
+           that spends money must not look like one that does not. */
+        .action-model {
+          border-color: var(--warning-color, #ffa726) !important;
+        }
+        .action-model ha-icon { color: var(--warning-color, #ffa726); }
+        .action-notes {
+          margin: 6px 0 0;
+          font-size: 0.82rem;
+          opacity: 0.72;
+          line-height: 1.35;
+        }
         .topbar-actions .icon-button[data-action="refresh"] { display: none; }
         .trip-select { width: min(36vw, 140px); }
       }

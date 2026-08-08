@@ -1,3 +1,4 @@
+import { actionButton } from "../lib/action-button.js";
 import { escapeHtml, cleanText, cloneObject } from "../lib/core-helpers.js";
 import { stopIcons } from "../lib/constants.js";
 import { park4nightReference, cleanPlaceName, withPark4nightReference } from "../lib/place-links.js";
@@ -150,7 +151,7 @@ export const tripDayStopMixin = {
       : "Lokal nach Qualität, Dubletten und Serien ausgewählt";
     const canVisionCurate = Boolean(stopId && this._canEdit() && this._data?.settings?.media_vision_enabled && count > 1);
     return `<section class="experience-album ${compact ? "compact" : ""}">
-      <div class="experience-album-heading"><div><span class="eyebrow">Unsere Fotos</span><strong>${escapeHtml(title)}</strong><small>${highlights.length} Highlights aus ${count} ${count === 1 ? "Foto" : "Fotos"} · ${escapeHtml(modeLabel)}</small></div><div class="experience-album-actions"><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button>${canVisionCurate ? `<button class="text-button" type="button" data-action="media-curate-stop" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:creation-outline"></ha-icon>Neu bewerten</button>` : ""}</div></div>
+      <div class="experience-album-heading"><div><span class="eyebrow">Unsere Fotos</span><strong>${escapeHtml(title)}</strong><small>${highlights.length} Highlights aus ${count} ${count === 1 ? "Foto" : "Fotos"} · ${escapeHtml(modeLabel)}</small></div><div class="experience-album-actions"><button class="text-button" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(cover.id)}">Alle ansehen</button>${canVisionCurate ? actionButton(this._actionCosts(), "media-curate-stop", "Neu bewerten lassen", { extra: `data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}"` }) : ""}</div></div>
       <div class="experience-album-strip">${highlights.map((item) => `<button class="experience-album-thumb ${item.is_cover ? "cover" : ""}" type="button" data-action="media-open-album" data-day-id="${escapeHtml(dayId)}" data-stop-id="${escapeHtml(stopId)}" data-media-id="${escapeHtml(item.id)}"><img src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.caption || item.name || "Reisefoto")}" loading="lazy">${item.is_cover ? `<ha-icon icon="mdi:star"></ha-icon>` : ""}</button>`).join("")}</div>
     </section>`;
   },

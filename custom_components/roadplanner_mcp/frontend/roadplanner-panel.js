@@ -638,6 +638,17 @@ class RoadplannerPanel extends HTMLElement {
     return this._data?.summary?.revision ?? 0;
   }
 
+  /**
+   * What each repeatable action costs, as the backend declared it.
+   *
+   * One table for the whole panel rather than a sentence per card. A
+   * card that wants to draw a refresh button names the action; the
+   * wording, the icon and the warning follow from what the action is.
+   */
+  _actionCosts() {
+    return this._data?.action_costs || {};
+  }
+
   _canEdit() {
     return Boolean(this._data?.capabilities?.can_edit && this._data?.selected_is_active);
   }

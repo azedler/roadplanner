@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 
 import uuid
 
+from .panel_action_costs import panel_payload as action_cost_payload
 from .const import (
     DOMAIN,
     DRIVE_IMPORT_PATH,
@@ -1806,6 +1807,10 @@ async def websocket_get_panel_data(
     payload.update(
         {
             "integration_version": INTEGRATION_VERSION,
+            # What each repeatable action costs and what it changes, in
+            # one place. The panel renders its buttons from this rather
+            # than each card wording its own - see panel_action_costs.
+            "action_costs": action_cost_payload(),
             "entry_id": next(iter(hass.data[DOMAIN])),
             "capabilities": capabilities,
             "assistant": assistant_state,
