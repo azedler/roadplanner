@@ -66,3 +66,9 @@ RP-*_bundle.zip
 # it (tools/validate_repository.py IGNORED_DIRECTORY_NAMES).
 node_modules/
 remotion_renderer/.remotion/
+
+# Scratch render scripts. Node resolves bare imports from the *file's*
+# directory, so a script that drives @remotion/renderer has to sit inside
+# the app tree while it runs - it is written there, used, and deleted. The
+# underscore prefix marks it as neither source nor test.
+apps/roadplanner_renderer/_*.mjs
