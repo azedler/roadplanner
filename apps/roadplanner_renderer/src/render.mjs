@@ -63,11 +63,21 @@ export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
 export const TRIP_FILM_MIN_SECONDS = 15;
 export const TRIP_FILM_MAX_SECONDS = 900;
 export const FILM_LIMITS = {
-  // Twenty-five days at roughly eight seconds each is about three and a
-  // half minutes of video, which takes ten to thirteen minutes to render
-  // on a Home Assistant box. The ceiling is set well above that so it only
-  // ever catches something genuinely stuck.
-  renderTimeoutMs: Number(process.env.ROADPLANNER_FILM_TIMEOUT_MS || 1_500_000),
+  // Raised from 1_500_000 once a film had a map, and raised from a
+  // measurement rather than from the failure that prompted it.
+  //
+  // The old ceiling was set when a film was photographs and cards. A map
+  // added a quarter of a scene to every day plus an opening and a closing
+  // one, and the 25-day CI film went past it - which would have stopped a
+  // real film after twenty-five minutes of work with nothing at the end.
+  //
+  // Measured after making the map cheaper: 126 ms per frame here, so the
+  // longest film this builds - twenty-five days, about 9 000 frames -
+  // comes to roughly 1 150 s. Doubled, because a Home Assistant box is
+  // not a developer machine and the point of a ceiling is to catch a
+  // render that is stuck, never one that is merely slower than the one
+  // it was measured on.
+  renderTimeoutMs: Number(process.env.ROADPLANNER_FILM_TIMEOUT_MS || 2_400_000),
   maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 512 * 1024 * 1024),
 };
 

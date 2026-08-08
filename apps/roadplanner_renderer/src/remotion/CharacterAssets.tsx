@@ -39,17 +39,42 @@ export type CharacterProps = {
   /** Map bearing in degrees; only vehicles use it. */
   heading?: number;
   scale?: number;
+  /** Whether somebody is at the wheel. Off when the vehicle is parked. */
+  driver?: boolean;
 };
 
 /**
- * The camper.
+ * The camper: a Nugget Plus, which is a Transit Custom with a fixed
+ * high roof on top of it.
+ *
+ * The first version of this drawing was a tall rectangular box with a
+ * flat nose - a Sprinter, and recognisable as somebody else's van. The
+ * roof was not the mistake; everything in front of it was. Three shapes
+ * carry the identity, and they are the three this spends its lines on:
+ *
+ * **A low, rounded nose.** The Transit's bonnet is short and drops away
+ * from a steeply raked windscreen. A vertical face here is what made the
+ * old drawing read as a lorry.
+ *
+ * **A roof that starts behind the cab.** The high roof is moulded, a
+ * little narrower than the body, and it begins with a step and a sloped
+ * fairing over the windscreen - not one box running from bumper to
+ * bumper.
+ *
+ * **A long body on a long wheelbase**, with the rear overhang the Plus
+ * has for its bathroom.
  *
  * Drawn from the side and never rotated to follow the road: a side view
  * turned to face north points at the sky, which reads as a van standing
  * on its bumper. It faces the way it is travelling - mirrored when that
  * is westward - and only leans with the gradient of the route.
+ *
+ * The colours are the film's, not the vehicle's - a warm stripe against
+ * pale bodywork, so that at forty pixels wide it is not a white smudge
+ * on a dark map. When a photograph of the real one is turned into a
+ * confirmed asset, that is where the true colour belongs.
  */
-export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1 }) => {
+export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1, driver = true }) => {
   // Mercator y grows downward and the bearing was computed in map space,
   // so the screen angle is the negative of it.
   const screen = -heading;
@@ -58,29 +83,66 @@ export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1 
   const lean = Math.max(-14, Math.min(14, slope));
   return (
     <g transform={`translate(${x} ${y}) rotate(${lean}) scale(${scale})`}>
-      <ellipse cx="0" cy="10" rx="21" ry="4" fill="rgba(0,0,0,0.38)" />
+      <ellipse cx="0" cy="10" rx="22" ry="4" fill="rgba(0,0,0,0.38)" />
       <g transform={`scale(${westward ? -1 : 1} 1)`}>
-        {/* The high roof, which is the silhouette people recognise. */}
+        {/* The moulded high roof: inset from the body, rounded at the
+            back, and sloping down over the cab rather than ending in a
+            wall above the windscreen. */}
         <path
-          d="M-19 -6 L-19 -13 Q-19 -16 -16 -16 L2 -16 Q5 -16 5 -13 L5 -6 Z"
-          fill="#eef1f5"
+          d="M-17.5 -8.5 L-17.5 -15 Q-17.5 -17.4 -15 -17.4 L2.5 -17.4 Q5 -17.4 5.6 -15.4 L7.4 -8.5 Z"
+          fill="#e7ecf2"
         />
-        <rect x="-19" y="-6" width="24" height="10" rx="2" fill="#f6f8fa" />
-        {/* Bonnet and windscreen, raked forward. */}
-        <path d="M5 -6 L13 -1 L17 3 L17 4 L5 4 Z" fill="#f6f8fa" />
-        <path d="M5.8 -5 L12 -0.5 L5.8 -0.5 Z" fill="#7f97ad" />
-        <rect x="-16" y="-13.5" width="7" height="5" rx="1" fill="#7f97ad" />
-        <rect x="-7.5" y="-13.5" width="7" height="5" rx="1" fill="#7f97ad" />
-        {/* A warm stripe, so it is not a white box at small sizes. */}
-        <rect x="-19" y="-2" width="24" height="2.4" fill="#e8823f" />
-        <circle cx="-12" cy="5" r="3.8" fill="#1b2330" />
-        <circle cx="-12" cy="5" r="1.5" fill="#63707f" />
-        <circle cx="11" cy="5" r="3.8" fill="#1b2330" />
-        <circle cx="11" cy="5" r="1.5" fill="#63707f" />
+        {/* Body sides, low and long. */}
+        <path d="M-19 -8.6 L6 -8.6 L6 3.4 Q6 4.6 4.8 4.6 L-17.8 4.6 Q-19 4.6 -19 3.4 Z" fill="#f6f8fa" />
+        {/* Bonnet and the raked windscreen - the Transit's face. */}
+        <path
+          d="M6 -8.6 L11.4 -6.2 Q15.6 -4.4 17.2 -0.6 L18.2 2.2 Q18.5 3.2 17.4 3.4 L6 3.4 Z"
+          fill="#f6f8fa"
+        />
+        <path d="M6.9 -7.2 L11 -5.2 Q13.6 -4 15 -1.8 L6.9 -1.8 Z" fill="#7f97ad" />
+        {/* Grille and light, so the front end is not a blank wedge. */}
+        <path d="M15.6 -0.9 L18.1 1.4 L18.3 2.4 L15.6 2.4 Z" fill="#c3ccd6" />
+        <circle cx="16.4" cy="0.6" r="0.9" fill="#f4e3b8" />
+        {/* Side glazing: cab, sliding door, rear. */}
+        <rect x="1.4" y="-7.4" width="4.2" height="5" rx="0.8" fill="#7f97ad" />
+        <rect x="-6.4" y="-7.4" width="6.6" height="5" rx="0.8" fill="#7f97ad" />
+        <rect x="-15.4" y="-7.4" width="7.8" height="5" rx="0.8" fill="#7f97ad" />
+        {/* The awning rail along the roofline, and the warm stripe. */}
+        <rect x="-17.6" y="-9.4" width="23" height="1" rx="0.4" fill="#c3ccd6" />
+        <rect x="-19" y="-0.4" width="25" height="2.2" fill="#e8823f" />
+        {/* Wheels on a long wheelbase, with the Plus's rear overhang. */}
+        <circle cx="-13.4" cy="5" r="3.9" fill="#1b2330" />
+        <circle cx="-13.4" cy="5" r="1.5" fill="#63707f" />
+        <circle cx="11.4" cy="5" r="3.9" fill="#1b2330" />
+        <circle cx="11.4" cy="5" r="1.5" fill="#63707f" />
+        {driver ? <Driver /> : null}
       </g>
     </g>
   );
 };
+
+/**
+ * Somebody at the wheel, looking out.
+ *
+ * Deliberately nobody in particular. The camper is about forty pixels
+ * wide on the map, and a face at that size is four pixels of skin - a
+ * likeness is not something this drawing is capable of, whoever it were
+ * meant to be. What it *can* say is that the van is being driven rather
+ * than rolling along empty, and that is worth the six shapes.
+ *
+ * Where a person really is recognisable is the crew scene, at a couple
+ * of hundred pixels and from their own photograph.
+ */
+const Driver: React.FC = () => (
+  <g>
+    {/* Shoulder, in a colour that separates from the glass behind it -
+        without contrast the whole figure disappears into the window. */}
+    <path d="M1.9 -2.5 Q2.4 -4.6 4.05 -4.6 Q5.7 -4.6 5.8 -2.5 Z" fill="#2f4054" />
+    <circle cx="4.05" cy="-5.55" r="1.35" fill="#d8a883" />
+    {/* Hair, so the head is a head rather than a bare dot. */}
+    <path d="M2.7 -5.75 Q2.85 -7 4.05 -7 Q5.3 -7 5.4 -5.75 Q4.75 -6.35 4.05 -6.3 Q3.35 -6.25 2.7 -5.75 Z" fill="#4a3428" />
+  </g>
+);
 
 /**
  * A crew member, drawn from the portrait Roadplanner already stores.

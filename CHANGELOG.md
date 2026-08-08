@@ -6,6 +6,28 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.47.1] - 2026-08-08
+
+### Fixed
+
+- **Das Add-on-Image 0.8.0-journey.1 wurde nie veröffentlicht.** Der Veröffentlichungsschritt hängt am Testlauf, und der ist rot geworden – Home Assistant sollte also etwas herunterladen, was es nicht gab, und meldete „unknown error". Der rote Testlauf war dabei ein Glücksfall: Er ist an der **Zeitgrenze der App selbst** gescheitert, nicht an einer von CI. Wäre das Image installierbar gewesen, wäre ein echter Reisefilm nach 25 Minuten Rechnen in dieselbe Wand gelaufen.
+
+- **Ländergrenzen waren der weitaus teuerste Teil einer Karte.** Gemessen statt vermutet, weil die Vermutung hier schon zweimal danebenlag. Je Bild: Crew 75 ms, Tagesetappe 143 ms, Schlussbild der ganzen Strecke 689 ms. In dieser Szene die Ebenen einzeln abgeschaltet: ohne Grenznetz 201 ms, ohne Landflächen 599 ms – **71 % der Kosten einer Karte waren die Grenzen.**
+
+  Warum das erst jetzt auffiel: Ein gestricheltes Liniennetz wird neu gerastert, sobald sich die Transformation ändert – und die Kamera als Transformation über einer Projektion, also gerade der Sinn der neuen Karte, bewegt sich nun in den meisten Bildern statt in wenigen.
+
+  Der erste Behebungsversuch machte es schlimmer: `non-scaling-stroke` durch eine mitskalierende Strichstärke zu ersetzen ging auf 1183 ms. Es liegt an der Menge der Geometrie, nicht an der Strichart. **Die Küstenlinien bleiben deshalb fein** – das ist, was das Auge auf einer Reisekarte liest – und nur die Grenzen kommen aus dem groben Datensatz, wo eine dünne graue Linie „hier beginnt ein anderes Land" beim Maßstab einer Reise nicht unterscheidbar ist. Dazu ein enger zugeschnittener Kartenausschnitt: eine halbe Rahmenbreite statt einer ganzen, was keine Geschmacksfrage ist, sondern eine Grenze – jede Kamera im Film ist mindestens so stark vergrößert wie der Überblick, zeigt also einen Ausschnitt des Rahmens, verschoben um höchstens dessen Hälfte.
+
+  Schlussbild 689 → 253 ms je Bild, ganzer Film **914 → 518 s**.
+
+### Changed
+
+- **Die Zeitgrenze fürs Rendern steigt von 1500 s auf 2400 s** – aus der Messung abgeleitet, nicht aus dem Fehlschlag. Der längste Film, den Roadplanner baut (25 Tage, rund 9000 Bilder), kostet nach der Verbesserung etwa 1150 s; verdoppelt, weil ein Home-Assistant-Rechner kein Entwicklungsrechner ist. Eine Obergrenze soll einen hängenden Render abfangen, nie einen, der bloß langsamer läuft als der, an dem gemessen wurde.
+
+- **Der Camper ist ein Nugget Plus statt eines Hochdachkastens.** Die alte Zeichnung war ein Kasten mit senkrechter Front – ein Sprinter, erkennbar als jemand anderes Fahrzeug. Das Hochdach war nicht der Fehler, sondern alles davor: Der Nugget Plus ist ein Transit Custom mit aufgesetztem Hochdach, also kurze rundliche Nase, stark geneigte Scheibe und ein Dach, das **hinter dem Fahrerhaus** mit einem Absatz beginnt statt durchzulaufen. Dazu Fensterband, Markisenschiene und langer Radstand.
+
+- **Am Steuer sitzt jemand.** Bewusst niemand Bestimmtes: Der Camper ist auf der Karte etwa 40 px breit, ein Gesicht dort wenige Pixel – eine Ähnlichkeit ist auf dieser Fläche nicht darstellbar, egal wen sie darstellen soll. Was die Figur sagen kann, ist, dass der Wagen gefahren wird und nicht leer rollt. Wiedererkennbar sind Menschen im Crew-Intro, aus ihrem eigenen Foto.
+
 ## [4.47.0] - 2026-08-08
 
 ### Fixed

@@ -45,6 +45,7 @@ import { geoMercator, geoPath, geoContains } from "d3-geo";
 import { feature, mesh } from "topojson-client";
 import type { GeometryCollection } from "topojson-specification";
 import world from "world-atlas/countries-50m.json";
+import coarse from "world-atlas/countries-110m.json";
 
 import { Camper } from "./CharacterAssets";
 import {
@@ -98,9 +99,30 @@ const worldTopology = world as unknown as {
 // Computed once for the process, not once per scene: the outline of the
 // world is the same in every frame of every film.
 const landFeature = feature(worldTopology as never, worldTopology.objects.land as never);
+/**
+ * Borders come from the coarse atlas, coastlines from the fine one.
+ *
+ * Measured, because the guess was wrong twice. Rendering the closing
+ * scene cost 689 ms per frame; blanking the border mesh alone took it to
+ * 201 ms. So national borders were 71 % of the cost of drawing a map -
+ * a stroked mesh has to be re-rasterised in device space every time the
+ * camera moves, and the camera now moves in most frames rather than in
+ * a few.
+ *
+ * The first fix attempt made it worse: replacing `non-scaling-stroke`
+ * with a stroke width divided by the zoom went to 1183 ms. It is the
+ * volume of geometry, not the way it is stroked.
+ *
+ * So the geometry shrinks - but only where it can be afforded visually.
+ * A coastline is what the eye reads on a travel map and stays at the
+ * fine resolution; a national border is a thin grey line saying "another
+ * country starts here", and at the scale a trip is drawn the coarse
+ * version is indistinguishable. That took the closing scene to 253 ms.
+ */
+const coarseTopology = coarse as unknown as typeof worldTopology;
 const borderMesh = mesh(
-  worldTopology as never,
-  worldTopology.objects.countries as never,
+  coarseTopology as never,
+  coarseTopology.objects.countries as never,
   (a: unknown, b: unknown) => a !== b,
 );
 const countryFeatures = feature(
@@ -240,10 +262,15 @@ export const buildProjection = (
     ],
     extent,
   );
-  // Clipped generously around the trip view. Without this the land path
-  // covers the planet, and magnifying a planet-sized path twenty times
-  // is work the browser does not need to do.
-  const margin = Math.max(width, height);
+  // Clipped around the trip view: without this the land path covers the
+  // planet, and rasterising a planet-sized path is work per frame.
+  //
+  // Half the frame is not a taste: every camera in the film is at least
+  // as magnified as the overview, so each one shows a *subset* of this
+  // frame, displaced by at most half of it. Anything beyond that margin
+  // can never come into view. It used to be a whole frame's width, which
+  // clipped an area four times larger than the widest camera can reach.
+  const margin = Math.round(Math.max(width, height) * 0.5);
   const path = geoPath(
     projection.clipExtent([
       [-margin, -margin],
