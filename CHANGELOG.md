@@ -6,6 +6,17 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.45.4] - 2026-08-08
+
+### Fixed
+
+- **„Karte: keine" bei einer Reise, die auf jedem Tag eine berechnete Route hat.** Drei Fehler auf einmal, alle beim Lesen der eigenen Daten:
+  - Ein Reisetag trägt seine Route **zweimal** – einmal als Zusammenfassung neben den Tagesfeldern, einmal unter `details`. Beide laufen durch dieselbe Bereinigung, aber die Kopie unter `details` beginnt zwei Ebenen tiefer, und die Tiefenbegrenzung landet **exakt auf den Koordinatenpaaren**. Jedes `[Länge, Breite]` dort ist in Wirklichkeit der Text „gekürzt: maximale Verschachtelung". Der Kartenaufbau las genau diese Kopie: die Streckenabschnitte waren da, und jede Koordinate darin war ein Satz.
+  - Koordinaten an Stopps heißen `latitude`/`longitude`. Gelesen wurden nur `lat`/`lon` – deshalb griff auch die Rückfallebene über die Stopps nicht.
+  - Routen, die berechnet wurden, bevor Roadplanner einzelne Streckenabschnitte mitgeschrieben hat, haben nur eine Gesamtlinie für den Tag. Die wurde übersprungen. Sie wird jetzt als eine durchgehende Fahrstrecke gezeichnet – sie kann nur nicht sagen, wo eine Fähre war, und der Film behauptet es dann auch nicht.
+
+  Der bisherige Test hat nichts davon gefunden, weil er dem Kartenaufbau einen selbst gebauten Reisetag gab, in genau der Form, die der Code erwartete. Er läuft jetzt zuerst durch dieselbe Bereinigung wie echte Daten.
+
 ## [4.45.3] - 2026-08-08
 
 ### Added

@@ -89,10 +89,20 @@ def _coordinate(value: Any) -> list[float] | None:
 
 
 def _location(stop: dict[str, Any]) -> list[float] | None:
+    """A stop's coordinate, under whichever names it was stored with.
+
+    Roadplanner writes ``latitude``/``longitude``. Reading only ``lat``
+    and ``lon`` here found nothing on a real trip - every stop had a
+    coordinate and the map reported having none. The same fallback chain
+    as ``canonical_day``, so the two cannot disagree about where a stop
+    is.
+    """
     location = stop.get("location")
     if not isinstance(location, dict):
         return None
-    return _coordinate([location.get("lon"), location.get("lat")])
+    latitude = location.get("latitude", location.get("lat"))
+    longitude = location.get("longitude", location.get("lon", location.get("lng")))
+    return _coordinate([longitude, latitude])
 
 
 def _perpendicular_distance(
@@ -202,12 +212,35 @@ def _fallback_segments(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"mode": MODE_DIRECT, "points": deduped}]
 
 
+def _routing_of(day: dict[str, Any]) -> dict[str, Any]:
+    """The day's route, from the projection that still has coordinates.
+
+    A day carries its route twice: once as the ``routing`` summary beside
+    the day's own fields, and once inside ``details``. They look
+    identical and they are not - both pass through the same sanitiser,
+    but ``details`` starts two levels deeper, and the depth limit lands
+    exactly on the coordinate pairs. Every ``[lon, lat]`` inside
+    ``details`` is therefore the string ``"<gekürzt: maximale
+    Verschachtelung>"``.
+
+    Reading ``details`` was the whole reason a real 23-day trip reported
+    "no map": the segments were there, and every coordinate in them had
+    been replaced by a sentence. The summary is preferred, and details
+    stays as a fallback for a day that has one but not the other.
+    """
+    summary = day.get("routing")
+    if isinstance(summary, dict) and (summary.get("segments") or summary.get("geometry")):
+        return summary
+    details = day.get("details") if isinstance(day.get("details"), dict) else {}
+    routing = details.get("routing")
+    return routing if isinstance(routing, dict) else {}
+
+
 def chapter_map(
     day: dict[str, Any], stops: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
     """The geography of one day, or None when there is none to show."""
-    details = day.get("details") if isinstance(day.get("details"), dict) else {}
-    routing = details.get("routing") if isinstance(details.get("routing"), dict) else {}
+    routing = _routing_of(day)
     raw_segments = routing.get("segments")
     segments: list[dict[str, Any]] = []
     if isinstance(raw_segments, list):
@@ -226,6 +259,14 @@ def chapter_map(
             if len(points) < 2:
                 continue
             segments.append({"mode": mode, "points": points})
+    if not segments:
+        # A route calculated before segments existed has only one line for
+        # the whole day. It is a real road route, so it is drawn as one -
+        # it simply cannot say where a ferry was, and the film then does
+        # not claim to know.
+        whole = _segment_points({"geometry": routing.get("geometry")})
+        if len(whole) >= 2:
+            segments = [{"mode": MODE_DRIVING, "points": whole}]
     if not segments:
         segments = _fallback_segments(stops)
     if not segments:
