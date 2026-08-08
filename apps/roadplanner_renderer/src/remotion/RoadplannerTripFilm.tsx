@@ -391,28 +391,69 @@ const PhotoScene: React.FC<{
  * on top of that, and decoration does not get to be the most expensive
  * thing in the film.
  */
-type Tile = { left: number; top: number; width: number };
+/**
+ * Where the pictures of a group go, computed rather than tabulated.
+ *
+ * There used to be three hand-made layouts, for two, three and four
+ * pictures, and `Math.min(photos.length, 4)` in front of them. That was
+ * survivable while a day could not have more than four; once the planner
+ * started grouping up to eight, the fifth picture onward was **silently
+ * dropped** - the plan said eight memories and the film showed four,
+ * with nothing anywhere saying so. A curated photograph disappearing
+ * without a trace is the worst failure this composition has.
+ *
+ * The hand-made four also overflowed: a tile was given a width and its
+ * photograph's own proportions, so an upright picture in the lower row
+ * ran off the bottom of the frame. Nobody had checked it with a portrait
+ * in that slot.
+ *
+ * So the wall is now laid out from the count. Every tile gets a box in
+ * both dimensions, the picture is fitted inside it and keeps its own
+ * proportions, and the boxes are inside the frame by construction. The
+ * jitter that makes it a wall rather than a grid is deterministic - a
+ * function of the index - because two renders of the same film have to be
+ * the same film.
+ */
+type Tile = { left: number; top: number; width: number; height: number };
 
-const COLLAGE_LAYOUTS: Tile[][] = [
-  // two
-  [
-    { left: 4, top: 10, width: 50 },
-    { left: 50, top: 30, width: 46 },
-  ],
-  // three
-  [
-    { left: 3, top: 8, width: 45 },
-    { left: 45, top: 4, width: 36 },
-    { left: 38, top: 48, width: 42 },
-  ],
-  // four
-  [
-    { left: 2, top: 12, width: 42 },
-    { left: 40, top: 3, width: 34 },
-    { left: 68, top: 26, width: 30 },
-    { left: 30, top: 50, width: 38 },
-  ],
-];
+const COLLAGE_MARGIN = 5;
+const COLLAGE_GUTTER = 2.5;
+// Room along the bottom for the caption, so the wall never sits under it.
+const COLLAGE_CAPTION_ROOM = 20;
+
+const collageColumns = (count: number): number => {
+  if (count <= 1) return 1;
+  if (count <= 2) return 2;
+  if (count <= 4) return 2;
+  if (count <= 6) return 3;
+  return 4;
+};
+
+export const collageLayout = (count: number): Tile[] => {
+  if (count <= 0) return [];
+  const columns = collageColumns(count);
+  const rows = Math.ceil(count / columns);
+  const usableWidth = 100 - COLLAGE_MARGIN * 2;
+  const usableHeight = 100 - COLLAGE_MARGIN * 2 - COLLAGE_CAPTION_ROOM;
+  const width = (usableWidth - COLLAGE_GUTTER * (columns - 1)) / columns;
+  const height = (usableHeight - COLLAGE_GUTTER * (rows - 1)) / rows;
+  const tiles: Tile[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    // A little stagger so it reads as a wall of photographs rather than
+    // as a contact sheet. Deterministic, and small enough that it can
+    // never push a tile past the margin.
+    const stagger = ((index % 3) - 1) * (COLLAGE_GUTTER * 0.6);
+    tiles.push({
+      left: COLLAGE_MARGIN + column * (width + COLLAGE_GUTTER),
+      top: COLLAGE_MARGIN + row * (height + COLLAGE_GUTTER) + stagger,
+      width,
+      height,
+    });
+  }
+  return tiles;
+};
 
 const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
   chapter,
@@ -427,7 +468,8 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
   if (photos.length === 1) {
     return <PhotoScene chapter={chapter} scene={scene} hero />;
   }
-  const layout = COLLAGE_LAYOUTS[Math.min(photos.length, 4) - 2];
+  // Every picture the plan put in this scene, not the first four.
+  const layout = collageLayout(photos.length);
   const accent = ACCENTS[chapter.index % ACCENTS.length];
   return (
     <AbsoluteFill style={{ ...base, opacity, overflow: "hidden" }}>
@@ -448,10 +490,12 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
           [0, 1],
           { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
         );
+        // Kept small: the tiles are inside the frame by construction,
+        // and a drift large enough to break that would undo the point.
         const drift = interpolate(
           frame,
           [0, scene.frames],
-          position % 2 === 0 ? [0, -10] : [0, 8],
+          position % 2 === 0 ? [0, -6] : [0, 5],
         );
         return (
           <div
@@ -461,15 +505,19 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
               left: `${tile.left}%`,
               top: `${tile.top}%`,
               width: `${tile.width}%`,
-              // Its own proportions, not the grid's. A portrait
-              // photograph in this wall stays a portrait photograph.
-              aspectRatio: `${photo.width || 4} / ${photo.height || 3}`,
+              // A box in both dimensions, so nothing can run off the
+              // frame. The picture keeps its own proportions inside it
+              // (object-fit: contain below) rather than dictating the
+              // box - which is what let an upright photograph in the
+              // lower row overflow the bottom.
+              height: `${tile.height}%`,
               opacity: appear,
               transform: `translateY(${drift + (1 - appear) * 18}px)`,
-              boxShadow: "0 10px 22px rgba(0,0,0,0.5)",
-              borderRadius: 8,
-              overflow: "hidden",
-              backgroundColor: "#000000",
+              // No box and no fill: the tile is a slot the picture sits
+              // in, not a frame around it. A black backing plus
+              // "contain" put letterbox bars around every photograph,
+              // which is a grid of televisions rather than a wall of
+              // memories.
             }}
           >
             <Img
@@ -477,8 +525,16 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
               style={{
                 width: "100%",
                 height: "100%",
-                objectFit: "cover",
+                // "contain" rather than "cover": a wall of memories may
+                // not crop them. An upright photograph in a landscape
+                // tile loses its sky and its subject to "cover", which
+                // is the same mistake the 16:9 frame made before.
+                objectFit: "contain",
                 display: "block",
+                borderRadius: 8,
+                // The shadow follows the picture's own outline rather
+                // than a rectangle it does not fill.
+                filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.55))",
               }}
             />
           </div>
