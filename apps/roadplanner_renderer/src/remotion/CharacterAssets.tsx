@@ -33,6 +33,35 @@
 import React from "react";
 import { Img } from "remotion";
 
+/**
+ * The real vehicle's colours, read off photographs of it.
+ *
+ * Blue-grey metallic with a near-black moulded roof. That contrast is
+ * most of what makes the van recognisable from across a field, and it is
+ * worth more than the pale bodywork the first drawing invented.
+ *
+ * It costs something, and the keyline pays for it. A dark van on a dark
+ * map is a smudge - the land is #33404f and the body is not far off it.
+ * So the silhouette carries a thin pale outline that does not scale with
+ * the zoom, the same device a paper map uses to lift a symbol off its
+ * background. The van stays legible at forty pixels without being
+ * repainted a colour it is not.
+ */
+const BODY = "#55677d";
+const SKIRT = "#47576b";
+const ROOF = "#22282f";
+const GLASS = "#8ea4b8";
+const ROOF_GLASS = "#5d6f83";
+const KEYLINE = "#d7e2ee";
+const HALO_W = 2.6;
+
+// The silhouette, written once. The halo underneath and the bodywork on
+// top have to be the same shapes or the outline would sit crooked.
+const BODY_D = "M-19 -8.6 L6 -8.6 L6 3.4 Q6 4.6 4.8 4.6 L-17.8 4.6 Q-19 4.6 -19 3.4 Z";
+const NOSE_D = "M6 -8.6 L11.4 -6.2 Q15.6 -4.4 17.2 -0.6 L18.2 2.2 Q18.5 3.2 17.4 3.4 L6 3.4 Z";
+const ROOF_D =
+  "M6.6 -8.6 Q5.6 -13.6 2.6 -16.4 Q0.8 -18 -2.6 -18 L-14.4 -17.2 Q-17.4 -17 -17.4 -14.6 L-17.4 -8.6 Z";
+
 export type CharacterProps = {
   x: number;
   y: number;
@@ -83,38 +112,45 @@ export const Camper: React.FC<CharacterProps> = ({ x, y, heading = 0, scale = 1,
   const lean = Math.max(-14, Math.min(14, slope));
   return (
     <g transform={`translate(${x} ${y}) rotate(${lean}) scale(${scale})`}>
-      <ellipse cx="0" cy="10" rx="22" ry="4" fill="rgba(0,0,0,0.38)" />
+      <ellipse cx="0" cy="10" rx="22" ry="4" fill="rgba(0,0,0,0.42)" />
       <g transform={`scale(${westward ? -1 : 1} 1)`}>
-        {/* The moulded high roof: inset from the body, rounded at the
-            back, and sloping down over the cab rather than ending in a
-            wall above the windscreen. */}
-        <path
-          d="M-17.5 -8.5 L-17.5 -15 Q-17.5 -17.4 -15 -17.4 L2.5 -17.4 Q5 -17.4 5.6 -15.4 L7.4 -8.5 Z"
-          fill="#e7ecf2"
-        />
-        {/* Body sides, low and long. */}
-        <path d="M-19 -8.6 L6 -8.6 L6 3.4 Q6 4.6 4.8 4.6 L-17.8 4.6 Q-19 4.6 -19 3.4 Z" fill="#f6f8fa" />
-        {/* Bonnet and the raked windscreen - the Transit's face. */}
-        <path
-          d="M6 -8.6 L11.4 -6.2 Q15.6 -4.4 17.2 -0.6 L18.2 2.2 Q18.5 3.2 17.4 3.4 L6 3.4 Z"
-          fill="#f6f8fa"
-        />
-        <path d="M6.9 -7.2 L11 -5.2 Q13.6 -4 15 -1.8 L6.9 -1.8 Z" fill="#7f97ad" />
-        {/* Grille and light, so the front end is not a blank wedge. */}
-        <path d="M15.6 -0.9 L18.1 1.4 L18.3 2.4 L15.6 2.4 Z" fill="#c3ccd6" />
-        <circle cx="16.4" cy="0.6" r="0.9" fill="#f4e3b8" />
-        {/* Side glazing: cab, sliding door, rear. */}
-        <rect x="1.4" y="-7.4" width="4.2" height="5" rx="0.8" fill="#7f97ad" />
-        <rect x="-6.4" y="-7.4" width="6.6" height="5" rx="0.8" fill="#7f97ad" />
-        <rect x="-15.4" y="-7.4" width="7.8" height="5" rx="0.8" fill="#7f97ad" />
-        {/* The awning rail along the roofline, and the warm stripe. */}
-        <rect x="-17.6" y="-9.4" width="23" height="1" rx="0.4" fill="#c3ccd6" />
-        <rect x="-19" y="-0.4" width="25" height="2.2" fill="#e8823f" />
-        {/* Wheels on a long wheelbase, with the Plus's rear overhang. */}
-        <circle cx="-13.4" cy="5" r="3.9" fill="#1b2330" />
-        <circle cx="-13.4" cy="5" r="1.5" fill="#63707f" />
-        <circle cx="11.4" cy="5" r="3.9" fill="#1b2330" />
-        <circle cx="11.4" cy="5" r="1.5" fill="#63707f" />
+        {/* The halo, and the whole reason the true colours are usable.
+            The same three shapes drawn first in pale, stroked wide: what
+            survives once the real bodywork is painted over them is a thin
+            outline all the way round. A paper map lifts a dark symbol off
+            a dark ground exactly this way, and it costs no accuracy - the
+            van keeps the colour it actually is. */}
+        <g fill={KEYLINE} stroke={KEYLINE} strokeWidth={HALO_W} strokeLinejoin="round">
+          <path d={BODY_D} vectorEffect="non-scaling-stroke" />
+          <path d={NOSE_D} vectorEffect="non-scaling-stroke" />
+          <path d={ROOF_D} vectorEffect="non-scaling-stroke" />
+        </g>
+        {/* Body: blue-grey metallic, low and long on the long wheelbase. */}
+        <path d={BODY_D} fill={BODY} />
+        {/* The Transit face: a short bonnet dropping away from a steeply
+            raked screen. A vertical front here reads as a lorry. */}
+        <path d={NOSE_D} fill={BODY} />
+        {/* The near-black moulded roof, and the reason the van is
+            recognisable across a field: it climbs steeply from above the
+            screen to a shoulder, then falls away gently to the back. */}
+        <path d={ROOF_D} fill={ROOF} />
+        {/* The window in the roof panel. */}
+        <rect x="-9.6" y="-15.2" width="6.6" height="3" rx="0.7" fill={ROOF_GLASS} />
+        {/* Windscreen, cab window, and the long side glazing. */}
+        <path d="M6.9 -7.2 L11 -5.2 Q13.6 -4 15 -1.8 L6.9 -1.8 Z" fill={GLASS} />
+        <rect x="1.4" y="-7.4" width="4.2" height="5" rx="0.8" fill={GLASS} />
+        <rect x="-6.6" y="-7.4" width="6.8" height="5" rx="0.8" fill={GLASS} />
+        <rect x="-15.6" y="-7.4" width="8" height="5" rx="0.8" fill={GLASS} />
+        {/* Ford's wide grille and a headlight, so the nose is not blank. */}
+        <path d="M15.4 -1 L18.1 1.4 L18.3 2.4 L15.4 2.4 Z" fill="#1e242c" />
+        <ellipse cx="15.2" cy="-0.9" rx="1.5" ry="0.8" fill="#e8eef5" opacity={0.85} />
+        {/* Lower body a shade darker, the way the real one is skirted. */}
+        <path d="M-19 1.6 L6 1.6 L6 3.4 Q6 4.6 4.8 4.6 L-17.8 4.6 Q-19 4.6 -19 3.4 Z" fill={SKIRT} />
+        {/* Silver alloys. */}
+        <circle cx="-13.4" cy="5" r="3.9" fill="#171c23" />
+        <circle cx="-13.4" cy="5" r="1.9" fill="#b9c4d0" />
+        <circle cx="11.4" cy="5" r="3.9" fill="#171c23" />
+        <circle cx="11.4" cy="5" r="1.9" fill="#b9c4d0" />
         {driver ? <Driver /> : null}
       </g>
     </g>
