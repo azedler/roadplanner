@@ -28,6 +28,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Img,
   Sequence,
   interpolate,
@@ -36,13 +37,20 @@ import {
 } from "remotion";
 
 import {
-  Camper,
   TripMap,
-  buildView,
-  travelled,
+  blendCamera,
+  buildProjection,
+  cameraFor,
+  countryAt,
+  driveState,
+  flatten,
+  type Camera,
+  type MapChapter,
   type MapContext,
   type MapPoint,
+  type Projection,
 } from "./TripMap";
+import { CamperBadge, CrewPortrait } from "./CharacterAssets";
 
 export const FILM_FPS = 30;
 
@@ -82,6 +90,7 @@ export type FilmTrip = {
   chapterCount: number;
   distanceKm: number | null;
   photoCount: number;
+  vehicleName?: string;
 };
 
 export type FilmNarrative = {
@@ -102,12 +111,18 @@ export type FilmScene = {
   paths: string[];
 };
 
+export type FilmCrewMember = { name: string; path: string };
+export type FilmCrew = { members: FilmCrewMember[] };
+export type FilmMusic = { path: string; volume: number; title: string };
+
 export type RoadplannerTripFilmProps = {
   trip: FilmTrip;
   chapters: FilmChapter[];
   narrative: FilmNarrative | null;
   scenes: FilmScene[];
   mapContext?: MapContext | null;
+  crew?: FilmCrew | null;
+  music?: FilmMusic | null;
 };
 
 export const filmDurationInFrames = (scenes: { frames: number }[]): number =>
@@ -499,13 +514,19 @@ const TextScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
 
 const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
+// How a map leg divides: recap, glide, drive. Shares rather than fixed
+// lengths, so a three-second day and an eight-second day have the same
+// shape. Mirrors the constants in the Python plan.
+const MAP_RECAP_SHARE = 0.26;
+const MAP_APPROACH_SHARE = 0.16;
 
 /** A quiet strip along the bottom, so the map itself stays uncovered. */
-const MapLabel: React.FC<{ lead: string; text: string; accent: string }> = ({
-  lead,
-  text,
-  accent,
-}) => (
+const MapLabel: React.FC<{
+  lead: string;
+  text: string;
+  accent: string;
+  country?: string;
+}> = ({ lead, text, accent, country }) => (
   <AbsoluteFill style={{ justifyContent: "flex-end", pointerEvents: "none" }}>
     <div
       style={{
@@ -514,7 +535,9 @@ const MapLabel: React.FC<{ lead: string; text: string; accent: string }> = ({
         fontFamily: "sans-serif",
       }}
     >
-      <div style={{ fontSize: 23, color: MUTED, letterSpacing: 4 }}>{lead}</div>
+      <div style={{ fontSize: 23, color: MUTED, letterSpacing: 4 }}>
+        {[lead, country].filter(Boolean).join("   ·   ")}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 18, marginTop: 10 }}>
         <div style={{ height: 4, width: 46, backgroundColor: accent }} />
         <div style={{ fontSize: 38, fontWeight: 600, color: INK }}>{text}</div>
@@ -524,11 +547,48 @@ const MapLabel: React.FC<{ lead: string; text: string; accent: string }> = ({
 );
 
 /**
+ * The one projection a film uses, and the cameras derived from it.
+ *
+ * Everything the map draws lives in this single coordinate system, which
+ * is what lets the camera glide from the whole journey down into one
+ * day's drive instead of cutting between two unrelated pictures.
+ */
+const useMapStage = (map: MapContext) => {
+  const projection = React.useMemo(
+    () => buildProjection(map.bbox, MAP_WIDTH, MAP_HEIGHT),
+    [map.bbox],
+  );
+  const overview = React.useMemo(
+    () =>
+      cameraFor(
+        projection,
+        map.chapters.flatMap((chapter) =>
+          chapter.segments.flatMap((segment) => segment.points.map(projection.project)),
+        ),
+        { fill: 0.78, maxZoom: 1.6 },
+      ),
+    [projection, map],
+  );
+  return { projection, overview };
+};
+
+const chapterCamera = (projection: Projection, chapter: MapChapter, previous?: MapChapter) => {
+  const points = chapter.segments.flatMap((segment) =>
+    segment.points.map(projection.project),
+  );
+  // The previous day's end is included so the view still contains where
+  // we came from - the journey continues rather than teleports.
+  if (previous) points.push(projection.project(previous.end));
+  return cameraFor(projection, points, { fill: 0.58, maxZoom: 22 });
+};
+
+/**
  * "Here is where it begins."
  *
- * Deliberately without the route ahead. A map that shows the whole
- * journey in the first ten seconds has spent the one thing it had to
- * give: the film can no longer show you anywhere new.
+ * The whole travel area, so the trip has a shape before it has a first
+ * day, with the camper standing on the start. Deliberately without the
+ * route ahead: a film that shows the whole journey in its first ten
+ * seconds has spent the one thing a map can give it.
  */
 const MapStartScene: React.FC<{
   map: MapContext;
@@ -538,106 +598,116 @@ const MapStartScene: React.FC<{
 }> = ({ map, trip, scene, firstPlace }) => {
   const frame = useCurrentFrame();
   const opacity = useFade(scene.frames);
-  const [lon, lat] = map.start;
-  const view = React.useMemo(
-    () => buildView([lon - 1.6, lat - 1.0, lon + 1.6, lat + 1.0], MAP_WIDTH, MAP_HEIGHT, 0.2),
-    [lon, lat],
+  const { projection, overview } = useMapStage(map);
+  // A slow settle towards the start, so the opening breathes rather than
+  // sitting still.
+  const near = React.useMemo(
+    () => cameraFor(projection, [projection.project(map.start)], { fill: 0.2, maxZoom: 3.2 }),
+    [projection, map.start],
   );
-  const [x, y] = view.project(map.start);
-  // The camper settles onto the map rather than being there already.
-  const drop = interpolate(frame, [0, 26], [-40, 0], { extrapolateRight: "clamp" });
-  const settle = interpolate(frame, [0, 26], [0, 1], { extrapolateRight: "clamp" });
-  const zoom = interpolate(frame, [0, scene.frames], [1.1, 1.02]);
+  const camera = blendCamera(
+    overview,
+    { ...near, zoom: overview.zoom * 1.35 },
+    interpolate(frame, [0, scene.frames], [0, 1], { extrapolateRight: "clamp" }),
+  );
+  const country = React.useMemo(() => countryAt(map.start), [map.start]);
   return (
     <AbsoluteFill style={{ ...base, opacity }}>
       <TripMap
-        view={view}
+        projection={projection}
+        camera={camera}
         past={[]}
-        showCamper={false}
         markPoint={map.start}
-        drift={{ scale: zoom, x: 0, y: 0 }}
+        camper={{ position: map.start, heading: 0, scale: 1.4 }}
+        labels={firstPlace ? [{ text: firstPlace, point: map.start }] : []}
       />
-      <AbsoluteFill>
-        <svg width={MAP_WIDTH} height={MAP_HEIGHT} style={{ display: "block" }}>
-          <g opacity={settle}>
-            <Camper x={x} y={y + drop} heading={0} scale={1.5} />
-          </g>
-        </svg>
-      </AbsoluteFill>
       <MapLabel
         lead="START"
         text={firstPlace || trip.startDate || "Los geht es"}
         accent={ACCENTS[0]}
+        country={country}
       />
     </AbsoluteFill>
   );
 };
 
 /**
- * One day of driving, drawn as it happens.
+ * One day, in three movements without a cut between them.
  *
- * Everything travelled before today is on the map already, in a quiet
- * grey; today's leg draws itself in front of the camper as the scene
- * runs. What comes after today is not on the map at all.
+ * First what has been travelled so far, seen from far enough away to
+ * place it in the whole journey. Then the camera glides down into
+ * today's leg. Then the camper drives it, and the route grows behind
+ * him. The brief asks for overview and detail at once; this is how they
+ * are the same shot.
  */
 const MapLegScene: React.FC<{
   map: MapContext;
   chapter: FilmChapter;
   scene: FilmScene;
-}> = ({ map, chapter, scene }) => {
+  recapShare: number;
+  approachShare: number;
+}> = ({ map, chapter, scene, recapShare, approachShare }) => {
   const frame = useCurrentFrame();
   const opacity = useFade(scene.frames);
+  const { projection, overview } = useMapStage(map);
   const live = map.chapters.find((entry) => entry.chapterId === scene.chapterId) ?? null;
   const past = React.useMemo(
     () => (live ? map.chapters.filter((entry) => entry.index < live.index) : []),
     [map, live],
   );
-  // The view is fitted to today's leg, so a short hop is close and a long
-  // transfer is wide - the camera says how far the day was without a
-  // single number on screen. The previous day's end is included so the
-  // journey visibly continues rather than jumping.
-  const bbox = React.useMemo<[number, number, number, number]>(() => {
-    if (!live) return map.bbox;
-    const previous = past[past.length - 1];
-    const box: [number, number, number, number] = [...live.bbox];
-    if (previous) {
-      box[0] = Math.min(box[0], previous.end[0]);
-      box[1] = Math.min(box[1], previous.end[1]);
-      box[2] = Math.max(box[2], previous.end[0]);
-      box[3] = Math.max(box[3], previous.end[1]);
-    }
-    return box;
-  }, [live, past, map.bbox]);
-  const view = React.useMemo(
-    () => buildView(bbox, MAP_WIDTH, MAP_HEIGHT),
-    [bbox],
+  const previous = past[past.length - 1];
+  const detail = React.useMemo(
+    () => (live ? chapterCamera(projection, live, previous) : overview),
+    [projection, live, previous, overview],
   );
-  if (!live) return <ChapterCardScene chapter={chapter} scene={scene} />;
-  // The drive fills most of the scene and then holds, so the day ends on
-  // its destination instead of cutting away mid-road.
-  const progress = interpolate(frame, [8, scene.frames - 18], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const zoom = interpolate(frame, [0, scene.frames], [1.0, 1.05]);
+
+  const recapFrames = Math.round(scene.frames * recapShare);
+  const approachFrames = Math.round(scene.frames * approachShare);
+  const driveFrames = Math.max(1, scene.frames - recapFrames - approachFrames);
+
+  // The camera: still on the overview while the recap reads, then a
+  // single eased move down into the day, then held while it is driven.
+  const camera =
+    frame < recapFrames
+      ? overview
+      : blendCamera(
+          overview,
+          detail,
+          interpolate(frame, [recapFrames, recapFrames + approachFrames], [0, 1], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          }),
+        );
+
+  const driving = Math.max(0, frame - recapFrames - approachFrames);
+  const drive = React.useMemo(
+    () => (live ? driveState(live, driving / driveFrames, driveFrames) : null),
+    [live, driving, driveFrames],
+  );
+  const country = React.useMemo(() => (live ? countryAt(live.end) : ""), [live]);
+  if (!live || !drive) return <ChapterCardScene chapter={chapter} scene={scene} />;
+
   const destination = chapter.stops[chapter.stops.length - 1] || "";
-  const labels: { text: string; point: MapPoint }[] = destination
-    ? [{ text: destination, point: live.end }]
-    : [];
+  const arrived = driving / driveFrames > 0.72;
   return (
     <AbsoluteFill style={{ ...base, opacity }}>
       <TripMap
-        view={view}
+        projection={projection}
+        camera={camera}
         past={past}
-        live={live}
-        progress={progress}
-        labels={progress > 0.72 ? labels : []}
-        drift={{ scale: zoom, x: 0, y: 0 }}
+        live={frame >= recapFrames ? drive.runs : []}
+        camper={frame >= recapFrames ? { position: drive.position, heading: drive.heading } : null}
+        labels={arrived && destination ? [{ text: destination, point: live.end }] : []}
       />
       <MapLabel
         lead={[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
-        text={chapter.title || destination || `Tag ${chapter.dayNumber}`}
+        text={
+          frame < recapFrames
+            ? "Bis hierher"
+            : chapter.title || destination || `Tag ${chapter.dayNumber}`
+        }
         accent={ACCENTS[chapter.index % ACCENTS.length]}
+        country={frame >= recapFrames ? country : ""}
       />
     </AbsoluteFill>
   );
@@ -651,12 +721,22 @@ const MapFullScene: React.FC<{ map: MapContext; trip: FilmTrip; scene: FilmScene
 }) => {
   const frame = useCurrentFrame();
   const opacity = useFade(scene.frames);
-  const view = React.useMemo(
-    () => buildView(map.bbox, MAP_WIDTH, MAP_HEIGHT, 0.35),
-    [map.bbox],
+  const { projection, overview } = useMapStage(map);
+  const last = map.chapters[map.chapters.length - 1];
+  const from = React.useMemo(
+    () => (last ? chapterCamera(projection, last) : overview),
+    [projection, last, overview],
   );
-  // The days appear one after another rather than all at once, so the
-  // closing image is the journey being retraced.
+  // Out from where the journey ended to the whole of it: the reverse of
+  // the move every day made, which is what makes this read as an ending.
+  const camera = blendCamera(
+    from,
+    overview,
+    interpolate(frame, [10, scene.frames * 0.62], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    }),
+  );
   const shown = Math.max(
     1,
     Math.round(
@@ -667,31 +747,22 @@ const MapFullScene: React.FC<{ map: MapContext; trip: FilmTrip; scene: FilmScene
     ),
   );
   const past = map.chapters.slice(0, shown);
-  const last = past[past.length - 1];
-  const end = last ? view.project(last.end) : [0, 0];
-  const heading = last
-    ? travelled(
-        last.segments.flatMap((segment) => segment.points),
-        1,
-      ).heading
-    : 0;
-  const zoom = interpolate(frame, [0, scene.frames], [1.02, 1.06]);
+  const tail = past[past.length - 1];
+  const heading = React.useMemo(() => {
+    if (!tail) return 0;
+    return driveState(tail, 1, 60).heading;
+  }, [tail]);
   return (
     <AbsoluteFill style={{ ...base, opacity }}>
       {/* The finished journey is the subject of this scene, not its
           background, so the route is warm here rather than grey. */}
       <TripMap
-        view={view}
+        projection={projection}
+        camera={camera}
         past={past}
-        showCamper={false}
-        pastStroke="#e07a3f"
-        drift={{ scale: zoom, x: 0, y: 0 }}
+        pastStroke="#e8823f"
+        camper={tail ? { position: tail.end, heading, scale: 1.05 } : null}
       />
-      <AbsoluteFill>
-        <svg width={MAP_WIDTH} height={MAP_HEIGHT} style={{ display: "block" }}>
-          <Camper x={end[0]} y={end[1]} heading={heading} scale={1.15} />
-        </svg>
-      </AbsoluteFill>
       <MapLabel
         lead="DIE GANZE STRECKE"
         text={
@@ -701,6 +772,111 @@ const MapFullScene: React.FC<{ map: MapContext; trip: FilmTrip; scene: FilmScene
         }
         accent={ACCENTS[1]}
       />
+    </AbsoluteFill>
+  );
+};
+
+/**
+ * Who is travelling.
+ *
+ * Portraits and display names, and the camper as one of them - the trip
+ * is this crew's story with this vehicle, and saying so at the start is
+ * the difference between a film and an export of travel data.
+ *
+ * Nothing here is invented. No roles, no descriptions, no characters
+ * assigned to anybody: a name and a face, both of which Roadplanner
+ * already holds because somebody entered them.
+ */
+const CrewScene: React.FC<{ crew: FilmCrew; scene: FilmScene; trip: FilmTrip }> = ({
+  crew,
+  scene,
+  trip,
+}) => {
+  const frame = useCurrentFrame();
+  const style = useEnter(scene.enter, scene.frames);
+  const members = crew.members.slice(0, 6);
+  // The camper stands in the line-up too, so it counts towards how wide
+  // the row is. Sizing on the people alone put the first face half off
+  // the screen the moment a fourth person appeared.
+  const badges = members.length + 1;
+  const gap = 34;
+  const size = Math.min(230, Math.floor((MAP_WIDTH - 160 - gap * (badges - 1)) / badges));
+  return (
+    <AbsoluteFill
+      style={{ ...base, alignItems: "center", justifyContent: "center", ...style }}
+    >
+      <div style={{ fontSize: 25, color: MUTED, letterSpacing: 5, marginBottom: 40 }}>
+        WER UNTERWEGS IST
+      </div>
+      <div style={{ display: "flex", gap, alignItems: "flex-end", maxWidth: MAP_WIDTH - 120 }}>
+        {members.map((member, position) => {
+          // One after another, quickly - a line-up rather than a series
+          // of title cards, which is what the brief asks for.
+          const appear = interpolate(frame, [position * 8, position * 8 + 22], [0, 1], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          });
+          return (
+            <div
+              key={member.name}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+                opacity: appear,
+                transform: `translateY(${(1 - appear) * 24}px)`,
+              }}
+            >
+              {member.path ? (
+                <CrewPortrait path={member.path} size={size} />
+              ) : (
+                <div
+                  style={{
+                    width: size,
+                    height: size,
+                    borderRadius: "50%",
+                    border: "3px solid #5f7fc4",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: size * 0.32,
+                    color: MUTED,
+                    background: "linear-gradient(160deg, #2a3646, #161d29)",
+                  }}
+                >
+                  {member.name.slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <div style={{ fontSize: 30, fontWeight: 600 }}>{member.name}</div>
+            </div>
+          );
+        })}
+        {(() => {
+          const position = members.length;
+          const appear = interpolate(frame, [position * 8, position * 8 + 22], [0, 1], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          });
+          return (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+                opacity: appear,
+                transform: `translateY(${(1 - appear) * 24}px)`,
+              }}
+            >
+              <CamperBadge size={size} />
+              <div style={{ fontSize: 30, fontWeight: 600, color: MUTED }}>
+                {trip.vehicleName || "Der Camper"}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
     </AbsoluteFill>
   );
 };
@@ -800,14 +976,60 @@ const OutroCollageScene: React.FC<{ scene: FilmScene }> = ({ scene }) => {
   );
 };
 
+/**
+ * The music: one track under the whole film, and nothing clever.
+ *
+ * Remotion mixes the audio into the video itself, so no separate ffmpeg
+ * step and no second pipeline. Two consequences that matter later: the
+ * volume is an ordinary per-frame value, which is exactly what ducking
+ * under a video clip's own sound will need, and a film without music is
+ * this component simply not being rendered.
+ *
+ * A track shorter than the film is repeated rather than stopping. The
+ * repeat is cross-faded over half a second, because a hard restart in
+ * the middle of a quiet film is more noticeable than the loop itself.
+ */
+const MUSIC_FADE_FRAMES = 60;
+const LOOP_BLEND_FRAMES = 15;
+
+const Soundtrack: React.FC<{ music: FilmMusic; totalFrames: number }> = ({
+  music,
+  totalFrames,
+}) => {
+  const frame = useCurrentFrame();
+  // Fades computed from the film's own length, so a short preview and a
+  // twenty-minute film both open and close cleanly.
+  const fade = Math.min(MUSIC_FADE_FRAMES, Math.floor(totalFrames / 8));
+  const level =
+    music.volume *
+    Math.min(
+      interpolate(frame, [0, fade], [0, 1], { extrapolateRight: "clamp" }),
+      interpolate(frame, [totalFrames - fade, totalFrames], [1, 0], {
+        extrapolateLeft: "clamp",
+      }),
+    );
+  return (
+    <Audio
+      src={`/${music.path}`}
+      volume={Math.max(0, level)}
+      loop
+      // A loop point is a splice. Softening it costs half a second and
+      // makes the repeat something you notice only if you listen for it.
+      loopVolumeCurveBehavior="extend"
+    />
+  );
+};
+
 export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
   trip,
   chapters,
   narrative,
   scenes,
   mapContext = null,
+  crew = null,
+  music = null,
 }) => {
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
   if (fps !== FILM_FPS) {
     throw new Error(`Der Film erwartet ${FILM_FPS} fps, bekommen hat er ${fps}.`);
   }
@@ -824,6 +1046,16 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
       );
     } else if (scene.type === "outro_collage") {
       body = <OutroCollageScene scene={scene} />;
+    } else if (scene.type === "crew") {
+      // No crew, no scene. The plan only contains one when the package
+      // carried names, so this is the same unreachable branch as the
+      // missing chapter below.
+      if (crew?.members?.length) {
+        body = <CrewScene crew={crew} scene={scene} trip={trip} />;
+      } else {
+        cursor += scene.frames;
+        return;
+      }
     } else if (scene.type === "map_start" || scene.type === "map_full") {
       // A map scene without map data cannot be drawn, and the plan only
       // contains one when the package carried a context - so this is the
@@ -857,7 +1089,13 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
       // Without geography the day still has to be shown, so it falls back
       // to its card. A style is a wish; a coordinate is a fact.
       body = mapContext ? (
-        <MapLegScene map={mapContext} chapter={chapter} scene={scene} />
+        <MapLegScene
+          map={mapContext}
+          chapter={chapter}
+          scene={scene}
+          recapShare={MAP_RECAP_SHARE}
+          approachShare={MAP_APPROACH_SHARE}
+        />
       ) : (
         <ChapterCardScene chapter={chapter} scene={scene} />
       );
@@ -881,5 +1119,10 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
     );
     cursor += scene.frames;
   });
-  return <AbsoluteFill style={{ backgroundColor: BACKDROP }}>{rendered}</AbsoluteFill>;
+  return (
+    <AbsoluteFill style={{ backgroundColor: BACKDROP }}>
+      {rendered}
+      {music ? <Soundtrack music={music} totalFrames={durationInFrames} /> : null}
+    </AbsoluteFill>
+  );
 };

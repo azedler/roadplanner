@@ -203,6 +203,9 @@ def verify_only_two_fields_are_editable() -> None:
         # Fetching the finished film where it was started. "It is in the
         # other card" is a signpost, not an answer.
         "renderer_app_download",
+        # What could play under the film. It returns NAMES of files in one
+        # fixed folder, never paths - see trip_film_music.
+        "story_film_music",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.
@@ -212,13 +215,18 @@ def verify_only_two_fields_are_editable() -> None:
         assert "trip_id" in payload
         for forbidden in ("changes", "day_id", "patch", "story"):
             assert forbidden not in payload, f"der Redaktionsaufruf darf {forbidden} nicht senden"
-    # The film takes a trip and nothing else - it cannot carry an edit.
-    film_calls = re.findall(r'"story_film_\w+",\s*\{([^}]*)\}', feature)
+    # The film calls carry a trip and, for the render, the NAME of a
+    # track. Never an edit, and never a path: the music name is matched
+    # against the folder listing on the other side, so nothing sent from
+    # a browser can become a file location.
+    film_calls = re.findall(r'"(story_film_\w+)",\s*\{([^}]*)\}', feature)
     assert film_calls, "die Filmaufrufe wurden nicht gefunden"
-    for payload in film_calls:
-        assert "trip_id" in payload
-        for forbidden in ("changes", "day_id", "patch"):
-            assert forbidden not in payload, f"der Filmaufruf darf {forbidden} nicht senden"
+    for action, payload in film_calls:
+        if action != "story_film_music":
+            # Listing what could be played is not about one trip.
+            assert "trip_id" in payload
+        for forbidden in ("changes", "day_id", "patch", "path", "/"):
+            assert forbidden not in payload, f"{action} darf {forbidden} nicht senden"
     assert set(re.findall(r"changes\.([a-z_]+)\s*=", feature)) <= {"title", "story"}
 
 
@@ -471,14 +479,23 @@ def verify_a_portrait_url_never_leaves_the_panel() -> None:
     manifest = _code(INTEGRATION / "travel_story_manifest.py")
     assert "portrait" not in manifest
 
-    # The film package has no crew section at all, so nothing to leak.
-    # Checked on the URL and the store rather than on the word: the
-    # package legitimately calls an upright photograph a portrait, and a
-    # rule that tripped over that would be deleted by the next reader.
+    # The film DOES show faces now, so the rule is about the URL rather
+    # than about the word: what must never travel is the address, because
+    # that address is the capability. Reading the stored file is the
+    # correct behaviour and the reason the exporter may touch the
+    # portrait store at all.
     for consumer in ("trip_film_package.py", "trip_film_export.py", "trip_map_builder.py"):
         source = _code(INTEGRATION / consumer)
-        for forbidden in ("portrait_url", "crew_portrait", "PORTRAIT_URL"):
+        for forbidden in ("portrait_url", "PORTRAIT_URL", "api/roadplanner/crew_portrait"):
             assert forbidden not in source, f"{consumer} darf {forbidden} nicht mitschicken"
+    # The portrait reaches the film as bytes, from the local store.
+    export = _code(INTEGRATION / "trip_film_export.py")
+    assert "portrait_key" in export and "store.read" in export
+
+    # And the crew section itself refuses anything address-shaped, so a
+    # future writer cannot put one there by accident.
+    crew = _code(INTEGRATION / "trip_film_crew.py")
+    assert '"://" in text' in crew and 'text.startswith("/api/")' in crew
 
     # And the route itself does not log the name it was asked for.
     view = (INTEGRATION / "crew_portrait_http.py").read_text(encoding="utf-8")

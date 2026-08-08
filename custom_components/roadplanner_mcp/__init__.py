@@ -750,7 +750,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # The first consumer of the manifest. It reads the description and
     # translates it; it never decides what a day is about.
     trip_film = TripFilmExporter(
-        hass, manager, experience, story_context, renderer_app, media_cache=media_cache
+        hass,
+        manager,
+        experience,
+        story_context,
+        renderer_app,
+        media_cache=media_cache,
+        crew=crew,
+        crew_portraits=crew_portraits,
     )
 
     trip_summaries = TripSummaryService(

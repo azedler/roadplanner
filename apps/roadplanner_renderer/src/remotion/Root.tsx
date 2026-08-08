@@ -114,6 +114,8 @@ export const RemotionRoot: React.FC = () => (
           ],
           narrative: null,
           mapContext: null,
+          crew: null,
+          music: null,
           scenes: [
             {
               type: "chapter_card",

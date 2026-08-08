@@ -409,7 +409,7 @@ export const storyEditorMixin = {
   async _storyFilmRender() {
     const result = await this._runAction(
       "story_film_render",
-      { trip_id: this._selectedTripId },
+      { trip_id: this._selectedTripId, music: this._storyFilmTrack || "" },
       "Reisefilm wird gerendert",
       { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
     );
@@ -466,6 +466,7 @@ export const storyEditorMixin = {
       }
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
+        ${this._renderStoryFilmMusic()}
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
       </div>
       ${this._renderStoryFilmJobLine()}
@@ -480,6 +481,46 @@ export const storyEditorMixin = {
    * has forgotten too. The job is read from the exchange folder, so this
    * line can appear on a page that never started anything.
    */
+  /**
+   * Which track plays under the film, chosen by name.
+   *
+   * A name, never a path: the backend matches it against the folder
+   * listing before it opens anything, so nothing the browser sends can
+   * become a file location. "Ohne Musik" is a first-class choice and the
+   * default - a film with no soundtrack is a complete film.
+   */
+  _renderStoryFilmMusic() {
+    const tracks = this._storyFilmMusic;
+    if (!Array.isArray(tracks)) {
+      return `<button class="text-button" type="button" data-action="story-film-music"><ha-icon icon="mdi:music-note-outline"></ha-icon> Musik wählen</button>`;
+    }
+    if (!tracks.length) {
+      return `<small class="hint">Keine Musik gefunden. Lege Audiodateien in <code>/media/roadplanner_music</code> ab – der Film läuft auch ohne.</small>`;
+    }
+    const chosen = this._storyFilmTrack || "";
+    return `<label class="inline-select"><span>Musik</span><select data-action="story-film-track">
+      <option value=""${chosen ? "" : " selected"}>Ohne Musik</option>
+      ${tracks
+        .map(
+          (track) =>
+            `<option value="${escapeHtml(track.name)}"${chosen === track.name ? " selected" : ""}>${escapeHtml(track.name)}</option>`,
+        )
+        .join("")}
+    </select></label>`;
+  },
+
+  async _storyFilmMusicLoad() {
+    const result = await this._runAction("story_film_music", {}, "", {
+      refresh: false,
+      blockUi: false,
+      errorMode: "dialog",
+      errorTitle: "Die Musikauswahl konnte nicht geladen werden",
+    });
+    if (!result) return;
+    this._storyFilmMusic = result.film_music || [];
+    this._render({ preserveScroll: true });
+  },
+
   _renderStoryFilmJobLine() {
     const job = this._rendererAppJob;
     if (!job || this._rendererAppKind !== "trip_film") return "";

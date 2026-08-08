@@ -140,6 +140,23 @@ class CrewPortraitStore:
             return False
         return (self.root_dir / filename).is_file()
 
+    def read(self, filename: str) -> bytes | None:
+        """The stored bytes of one portrait, for a caller that needs a copy.
+
+        The film needs the picture itself rather than a link to it: the
+        HTTP route is guarded only by the unguessable name, which is a
+        bearer secret, and a render package written into a shared folder
+        must not carry one. The name is validated against the generated
+        shape here for the same reason `path_for` does - it may have come
+        from a payload rather than from this store.
+        """
+        if not PORTRAIT_FILENAME_RE.match(str(filename or "")):
+            return None
+        try:
+            return (self.root_dir / filename).read_bytes()
+        except OSError:
+            return None
+
     def write(self, filename: str, data: bytes) -> str:
         if not PORTRAIT_FILENAME_RE.match(str(filename or "")) or not data:
             return ""

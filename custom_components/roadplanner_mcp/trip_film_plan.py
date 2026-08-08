@@ -62,6 +62,10 @@ SCENE_OUTRO_COLLAGE = "outro_collage"
 SCENE_MAP_START = "map_start"
 SCENE_MAP_LEG = "map_leg"
 SCENE_MAP_FULL = "map_full"
+# The crew, once, near the opening. Its own type because it is neither a
+# chapter nor a map, and because a film without portraits must simply not
+# contain it rather than render an empty row of circles.
+SCENE_CREW = "crew"
 SCENE_TYPES = (
     SCENE_INTRO,
     SCENE_CHAPTER_CARD,
@@ -74,6 +78,7 @@ SCENE_TYPES = (
     SCENE_MAP_START,
     SCENE_MAP_LEG,
     SCENE_MAP_FULL,
+    SCENE_CREW,
 )
 
 IMPORTANCE_TRANSITION = "transition"
@@ -172,7 +177,17 @@ MIN_SCENE_FRAMES = 45
 MAP_TIME_TAKEN_BACK = 0.75
 
 MAP_START_FRAMES = 120
-MAP_FULL_FRAMES = 165
+MAP_FULL_FRAMES = 195
+# The crew line-up. Long enough to read the names, short enough that
+# nobody is waiting for the journey to start.
+CREW_FRAMES = 225
+
+# How a map leg is divided. The brief asks for one continuous movement:
+# where we have got to so far, then a glide down into today, then the
+# drive itself. These are shares of the leg rather than fixed lengths, so
+# the shape is the same whether a day gets three seconds or eight.
+MAP_RECAP_SHARE = 0.26
+MAP_APPROACH_SHARE = 0.16
 
 INTRO_FRAMES = 135
 OUTRO_FRAMES = 135
@@ -508,6 +523,7 @@ def build_scene_plan(
     narrative: dict[str, Any] | None = None,
     outro_photos: list[dict[str, Any]] | None = None,
     map_context: dict[str, Any] | None = None,
+    crew: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The whole film as an ordered list of scenes with frame counts.
 
@@ -536,11 +552,28 @@ def build_scene_plan(
             "photos": [],
         }
     ]
+    members = list((crew or {}).get("members") or [])
+    if members:
+        # Who is travelling, before where. The journey reads as this
+        # crew's story rather than as an export of trip data - and the
+        # scene simply does not exist when there are no portraits, which
+        # is better than a row of empty circles.
+        scenes.append(
+            {
+                "type": SCENE_CREW,
+                "chapter_id": "",
+                "chapter_index": -1,
+                "frames": CREW_FRAMES,
+                "enter": "rise",
+                "photos": [],
+            }
+        )
     if mapped:
-        # "Here is where it begins." The starting point and the camper,
-        # and deliberately NOT the route ahead: a film that shows the
-        # whole journey in its first ten seconds has spent the one thing
-        # a map can give it.
+        # "Here is where it begins." The whole travel area, so the trip
+        # has a shape before it has a first day, with the camper standing
+        # on the start - and deliberately NOT the route ahead. A film that
+        # shows the whole journey in its first ten seconds has spent the
+        # one thing a map can give it.
         scenes.append(
             {
                 "type": SCENE_MAP_START,

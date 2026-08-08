@@ -6,6 +6,25 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.47.0] - 2026-08-08
+
+### Fixed
+
+- **Das Ruckeln der Karte hatte drei Ursachen, und die Vermutung traf nur halb zu.** Die Camperposition wurde bereits entlang der Linie interpoliert – falsch war, *womit* gerechnet wurde:
+  - **Die Streckenlänge wurde in Grad gemessen.** Ein Längengrad ist bei 60° Nord 55,7 km, ein Breitengrad 111,3 km – dieselbe reale Geschwindigkeit ergab nach Osten also exakt den doppelten Fortschritt wie nach Norden. Auf einer Route, die abbiegt, wurde der Camper sichtbar schneller und langsamer, ohne dass es einen Grund gab.
+  - **Die Fahrtrichtung kam aus Punktabständen** – vier Punkte zurück, drei nach vorn. Nach der Vereinfachung liegen diese Punkte in einer Kurve wenige Meter und auf der Autobahn zig Kilometer auseinander; das Blickfenster war also mal 20 m und mal 200 km lang und sprang beim Weiterzählen. Das war das Zittern.
+  - **Die gezeichnete Route lief dem Camper voraus und kehrte zurück.** Sichtbar war `Punkte[0…index]` – und `index` ist der Punkt **hinter** dem Camper – mit der Camperposition dahinter angehängt. An jedem einzelnen Streckenpunkt sprang die Linie also vor und wieder zurück. Das war das Stop-and-go, und zugleich der Grund, warum Linie und Fahrzeug nicht zusammenpassten.
+
+  Bewegung, Richtung und sichtbare Linie kommen jetzt aus einem gemeinsamen, in **Metern** gerechneten Streckenmodell mit sanftem Anfahren und Abbremsen. Die Linie endet konstruktionsbedingt exakt am Camper.
+
+### Added
+
+- **Die Karte ist eine durchgehende Reise statt 23 Einzelkarten.** Die ganze Reise wird **einmal** projiziert, die Kamera ist eine Transformation darüber. Damit gleitet der Film vom Gesamtüberblick in die Tagesetappe, statt zwischen zwei unabhängigen Bildern zu schneiden: Erst „bis hierher", dann eine weiche Kamerafahrt hinunter zur heutigen Route, dann die Fahrt selbst. Im Abspann wieder heraus auf die vollständige Strecke.
+- **Mehr Orientierung, ohne Navigationsansicht:** deutlichere Ländergrenzen, der aktuelle Ländername (aus den Kartendaten gelesen, nicht erfunden), Start- und Tagesziel. Kein Straßennetz, keine Ortsflut.
+- **Crew-Intro.** Wer unterwegs ist, mit Porträts und Anzeigenamen – und dem Camper als eigenem Mitglied. Die Porträts reisen als **lokale Kopien** mit dem Auftrag, niemals als Adresse: die Porträtroute ist durch einen nicht erratbaren Dateinamen geschützt, und das ist ein Bearer-Secret, kein Login.
+- **Optionale Musik.** Eine Audiodatei aus `/media/roadplanner_music` läuft unter dem ganzen Film, mit Ein- und Ausblendung und weicher Wiederholung bei kurzen Titeln. Ausgewählt wird ein **Name**, kein Pfad. Ohne Musik bleibt der Film vollständig renderbar.
+- **Der Camper ist ein austauschbares Asset.** Die Zeichnung liegt jetzt in einer eigenen Figurenschicht, hinter der später eine bestätigte Illustration des echten Fahrzeugs treten kann, ohne dass Karte, Crew-Szene oder Abspann sich ändern.
+
 ## [4.46.1] - 2026-08-08
 
 ### Added
