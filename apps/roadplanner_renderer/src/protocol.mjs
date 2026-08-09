@@ -349,7 +349,12 @@ export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
 // [1-4] and silently rejected every fifth picture of a day when that
 // limit was raised - a pattern that encodes a constant has to move
 // with it.
-const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-9]|10)\.jpg$/;
+// Up to twenty per chapter. This bound has now silently eaten pictures
+// twice - at four, and again at ten - because a package that carries a
+// photograph the renderer refuses to name loses it without a word. The
+// integration's own ceiling is fourteen; the slack is here so the next
+// raise is a number change rather than an outage.
+const FILM_PHOTO_RE = /^photos\/c(\d{2})-([1-9]|1[0-9]|20)\.jpg$/;
 
 export const FILM_PLAN_VERSION = 1;
 export const FILM_PLAN_FPS = 30;

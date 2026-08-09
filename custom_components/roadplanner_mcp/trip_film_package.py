@@ -77,20 +77,24 @@ MAX_FILM_CLIP_BYTES = 24 * 1024 * 1024
 # The package grows with it, which is the honest cost: these are 900-pixel
 # JPEGs at quality 76, so roughly 80 kB each, and MAX_FILM_PACKAGE_BYTES
 # still bounds the whole thing.
-MAX_FILM_IMAGES = 180
+MAX_FILM_IMAGES = 260
 # Ten rather than four, because a major highlight of a real journey is
 # not four pictures. The per-chapter number is still derived from the
 # total, so a long trip thins out instead of producing a huge package -
 # and the scene planner decides how they are SHOWN, grouping rather than
 # lengthening when a day has more than it has time for.
-MAX_PHOTOS_PER_CHAPTER = 10
+# Fourteen, matching the richest day the scene planner will ask for.
+# Ten was the ceiling while the selection was content-blind; it is also
+# the number that would have quietly thinned a 25-day trip to seven per
+# day and made the whole curation rewrite invisible in the film.
+MAX_PHOTOS_PER_CHAPTER = 14
 MAX_CHAPTERS = 45
 # A film frame shows a photo for well under two seconds at 720p. 900 px on
 # the long edge is already more than the frame can display.
 FILM_IMAGE_MAX_EDGE = 900
 FILM_JPEG_QUALITY = 76
 MAX_FILM_IMAGE_BYTES = 280 * 1024
-MAX_FILM_PACKAGE_BYTES = 24 * 1024 * 1024
+MAX_FILM_PACKAGE_BYTES = 32 * 1024 * 1024
 
 MAX_TITLE_LENGTH = 120
 MAX_STORY_LENGTH = 1200

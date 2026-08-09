@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.56.0] - 2026-08-09
+
+### Fixed
+
+- **Zwei stille Deckel, die die neue Bildauswahl im Film unsichtbar gemacht hätten.** Der Renderer akzeptierte nur Dateinamen `c00-1` bis `c00-10`; alles darüber wurde beim Einlesen kommentarlos verworfen. Und das Paket selbst begrenzte auf 10 Bilder je Kapitel bei 180 insgesamt — bei 25 Tagen sind das **sieben** je Tag, egal was die Dramaturgie vorsieht. Beide Grenzen sind angehoben (14 je Kapitel, 260 insgesamt, Renderer bis 20), und ein Test hält jetzt fest, dass die Paketgrenze nie unter dem liegen darf, was der Szenenplan anfordert. Genau dieser Fehler ist jetzt zweimal passiert — bei vier Bildern und bei zehn.
+
 ## [4.55.0] - 2026-08-09
 
 ### Changed

@@ -288,4 +288,30 @@ verify_a_trip_without_chapters_is_refused()
 verify_the_validator_agrees_with_the_builder()
 verify_a_moved_image_path_is_refused()
 verify_no_media_id_or_internal_reference_travels()
+def verify_the_package_ceiling_never_undercuts_the_plan() -> None:
+    """The silent loss that has now happened twice, as an assertion.
+
+    The scene planner asks for up to fourteen pictures on a major
+    highlight. When the package's own per-chapter ceiling is lower, the
+    extra ones vanish where nobody looks: the plan is valid, the film
+    renders, and the only trace is a count nobody compares. It happened
+    at four, and again at ten - the second time it would have thinned a
+    25-day trip to seven a day and made a whole curation rewrite
+    invisible in the film.
+
+    Two bounds, because they fail differently: the ceiling is what a
+    short trip hits, the total budget is what a long one hits.
+    """
+    plan = load("trip_film_plan")
+    assert film.MAX_PHOTOS_PER_CHAPTER >= max(plan.PHOTO_WEIGHTS.values()), (
+        film.MAX_PHOTOS_PER_CHAPTER,
+        plan.PHOTO_WEIGHTS,
+    )
+    assert film.photos_per_chapter(25) >= plan.PHOTO_WEIGHTS["highlight"], (
+        film.photos_per_chapter(25),
+        plan.PHOTO_WEIGHTS,
+    )
+
+
+verify_the_package_ceiling_never_undercuts_the_plan()
 print("Trip film package tests passed.")
