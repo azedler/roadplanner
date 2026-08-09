@@ -289,7 +289,9 @@ def verify_the_required_motif_is_chosen_before_a_prettier_picture() -> None:
     )
     assert "moose-1" in result["media_ids"], result
     assert result["coverage"]["complete"], result
-    assert result["reasons"]["moose-1"] == "zeigt elch"
+    # Named the way a person reads it, not the way it matches. "zeigt
+    # smalandet" was a database key wearing a sentence.
+    assert result["reasons"]["moose-1"] == "zeigt Elchpark", result["reasons"]
 
 
 def verify_a_day_without_the_picture_is_honest_about_it() -> None:

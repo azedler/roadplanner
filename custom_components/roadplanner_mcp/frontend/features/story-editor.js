@@ -641,8 +641,11 @@ export const storyEditorMixin = {
     const must = curation.must_cover || (curation.brief || {}).must_cover || [];
     const missing = (curation.coverage || {}).unmet || [];
     const covered = (curation.coverage || {}).met || [];
+    // The token is what matches; the label is what a person reads.
+    // "smalandet" is a database key wearing a chip.
+    const labels = (curation.brief || {}).labels || curation.labels || {};
     const motifChip = (name, met) =>
-      `<span class="story-motif ${met ? "met" : "unmet"}"><ha-icon icon="${met ? "mdi:check-circle-outline" : "mdi:alert-circle-outline"}"></ha-icon>${escapeHtml(name)}</span>`;
+      `<span class="story-motif ${met ? "met" : "unmet"}" title="${escapeHtml(name)}"><ha-icon icon="${met ? "mdi:check-circle-outline" : "mdi:alert-circle-outline"}"></ha-icon>${escapeHtml(labels[name] || name)}</span>`;
     const motifs = must.length
       ? `<div class="story-motifs">${covered.map((name) => motifChip(name, true)).join("")}${missing.map((name) => motifChip(name, false)).join("")}</div>`
       : "";
