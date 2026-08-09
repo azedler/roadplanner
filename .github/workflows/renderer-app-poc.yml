@@ -381,7 +381,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'INNER'
-          import hashlib, importlib.util, io, json, os, pathlib, sys, time, uuid
+          import hashlib, importlib, importlib.machinery, importlib.util, io, json, os, pathlib, sys, time, uuid
           from PIL import Image
 
           # The REAL planner, not a hand-written imitation of one. A fake
@@ -389,18 +389,19 @@ jobs:
           # already believed - which is exactly how a wrong field name
           # shipped earlier in this project.
           sys.dont_write_bytecode = True
-          spec = importlib.util.spec_from_file_location(
-              "trip_film_plan",
-              "custom_components/roadplanner_mcp/trip_film_plan.py",
+          # Loaded as a package, not as loose files. Loading a module by
+          # path gives it no parent, so the first `from .sibling import x`
+          # anywhere in the integration turns this whole step red - which
+          # is exactly what happened, and what stopped the add-on image
+          # from being published at all.
+          PACKAGE = "roadplanner_mcp_ci"
+          package = importlib.util.module_from_spec(
+              importlib.machinery.ModuleSpec(PACKAGE, None, is_package=True)
           )
-          plan_module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(plan_module)
-          map_spec = importlib.util.spec_from_file_location(
-              "trip_map_context",
-              "custom_components/roadplanner_mcp/trip_map_context.py",
-          )
-          map_module = importlib.util.module_from_spec(map_spec)
-          map_spec.loader.exec_module(map_module)
+          package.__path__ = ["custom_components/roadplanner_mcp"]
+          sys.modules[PACKAGE] = package
+          plan_module = importlib.import_module(f"{PACKAGE}.trip_film_plan")
+          map_module = importlib.import_module(f"{PACKAGE}.trip_map_context")
 
           DAYS = 25
           # The film has to look different from day to day, so the CI film
@@ -545,18 +546,8 @@ jobs:
           # itself from how many people there are, and the audio is mixed
           # by the renderer rather than by ffmpeg - so a CI film without
           # them would leave the two newest parts of the film untested.
-          crew_spec = importlib.util.spec_from_file_location(
-              "trip_film_crew",
-              "custom_components/roadplanner_mcp/trip_film_crew.py",
-          )
-          crew_module = importlib.util.module_from_spec(crew_spec)
-          crew_spec.loader.exec_module(crew_module)
-          music_spec = importlib.util.spec_from_file_location(
-              "trip_film_music",
-              "custom_components/roadplanner_mcp/trip_film_music.py",
-          )
-          music_module = importlib.util.module_from_spec(music_spec)
-          music_spec.loader.exec_module(music_module)
+          crew_module = importlib.import_module(f"{PACKAGE}.trip_film_crew")
+          music_module = importlib.import_module(f"{PACKAGE}.trip_film_music")
 
           def portrait_bytes(seed: int) -> bytes:
               face = Image.new("RGB", (700, 700))
