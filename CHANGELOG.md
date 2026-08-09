@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.63.0] - 2026-08-09
+
+### Fixed
+
+- **Eine zweite Grenze im Renderer, die ich beim ersten Mal übersehen hatte.** Neben dem Dateinamensmuster prüft der Renderer die Bilderzahl je Kapitel gegen `MAX_FILM_PHOTOS_PER_CHAPTER = 10`. Das Muster war auf 20 erweitert, diese Zahl nicht — eine 23-Tage-Reise erzeugt elf Bilder für ein Kapitel, und der Auftrag starb mit „Kapitel mit zu vielen Bildern". Jetzt 14 und 260, gleich den Werten der Integration.
+
+- **Und ein Test, der die Spiegelung erzwingt.** Renderer und Integration versenden getrennt: ein Paket einer neueren Integration trifft in einem echten Haushalt auf einen älteren Renderer. Eine Seite allein anzuheben lässt nichts rot werden — es lässt Stunden später einen Render sterben, mit einer Meldung, die niemand mit einer Zahl in Verbindung bringt. `test_renderer_app_contract.py` vergleicht die Zahlen jetzt direkt aus beiden Dateien und prüft zusätzlich, dass das Dateinamensmuster mindestens so weit reicht wie die erlaubte Zahl.
+
 ## [4.62.0] - 2026-08-09
 
 ### Fixed

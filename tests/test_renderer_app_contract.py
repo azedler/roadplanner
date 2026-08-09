@@ -287,6 +287,57 @@ def verify_the_reported_version_survives_a_local_build() -> None:
     )
 
 
+def verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have() -> None:
+    """The renderer mirrors the integration's limits, and mirrors drift.
+
+    The two ship separately, so a package built by a newer integration
+    meets an older renderer in somebody's house. Raising one side alone
+    does not fail anything here - it fails a render, hours later, on a
+    real trip, with a message nobody connects to a number.
+
+    It happened twice in one afternoon: the filename pattern went to 20
+    while MAX_FILM_PHOTOS_PER_CHAPTER stayed at 10, so a 23-day trip
+    produced eleven photographs for a chapter and the job died. So the
+    numbers are compared directly, from both files, rather than trusted
+    to be kept in step by whoever edits one of them.
+    """
+    protocol = (APP / "src" / "protocol.mjs").read_text(encoding="utf-8")
+    package_py = (
+        Path("custom_components/roadplanner_mcp/trip_film_package.py")
+        .read_text(encoding="utf-8")
+    )
+
+    def _js(name: str) -> int:
+        match = re.search(rf"export const {name} = (\d+);", protocol)
+        assert match, f"{name} fehlt im Renderer"
+        return int(match.group(1))
+
+    def _py(name: str) -> int:
+        match = re.search(rf"^{name} = ([\d_]+)", package_py, re.MULTILINE)
+        assert match, f"{name} fehlt in trip_film_package.py"
+        return int(match.group(1).replace("_", ""))
+
+    for name in ("MAX_FILM_IMAGES", "MAX_FILM_CHAPTERS"):
+        js_name = name
+        py_name = name if name != "MAX_FILM_CHAPTERS" else "MAX_CHAPTERS"
+        assert _js(js_name) == _py(py_name), (
+            f"{js_name}: Renderer {_js(js_name)}, Integration {_py(py_name)}"
+        )
+    assert _js("MAX_FILM_PHOTOS_PER_CHAPTER") == _py("MAX_PHOTOS_PER_CHAPTER"), (
+        f"Bilder je Kapitel: Renderer {_js('MAX_FILM_PHOTOS_PER_CHAPTER')}, "
+        f"Integration {_py('MAX_PHOTOS_PER_CHAPTER')}"
+    )
+
+    # And the filename pattern has to reach at least as far as the limit,
+    # or the last pictures of a chapter are dropped without a word.
+    match = re.search(r"FILM_PHOTO_RE = /\^photos\\/c\(\\d\{2\}\)-\(([^)]+)\)", protocol)
+    assert match, "das Dateinamensmuster ist nicht mehr auffindbar"
+    highest = max(int(value) for value in re.findall(r"\d+", match.group(1)))
+    assert highest >= _js("MAX_FILM_PHOTOS_PER_CHAPTER"), (
+        f"Muster reicht bis {highest}, erlaubt sind {_js('MAX_FILM_PHOTOS_PER_CHAPTER')}"
+    )
+
+
 def verify_every_dependency_is_pinned_exactly() -> None:
     """A spike is only worth anything if the same image can be rebuilt.
 
@@ -656,6 +707,7 @@ verify_the_paths_reach_the_process_that_needs_them()
 verify_the_app_asks_for_nothing_beyond_a_shared_folder()
 verify_nothing_is_installed_at_container_start()
 verify_the_reported_version_survives_a_local_build()
+verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have()
 verify_every_dependency_is_pinned_exactly()
 verify_the_image_brings_its_own_runtime_and_browser()
 verify_the_render_is_validated_before_it_counts()

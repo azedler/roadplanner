@@ -338,11 +338,19 @@ export const FILM_PACKAGE_VERSION = 1;
 export const FILM_MANIFEST_FILENAME = "film.json";
 export const MAX_FILM_JSON_BYTES = 512 * 1024;
 export const MAX_FILM_CHAPTERS = 45;
-// Raised with the package's own limits: a day of a real journey is
-// not four pictures, and a film that showed one per day while the
-// library held hundreds was the complaint that moved these.
-export const MAX_FILM_PHOTOS_PER_CHAPTER = 10;
-export const MAX_FILM_IMAGES = 180;
+// These MIRROR the integration's own limits in trip_film_package.py,
+// and mirroring is the whole difficulty: the two sides ship separately,
+// so a package built by a newer integration meets an older renderer in
+// somebody's house. Raising one side alone does not fail a test - it
+// fails a render, hours later, on a real trip.
+//
+// It has now happened twice in one afternoon. The filename pattern was
+// widened to 20 and this was left at 10, so a 23-day trip produced
+// eleven photographs for a chapter and the job died with "Kapitel mit
+// zu vielen Bildern". test_renderer_app_contract.py now compares these
+// numbers against the Python ones directly.
+export const MAX_FILM_PHOTOS_PER_CHAPTER = 14;
+export const MAX_FILM_IMAGES = 260;
 export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
 
 // The position range follows MAX_FILM_PHOTOS_PER_CHAPTER. It was
