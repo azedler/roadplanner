@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.64.0] - 2026-08-09
+
 ### Changed
 
 - **Das Tempo wird ruhiger — gemessen, nicht pauschal.** Aus der visuellen Abnahme: „Bilder, Text und Karte wechseln zu schnell." Nicht der ganze Film wurde verlangsamt, sondern jede Untergrenze wurde daraufhin geprüft, ob sie noch etwas erlaubt, das man ansehen kann: ein Foto hält jetzt **2,6 s** statt 1,7, eine Collage **4,7 s** statt 3,2, eine Karte mindestens **3,5 s** statt 2,6. Die Zeitbudgets je Wichtigkeit steigen auf 300/450/600/780 Frames.
