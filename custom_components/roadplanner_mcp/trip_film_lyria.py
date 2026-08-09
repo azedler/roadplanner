@@ -70,18 +70,27 @@ LYRIA_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
 # eight times is not a soundtrack.
 LYRIA_MODEL = "lyria-3-pro-preview"
 LYRIA_CLIP_MODEL = "lyria-3-clip-preview"
-# Roughly what one generation yields, published as up to about three
-# minutes. Used for the estimate shown before anybody agrees to anything.
-LYRIA_TRACK_SECONDS = 184
+# Roughly what one generation yields. The app produces up to about three
+# minutes; the API is documented as generating up to about two, so the
+# smaller figure is the one a plan may rely on - planning against the
+# larger one would silently leave the end of a film unscored.
+LYRIA_TRACK_SECONDS = 118
 LYRIA_TIMEOUT_SECONDS = 300
 MAX_TRACK_BYTES = 40 * 1024 * 1024
 TRACK_FILENAME_RE = re.compile(r"^lyria-[0-9a-f]{16}\.(mp3|wav)$")
 
-# What one generation costs, in euro, as a rough figure for the dialog.
-# Deliberately a constant with a name rather than a number in a sentence:
-# when the published price changes, the thing to edit is obvious, and
-# nobody has to hunt through translated strings for it.
-LYRIA_ESTIMATED_COST_EUR = 0.60
+# What one generation costs, as a rough figure for the dialog.
+#
+# Corrected against the published price: $0.08 per full song. The number
+# standing here before was 0.60 EUR and was a guess written down as a
+# fact - seven times too high, which is exactly the direction that makes
+# somebody decline something affordable.
+#
+# Deliberately a constant with a name rather than a number in a
+# sentence: when the published price changes, the thing to edit is
+# obvious, and nobody has to hunt through translated strings for it.
+LYRIA_ESTIMATED_COST_USD = 0.08
+LYRIA_ESTIMATED_COST_EUR = 0.08
 LYRIA_PRICE_NOTE = (
     "Schätzwert. Die tatsächliche Abrechnung erfolgt über deinen "
     "Google-Zugang und kann abweichen."

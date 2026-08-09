@@ -6,6 +6,20 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.66.0] - 2026-08-09
+
+### Added
+
+- **MusicPlan: wenige lange Abschnitte statt vieler Kurzclips** (`trip_film_music_plan.py`). Zwei Fehlerbilder klammern das ein. Ein Stück über 23 Tage geloopt sagt über eine Abfahrt dasselbe wie über eine Ankunft. Ein Stück je Tag wären 23 Generierungen, 23 Preise und 23 hörbare Nahtstellen — ein Schnitt zwischen Fotos ist unsichtbar, ein Schnitt zwischen Musikstücken nicht.
+
+  Die Anzahl kommt aus der Filmlänge, nicht aus Geschmack: 90 Sekunden sind **ein** Stück, sieben Minuten sind **vier** — Aufbruch, Norden, Rückweg, Ankommen —, jeweils mit 4 s Überblendung, Ein- und Ausblende an den Enden und lückenloser Abdeckung bis zur letzten Sekunde. Die Stilbeschreibung ist in jedem Abschnitt dieselbe (instrumental, warm, nordisch, kein Gesang, keine Trailer-Musik); nur die Stimmung wechselt — vier eigenständig gestylte Stücke wären eine Playlist, kein Soundtrack.
+
+  Der Plan **erzeugt nichts und kostet nichts**. Genau das macht ihn zur Grundlage für den Kostendialog und den Cache: Beides ist berechenbar, anzeigbar und vergleichbar, ohne dass je ein Provider aufgerufen wurde.
+
+### Fixed
+
+- **Der hinterlegte Lyria-Preis war geraten und siebenfach zu hoch.** Dort stand 0,60 EUR je Generierung; veröffentlicht sind **0,08 USD je Stück**. Ein zu hoher Preis im Freigabedialog ist genau die Richtung, die jemanden etwas Bezahlbares ablehnen lässt. Ebenso korrigiert: Die API erzeugt laut Doku bis zu **etwa zwei** Minuten, nicht drei — ein Plan gegen die größere Zahl hätte das Ende eines Films still unvertont gelassen.
+
 ## [4.65.0] - 2026-08-09
 
 ### Fixed
