@@ -52,6 +52,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import math
 import re
+import unicodedata
 from typing import Any, Iterable
 
 CURATION_VERSION = 1
@@ -148,11 +149,22 @@ def _text(value: Any) -> str:
 
 
 def _fold(value: Any) -> str:
-    """Casefold and flatten the umlauts, so one spelling matches another."""
+    """Casefold and flatten the accents, so one spelling matches another.
+
+    German umlauts were the first version of this, and on a trip through
+    Sweden and Norway that was not nearly enough: "Smålandet" split on
+    the ring above the a into "Sm" and "landet", and the day ended up
+    requiring a photograph of "landet". Anything with a mark on it goes
+    the same way - Ålesund, Tromsø, Ærø, Kiruna's Sámi names.
+
+    Decomposing and dropping the marks handles every accent at once;
+    the three that have no decomposition (ø, æ, ß) are spelled out.
+    """
     text = _text(value).casefold()
-    for source, target in (("ä", "a"), ("ö", "o"), ("ü", "u"), ("ß", "ss")):
+    for source, target in (("ø", "o"), ("æ", "ae"), ("ß", "ss"), ("đ", "d"), ("ŋ", "ng")):
         text = text.replace(source, target)
-    return text
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -423,10 +435,13 @@ def motif_tokens(text: Any) -> list[str]:
     Splitting on a generic tail is what lets a picture the model called
     "Elch" answer a day the roadbook called "Elchpark".
     """
-    words = [word for word in re.split(r"[^0-9a-zA-ZäöüÄÖÜß]+", _text(text)) if word]
+    # Folded FIRST, then split. Splitting first meant every accented
+    # letter was a word boundary, so "Smålandet" arrived as "Sm" and
+    # "landet" - and the day asked for a picture of "landet".
+    words = [word for word in re.split(r"[^0-9a-z]+", _fold(text)) if word]
     tokens: list[str] = []
     for word in words:
-        folded = _fold(word)
+        folded = word
         if len(folded) < MIN_MOTIF_LENGTH or folded in _STOPWORDS or folded.isdigit():
             continue
         # A word that is generic as a whole stays whole. "Rastplatz"
@@ -516,7 +531,14 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
         for token in motif_tokens(stop.get("kind") or stop.get("type")):
             if token not in nice and token not in must:
                 nice.append(token)
-    _absorb(chapter.get("title"))
+    # The title is prose, not a place. "Begegnung mit den Riesen des
+    # Waldes" is a good chapter heading and a terrible requirement: no
+    # photograph shows a Begegnung. Titles therefore only ever add
+    # bonuses - what a day must be seen to contain comes from where it
+    # went, which is the part that was measured rather than written.
+    for token in motif_tokens(chapter.get("title")):
+        if token not in nice and token not in must:
+            nice.append(token)
     kept = must[:MAX_MUST_COVER]
     return {
         "must_cover": kept,

@@ -188,6 +188,47 @@ def verify_a_category_word_is_never_evidence() -> None:
     assert curation.coverage(brief, analyses, ["carpark"])["unmet"] == ["elch"]
 
 
+def verify_a_nordic_name_survives_being_read() -> None:
+    """Reported from the real trip: "Smålandet" became "landet".
+
+    The word was split on non-ASCII letters before it was folded, so
+    every ring, slash and accent was a word boundary. On a journey
+    through Sweden and Norway that is most of the map - and the day at
+    the moose safari ended up requiring a photograph of "landet".
+    """
+    assert curation.motif_tokens("Smålandet Markaryds Älgsafari") == [
+        "smalandet",
+        "markaryds",
+        "algsafari",
+    ]
+    assert curation.motif_tokens("Tromsø Ålesund Ærø") == ["tromso", "alesund", "aero"]
+    brief = curation.visual_brief(
+        {"title": "", "stops": [{"name": "Smålandet Markaryds Älgsafari"}]}
+    )
+    assert brief["must_cover"] == ["smalandet"], brief
+    assert "algsafari" in brief["alternatives"]["smalandet"], brief
+
+
+def verify_a_chapter_title_is_prose_not_a_place() -> None:
+    """"Begegnung mit den Riesen des Waldes" is a heading, not a subject.
+
+    It is also a real one, from the moose-safari day. Nobody photographs
+    a Begegnung, so requiring it would leave that day permanently
+    incomplete for a reason that says nothing about the pictures. What a
+    day must be seen to contain comes from where it went - the part that
+    was measured rather than written.
+    """
+    brief = curation.visual_brief(
+        {
+            "title": "Begegnung mit den Riesen des Waldes",
+            "stops": [{"name": "Asmoarp Natur"}],
+        }
+    )
+    assert "begegnung" not in brief["must_cover"], brief
+    assert brief["must_cover"] == ["asmoarp"], brief
+    assert "begegnung" in brief["nice_to_cover"], brief
+
+
 def verify_a_motif_answers_in_the_words_a_model_would_use() -> None:
     """"Elch", "Elche" and "Elchgehege" all answer a day about "elch"."""
     for seen in ("Elch", "Elche", "Elchgehege", "elch im gehege"):
@@ -458,6 +499,8 @@ for check in (
     verify_every_moment_reaches_the_pool,
     verify_only_broken_files_are_thrown_away_locally,
     verify_a_day_knows_what_it_is_about,
+    verify_a_nordic_name_survives_being_read,
+    verify_a_chapter_title_is_prose_not_a_place,
     verify_a_category_word_is_never_evidence,
     verify_a_motif_answers_in_the_words_a_model_would_use,
     verify_the_required_motif_is_chosen_before_a_prettier_picture,
