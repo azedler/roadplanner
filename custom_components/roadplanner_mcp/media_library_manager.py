@@ -74,7 +74,31 @@ _AUTOMATIC_RADIUS_M = 750.0
 # photo filed under the wrong stop of the *right day* is a small thing
 # and can be corrected in one tap, while 253 photographs waiting for a
 # click is what made this worth changing.
-_CLEAR_RADIUS_M = 2_500.0
+#
+# Which runner-up, and the walk that made the difference
+# ------------------------------------------------------
+#
+# A day in Skuleskogen national park: the family parks, walks to a lake,
+# eats in a hut, walks back. Every photograph of that hike sat in "zu
+# prüfen" at 2.6 to 3.9 km from the stop - the whole day, gone from the
+# film. Two separate thresholds were saying no, and both were asking the
+# wrong question.
+#
+# The radius was one. A hike is not a point; it is the only thing that
+# day, and 4 km on foot from where the camper stands is an ordinary
+# afternoon rather than evidence of doubt.
+#
+# The runner-up test was the other, and this is the real correction.
+# Doubt about *which day* has to be kept - the day is what the film makes
+# a chapter of. Doubt about *which stop of the same day* is not worth
+# keeping at all: whichever of them wins, the photograph lands in the
+# right chapter, and the difference is one tap. A hike between two stops
+# of one day is precisely the case where the old rule found the two
+# candidates too close together and refused - so the walk failed a test
+# designed to protect against something that was not happening.
+#
+# So the runner-up is now only ever a stop of *another* day.
+_CLEAR_RADIUS_M = 5_000.0
 _CLEAR_SEPARATION = 2.0
 _CLEAR_MARGIN_M = 800.0
 
@@ -952,11 +976,21 @@ class MediaLibraryManager:
             day_id = str(day.get("id") or "")
             stop_id = str(stop.get("id") or "")
             same_day = _day_date(day) == local_date
-            # The nearest thing it could otherwise be. Any other stop
-            # counts, including one on a neighbouring day - a photograph
-            # two hundred metres from tomorrow's campsite is ambiguous
-            # about the day, and that is exactly the doubt worth keeping.
-            runner_up = stop_candidates[1][0] if len(stop_candidates) > 1 else None
+            # The nearest thing it could belong to on **another** day. A
+            # photograph two hundred metres from tomorrow's campsite is
+            # ambiguous about the day, and that is the doubt worth
+            # keeping, because the day is what becomes a chapter.
+            #
+            # Another stop of the *same* day is not a runner-up in that
+            # sense. Whichever wins, the photograph lands in the right
+            # chapter. Counting those was what refused a whole day's hike
+            # between two stops of one day.
+            other_day_distances = [
+                candidate_distance
+                for candidate_distance, candidate_day, _stop in stop_candidates
+                if str(candidate_day.get("id") or "") != day_id
+            ]
+            runner_up = other_day_distances[0] if other_day_distances else None
             alone = runner_up is None or (
                 runner_up >= distance * _CLEAR_SEPARATION
                 and runner_up - distance >= _CLEAR_MARGIN_M

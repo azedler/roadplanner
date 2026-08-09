@@ -411,7 +411,13 @@ export const mediaMixin = {
     const confirmRow = confirmable
       ? `<div class="media-confirm-row"><button class="text-button" type="button" data-action="media-confirm-suggestions" title="Übernimmt alle Vorschläge, die höchstens 1,5 km von ihrem Stopp entfernt sind. Meistens sind das Fotos rund um Mitternacht oder auf einer Nachtfähre, bei denen nur das Datum um einen Tag danebenliegt."><ha-icon icon="mdi:check-all"></ha-icon>${confirmable} nahe Vorschläge übernehmen</button><small>Solange ein Foto „Zu prüfen“ ist, kommt es nicht in den Film.</small></div>`
       : "";
-    const mediaControls = `<div class="media-controls"><div class="media-filter-row">${filterChip("all", "Alle", counts.all)}${filterChip("assigned", "Zugeordnet", counts.assigned)}${filterChip("suggested", "Zu prüfen", counts.suggested)}${filterChip("unassigned", "Ohne Tag", counts.unassigned)}</div>${confirmRow}${pageCount > 1 ? `<div class="media-page-row"><button class="text-button" type="button" data-action="media-page" data-delta="-1" ${page <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon>Neuere</button><span>Bilder ${filtered.length ? page * pageSize + 1 : 0}–${Math.min((page + 1) * pageSize, filtered.length)} von ${filtered.length}</span><button class="text-button" type="button" data-action="media-page" data-delta="1" ${page >= pageCount - 1 ? "disabled" : ""}>Ältere<ha-icon icon="mdi:chevron-right"></ha-icon></button></div>` : ""}</div>`;
+    // The page row is rendered twice, above the grid and below it. Sixty
+    // photographs is a long scroll, and the person who reaches the end of
+    // a page is exactly the person who wants the next one - sending them
+    // back to the top to ask for it is the whole complaint.
+    const pageRow = pageCount > 1 ? `<div class="media-page-row"><button class="text-button" type="button" data-action="media-page" data-delta="-1" ${page <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon>Neuere</button><span>Bilder ${filtered.length ? page * pageSize + 1 : 0}–${Math.min((page + 1) * pageSize, filtered.length)} von ${filtered.length}</span><button class="text-button" type="button" data-action="media-page" data-delta="1" ${page >= pageCount - 1 ? "disabled" : ""}>Ältere<ha-icon icon="mdi:chevron-right"></ha-icon></button></div>` : "";
+    const mediaControls = `<div class="media-controls"><div class="media-filter-row">${filterChip("all", "Alle", counts.all)}${filterChip("assigned", "Zugeordnet", counts.assigned)}${filterChip("suggested", "Zu prüfen", counts.suggested)}${filterChip("unassigned", "Ohne Tag", counts.unassigned)}</div>${confirmRow}${pageRow}</div>`;
+    const mediaFooter = pageRow ? `<section class="panel-card media-controls media-controls-footer">${pageRow}</section>` : "";
     const phase = syncState.mode || "";
     const phaseLabel = { initial_scan: "Selektiver Erstscan", delta_catchup: "Änderungen seit Scan nachziehen", delta: "Nur Änderungen" }[phase] || "Synchronisierung";
     const currentFolderValue = String(scanStats.current_folder || "");
@@ -451,6 +457,7 @@ export const mediaMixin = {
       </section>
       ${media.length ? mediaControls : ""}
       ${latest.length ? `<section class="media-grid">${latest.map(({ item, absoluteIndex }) => this._renderMediaCard(item, absoluteIndex)).join("")}</section>` : media.length ? `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-filter-none"></ha-icon><h2>Keine Bilder in dieser Auswahl</h2><p>Wähle oben einen anderen Filter.</p></div>` : `<div class="empty-state"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><h2>Noch keine OneDrive-Fotos</h2><p>Verbinde OneDrive Personal und starte anschließend eine Synchronisierung. Bereits vorhandene Fotos im gewählten Kameraordner werden anhand von Datum und GPS zugeordnet.</p></div>`}
+      ${mediaFooter}
     `;
   },
 
