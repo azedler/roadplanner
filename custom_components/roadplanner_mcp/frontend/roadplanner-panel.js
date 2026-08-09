@@ -1195,6 +1195,10 @@ class RoadplannerPanel extends HTMLElement {
       // coordinates and their timestamps are already stored, and only the
       // question "which stop is this?" is asked again.
       void this._mediaReassign();
+    } else if (action === "media-confirm-suggestions") {
+      // Also free: it writes a decision somebody has just made, nothing
+      // is asked of anybody outside the house.
+      void this._mediaConfirmSuggestions();
     } else if (action === "media-open-album") {
       const dayId = target.dataset.dayId || "";
       const stopId = target.dataset.stopId || "";

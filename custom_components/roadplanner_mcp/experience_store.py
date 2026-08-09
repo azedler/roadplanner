@@ -795,6 +795,50 @@ class ExperienceStore:
                 "total": len(state["media"]),
             }
 
+    def confirm_suggestions(
+        self, trip_id: str, *, max_distance_m: float, day_id: str | None = None
+    ) -> dict[str, Any]:
+        """Accept the suggestions somebody has decided to believe.
+
+        A suggestion is invisible to the film: only `manual` and
+        `automatic` photographs are ever shown. So a photograph the rule
+        was not sure about is not "flagged for later" - it is left out,
+        and the only way back in is one dialog per photograph. With a
+        hundred of them that is not a workflow, it is a reason the
+        pictures never make it into the film.
+
+        Confirming writes `manual`, which is the truthful status: a
+        person said so. It also means a later rule change will not
+        re-decide these, and that is the point of confirming rather than
+        a side effect.
+
+        The distance ceiling is what keeps this from being a blind
+        "accept everything": a suggestion five kilometres from its stop
+        is a guess, and guesses stay guesses.
+        """
+        with self._lock:
+            state = self.load(trip_id)
+            confirmed = 0
+            for index, item in enumerate(state["media"]):
+                if item.get("assignment_status") != "suggested":
+                    continue
+                if not item.get("linked_day_id"):
+                    continue
+                if day_id and str(item.get("linked_day_id")) != str(day_id):
+                    continue
+                distance = item.get("distance_m")
+                if not isinstance(distance, (int, float)) or isinstance(distance, bool):
+                    continue
+                if float(distance) > float(max_distance_m):
+                    continue
+                state["media"][index] = normalize_media(
+                    {**item, "assignment_status": "manual", "id": item["id"], "trip_id": trip_id}
+                )
+                confirmed += 1
+            if confirmed:
+                self.write(state)
+            return {"confirmed": confirmed, "total": len(state["media"])}
+
     def update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             state = self.load(trip_id)
