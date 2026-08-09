@@ -446,6 +446,12 @@ def normalize_media(raw: dict[str, Any]) -> dict[str, Any]:
         "linked_day_id": _clean(raw.get("linked_day_id"), 200) or None,
         "linked_stop_id": _clean(raw.get("linked_stop_id"), 200) or None,
         "assignment_status": assignment,
+        # Only a suggestion carries a reason, and it is cleared the moment
+        # the status changes - a stale "anderer Tag" on a photograph that
+        # has since been assigned is worse than no explanation at all.
+        "assignment_reason": (
+            _clean(raw.get("assignment_reason"), 80) if assignment == "suggested" else ""
+        ),
         "confidence": round(confidence, 4),
         "distance_m": round(distance, 1) if distance is not None and distance >= 0 else None,
         "caption": _clean(raw.get("caption"), 2_000),
