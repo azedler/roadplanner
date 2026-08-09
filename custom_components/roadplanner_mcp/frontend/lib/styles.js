@@ -810,6 +810,16 @@ export const PANEL_STYLES = `<style>
       .story-motif.met { color: var(--success-color, #2e7d32); border-color: color-mix(in srgb, var(--success-color, #2e7d32) 45%, var(--divider-color)); }
       .story-motif.unmet { color: var(--warning-color, #b26a00); border-color: color-mix(in srgb, var(--warning-color, #b26a00) 45%, var(--divider-color)); }
       .story-missing { margin: 0; }
+      .story-music-plan { border-top: 1px solid var(--divider-color); margin-top: 12px; padding-top: 12px; display: grid; gap: 8px; }
+      .story-music-plan p { margin: 0; }
+      .character-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 10px; }
+      .character-slot { display: grid; gap: 6px; align-content: start; border: 1px solid var(--divider-color); border-radius: 12px; padding: 10px; }
+      .character-candidate { margin: 0; display: grid; gap: 4px; }
+      /* A chequerboard, so a transparent background reads as transparent
+         rather than as white - which is the one thing that has to be
+         judged before somebody confirms the picture. */
+      .character-candidate img { width: 100%; max-width: 160px; aspect-ratio: 1; object-fit: contain; background-color: var(--card-background-color); background-image: linear-gradient(45deg, var(--divider-color) 25%, transparent 25%), linear-gradient(-45deg, var(--divider-color) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--divider-color) 75%), linear-gradient(-45deg, transparent 75%, var(--divider-color) 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; border-radius: 8px; }
+      .character-candidate figcaption { font-size: 0.8em; color: var(--warning-color, #b26a00); }
       .story-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
       .story-pick { margin: 0; position: relative; border-radius: 12px; overflow: hidden; background: var(--card-background-color); border: 1px solid var(--divider-color); }
       .story-pick img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }

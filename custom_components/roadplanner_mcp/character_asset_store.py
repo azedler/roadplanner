@@ -150,6 +150,27 @@ class CharacterAssetStore:
             found.append({"kind": kind, "variant": variant, "filename": path.name})
         return found
 
+    def candidates(self) -> list[str]:
+        """Pictures waiting to be looked at, by their ASSET name.
+
+        The waiting room was writable and readable but not listable, so
+        a candidate could only be found by somebody who already knew its
+        name - which meant a page reload lost it, and an uploaded
+        picture became a file nobody could confirm or delete.
+        """
+        try:
+            entries = list(self._root.iterdir())
+        except OSError:
+            return []
+        found: list[str] = []
+        for path in entries:
+            if not path.is_file() or not path.name.endswith(CANDIDATE_SUFFIX):
+                continue
+            name = path.name[: -len(CANDIDATE_SUFFIX)] + ".png"
+            if ASSET_FILENAME_RE.match(name):
+                found.append(name)
+        return sorted(found)
+
     def prune(self, keep: set[str]) -> int:
         """Delete confirmed assets nobody refers to any more."""
         removed = 0

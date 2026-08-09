@@ -195,6 +195,7 @@ from .story_direction_store import StoryDirectionStore
 from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
+from .character_asset_service import CharacterAssetService
 from .character_asset_store import CharacterAssetStore
 from .trip_film_export import TripFilmExporter
 from .trip_film_music_service import TripFilmMusicService
@@ -250,6 +251,7 @@ class RoadplannerRuntimeData:
     ai_music_enabled: bool
     film_music: TripFilmMusicService
     character_assets: CharacterAssetStore
+    character_asset_service: CharacterAssetService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -767,6 +769,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # the portraits rather than inside them: a portrait is derived from a
     # photograph and can be re-made, a generated illustration cannot.
     character_assets = CharacterAssetStore(archive_root / "character_assets")
+    # Upload, look at, confirm, discard. No image provider: a generated
+    # camper costs money per attempt and comes back different every
+    # time, and being the SAME vehicle is the whole point of the asset.
+    character_asset_service = CharacterAssetService(hass, character_assets)
     # Its own service, and deliberately not a method on the exporter: the
     # exporter must have no way to reach a paid call, however convenient
     # a "generate if missing" would look in a future edit.
@@ -840,6 +846,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             options.get(CONF_AI_MUSIC_ENABLED, DEFAULT_AI_MUSIC_ENABLED)
         ),
         film_music=film_music,
+        character_asset_service=character_asset_service,
         character_assets=character_assets,
     )
     entry.runtime_data = runtime

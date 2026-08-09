@@ -6,6 +6,20 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Der Camper bekommt endlich ein Bild.** Der Film konnte eine Figur schon zeichnen — klein auf der Karte, groß im Vorspann. Was fehlte, war jeder Weg, wie eins *ankommt*. Ein Bildmodell wäre naheliegend und ist bewusst nicht der erste Weg: Es kostet bei jedem Versuch Geld und liefert jedes Mal ein anderes Fahrzeug — und dass es in jedem Film **dasselbe** ist, ist der ganze Wert der Figur.
+
+  Also der Weg ohne Provider: Man lädt eine Zeichnung des eigenen Campers hoch. Zwei Ansichten, weil der Film sie unterschiedlich braucht — eine kleine, deren Silhouette 40 Pixel breit noch erkennbar ist, und eine saubere Seitenansicht für den Vorspann.
+
+  **Ein hochgeladenes Bild ist noch nicht im Film.** Es wartet, bis jemand es angesehen und bestätigt hat. Das ist keine Förmlichkeit: Ein falsches Bild, stillschweigend übernommen, ist ab dann in jedem Film der falsche Camper, und der Datei würde man nicht ansehen, warum. Die Vorschau steht auf einem Schachbrettmuster, damit „transparenter Hintergrund" auch als transparent zu erkennen ist und nicht als weiß.
+
+  Die Bytes werden nie geglaubt: Sie laufen durch Pillow, bevor irgendetwas gespeichert wird — was kein Bild ist, wird auch keine Datei. Der Dateiname ist ein Digest der gespeicherten Bytes, nichts Getipptes erreicht einen Pfad.
+
+### Fixed
+
+- **Der Warteraum für Figurenbilder war schreib- und lesbar, aber nicht auflistbar.** Ein Kandidat war damit nur für jemanden auffindbar, der seinen Namen schon kannte — ein Seitenneuaufbau verlor ihn, und ein hochgeladenes Bild wurde zu einer Datei, die niemand mehr bestätigen oder löschen konnte.
+
 ## [4.68.0] - 2026-08-09
 
 ### Added
