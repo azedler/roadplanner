@@ -115,8 +115,11 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
     },
     "story_film_music_generate": {
         "cost": COST_MODEL,
-        "effect": "Lässt Lyria Musik für diese Reise erzeugen.",
-        "note": "Kostet Geld. Ein bereits erzeugter Titel wird wiederverwendet.",
+        "effect": "Lässt Lyria die Musik für diesen Film erzeugen.",
+        "note": (
+            "Kostet Geld - der Preis steht vorher im Angebot. "
+            "Bereits erzeugte Abschnitte werden wiederverwendet."
+        ),
     },
 }
 

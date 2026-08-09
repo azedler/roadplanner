@@ -1,6 +1,6 @@
 {
   "name": "roadplanner-renderer-poc",
-  "version": "0.13.0-motion.1",
+  "version": "0.14.0-music.1",
   "private": true,
   "description": "Renderer app for Roadplanner. Remotion render in a slimmed image: headless shell, ffprobe only, multi-stage build.",
   "license": "MIT",

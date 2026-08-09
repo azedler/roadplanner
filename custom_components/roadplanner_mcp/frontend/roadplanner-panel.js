@@ -1190,6 +1190,12 @@ class RoadplannerPanel extends HTMLElement {
       });
     } else if (action === "story-film-music") {
       void this._storyFilmMusicLoad();
+    } else if (action === "story-film-music-offer") {
+      // Free and read-only: what a soundtrack would cost, before the
+      // button that spends anything exists.
+      void this._storyFilmMusicOffer();
+    } else if (action === "story-film-music-generate" && this._canEdit()) {
+      void this._storyFilmMusicGenerate();
     } else if (action === "media-reassign") {
       // Costs nothing outside Home Assistant: the photographs, their
       // coordinates and their timestamps are already stored, and only the

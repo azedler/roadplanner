@@ -40,12 +40,27 @@ from .trip_film_package import (
 from .crew_portraits import portrait_key
 from .character_assets import build_character_package
 from .trip_film_crew import build_crew_package
-from .trip_film_music import build_music_package, list_tracks
-from .trip_film_plan import allocate_photos
+from .trip_film_music import (
+    build_music_package,
+    build_music_timeline_package,
+    list_tracks,
+)
+from .trip_film_plan import (
+    FilmPlanError,
+    allocate_photos,
+    build_scene_plan,
+    plan_seconds,
+)
 from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
 
 _LOGGER = logging.getLogger(__name__)
+
+# A reserved NAME for "the score that was generated for this trip".
+# Deliberately not a path and deliberately not a real filename: it is
+# compared for equality before the ordinary folder lookup, so nothing
+# sent from a browser gains a new way to name a file.
+GENERATED_MUSIC = "__generated__"
 
 
 class TripFilmExporter:
@@ -63,6 +78,7 @@ class TripFilmExporter:
         crew: Any = None,
         crew_portraits: Any = None,
         characters: Any = None,
+        music_timeline: Any = None,
     ) -> None:
         self._hass = hass
         self._manager = manager
@@ -80,6 +96,9 @@ class TripFilmExporter:
         self._crew = crew
         self._crew_portraits = crew_portraits
         self._characters = characters
+        # Read-only by construction: what has already been generated and
+        # when it plays. Not the music service - see `_async_music`.
+        self._music_timeline = music_timeline
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -118,7 +137,35 @@ class TripFilmExporter:
             # wrong" and "the map is honest about not knowing" are two
             # different findings.
             "estimated_map_chapters": (map_context or {}).get("estimated_chapters", 0),
+            "film_seconds": _estimated_seconds(
+                chapters, budget, map_context, manifest.get("narrative")
+            ),
         }
+
+    async def async_estimate_seconds(self, trip_id: str) -> float:
+        """How long a film of this trip would run, before it is built.
+
+        The music has to be ordered before the film exists, and a
+        soundtrack laid out for the wrong length is either short or a
+        loop. So the same planner that times the real render is run over
+        the manifest and the photo budget - no bytes, no downloads.
+
+        It is an estimate in exactly one respect: a picture that turns
+        out to be unfetchable shortens its day. That moves the total by
+        seconds, which is why the music plan rounds before it decides
+        anything (see ``trip_film_music_service``).
+        """
+        manifest = await self._story_context.async_manifest(trip_id)
+        chapters = manifest.get("chapters") or []
+        if not chapters:
+            return 0.0
+        budget = allocate_photos(
+            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
+        )
+        map_context = await self._map.async_build(trip_id, manifest)
+        return _estimated_seconds(
+            chapters, budget, map_context, manifest.get("narrative")
+        )
 
     async def async_music_options(self) -> list[dict[str, Any]]:
         """What could be played under a film. Names and sizes only."""
@@ -177,9 +224,7 @@ class TripFilmExporter:
         map_context = await self._map.async_build(trip_id, manifest)
         crew, crew_files = await self._async_crew()
         characters, character_files = await self._async_characters()
-        music_entry, music_files = await self._hass.async_add_executor_job(
-            build_music_package, music
-        )
+        music_entry, music_files = await self._async_music(trip_id, music)
 
         try:
             package, files = build_film_package(
@@ -254,6 +299,39 @@ class TripFilmExporter:
         if not assets:
             return None, {}
         return await self._hass.async_add_executor_job(build_character_package, assets)
+
+    async def _async_music(
+        self, trip_id: str, music: str
+    ) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+        """The soundtrack: a chosen file, or the generated score.
+
+        `GENERATED_MUSIC` is a reserved NAME, not a path, and it is the
+        only value handled here rather than looked up in the folder -
+        the ordinary path still matches whatever was sent against the
+        folder listing before anything is opened.
+
+        The generated score is read through a callable that can only
+        report what already exists. The exporter is deliberately not
+        given the music service: rendering a film must have no route to
+        a paid call, not even an accidental one, and the strongest form
+        of that rule is not having the method in reach.
+        """
+        if str(music or "") != GENERATED_MUSIC:
+            return await self._hass.async_add_executor_job(build_music_package, music)
+        if self._music_timeline is None:
+            _LOGGER.info("KI-Musik angefragt, aber kein Musikdienst verdrahtet")
+            return None, {}
+        seconds = await self.async_estimate_seconds(trip_id)
+        timeline = await self._music_timeline(trip_id, seconds)
+        if not timeline:
+            # Nothing was generated for this film yet. A film without
+            # music is a complete film; a render that fails because
+            # somebody has not paid for a soundtrack is not.
+            _LOGGER.info("Für diese Reise ist noch keine KI-Musik erzeugt worden")
+            return None, {}
+        return await self._hass.async_add_executor_job(
+            build_music_timeline_package, timeline
+        )
 
     async def _async_crew(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
         """Names and locally stored portraits, prepared for the film.
@@ -331,4 +409,46 @@ class TripFilmExporter:
         }
 
 
-__all__ = ["TripFilmExporter"]
+def _estimated_seconds(
+    chapters: list[dict[str, Any]],
+    budget: dict[str, int],
+    map_context: dict[str, Any] | None,
+    narrative: Any = None,
+) -> float:
+    """Run the real scene planner over what the film would contain.
+
+    Deliberately the same function the render uses rather than an
+    average-seconds-per-picture rule of thumb. A rule of thumb drifts
+    away from the film the moment any timing constant moves, and then
+    the soundtrack is laid out for a film nobody makes.
+    """
+    if not chapters:
+        return 0.0
+    planned = []
+    for chapter in chapters:
+        wanted = int(budget.get(str(chapter.get("chapter_id") or ""), 0))
+        entry = dict(chapter)
+        # The planner counts pictures; it never looks inside them.
+        entry["images"] = [""] * max(0, wanted)
+        planned.append(entry)
+    try:
+        plan = build_scene_plan(
+            trip={},
+            chapters=planned,
+            narrative=narrative if isinstance(narrative, dict) else {},
+            map_context=map_context,
+            # The closing collage is a scene like any other and costs
+            # real seconds; leaving it out here would under-run the
+            # estimate by exactly its length.
+            outro_photos=(
+                [{"path": "x"}, {"path": "y"}]
+                if sum(len(entry["images"]) for entry in planned) >= 2
+                else []
+            ),
+        )
+    except FilmPlanError:
+        return 0.0
+    return plan_seconds(plan)
+
+
+__all__ = ["GENERATED_MUSIC", "TripFilmExporter"]

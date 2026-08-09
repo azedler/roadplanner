@@ -475,6 +475,7 @@ export const storyEditorMixin = {
         ${this._renderStoryFilmMusic()}
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
       </div>
+      ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
     </div></div>`;
   },
@@ -497,15 +498,25 @@ export const storyEditorMixin = {
    */
   _renderStoryFilmMusic() {
     const tracks = this._storyFilmMusic;
+    // A reserved NAME, handled on the other side before the folder is
+    // ever consulted - the film plays the sections that were generated
+    // for it, and cannot cause any to be generated.
+    const generated = this._storyFilmMusicOfferData;
+    const hasGenerated = Boolean(generated && generated.sections && generated.cached);
     if (!Array.isArray(tracks)) {
       return `<button class="text-button" type="button" data-action="story-film-music"><ha-icon icon="mdi:music-note-outline"></ha-icon> Musik wählen</button>`;
     }
-    if (!tracks.length) {
+    if (!tracks.length && !hasGenerated) {
       return `<small class="hint">Keine Musik gefunden. Lege Audiodateien in <code>/media/roadplanner_music</code> ab – der Film läuft auch ohne.</small>`;
     }
     const chosen = this._storyFilmTrack || "";
     return `<label class="inline-select"><span>Musik</span><select data-action="story-film-track">
       <option value=""${chosen ? "" : " selected"}>Ohne Musik</option>
+      ${
+        hasGenerated
+          ? `<option value="__generated__"${chosen === "__generated__" ? " selected" : ""}>KI-Musik (${escapeHtml(String(generated.cached))} Abschnitte)</option>`
+          : ""
+      }
       ${tracks
         .map(
           (track) =>
@@ -525,6 +536,104 @@ export const storyEditorMixin = {
     if (!result) return;
     this._storyFilmMusic = result.film_music || [];
     this._render({ preserveScroll: true });
+  },
+
+  /**
+   * What generated music would cost, before anybody agrees to it.
+   *
+   * Free and read-only: it reads the manifest, times the film with the
+   * same planner the render uses, and looks in the music folder for
+   * sections already paid for. Asking somebody to approve a cost
+   * without naming one is not asking, so the button that spends money
+   * does not appear until this has.
+   */
+  async _storyFilmMusicOffer() {
+    const result = await this._runAction(
+      "story_film_music_offer",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Das Musikangebot konnte nicht berechnet werden",
+      },
+    );
+    if (!result?.film_music_offer) return;
+    this._storyFilmMusicOfferData = result.film_music_offer;
+    this._render({ preserveScroll: true });
+  },
+
+  /** The one place in the story editor that spends money. */
+  async _storyFilmMusicGenerate() {
+    const offer = this._storyFilmMusicOfferData;
+    if (!offer || !offer.new_generations) return;
+    const result = await this._runAction(
+      "story_film_music_generate",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Musik konnte nicht erzeugt werden",
+      },
+    );
+    if (!result?.film_music_generated) return;
+    const made = result.film_music_generated;
+    this._showToast(
+      `${made.generated} Abschnitt${made.generated === 1 ? "" : "e"} erzeugt` +
+        (made.reused ? ` · ${made.reused} wiederverwendet` : ""),
+      "success",
+      7000,
+    );
+    // The folder has changed, so both the offer and the track list are
+    // now stale in the same way.
+    await this._storyFilmMusicLoad();
+    await this._storyFilmMusicOffer();
+  },
+
+  /**
+   * The soundtrack this film would get, and what it costs.
+   *
+   * Deliberately shows the sections rather than a single price: "vier
+   * Abschnitte, drei schon da, einer neu" is a different decision from
+   * "vier neu", and only one of them is worth pressing.
+   */
+  _renderStoryFilmMusicPlan() {
+    const offer = this._storyFilmMusicOfferData;
+    const canEdit = this._canEdit();
+    if (!offer) {
+      return canEdit
+        ? `<div class="story-music-plan"><button class="text-button" type="button" data-action="story-film-music-offer"><ha-icon icon="mdi:auto-awesome"></ha-icon> KI-Musik: was würde sie kosten?</button></div>`
+        : "";
+    }
+    if (!offer.sections) {
+      return `<div class="story-music-plan"><small class="hint">Für eine Musikplanung fehlt die Länge des Films. Erzeuge zuerst die Vorschau.</small></div>`;
+    }
+    const sections = offer.section_state || [];
+    const minutes = Math.round(Number(offer.seconds || 0) / 60);
+    const chips = sections
+      .map(
+        (entry) =>
+          `<span class="story-motif ${entry.cached_name ? "met" : "unmet"}"><ha-icon icon="${entry.cached_name ? "mdi:check-circle-outline" : "mdi:music-note-plus"}"></ha-icon>${escapeHtml(String(entry.label || entry.section || ""))} · ${escapeHtml(String(Math.round(Number(entry.seconds || 0))))}s</span>`,
+      )
+      .join("");
+    const price = offer.reused
+      ? "Alle Abschnitte sind schon erzeugt – ein weiterer Lauf kostet nichts."
+      : `${offer.new_generations} von ${offer.sections} Abschnitten sind neu · geschätzt ${escapeHtml(String(offer.estimated_cost))} ${escapeHtml(String(offer.currency || "USD"))}`;
+    const button =
+      canEdit && offer.available && offer.new_generations
+        ? actionButton(this._actionCosts(), "story-film-music-generate", `Musik erzeugen (${offer.estimated_cost} ${offer.currency || "USD"})`)
+        : "";
+    return `<div class="story-music-plan">
+      <div class="story-curation-head"><span class="eyebrow">KI-Musik</span>${button}</div>
+      <p class="story-curation-counts">Ein Soundtrack in ${escapeHtml(String(offer.sections))} Abschnitten für rund ${escapeHtml(String(minutes))} Minuten Film.</p>
+      <div class="story-motifs">${chips}</div>
+      <p class="hint">${escapeHtml(price)}</p>
+      ${offer.available ? "" : `<p class="hint">Dafür ist kein Google-Schlüssel konfiguriert – der Film läuft ohne oder mit einem eigenen Titel.</p>`}
+      ${offer.price_note ? `<small class="hint">${escapeHtml(String(offer.price_note))}</small>` : ""}
+    </div>`;
   },
 
   _renderStoryFilmJobLine() {
