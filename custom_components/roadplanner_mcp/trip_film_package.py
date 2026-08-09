@@ -351,7 +351,13 @@ def build_film_package(
                 # a database export and undoes a good headline; the
                 # roadbook keeps that name, the film gets the one you
                 # would say out loud.
-                "stops": readable_places(source.get("stops") or [], limit=3),
+                "stops": readable_places(
+                    source.get("stops") or [],
+                    limit=3,
+                    # The day's own text decides whether a stop that
+                    # looks functional was actually the point of it.
+                    story_text=str(source.get("story") or ""),
+                ),
                 "images": images,
             }
         )

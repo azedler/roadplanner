@@ -47,6 +47,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .stop_relevance import has_no_real_name, is_functional
 from .trip_film_plan import readable_place
 
 MAP_CONTEXT_VERSION = 1
@@ -277,12 +278,32 @@ def _places(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = (point[0], point[1])
         if key in seen:
             continue
+        # A router's placeholder is not a name. "Unnamed Rd, 12345
+        # Municipality" on a map in a family film reads as a fault in the
+        # film rather than as a fact about the journey - nothing is
+        # better. Same for the stops that exist so the journey could
+        # continue: a petrol station labelled beside a national park is
+        # not a memory, it is a receipt.
+        if has_no_real_name(stop) or is_functional(stop):
+            continue
         name = readable_place(stop)[:MAX_NAME_LENGTH]
         if not name:
             continue
         seen.add(key)
         places.append({"name": name, "point": point, "rank": 1})
     if not places:
+        # A day made entirely of fuel and groceries still ended
+        # somewhere, and "where did we get to?" is the one question the
+        # map exists to answer. So the last stop with a usable name comes
+        # back even when it is functional - suppressed prominence is not
+        # the same as an unlabelled day.
+        for stop in reversed(stops or []):
+            if not isinstance(stop, dict) or has_no_real_name(stop):
+                continue
+            point = _location(stop)
+            name = readable_place(stop)[:MAX_NAME_LENGTH] if point else ""
+            if point and name:
+                return [{"name": name, "point": point, "rank": 0}]
         return []
     # The last stop of the day is where the day ends, and the brief asks
     # for that one to be unmistakable.

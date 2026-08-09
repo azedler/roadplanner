@@ -11,6 +11,8 @@ Python is that the same package must render to the same film.
 """
 from __future__ import annotations
 
+import importlib
+import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
@@ -21,14 +23,20 @@ sys.dont_write_bytecode = True
 PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
 
 
+# Loaded AS A PACKAGE rather than by file path. The plan now imports a
+# sibling (`stop_relevance`), and a module loaded by path has no parent
+# package, so a relative import fails with a message that says nothing
+# about the real cause. This has bitten the CI film step once already.
+_PACKAGE = "roadplanner_film_plan_under_test"
+_root = importlib.util.module_from_spec(
+    importlib.machinery.ModuleSpec(_PACKAGE, None, is_package=True)
+)
+_root.__path__ = [str(PACKAGE_ROOT.resolve())]
+sys.modules[_PACKAGE] = _root
+
+
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(
-        f"roadplanner_{name}", PACKAGE_ROOT / f"{name}.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return importlib.import_module(f"{_PACKAGE}.{name}")
 
 
 plan_module = load("trip_film_plan")

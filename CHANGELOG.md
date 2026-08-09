@@ -6,6 +6,26 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.72.0] - 2026-08-09
+
+### Added
+
+- **Erzählerisch relevante und funktionale Stopps werden unterschieden** (`stop_relevance.py`). Aus der Abnahme von `reise(8)`: Ein Fast-Food-Stopp las sich wie der Punkt eines Tages. Der naheliegende Fix wäre ein Stringfilter gewesen — und er wäre falsch: Die nächste Tankstelle, Apotheke und der nächste Parkplatz würden dann einzeln über je einen Livefilm entdeckt.
+
+  Stattdessen zwei Arten von Stopp, die ein Roadbook identisch speichert. **Erzählerisch**: Elchpark, Wolfsschanze, Fähre, ein Stellplatz mit Aussicht — das ist die Reise. **Funktional**: Tanken, Einkaufen, Servicepunkt, Essen unterwegs — real, gehört ins Roadbook, aber es ist nicht das, woran sich jemand erinnert. Beide bleiben in den Daten; nur die Prominenz unterscheidet sich.
+
+  Die Klassifikation läuft über den Stop-Typ und, wenn der fehlt, über **generische** Wörter („Tankstelle", „Supermarkt", „Rastplatz") — ausdrücklich **keine Markennamen**, ein Test hält das fest. Was nicht erkannt wird, bleibt `unknown` und behält normales Gewicht: Eine übersehene Tankstelle kostet den Film nichts, ein herabgestufter Erinnerungsort schon. Was jemand geschrieben oder fotografiert hat, hebt einen Stopp wieder heraus, und ein ausdrücklicher Nutzer-Override gewinnt immer.
+
+- **Wo die Bilder eines Tages verloren gehen, Stufe für Stufe** (`day_film_diagnosis.py`, Panel-Aktion `media_diagnose_day`). „Ein wichtiger Ort ist im Film kaum zu sehen" hat mindestens vier Ursachen, die entgegengesetzte Korrekturen verlangen: technisch abgelehnt, nie im Kandidatenpool, von der Bildanalyse nicht mit dem Motiv verbunden, oder korrekt kuratiert und vom Szenenplan verdrängt. Zwischen denen nach Gefühl zu wählen ist der Weg, auf dem ein Sonderfall für einen einzelnen Ort entsteht.
+
+  Die Diagnose repariert nichts. Sie zählt auf jeder Stufe und nennt die erste, an der die Zahlen nicht mehr aufgehen — inklusive der wichtigsten Antwort überhaupt: **es gibt schlicht kein passendes Foto.** Keine Gewichtung erzeugt ein Bild, das niemand aufgenommen hat.
+
+### Fixed
+
+- **Technische Namen und funktionale Stopps verschwinden aus den Kartenlabels.** „Unnamed Rd, 12345 Municipality" ist die Antwort eines Geocoders auf eine Straße, die er nicht kennt; auf der Karte in einem Familienfilm liest sich das als Fehler im Film und nicht als Tatsache über die Reise. Kein Label ist dort besser. Dasselbe für die Stopps, die es gab, damit die Reise weitergehen konnte: eine Tankstelle neben einem Nationalpark beschriftet ist keine Erinnerung, sondern ein Beleg. **Ausnahme:** Bestand ein Tag ausschließlich aus Versorgung, kommt der letzte brauchbare Name zurück — zurückgenommene Prominenz ist nicht dasselbe wie ein unbeschrifteter Tag.
+
+- **Die Karte bekommt Zeit für die Orientierung** (Renderer **0.16.0-story.1**). „Bis hierher" war ein Anteil der Szene, und ein Viertel einer kurzen Kartenszene ist unter einer Sekunde — lang genug, um zu merken, dass sich etwas geändert hat, zu kurz, um eine Route zu lesen. Jetzt hat die Orientierungsphase eine absolute Untergrenze von 2,6 s und eine Obergrenze von 3,5 s; nur die Fahrt gibt nach. Solange sie läuft, wird die bereits gefahrene Strecke **heller** gezeichnet — die Übersicht soll „das haben wir bis jetzt zurückgelegt" sagen und nicht „hier sind wir gerade".
+
 ## [4.71.0] - 2026-08-09
 
 ### Fixed

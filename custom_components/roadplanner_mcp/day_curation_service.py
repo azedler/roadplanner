@@ -33,6 +33,7 @@ from homeassistant.core import HomeAssistant
 from .experience_helpers import _all_days, canonical_roadbook_stops
 from .experience_store import ExperienceStore, utc_now_iso
 from .manager import RoadplannerManager
+from .day_film_diagnosis import diagnose_day
 from .media_curation import (
     CURATION_VERSION,
     candidate_pool,
@@ -389,6 +390,47 @@ class DayCurationService:
                 self.store.save_day_curation, trip_id, day_id, record
             )
         return record
+
+    async def async_diagnose(self, trip_id: str, day_id: str) -> dict[str, Any]:
+        """Where this day's pictures were lost, stage by stage.
+
+        Free and read-only: it reads what is already stored and counts.
+        Exists because "an important place is barely in the film" has at
+        least four causes needing opposite fixes, and picking between
+        them by eye is how a special case for one place gets written.
+        """
+        trip_id = str(trip_id or "").strip()
+        day_id = str(day_id or "").strip()
+        if not trip_id or not day_id:
+            raise ValidationError("Für die Diagnose fehlen Reise oder Tag")
+        payload = await self.manager.async_get_assistant_payload(trip_id)
+        day = next(
+            (
+                entry
+                for entry in _all_days(payload)
+                if str(entry.get("id") or "") == day_id
+            ),
+            {},
+        )
+        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
+        media = [
+            item
+            for item in state.get("media") or []
+            if isinstance(item, dict) and str(item.get("linked_day_id") or "") == day_id
+        ]
+        curation = (state.get("day_curations") or {}).get(day_id)
+        return diagnose_day(
+            chapter={
+                "chapter_id": day_id,
+                "title": str(day.get("title") or ""),
+                "importance": str(day.get("importance") or "normal"),
+            },
+            curation=curation,
+            media=media,
+            # What the film actually carried is the selection until a
+            # renderer reports back; stated rather than guessed.
+            film_media_ids=list((curation or {}).get("media_ids") or []) or None,
+        )
 
     async def _async_look(
         self,
