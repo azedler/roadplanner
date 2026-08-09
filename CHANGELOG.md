@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.63.0] - 2026-08-09
+
 ### Fixed
 
 - **Eine zweite Grenze im Renderer, die ich beim ersten Mal übersehen hatte.** Neben dem Dateinamensmuster prüft der Renderer die Bilderzahl je Kapitel gegen `MAX_FILM_PHOTOS_PER_CHAPTER = 10`. Das Muster war auf 20 erweitert, diese Zahl nicht — eine 23-Tage-Reise erzeugt elf Bilder für ein Kapitel, und der Auftrag starb mit „Kapitel mit zu vielen Bildern". Jetzt 14 und 260, gleich den Werten der Integration.
