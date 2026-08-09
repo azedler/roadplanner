@@ -567,6 +567,98 @@ export const storyEditorMixin = {
       .filter((entry) => entry.media);
   },
 
+  /** What the curation decided for this day, and how to overrule it. */
+  _storyCuration(chapter) {
+    const all = this._experienceData()?.day_curations || {};
+    return all[chapter?.chapter_id] || null;
+  },
+
+  async _storyCurate({ force = false } = {}) {
+    const result = await this._runAction(
+      "media_curate_days",
+      { trip_id: this._selectedTripId, force },
+      "",
+      {
+        refresh: false,
+        errorMode: "dialog",
+        errorTitle: "Die Bildauswahl konnte nicht neu bestimmt werden",
+      },
+    );
+    if (!result) return;
+    const missing = Object.keys(result.unmet || {}).length;
+    this._showToast(
+      `${result.selected_count} Bilder aus ${result.pool_count} Kandidaten gewählt` +
+        (missing ? ` · ${missing} Tage ohne ihr Hauptmotiv` : ""),
+      "success",
+      7000,
+    );
+    await this._loadData({ silent: true, force: true });
+    await this._storyLoad({ force: true, quiet: true });
+  },
+
+  /** Show it, keep it out, or hand it back to the curation. */
+  async _storyPin(mediaId, pin) {
+    if (!mediaId) return;
+    const result = await this._runAction(
+      "media_set_film_pin",
+      { trip_id: this._selectedTripId, media_id: mediaId, pin },
+      "",
+      { refresh: false, errorMode: "toast" },
+    );
+    if (!result) return;
+    await this._loadData({ silent: true, force: true });
+    await this._storyLoad({ force: true, quiet: true });
+  },
+
+  _renderStoryCuration(chapter) {
+    const curation = this._storyCuration(chapter);
+    const canEdit = this._canEdit();
+    const curateButton = canEdit
+      ? actionButton(this._actionCosts(), "media-curate-days", curation ? "Bildauswahl erneuern" : "Bilder auswählen lassen")
+      : "";
+    if (!curation) {
+      return `<div class="story-curation"><div class="story-curation-head"><span class="eyebrow">Bildauswahl</span>${curateButton}</div><p class="hint">Für diesen Tag hat noch niemand entschieden, welche Fotos ihn erzählen. Bis dahin nimmt der Film die lokal bestbewerteten.</p></div>`;
+    }
+    const must = curation.must_cover || (curation.brief || {}).must_cover || [];
+    const missing = (curation.coverage || {}).unmet || [];
+    const covered = (curation.coverage || {}).met || [];
+    const motifChip = (name, met) =>
+      `<span class="story-motif ${met ? "met" : "unmet"}"><ha-icon icon="${met ? "mdi:check-circle-outline" : "mdi:alert-circle-outline"}"></ha-icon>${escapeHtml(name)}</span>`;
+    const motifs = must.length
+      ? `<div class="story-motifs">${covered.map((name) => motifChip(name, true)).join("")}${missing.map((name) => motifChip(name, false)).join("")}</div>`
+      : "";
+    const selected = curation.media_ids || [];
+    const reasons = curation.reasons || {};
+    const byId = new Map((this._experienceData()?.media || []).map((item) => [item.id, item]));
+    // Only the chosen pictures are rendered by default. Eighty thumbnails
+    // on a phone is not an overview, it is a download.
+    const tile = (mediaId, chosen) => {
+      const media = byId.get(mediaId);
+      if (!media) return "";
+      const pin = media.film_pin || "";
+      return `<figure class="story-pick ${chosen ? "" : "spare"} ${pin ? `pin-${escapeHtml(pin)}` : ""}">
+        <img src="${escapeHtml(this._safeUrl(media.thumbnail_url))}" alt="${escapeHtml(media.caption || media.name || "Reisefoto")}" loading="lazy" decoding="async">
+        ${chosen && reasons[mediaId] ? `<figcaption>${escapeHtml(reasons[mediaId])}</figcaption>` : ""}
+        ${canEdit ? `<div class="story-pick-actions">
+          <button class="icon-button" type="button" data-action="story-pin" data-media-id="${escapeHtml(mediaId)}" data-pin="${pin === "show" ? "" : "show"}" title="${pin === "show" ? "Feste Auswahl aufheben" : "Im Film zeigen"}"><ha-icon icon="${pin === "show" ? "mdi:pin" : "mdi:pin-outline"}"></ha-icon></button>
+          <button class="icon-button" type="button" data-action="story-pin" data-media-id="${escapeHtml(mediaId)}" data-pin="${pin === "hero" ? "" : "hero"}" title="Als Kapitelbild"><ha-icon icon="${pin === "hero" ? "mdi:star" : "mdi:star-outline"}"></ha-icon></button>
+          <button class="icon-button" type="button" data-action="story-pin" data-media-id="${escapeHtml(mediaId)}" data-pin="${pin === "exclude" ? "" : "exclude"}" title="${pin === "exclude" ? "Wieder zulassen" : "Nicht verwenden"}"><ha-icon icon="${pin === "exclude" ? "mdi:eye-off" : "mdi:eye-off-outline"}"></ha-icon></button>
+        </div>` : ""}
+      </figure>`;
+    };
+    const spares = (curation.pool_media_ids || []).filter((mediaId) => !selected.includes(mediaId));
+    const open = this._storySparesOpen === chapter.chapter_id;
+    return `<div class="story-curation">
+      <div class="story-curation-head"><span class="eyebrow">Bildauswahl</span>${curateButton}</div>
+      <p class="story-curation-counts"><strong>${escapeHtml(String(selected.length))} von ${escapeHtml(String(curation.photo_count || 0))}</strong> Fotos ausgewählt · ${escapeHtml(String(curation.pool_size || 0))} Kandidaten · ${escapeHtml(String(curation.series_count || 0))} Momente${curation.note ? ` · ${escapeHtml(curation.note)}` : ""}</p>
+      ${motifs}
+      ${missing.length ? `<p class="hint story-missing">Kein Bild zeigt: ${escapeHtml(missing.join(", "))}. Falls doch eines existiert, kannst du es unten fest auswählen.</p>` : ""}
+      <div class="story-picks">${selected.map((mediaId) => tile(mediaId, true)).join("")}</div>
+      ${spares.length ? `<button class="text-button" type="button" data-action="story-spares" data-chapter-id="${escapeHtml(chapter.chapter_id)}"><ha-icon icon="${open ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>Weitere Fotos (${escapeHtml(String(spares.length))})</button>` : ""}
+      ${open ? `<div class="story-picks spares">${spares.map((mediaId) => tile(mediaId, false)).join("")}</div>` : ""}
+    </div>`;
+  },
+
   _renderStoryChapterStrip(chapters, current) {
     return `<div class="story-strip" role="tablist" aria-label="Kapitel">
       ${chapters
@@ -696,6 +788,7 @@ export const storyEditorMixin = {
         </label>
 
         ${this._renderStoryMedia(chapter)}
+        ${this._renderStoryCuration(chapter)}
         ${this._renderStoryFacts(chapter)}
 
         <label class="story-text-field">

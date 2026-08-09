@@ -149,11 +149,15 @@ _TEXT_FRAMES = {
 # them is what makes "a more detailed film shows more good material"
 # possible without "a more detailed film is the same film, slower", and
 # it is the foundation the planned length control needs.
+# Raised again once the curation could be trusted. The earlier numbers
+# were a hedge against a selection that scored file sizes: showing more
+# of THAT is showing more gravel. Now that a day's pictures are chosen
+# for what is in them, more of them is more of the day.
 PHOTO_WEIGHTS = {
-    IMPORTANCE_TRANSITION: 2,
-    IMPORTANCE_NORMAL: 4,
-    IMPORTANCE_HIGHLIGHT: 6,
-    IMPORTANCE_MAJOR: 8,
+    IMPORTANCE_TRANSITION: 3,
+    IMPORTANCE_NORMAL: 6,
+    IMPORTANCE_HIGHLIGHT: 10,
+    IMPORTANCE_MAJOR: 14,
 }
 
 # How long a day runs, before its map - the TIME budget, in frames at 30

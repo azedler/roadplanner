@@ -16,6 +16,7 @@ from .experience_store import ExperienceStore
 from .geocoding import GeocodingProvider
 from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
+from .day_curation_service import DayCurationService, day_summary
 from .media_curation_manager import MediaCurationManager
 from .media_library_manager import (
     _DEFAULT_SCAN_TIME_BUDGET_SECONDS,
@@ -117,6 +118,11 @@ class RoadplannerExperienceManager:
             self._vision_curation,
             get_panel_payload=self.async_panel_payload,
         )
+        # The day curation is deliberately its own service rather than a
+        # mode of the stop curation. They answer different questions: one
+        # picks a stop's best few, the other decides which photographs
+        # tell a whole day - and the second one is what the film reads.
+        self._day_curation = DayCurationService(hass, store, manager, self._vision_curation)
         self._destination_gallery = DestinationGalleryManager(
             hass,
             store,
@@ -291,6 +297,26 @@ class RoadplannerExperienceManager:
 
     async def async_reassign_media(self, trip_id: str) -> dict[str, Any]:
         return await self._media_library.async_reassign_media(trip_id)
+
+    async def async_curate_day_media(self, trip_id: str, *, force: bool = False) -> dict[str, Any]:
+        """Re-decide which photographs tell each day of this trip."""
+        return await self._day_curation.async_curate_trip(trip_id, force=force)
+
+    async def async_set_film_pin(self, trip_id: str, media_id: str, pin: str) -> dict[str, Any]:
+        """Show it, keep it out, or hand it back to the curation.
+
+        Deliberately free: a decision by hand is written down, and
+        nothing is asked of anybody outside the house. The curation is
+        re-run over the stored analyses, so a pin takes effect at once
+        without paying for a second look.
+        """
+        media = await self.hass.async_add_executor_job(
+            self.store.set_film_pin, trip_id, media_id, pin
+        )
+        day_id = str(media.get("linked_day_id") or "")
+        if day_id:
+            await self._day_curation.async_curate_trip(trip_id)
+        return {"ok": True, "media": media, "day_id": day_id or None}
 
     async def async_confirm_media_suggestions(
         self, trip_id: str, *, day_id: str | None = None

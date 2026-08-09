@@ -155,6 +155,8 @@ _ACTIONS = {
     "media_update_assignment",
     "media_reassign",
     "media_confirm_suggestions",
+    "media_curate_days",
+    "media_set_film_pin",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -237,6 +239,8 @@ _EDIT_ACTIONS = {
     "media_update_assignment",
     "media_reassign",
     "media_confirm_suggestions",
+    "media_curate_days",
+    "media_set_film_pin",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -954,6 +958,28 @@ async def _execute_action(
             "media_reassign": await runtime.experience.async_reassign_media(trip_id),
             "experience": await runtime.experience.async_panel_payload(trip_id),
         }
+
+    if action == "media_curate_days":
+        trip_id = str(data.get("trip_id") or "")
+        if not trip_id:
+            raise ValidationError("Für die Bildauswahl wurde keine Reise ausgewählt")
+        result = await runtime.experience.async_curate_day_media(
+            trip_id, force=bool(data.get("force", False))
+        )
+        result["experience"] = await runtime.experience.async_panel_payload(trip_id)
+        return result
+
+    if action == "media_set_film_pin":
+        trip_id = str(data.get("trip_id") or "")
+        if not trip_id:
+            raise ValidationError("Für die Bildentscheidung wurde keine Reise ausgewählt")
+        result = await runtime.experience.async_set_film_pin(
+            trip_id,
+            str(data.get("media_id") or ""),
+            str(data.get("pin") or ""),
+        )
+        result["experience"] = await runtime.experience.async_panel_payload(trip_id)
+        return result
 
     if action == "media_confirm_suggestions":
         trip_id = str(data.get("trip_id") or "")

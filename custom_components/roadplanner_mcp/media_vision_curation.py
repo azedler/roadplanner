@@ -211,6 +211,43 @@ class VisionCurationEngine:
             inputs.append(result)
         return inputs
 
+    async def async_curation_images(
+        self, candidates: list[dict[str, Any]]
+    ) -> list[AssistantImageInput]:
+        """Thumbnails for the day curation, without the stop-sized cap.
+
+        The stop curation's ceiling is fifteen because it judges one
+        stop. A day's pool is deliberately wider - that width is the
+        whole point of the rewrite - so the batching lives with the
+        caller and this only fetches what it is given.
+        """
+        jobs = []
+        for item in candidates:
+            image_id = str(item.get("id") or "").strip()
+            provider_item_id = str(item.get("provider_item_id") or "").strip()
+            if not image_id or not provider_item_id:
+                continue
+            try:
+                url = await self.onedrive.async_thumbnail_url(provider_item_id, "large")
+            except RoadplannerError:
+                continue
+            jobs.append(
+                self._async_fetch_vision_image(image_id=image_id, url=url, label=image_id)
+            )
+        if not jobs:
+            return []
+        results = await asyncio.gather(*jobs, return_exceptions=True)
+        inputs: list[AssistantImageInput] = []
+        total = 0
+        for result in results:
+            if not isinstance(result, AssistantImageInput):
+                continue
+            if total + len(result.data) > _VISION_MAX_TOTAL_BYTES:
+                break
+            total += len(result.data)
+            inputs.append(result)
+        return inputs
+
     async def async_curate(
         self,
         *,

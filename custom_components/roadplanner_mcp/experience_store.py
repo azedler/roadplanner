@@ -446,6 +446,14 @@ def normalize_media(raw: dict[str, Any]) -> dict[str, Any]:
         "linked_day_id": _clean(raw.get("linked_day_id"), 200) or None,
         "linked_stop_id": _clean(raw.get("linked_stop_id"), 200) or None,
         "assignment_status": assignment,
+        # What the person decided about this photograph for the film.
+        # "" is "nobody said", which is not the same as "no": an empty
+        # value may be re-decided by the curation, the other two may not.
+        "film_pin": (
+            _clean(raw.get("film_pin"), 20)
+            if _clean(raw.get("film_pin"), 20) in {"show", "hero", "exclude"}
+            else ""
+        ),
         # Only a suggestion carries a reason, and it is cleared the moment
         # the status changes - a stale "anderer Tag" on a photograph that
         # has since been assigned is worse than no explanation at all.
@@ -488,6 +496,7 @@ class ExperienceStore:
             "media": [],
             "media_sync": {},
             "media_curations": {},
+            "day_curations": {},
             "vision_usage": {},
             "destination_galleries": {},
         }
@@ -556,6 +565,15 @@ class ExperienceStore:
             "media": media[:MAX_MEDIA_PER_TRIP],
             "media_sync": _json_safe(raw.get("media_sync") if isinstance(raw.get("media_sync"), dict) else {}),
             "media_curations": curations,
+            # The curation of a day is its own derivation, deliberately
+            # beside the media rather than inside it. The manifest keeps
+            # pointing at media ids; how those ids were chosen - series,
+            # pool, motifs, scores, what was rejected and why - lives
+            # here, so the story manifest never turns into a picture
+            # database.
+            "day_curations": _json_safe(
+                raw.get("day_curations") if isinstance(raw.get("day_curations"), dict) else {}
+            ),
             "vision_usage": _json_safe(raw.get("vision_usage") if isinstance(raw.get("vision_usage"), dict) else {}),
             "destination_galleries": galleries,
         }
@@ -844,6 +862,29 @@ class ExperienceStore:
             if confirmed:
                 self.write(state)
             return {"confirmed": confirmed, "total": len(state["media"])}
+
+    def save_day_curation(self, trip_id: str, day_id: str, record: dict[str, Any]) -> dict[str, Any]:
+        """Store one day's curation, replacing whatever was there.
+
+        A curation is a derivation and nothing else: it is rebuilt from
+        the photographs whenever they change, and losing it costs a
+        recomputation rather than a decision. The decisions - pins and
+        exclusions - live on the media themselves for exactly that
+        reason.
+        """
+        with self._lock:
+            state = self.load(trip_id)
+            day_id = validate_identifier(day_id, "day_id")
+            stored = _json_safe({**record, "day_id": day_id})
+            state.setdefault("day_curations", {})[day_id] = stored
+            self.write(state)
+            return deepcopy(stored)
+
+    def set_film_pin(self, trip_id: str, media_id: str, pin: str) -> dict[str, Any]:
+        """Show it, keep it out, or hand it back to the curation."""
+        if pin not in {"", "show", "hero", "exclude"}:
+            raise ValidationError(f"Unbekannte Bildentscheidung: {pin}")
+        return self.update_media(trip_id, media_id, {"film_pin": pin})
 
     def update_media(self, trip_id: str, media_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:

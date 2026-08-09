@@ -82,7 +82,7 @@ OVERRIDE_STORY_KEY = "story_override"
 
 # How many media a chapter carries. A description, not an album: a renderer
 # that wants everything can still read the media records themselves.
-MEDIA_PER_CHAPTER = 8
+MEDIA_PER_CHAPTER = 14
 
 
 def _media_sort_key(item: dict[str, Any]) -> tuple[str, str]:
@@ -194,6 +194,7 @@ class StoryContextBuilder:
             "revision": summary.get("revision"),
             "days": days,
             "media": media,
+            "day_curations": state.get("day_curations") or {},
             "direction": await self._async_direction(trip_id),
             "crew": await self._async_crew(),
         }
@@ -264,6 +265,7 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
         if stop_id:
             media_by_stop.setdefault(stop_id, []).append(item)
 
+    day_curations = context.get("day_curations") or {}
     direction = context.get("direction") or {}
     directed_chapters = direction.get("chapters") or {}
 
@@ -281,6 +283,9 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
                 stops=stops,
                 media_by_day=media_by_day,
                 media_by_stop=media_by_stop,
+                curation=day_curations.get(day_id)
+                if isinstance(day_curations, dict)
+                else None,
                 # An edit for a day that no longer exists simply never
                 # finds a chapter to attach to.
                 direction=directed_chapters.get(day_id),
@@ -310,6 +315,7 @@ def _chapter(
     stops: list[dict[str, Any]],
     media_by_day: dict[str, list[dict[str, Any]]],
     media_by_stop: dict[str, list[dict[str, Any]]],
+    curation: dict[str, Any] | None = None,
     direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stop_ids = [str(stop.get("id") or "") for stop in stops if str(stop.get("id") or "")]
@@ -323,17 +329,31 @@ def _chapter(
             seen.add(identifier)
             pool.append(item)
 
-    # The same curation the panel shows and the exports use. Sharing it is
-    # the point: a manifest that picked different photos than the album
-    # would be a second opinion about the same day.
-    highlights, _stats = select_media_highlights(pool, limit=MEDIA_PER_CHAPTER)
+    # The curation decides which photographs tell this day; this is only
+    # where the answer is read. It used to be decided here, by a function
+    # that scored file sizes - which is how a day at a moose park reached
+    # the film without a moose.
+    #
+    # No curation yet (a trip that has never been curated, or a day added
+    # since) falls back to the old local ranking. A film with weaker
+    # pictures is better than a film with none.
+    by_id = {str(item.get("id") or ""): item for item in pool if str(item.get("id") or "")}
+    chosen: list[dict[str, Any]] = []
+    if isinstance(curation, dict):
+        for media_id in curation.get("media_ids") or []:
+            item = by_id.get(str(media_id))
+            if item is not None and item not in chosen:
+                chosen.append(item)
+    if not chosen:
+        chosen, _stats = select_media_highlights(pool, limit=MEDIA_PER_CHAPTER)
+    hero_id = str((curation or {}).get("hero_media_id") or "")
     media = [
         {
             "media_id": str(item.get("id") or ""),
-            "role": _role(item),
+            "role": "hero" if str(item.get("id") or "") == hero_id else _role(item),
             "stop_id": str(item.get("linked_stop_id") or "") or None,
         }
-        for item in highlights
+        for item in chosen[:MEDIA_PER_CHAPTER]
     ]
 
     details = day.get("details") if isinstance(day.get("details"), dict) else {}
@@ -366,7 +386,7 @@ def _chapter(
         },
         captions=[
             {"media_id": str(item.get("id") or ""), "text": str(item.get("caption") or "")}
-            for item in highlights
+            for item in chosen[:MEDIA_PER_CHAPTER]
             if clean_line(item.get("caption"), limit=200)
         ],
         map_hint=_map_hint(stops, stop_ids),

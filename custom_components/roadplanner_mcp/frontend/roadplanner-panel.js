@@ -1195,6 +1195,14 @@ class RoadplannerPanel extends HTMLElement {
       // coordinates and their timestamps are already stored, and only the
       // question "which stop is this?" is asked again.
       void this._mediaReassign();
+    } else if (action === "media-curate-days") {
+      void this._storyCurate({ force: target.dataset.force === "1" });
+    } else if (action === "story-pin") {
+      void this._storyPin(target.dataset.mediaId || "", target.dataset.pin || "");
+    } else if (action === "story-spares") {
+      const chapterId = cleanText(target.dataset.chapterId);
+      this._storySparesOpen = this._storySparesOpen === chapterId ? "" : chapterId;
+      this._render({ preserveScroll: true });
     } else if (action === "media-confirm-suggestions") {
       // Also free: it writes a decision somebody has just made, nothing
       // is asked of anybody outside the house.

@@ -206,6 +206,11 @@ def verify_only_two_fields_are_editable() -> None:
         # What could play under the film. It returns NAMES of files in one
         # fixed folder, never paths - see trip_film_music.
         "story_film_music",
+        # Which photographs tell each day, and the person's power to
+        # overrule that. Both write a derivation or a pin - neither can
+        # touch a roadbook fact, a stop or a photograph itself.
+        "media_curate_days",
+        "media_set_film_pin",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.

@@ -84,6 +84,15 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
         "note": "Fragt den Routendienst für jeden Tag. Kann bei langen Reisen dauern.",
     },
     # --- costs money ---------------------------------------------------
+    "media_curate_days": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini die Fotos jedes Reisetags ansehen und bewerten.",
+        "note": (
+            "Verbraucht Kontingent: einmal je Tag, danach gecacht. Unveränderte Tage werden nicht "
+            "erneut analysiert. Es werden nur verkleinerte Vorschaubilder "
+            "gesendet, ohne Datum und Ort."
+        ),
+    },
     "media_curate_trip": {
         "cost": COST_MODEL,
         "effect": "Lässt Gemini die Fotos der Reise noch einmal bewerten.",
