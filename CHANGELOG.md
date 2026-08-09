@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.62.0] - 2026-08-09
+
 ### Fixed
 
 - **Der Reisefilm schlug fehl, weil die Add-on-Version nicht mitgezogen wurde.** Mit der neuen Bilddichte trägt ein Kapitel bis zu elf Fotos, also gibt es `photos/c00-11.jpg`. Der Renderer akzeptierte in **0.10.0-motion.1** nur `-1` bis `-10`; die erweiterte Regel steckte zwar seit 4.56.0 im Quelltext, aber die Add-on-Version blieb dieselbe — also hat Home Assistant nie ein Update angeboten, und das installierte Image wies das Paket ab. Add-on jetzt **0.11.0-curation.1**.
