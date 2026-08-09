@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.66.0] - 2026-08-09
+
 ### Added
 
 - **MusicPlan: wenige lange Abschnitte statt vieler Kurzclips** (`trip_film_music_plan.py`). Zwei Fehlerbilder klammern das ein. Ein Stück über 23 Tage geloopt sagt über eine Abfahrt dasselbe wie über eine Ankunft. Ein Stück je Tag wären 23 Generierungen, 23 Preise und 23 hörbare Nahtstellen — ein Schnitt zwischen Fotos ist unsichtbar, ein Schnitt zwischen Musikstücken nicht.
