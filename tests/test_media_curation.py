@@ -173,6 +173,21 @@ def verify_a_day_knows_what_it_is_about() -> None:
     assert brief["must_cover"] == [], brief
 
 
+def verify_a_category_word_is_never_evidence() -> None:
+    """A photograph of a Parkplatz satisfied a day about an Elchpark.
+
+    "Elchpark" splits into "elch" + "park", and both were treated as
+    ways to answer the requirement. But "park" matches "Parkplatz",
+    "Nationalpark" and half a camera roll - a category word is not
+    evidence of a subject, and letting it count put the day's coverage
+    at green while the moose was still missing.
+    """
+    brief = curation.visual_brief({"title": "", "stops": [{"name": "Elchpark Smaland"}]})
+    assert brief["alternatives"]["elch"] == ["elch", "smaland"], brief
+    analyses = {"carpark": _analysis(story=5, quality=5, motifs=["Parkplatz"])}
+    assert curation.coverage(brief, analyses, ["carpark"])["unmet"] == ["elch"]
+
+
 def verify_a_motif_answers_in_the_words_a_model_would_use() -> None:
     """"Elch", "Elche" and "Elchgehege" all answer a day about "elch"."""
     for seen in ("Elch", "Elche", "Elchgehege", "elch im gehege"):
@@ -443,6 +458,7 @@ for check in (
     verify_every_moment_reaches_the_pool,
     verify_only_broken_files_are_thrown_away_locally,
     verify_a_day_knows_what_it_is_about,
+    verify_a_category_word_is_never_evidence,
     verify_a_motif_answers_in_the_words_a_model_would_use,
     verify_the_required_motif_is_chosen_before_a_prettier_picture,
     verify_a_day_without_the_picture_is_honest_about_it,
