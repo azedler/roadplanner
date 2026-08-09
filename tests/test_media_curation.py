@@ -173,6 +173,36 @@ def verify_a_day_knows_what_it_is_about() -> None:
     assert brief["must_cover"] == [], brief
 
 
+def verify_the_story_answers_what_a_place_name_cannot() -> None:
+    """"Smålandet Markaryds Älgsafari" gives a requirement of proper names.
+
+    No photograph confirms a proper name. The story of that same day
+    says "mächtige Elche und Bisons" - the words somebody would actually
+    use about the picture. So story words never create a requirement
+    (that is the title problem again, one paragraph longer) and always
+    help answer one.
+
+    Only the capitalised words, because that is how German marks a noun:
+    the same paragraph otherwise contributes "unserem" and "bogen".
+    """
+    chapter = {
+        "title": "Begegnung mit den Riesen des Waldes",
+        "story": (
+            "Nach unserem Start bogen wir ab zur Smålandet Markaryds Älgsafari, "
+            "wo uns mächtige Elche und Bisons direkt auf dem Weg begegneten."
+        ),
+        "stops": [{"name": "Smålandet Markaryds Älgsafari", "kind": "sight"}],
+    }
+    brief = curation.visual_brief(chapter)
+    assert brief["must_cover"] == ["smalandet"], brief
+    assert "elche" in brief["story_motifs"], brief
+    for verb_or_pronoun in ("unserem", "bogen", "machtige"):
+        assert verb_or_pronoun not in brief["story_motifs"], brief
+
+    photo = {"p1": _analysis(story=5, quality=4, motifs=["Elch", "Bison"])}
+    assert curation.coverage(brief, photo, ["p1"])["complete"], brief
+
+
 def verify_a_category_word_is_never_evidence() -> None:
     """A photograph of a Parkplatz satisfied a day about an Elchpark.
 
@@ -501,6 +531,7 @@ for check in (
     verify_a_day_knows_what_it_is_about,
     verify_a_nordic_name_survives_being_read,
     verify_a_chapter_title_is_prose_not_a_place,
+    verify_the_story_answers_what_a_place_name_cannot,
     verify_a_category_word_is_never_evidence,
     verify_a_motif_answers_in_the_words_a_model_would_use,
     verify_the_required_motif_is_chosen_before_a_prettier_picture,

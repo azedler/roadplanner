@@ -142,6 +142,10 @@ _STOPWORDS = frozenset({
 MIN_MOTIF_LENGTH = 4
 MAX_MUST_COVER = 3
 MAX_NICE_TO_COVER = 5
+# How many words of the day's own story may help answer its requirements.
+# Enough for the concrete nouns of a paragraph, few enough that a long
+# story cannot make everything true.
+MAX_STORY_MOTIFS = 8
 
 
 def _text(value: Any) -> str:
@@ -428,20 +432,27 @@ def candidate_pool(
 # --- stage 4: what the day is about -----------------------------------
 
 
-def motif_tokens(text: Any) -> list[str]:
+def motif_tokens(text: Any, *, nouns_only: bool = False) -> list[str]:
     """The subjects hidden in a name, including inside German compounds.
 
     "Elchpark" is one word to a filesystem and two ideas to a reader.
     Splitting on a generic tail is what lets a picture the model called
     "Elch" answer a day the roadbook called "Elchpark".
+
+    The split is unicode-aware, and that is not a detail: splitting on
+    ASCII letters turned "Smålandet" into "Sm" and "landet", and a real
+    day ended up requiring a photograph of "landet".
+
+    `nouns_only` keeps just the capitalised words, which is how German
+    marks a noun. It is for running prose - a story paragraph otherwise
+    contributes "unserem" and "bogen" alongside "Elche" and "Bisons".
     """
-    # Folded FIRST, then split. Splitting first meant every accented
-    # letter was a word boundary, so "Smålandet" arrived as "Sm" and
-    # "landet" - and the day asked for a picture of "landet".
-    words = [word for word in re.split(r"[^0-9a-z]+", _fold(text)) if word]
+    words = [word for word in re.split(r"[\W_]+", _text(text), flags=re.UNICODE) if word]
     tokens: list[str] = []
     for word in words:
-        folded = word
+        if nouns_only and not word[:1].isupper():
+            continue
+        folded = _fold(word)
         if len(folded) < MIN_MOTIF_LENGTH or folded in _STOPWORDS or folded.isdigit():
             continue
         # A word that is generic as a whole stays whole. "Rastplatz"
@@ -539,13 +550,39 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
     for token in motif_tokens(chapter.get("title")):
         if token not in nice and token not in must:
             nice.append(token)
+
+    # The story text answers the requirements it cannot create.
+    #
+    # A stop called "Smålandet Markaryds Älgsafari" gives a requirement
+    # made of proper names, and no photograph can confirm a proper name.
+    # The story of that same day says "mächtige Elche und Bisons" - the
+    # words somebody would actually use about the picture.
+    #
+    # So story words never add a requirement (that would be the title
+    # problem again, one paragraph longer) and always help answer one.
+    # The trade is deliberate and worth stating: a day whose story
+    # mentions rain could have a rain photograph tick off its campsite.
+    # A tick that is occasionally generous beats a cross that is
+    # permanently wrong, because the cross is what makes somebody stop
+    # reading the row.
+    story_tokens = [
+        token
+        for token in motif_tokens(chapter.get("story"), nouns_only=True)
+        if token not in _GENERIC_MOTIFS
+    ][:MAX_STORY_MOTIFS]
     kept = must[:MAX_MUST_COVER]
     return {
         "must_cover": kept,
+        "story_motifs": story_tokens,
         # What else counts as showing each requirement. Kept beside the
         # labels rather than inside them so the panel can print a short
         # word while the matching stays generous.
-        "alternatives": {label: alternatives.get(label, [label]) for label in kept},
+        "alternatives": {
+            label: list(
+                dict.fromkeys([*alternatives.get(label, [label]), *story_tokens])
+            )
+            for label in kept
+        },
         "nice_to_cover": [token for token in nice if token not in must][:MAX_NICE_TO_COVER],
     }
 

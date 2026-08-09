@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Der Storytext beantwortet, was ein Ortsname nicht kann.** Ein Stopp namens „Smålandet Markaryds Älgsafari" ergibt ein Pflichtmotiv aus Eigennamen — und kein Foto kann einen Eigennamen bestätigen. Die Story desselben Tages sagt „mächtige Elche und Bisons": genau die Wörter, die jemand über das Bild benutzen würde. Storywörter **erzeugen** deshalb nie eine Anforderung (das wäre das Titelproblem, nur einen Absatz länger) und helfen immer, eine zu beantworten. Berücksichtigt werden nur großgeschriebene Wörter, weil Deutsch so ein Substantiv markiert — derselbe Absatz liefert sonst „unserem" und „bogen" neben „Elche" und „Bisons".
+
+  Der Handel ist bewusst und sei ausgesprochen: Ein Tag, dessen Story Regen erwähnt, kann seinen Stellplatz mit einem Regenfoto abhaken. Ein Häkchen, das gelegentlich großzügig ist, ist besser als ein Kreuz, das dauerhaft falsch ist — denn das Kreuz ist es, bei dem jemand aufhört, die Zeile zu lesen.
+
 ## [4.59.0] - 2026-08-09
 
 ### Fixed
