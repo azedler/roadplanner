@@ -157,7 +157,13 @@ def verify_a_day_knows_what_it_is_about() -> None:
     }
     for name, expected in cases.items():
         brief = curation.visual_brief({"title": "", "stops": [{"name": name}]})
-        assert expected in brief["must_cover"], (name, brief)
+        assert len(brief["must_cover"]) == 1, (name, brief)
+        # One name is one requirement, and any of its words answers it.
+        # The label is the first specific word; the word a photograph can
+        # actually show is often a different one - "Storforsen" is a name
+        # no picture can confirm, "Wasserfall" is what is in the frame.
+        alternatives = brief["alternatives"][brief["must_cover"][0]]
+        assert expected in alternatives, (name, brief)
 
     # A category is worth showing but never required: a day is not
     # incomplete because nobody photographed the car park.
@@ -352,6 +358,84 @@ def verify_an_unchanged_photo_is_never_paid_for_twice() -> None:
     assert first != vision.analysis_key(["a"], prints)
 
 
+def verify_the_same_principle_answers_a_ferry_and_a_waterfall() -> None:
+    """The generic case, on the days the brief named.
+
+    None of these is a rule about ferries or waterfalls. Each is the same
+    three facts - the stop has a name, the name has a subject, a picture
+    either shows it or does not - which is the whole reason "Elchpark"
+    must not become a special case.
+    """
+    cases = (
+        ("Fähre Trelleborg → Rostock", "Fähre", "Schiff auf See"),
+        ("Storforsen Wasserfall", "Wasserfall", "Fluss"),
+        ("Nidarosdom", "Nidarosdom", "Häuserzeile"),
+        ("Rentiergehege Inari", "Rentier", "Wald"),
+
+    )
+    for stop_name, shown, other in cases:
+        brief = curation.visual_brief({"title": "", "stops": [{"name": stop_name}]})
+        assert len(brief["must_cover"]) == 1, (stop_name, brief)
+        analyses = {
+            "right": _analysis(story=2, quality=2, motifs=[shown]),
+            "pretty": _analysis(story=5, quality=5, motifs=[other]),
+        }
+        result = curation.select_for_chapter(
+            candidates=["pretty", "right"], analyses=analyses, brief=brief, target=1
+        )
+        assert result["media_ids"] == ["right"], (stop_name, brief, result)
+
+
+def verify_a_subject_survives_a_language_boundary() -> None:
+    """"Santa Claus Village" is not what anybody calls the picture.
+
+    Textual matching between a place name and a model's German answer
+    fails, and a translation table would grow forever. So the day's
+    terms are asked about directly - "is any of this visible?" - and the
+    answer comes back as `shows`. The prompt says outright that being
+    asked is not evidence, and only terms that were actually asked about
+    are kept.
+    """
+    brief = curation.visual_brief({"title": "", "stops": [{"name": "Santa Claus Village"}]})
+    assert "santa" in brief["must_cover"], brief
+    analyses = {
+        "sign": {
+            "story_value": 2,
+            "visual_quality": 2,
+            "motifs": ["Weihnachtsmann", "Schnee"],
+            "shows": ["santa"],
+        },
+        "pretty": _analysis(story=5, quality=5, motifs=["Wald"]),
+    }
+    result = curation.select_for_chapter(
+        candidates=["pretty", "sign"], analyses=analyses, brief=brief, target=1
+    )
+    assert result["media_ids"] == ["sign"], result
+    assert result["coverage"]["complete"], result
+
+    # And a term the model was never given is not an answer.
+    parsed = vision.parse_analyses(
+        {"photos": [{"image_id": "sign", "motifs": [], "visual_quality": 3,
+                     "story_value": 3, "shows": ["santa", "elch"]}]},
+        known_ids={"sign"},
+        checks=["santa"],
+    )
+    assert parsed["sign"]["shows"] == ["santa"], parsed
+
+
+def verify_a_day_with_nothing_to_photograph_is_not_a_failure() -> None:
+    """A transfer day has no subject, so nothing can be missing from it."""
+    brief = curation.visual_brief(
+        {"title": "Etappe 9", "stops": [{"name": "Rastplatz"}, {"name": "Tankstelle"}]}
+    )
+    analyses = {"road": _analysis(story=2, quality=4, motifs=["Straße"])}
+    result = curation.select_for_chapter(
+        candidates=["road"], analyses=analyses, brief=brief, target=3
+    )
+    assert result["coverage"]["complete"], result
+    assert result["media_ids"] == ["road"]
+
+
 for check in (
     verify_a_series_keeps_every_member,
     verify_a_separate_moment_is_a_separate_series,
@@ -370,6 +454,9 @@ for check in (
     verify_an_invented_id_is_discarded_not_trusted,
     verify_a_batch_is_never_a_sample_of_one,
     verify_an_unchanged_photo_is_never_paid_for_twice,
+    verify_the_same_principle_answers_a_ferry_and_a_waterfall,
+    verify_a_subject_survives_a_language_boundary,
+    verify_a_day_with_nothing_to_photograph_is_not_a_failure,
 ):
     check()
 

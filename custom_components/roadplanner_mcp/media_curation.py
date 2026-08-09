@@ -429,6 +429,14 @@ def motif_tokens(text: Any) -> list[str]:
         folded = _fold(word)
         if len(folded) < MIN_MOTIF_LENGTH or folded in _STOPWORDS or folded.isdigit():
             continue
+        # A word that is generic as a whole stays whole. "Rastplatz"
+        # splits into "rast" + "platz", and "rast" is not a subject
+        # anybody photographs - splitting it invented a requirement that
+        # no picture could ever meet.
+        if folded in _GENERIC_MOTIFS:
+            if folded not in tokens:
+                tokens.append(folded)
+            continue
         # When a compound splits, the head replaces the whole word rather
         # than joining it. "Elchpark" asks for a moose, not for a moose
         # AND a moose park - and a model that answers "Elch" satisfies
@@ -464,24 +472,54 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
     """
     must: list[str] = []
     nice: list[str] = []
+    alternatives: dict[str, list[str]] = {}
+
+    def _absorb(text: Any) -> None:
+        """One name is one requirement, answered by any of its words.
+
+        "Santa Claus Village" is one subject written in three words, and
+        demanding "santa" AND "claus" separately made a day incomplete
+        because a model answered with half of a name. "Storforsen
+        Wasserfall" is the opposite problem: the specific word is a
+        proper name no photograph can confirm, while the generic one -
+        "wasser" - is exactly what a picture shows.
+
+        So a name contributes ONE requirement, labelled by its first
+        specific word, and any of that name's words answers it.
+        """
+        tokens = motif_tokens(text)
+        specific = [token for token in tokens if token not in _GENERIC_MOTIFS]
+        if not specific:
+            for token in tokens:
+                if token not in nice and token not in must:
+                    nice.append(token)
+            return
+        label = specific[0]
+        if label not in must:
+            must.append(label)
+        alternatives.setdefault(label, [])
+        for token in tokens:
+            if token not in alternatives[label]:
+                alternatives[label].append(token)
+        for token in tokens[1:]:
+            if token not in nice and token not in must:
+                nice.append(token)
+
     for stop in chapter.get("stops") or []:
         if not isinstance(stop, dict):
             continue
-        for token in motif_tokens(stop.get("name")):
-            target = nice if token in _GENERIC_MOTIFS else must
-            if token not in target:
-                target.append(token)
+        _absorb(stop.get("name"))
         for token in motif_tokens(stop.get("kind") or stop.get("type")):
             if token not in nice and token not in must:
                 nice.append(token)
-    for token in motif_tokens(chapter.get("title")):
-        if token in _GENERIC_MOTIFS:
-            if token not in nice and token not in must:
-                nice.append(token)
-        elif token not in must:
-            must.append(token)
+    _absorb(chapter.get("title"))
+    kept = must[:MAX_MUST_COVER]
     return {
-        "must_cover": must[:MAX_MUST_COVER],
+        "must_cover": kept,
+        # What else counts as showing each requirement. Kept beside the
+        # labels rather than inside them so the panel can print a short
+        # word while the matching stays generous.
+        "alternatives": {label: alternatives.get(label, [label]) for label in kept},
         "nice_to_cover": [token for token in nice if token not in must][:MAX_NICE_TO_COVER],
     }
 
@@ -515,9 +553,17 @@ def coverage(
     for media_id in chosen:
         analysis = analyses.get(media_id) or {}
         seen.extend(str(motif) for motif in analysis.get("motifs") or [])
+        # What the model was asked about directly, which is what carries
+        # a subject across a language boundary: nobody says "Santa Claus
+        # Village" about a photograph, and a moose is only "Elch" if the
+        # answer happens to be in German.
+        seen.extend(str(motif) for motif in analysis.get("shows") or [])
+    alternatives = brief.get("alternatives") if isinstance(brief.get("alternatives"), dict) else {}
     met, unmet = [], []
     for required in brief.get("must_cover") or []:
-        (met if motif_matches(required, seen) else unmet).append(required)
+        wanted = alternatives.get(required) or [required]
+        shown = any(motif_matches(token, seen) for token in wanted)
+        (met if shown else unmet).append(required)
     return {
         "met": met,
         "unmet": unmet,
@@ -533,11 +579,19 @@ def coverage(
 def photos_for(brief: dict[str, Any], analyses: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
     """For each required motif, the photographs that show it, best first."""
     found: dict[str, list[str]] = {}
+    alternatives = brief.get("alternatives") if isinstance(brief.get("alternatives"), dict) else {}
     for required in brief.get("must_cover") or []:
+        wanted = alternatives.get(required) or [required]
         matches = [
             media_id
             for media_id, analysis in analyses.items()
-            if motif_matches(required, analysis.get("motifs") or [])
+            if any(
+                motif_matches(
+                    token,
+                    list(analysis.get("motifs") or []) + list(analysis.get("shows") or []),
+                )
+                for token in wanted
+            )
         ]
         matches.sort(key=lambda value: -semantic_score(analyses.get(value) or {}))
         found[required] = matches

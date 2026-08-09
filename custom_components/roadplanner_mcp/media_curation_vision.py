@@ -58,6 +58,11 @@ Für jedes Foto:
 - uniqueness: 0-5 dafür, wie sehr es sich von den anderen gezeigten
   Fotos unterscheidet.
 - hero: true, wenn es allein für den Tag stehen könnte.
+- zeigt: falls dir eine Liste von Begriffen mitgegeben wurde, nenne
+  daraus nur die, die auf diesem Foto **eindeutig** zu sehen sind. Im
+  Zweifel nichts nennen. Diese Begriffe stammen aus dem Reisetagebuch;
+  dass einer davon genannt wird, heißt nicht, dass er zu sehen sein
+  muss.
 
 Regeln:
 - Erfinde nichts. Wenn du etwas nicht erkennst, nenne es nicht.
@@ -84,6 +89,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                     "emotion": {"type": "integer"},
                     "uniqueness": {"type": "integer"},
                     "hero": {"type": "boolean"},
+                    "shows": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["image_id", "motifs", "visual_quality", "story_value"],
             },
@@ -96,12 +102,33 @@ MAX_MOTIFS = 5
 MAX_MOTIF_LENGTH = 40
 
 
-def build_prompt(count: int) -> str:
-    """What one batch is asked, with nothing about the journey in it."""
-    return (
-        f"Hier sind {count} Fotos eines Reisetags. "
-        "Bewerte jedes einzeln nach den Regeln und gib für jedes seine ID zurück."
-    )
+def build_prompt(count: int, checks: list[str] | None = None) -> str:
+    """What one batch is asked.
+
+    The list of terms is the one thing about the day that goes out, and
+    it is a question rather than a statement: *is any of this visible?*
+    It exists because matching a German model answer against a place
+    name is a language problem no table survives - "Santa Claus Village"
+    is not the word anybody would use for what is in the picture, and a
+    photograph of a moose is only "Elch" if the day was written in
+    German too.
+
+    Asking directly also makes the honest answer available: a term
+    nobody photographed simply comes back in nobody's list, and the
+    prompt says outright that being asked is not evidence.
+    """
+    lines = [
+        f"Hier sind {count} Fotos eines Reisetags.",
+        "Bewerte jedes einzeln nach den Regeln und gib für jedes seine ID zurück.",
+    ]
+    terms = [str(value).strip() for value in (checks or []) if str(value).strip()]
+    if terms:
+        lines.append(
+            "Prüfe außerdem für jedes Foto, welche dieser Begriffe eindeutig "
+            f"darauf zu sehen sind: {', '.join(terms)}. "
+            "Nenne sie unter \"zeigt\". Wenn keiner zu sehen ist, lass das Feld leer."
+        )
+    return " ".join(lines)
 
 
 def analysis_key(media_ids: list[str], fingerprints: dict[str, str]) -> str:
@@ -121,7 +148,9 @@ def analysis_key(media_ids: list[str], fingerprints: dict[str, str]) -> str:
     return digest.hexdigest()[:32]
 
 
-def parse_analyses(payload: Any, *, known_ids: set[str]) -> dict[str, dict[str, Any]]:
+def parse_analyses(
+    payload: Any, *, known_ids: set[str], checks: list[str] | None = None
+) -> dict[str, dict[str, Any]]:
     """Read one batch's answer, keeping only what was actually asked about.
 
     An ID that was never sent is discarded rather than trusted. A model
@@ -143,8 +172,18 @@ def parse_analyses(payload: Any, *, known_ids: set[str]) -> dict[str, dict[str, 
             motif = " ".join(str(raw or "").split())[:MAX_MOTIF_LENGTH]
             if motif and motif.casefold() not in {value.casefold() for value in motifs}:
                 motifs.append(motif)
+        allowed = {str(value).strip().casefold() for value in (checks or [])}
+        shows = [
+            str(value).strip()
+            for value in (entry.get("shows") or [])
+            if str(value).strip().casefold() in allowed
+        ]
         analyses[media_id] = {
             "motifs": motifs[:MAX_MOTIFS],
+            # Only terms that were actually asked about survive. A model
+            # answering with something it was never given is answering a
+            # different question.
+            "shows": shows[:MAX_MOTIFS],
             "visual_quality": _score(entry.get("visual_quality")),
             "story_value": _score(entry.get("story_value")),
             "emotion": _score(entry.get("emotion")),

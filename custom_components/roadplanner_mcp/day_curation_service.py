@@ -204,7 +204,19 @@ class DayCurationService:
             note = "unverändert, keine neue Analyse"
         elif pool["media_ids"] and self.enabled:
             analyses, analysed, note = await self._async_look(
-                trip_id, [by_id[media_id] for media_id in pool["media_ids"] if media_id in by_id]
+                trip_id,
+                [by_id[media_id] for media_id in pool["media_ids"] if media_id in by_id],
+                # Every word of every requirement, not just its label:
+                # a photograph can show "Wasserfall" while "Storforsen"
+                # is a name no picture can confirm.
+                checks=sorted(
+                    {
+                        token
+                        for tokens in (brief.get("alternatives") or {}).values()
+                        for token in tokens
+                    }
+                    or set(brief.get("must_cover") or [])
+                ),
             )
         elif pool["media_ids"]:
             note = "KI-Bildauswahl ist ausgeschaltet - lokale Reihenfolge"
@@ -257,7 +269,11 @@ class DayCurationService:
         return record
 
     async def _async_look(
-        self, trip_id: str, candidates: list[dict[str, Any]]
+        self,
+        trip_id: str,
+        candidates: list[dict[str, Any]],
+        *,
+        checks: list[str] | None = None,
     ) -> tuple[dict[str, dict[str, Any]], int, str]:
         """One paid look at a day, split into batches that can compare."""
         analyses: dict[str, dict[str, Any]] = {}
@@ -284,7 +300,7 @@ class DayCurationService:
             try:
                 result = await self._vision.provider.async_analyze_images(
                     system_instruction=SYSTEM_PROMPT,
-                    prompt=build_prompt(len(images)),
+                    prompt=build_prompt(len(images), checks),
                     images=images,
                     schema=RESPONSE_SCHEMA,
                     max_output_tokens=4_096,
@@ -293,7 +309,9 @@ class DayCurationService:
                 note = str(err)[:200]
                 break
             parsed = parse_analyses(
-                result.value, known_ids={item.image_id for item in images}
+                result.value,
+                known_ids={item.image_id for item in images},
+                checks=checks,
             )
             analyses.update(parsed)
             analysed += len(images)
