@@ -32,12 +32,13 @@ import logging
 from typing import Any
 
 from .character_assets import (
+    ASSET_REFUSAL_MESSAGES,
     CHARACTER_KINDS,
     CHARACTER_VARIANTS,
     MAX_ASSET_BYTES,
     asset_filename,
     fingerprint,
-    shrink_asset,
+    prepare_asset,
 )
 from .roadplanner import ValidationError
 
@@ -86,11 +87,16 @@ class CharacterAssetService:
         raw = _decode_upload(data_url)
         if not raw:
             raise ValidationError("Das hochgeladene Bild konnte nicht gelesen werden")
-        shrunk = await self._hass.async_add_executor_job(shrink_asset, raw)
+        shrunk, reason = await self._hass.async_add_executor_job(prepare_asset, raw)
         if not shrunk:
+            # The refusal names WHICH thing was wrong. The first version
+            # said "expected a PNG with a transparent background" for
+            # every failure, including a picture that was exactly that
+            # and merely came out over the size limit - which sends
+            # somebody to change the one thing that cannot help.
             raise ValidationError(
-                "Das Bild ließ sich nicht verwenden. Erwartet wird ein PNG "
-                "mit transparentem Hintergrund."
+                ASSET_REFUSAL_MESSAGES.get(reason)
+                or "Das Bild ließ sich nicht verwenden."
             )
         # The name is a digest of what was stored, so the same picture
         # uploaded twice is the same file rather than a second one.

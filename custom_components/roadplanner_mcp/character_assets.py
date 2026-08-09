@@ -185,29 +185,127 @@ def build_prompt(kind: str, variant: str, description: str, *, from_photo: bool)
 
 
 def shrink_asset(data: bytes) -> bytes | None:
-    """Re-encode a generated asset at film size, keeping transparency.
+    """Re-encode an asset at film size, keeping transparency."""
+    return prepare_asset(data)[0]
+
+
+def prepare_asset(data: bytes) -> tuple[bytes | None, str]:
+    """Re-encode an asset at film size, and say why if it cannot be.
 
     PNG rather than JPEG, and that is not a preference: the asset is
     drawn over a map, so it needs an alpha channel. A JPEG would arrive
     with a white box around the camper.
+
+    The second half of the return value is the reason, and it exists
+    because the first live upload failed with a message that named the
+    wrong cause. "Erwartet wird ein PNG mit transparentem Hintergrund"
+    was printed for every refusal - including a picture that was a
+    perfectly good transparent PNG and simply came out over the size
+    limit. Telling somebody to fix a thing that is not wrong is worse
+    than saying nothing: they change the file in the one way that
+    cannot help and conclude the feature is broken.
+
+    So there are now three distinct answers, and only one of them is
+    about transparency.
     """
     try:
         from PIL import Image
     except ImportError:  # pragma: no cover - Pillow ships with Home Assistant
-        return None
+        return None, "pillow"
     try:
         image = Image.open(io.BytesIO(data))
         image.load()
         image = image.convert("RGBA")
+    except Exception as err:  # noqa: BLE001 - anything unreadable reads the same
+        _LOGGER.debug("Figurenbild nicht lesbar: %s", type(err).__name__)
+        return None, "unreadable"
+
+    # An entirely opaque picture is a photograph or a JPEG, and it would
+    # be drawn as a rectangle sitting on the map. THIS is the case the
+    # transparency message is for, and now it is the only one.
+    if not _has_transparency(image):
+        return None, "opaque"
+
+    try:
         image.thumbnail((ASSET_EDGE, ASSET_EDGE), Image.LANCZOS)
         image = _trim_transparent(image)
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
+        # A drawing with soft edges can exceed the limit at full colour
+        # depth. Reducing it is a better answer than refusing it: the
+        # asset is shown at a third of a 1280-pixel frame at most, and
+        # nobody will see the difference between 16 million colours and
+        # 256 at that size.
+        for attempt in _ASSET_ENCODINGS:
+            blob = attempt(image)
+            if blob is not None and len(blob) <= MAX_ASSET_BYTES:
+                return blob, ""
     except Exception as err:  # noqa: BLE001 - a broken asset is simply refused
         _LOGGER.debug("Figurenbild nicht verwendbar: %s", type(err).__name__)
-        return None
-    shrunk = buffer.getvalue()
-    return shrunk if len(shrunk) <= MAX_ASSET_BYTES else None
+        return None, "unreadable"
+    return None, "too_large"
+
+
+def _has_transparency(image: Any) -> bool:
+    """Whether any pixel is not fully opaque."""
+    try:
+        alpha = image.getchannel("A")
+        low, _high = alpha.getextrema()
+    except Exception:  # noqa: BLE001 - no alpha channel is no transparency
+        return False
+    return low < 255
+
+
+def _encode_png(image: Any) -> bytes | None:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def _encode_quantized(colours: int, edge: int | None = None):
+    def encode(image: Any) -> bytes | None:
+        from PIL import Image
+
+        working = image
+        if edge is not None and max(working.size) > edge:
+            working = working.copy()
+            working.thumbnail((edge, edge), Image.LANCZOS)
+        # `quantize` on an RGBA image keeps the alpha as its own entry,
+        # which is exactly what a drawing over a map needs.
+        reduced = working.quantize(colors=colours, method=Image.FASTOCTREE)
+        buffer = io.BytesIO()
+        reduced.save(buffer, format="PNG", optimize=True)
+        return buffer.getvalue()
+
+    return encode
+
+
+# In order, and each step is only taken when the one before was still
+# too big: full colour, fewer colours, fewer colours and smaller.
+_ASSET_ENCODINGS = (
+    _encode_png,
+    _encode_quantized(256),
+    _encode_quantized(128),
+    _encode_quantized(128, edge=ASSET_EDGE // 2),
+)
+
+# What each reason means to a person. Kept here rather than in the
+# service so the sentence somebody reads and the branch that produced it
+# sit next to each other.
+ASSET_REFUSAL_MESSAGES = {
+    "unreadable": (
+        "Diese Datei ließ sich nicht als Bild öffnen. iPhone-Fotos (HEIC) "
+        "gehören dazu - bitte vorher als PNG exportieren."
+    ),
+    "opaque": (
+        "Dieses Bild hat keinen transparenten Hintergrund. Es würde als "
+        "Rechteck auf der Karte liegen. Erwartet wird ein PNG, bei dem "
+        "alles außer dem Camper durchsichtig ist."
+    ),
+    "too_large": (
+        "Dieses Bild bleibt auch verkleinert zu groß. Bitte ein einfacheres "
+        "PNG verwenden - eine Zeichnung, kein freigestelltes Foto."
+    ),
+    "pillow": "Auf diesem System fehlt die Bildverarbeitung (Pillow).",
+}
 
 
 def _trim_transparent(image: Any) -> Any:
@@ -304,6 +402,8 @@ __all__ = [
     "build_character_package",
     "build_prompt",
     "fingerprint",
+    "ASSET_REFUSAL_MESSAGES",
+    "prepare_asset",
     "shrink_asset",
     "validate_characters",
 ]

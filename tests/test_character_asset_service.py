@@ -186,6 +186,65 @@ def verify_an_unknown_role_is_refused_before_anything_is_decoded() -> None:
                 raise AssertionError(f"{kind}/{variant} ist keine Figur")
 
 
+def verify_the_refusal_names_the_thing_that_is_actually_wrong() -> None:
+    """The first live upload failed with the wrong reason.
+
+    Every refusal said "expected a PNG with a transparent background",
+    including for a picture that was exactly that and merely came out
+    over the size limit. Telling somebody to fix a thing that is not
+    wrong is worse than saying nothing: they change the one thing that
+    cannot help and conclude the feature is broken.
+    """
+    opaque = Image.new("RGBA", (300, 300), (200, 30, 30, 255))
+    buffer = io.BytesIO()
+    opaque.save(buffer, format="PNG")
+    blob, reason = assets_module.prepare_asset(buffer.getvalue())
+    assert blob is None and reason == "opaque", reason
+    assert "transparent" in assets_module.ASSET_REFUSAL_MESSAGES["opaque"]
+
+    blob, reason = assets_module.prepare_asset(b"HEIC-ish nonsense")
+    assert blob is None and reason == "unreadable", reason
+    # The most likely real cause on a phone, said by name.
+    assert "HEIC" in assets_module.ASSET_REFUSAL_MESSAGES["unreadable"]
+
+    # And the three reasons do not share a sentence, which is the whole
+    # point of splitting them.
+    messages = {
+        assets_module.ASSET_REFUSAL_MESSAGES[key]
+        for key in ("opaque", "unreadable", "too_large")
+    }
+    assert len(messages) == 3
+
+
+def verify_a_detailed_drawing_is_reduced_rather_than_refused() -> None:
+    """Over the size limit is not a reason to send somebody away.
+
+    The asset is drawn at a third of a 1280-pixel frame at most. Nobody
+    can see the difference between sixteen million colours and 256 at
+    that size, so reducing is a better answer than refusing.
+    """
+    import random
+
+    random.seed(7)
+    noisy = Image.new("RGBA", (900, 900), (0, 0, 0, 0))
+    for x in range(200, 700):
+        for y in range(200, 700):
+            noisy.putpixel(
+                (x, y),
+                (random.randrange(256), random.randrange(256), random.randrange(256), 255),
+            )
+    buffer = io.BytesIO()
+    noisy.save(buffer, format="PNG")
+    raw = buffer.getvalue()
+    # Plain PNG at film size would be well over the limit.
+    blob, reason = assets_module.prepare_asset(raw)
+    assert blob, reason
+    assert len(blob) <= assets_module.MAX_ASSET_BYTES, len(blob)
+    # Still an image, and still transparent where it was transparent.
+    reopened = Image.open(io.BytesIO(blob)).convert("RGBA")
+    assert reopened.getchannel("A").getextrema()[0] < 255
+
+
 def verify_an_upload_larger_than_the_limit_is_refused() -> None:
     with tempfile.TemporaryDirectory() as root:
         service = _service(root)
@@ -206,6 +265,8 @@ for check in (
     verify_what_is_not_an_image_never_becomes_a_file,
     verify_an_unknown_role_is_refused_before_anything_is_decoded,
     verify_an_upload_larger_than_the_limit_is_refused,
+    verify_the_refusal_names_the_thing_that_is_actually_wrong,
+    verify_a_detailed_drawing_is_reduced_rather_than_refused,
 ):
     check()
 
