@@ -462,6 +462,49 @@ def verify_a_long_caption_gets_its_own_scene() -> None:
 
 verify_a_text_is_shown_long_enough_to_read_it()
 verify_a_long_caption_gets_its_own_scene()
+def verify_an_important_day_is_never_worn_down_to_one_picture() -> None:
+    """The Wolfsschanze case, generically.
+
+    Reported from the abnahme: an important place was "visuell zu
+    schwach vertreten" although matching photographs existed. The
+    reduction takes from the least important days first, which is right,
+    but without a floor it kept going - a long trip can wear a highlight
+    down to a single picture, and one picture of a place that mattered
+    is the same as none.
+
+    Nothing here knows about the Wolfsschanze. What it knows is that
+    importance plus available material has to survive a tight budget.
+    """
+    # `allocate_photos` reads `media` - the manifest shape - rather than
+    # the package's `images`.
+    def day(number, importance, photos):
+        return {
+            "chapter_id": f"day-{number}",
+            "importance": importance,
+            "media": list(range(photos)),
+        }
+
+    chapters = [day(index + 1, "transition", 6) for index in range(20)]
+    chapters.append(day(21, "major_highlight", 8))
+    chapters.append(day(22, "highlight", 8))
+    # A budget far below what everybody wants, so the reduction really bites.
+    budget = plan_module.allocate_photos(chapters, total_budget=40, per_chapter_cap=14)
+    assert sum(budget.values()) <= 40, budget
+    assert budget["day-21"] >= 5, ("major highlight", budget["day-21"])
+    assert budget["day-22"] >= 4, ("highlight", budget["day-22"])
+    # The transfer days gave way first, which is the intended order.
+    assert budget["day-1"] < budget["day-22"], budget
+
+    # The floor never invents pictures a day does not have.
+    thin = [
+        day(1, "major_highlight", 2),
+        *[day(index + 1, "normal", 6) for index in range(1, 12)],
+    ]
+    budget = plan_module.allocate_photos(thin, total_budget=20, per_chapter_cap=14)
+    assert budget["day-1"] == 2, budget["day-1"]
+
+
+verify_an_important_day_is_never_worn_down_to_one_picture()
 print("Trip film plan tests passed.")
 
 def verify_no_curated_picture_is_ever_dropped() -> None:

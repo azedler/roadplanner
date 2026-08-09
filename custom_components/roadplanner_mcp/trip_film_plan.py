@@ -244,6 +244,16 @@ _CLIPS_BY_IMPORTANCE = {
 # meant to: a transfer day IS the journey, so its map may take half of
 # it; a major highlight wants to arrive and then be about the place, so
 # the approach is as brief as it can be.
+# How many pictures a day of this importance keeps when the trip budget
+# has to give way. Not a target - a floor, and only ever as many as the
+# day actually has.
+_COVERAGE_FLOOR = {
+    IMPORTANCE_TRANSITION: 1,
+    IMPORTANCE_NORMAL: 2,
+    IMPORTANCE_HIGHLIGHT: 4,
+    IMPORTANCE_MAJOR: 5,
+}
+
 _MAP_SHARE = {
     IMPORTANCE_TRANSITION: 0.50,
     IMPORTANCE_NORMAL: 0.40,
@@ -475,15 +485,47 @@ def allocate_photos(
             chapter_id,
         ),
     )
+    # What a day may never be cut below.
+    #
+    # Reported from the abnahme: an important place - the Wolfsschanze -
+    # was "visuell zu schwach vertreten" although matching photographs
+    # existed. The reduction below takes from the least important days
+    # first, which is right, but with no floor it kept going: a highlight
+    # can be worn down to a single picture by a long trip, and one
+    # picture of a place that mattered is the same as none.
+    #
+    # So an important day keeps a floor as long as it HAS the material -
+    # and the floor is what makes "important + material exists" visible
+    # rather than merely intended. A day with two photographs still gets
+    # two; the floor never invents pictures.
+    floors = {
+        chapter_id: min(
+            wanted[chapter_id],
+            _COVERAGE_FLOOR.get(_importance_of(chapters, chapter_id), 1),
+        )
+        for chapter_id in wanted
+    }
     while total > total_budget:
         moved = False
         for chapter_id in order:
             if total <= total_budget:
                 break
-            if wanted[chapter_id] > 1:
+            if wanted[chapter_id] > max(1, floors[chapter_id]):
                 wanted[chapter_id] -= 1
                 total -= 1
                 moved = True
+        if not moved:
+            # Every day is at its floor and it is still too many. The
+            # floors themselves now give way, still least-important
+            # first, so the budget is met without ever pretending a day
+            # had fewer photographs than it did.
+            for chapter_id in order:
+                if total <= total_budget:
+                    break
+                if wanted[chapter_id] > 1:
+                    wanted[chapter_id] -= 1
+                    total -= 1
+                    moved = True
         if not moved:
             # Everybody is down to one picture and it is still too many.
             for chapter_id in order:
