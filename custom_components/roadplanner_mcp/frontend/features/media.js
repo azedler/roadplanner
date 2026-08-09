@@ -552,10 +552,15 @@ export const mediaMixin = {
     const day = item.linked_day_id ? this._findDay(item.linked_day_id) : null;
     const stop = item.linked_stop_id && item.linked_day_id ? this._findStop(item.linked_day_id, item.linked_stop_id) : null;
     const assignment = { automatic: "Automatisch", suggested: "Zu prüfen", manual: "Manuell", unassigned: "Nicht zugeordnet" }[item.assignment_status] || "Nicht zugeordnet";
+    // A status without a reason is a dead end. "Zu prüfen" looks the
+    // same whether the date is one day out, the stop is kilometres away
+    // or the camera recorded no position - and only the first of those
+    // is something the bulk confirmation can settle.
+    const reason = item.assignment_status === "suggested" ? cleanText(item.assignment_reason) : "";
     const statusClass = item.assignment_status === "automatic" || item.assignment_status === "manual" ? "status-success" : "status-warning";
     return `<article class="media-card ${item.is_cover ? "cover" : ""}">
       <button type="button" class="media-thumb" data-action="media-open" data-media-index="${index}"><img src="${escapeHtml(this._safeUrl(item.thumbnail_url))}" alt="${escapeHtml(item.caption || item.name || "Reisefoto")}" loading="lazy">${item.is_cover ? `<span class="cover-badge"><ha-icon icon="mdi:star"></ha-icon>Titelbild</span>` : ""}</button>
-      <div class="media-card-copy"><div class="media-card-title"><strong>${escapeHtml(item.caption || item.name || "Foto")}</strong><span class="status-badge ${statusClass}">${escapeHtml(assignment)}</span></div><span>${escapeHtml(item.taken_at ? this._formatTimestamp(item.taken_at) : "Aufnahmezeit unbekannt")}</span><small>${escapeHtml(stop?.name || day?.title || "Noch keinem Reisetag zugeordnet")}${Number.isFinite(Number(item.distance_m)) ? ` · ${Math.round(Number(item.distance_m))} m` : ""}</small></div>
+      <div class="media-card-copy"><div class="media-card-title"><strong>${escapeHtml(item.caption || item.name || "Foto")}</strong><span class="status-badge ${statusClass}" ${reason ? `title="${escapeHtml(reason)}"` : ""}>${escapeHtml(reason ? `${assignment}: ${reason}` : assignment)}</span></div><span>${escapeHtml(item.taken_at ? this._formatTimestamp(item.taken_at) : "Aufnahmezeit unbekannt")}</span><small>${escapeHtml(stop?.name || day?.title || "Noch keinem Reisetag zugeordnet")}${Number.isFinite(Number(item.distance_m)) ? ` · ${Math.round(Number(item.distance_m))} m` : ""}</small></div>
       <div class="media-card-actions"><button class="icon-button" type="button" data-action="media-edit" data-media-id="${escapeHtml(item.id)}" title="Zuordnung bearbeiten"><ha-icon icon="mdi:pencil-outline"></ha-icon></button>${item.linked_stop_id && !item.is_cover ? `<button class="icon-button" type="button" data-action="media-cover" data-media-id="${escapeHtml(item.id)}" title="Als Titelbild"><ha-icon icon="mdi:star-outline"></ha-icon></button>` : ""}<a class="icon-button" href="${escapeHtml(this._safeUrl(item.original_url))}" target="_blank" rel="noopener noreferrer" title="Original öffnen"><ha-icon icon="mdi:open-in-new"></ha-icon></a></div>
     </article>`;
   },

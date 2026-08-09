@@ -44,65 +44,44 @@ from .roadplanner import RoadplannerError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
 
-# How close a photo has to be to a stop before Roadplanner assigns it
-# without asking. Near enough is enough, and this number is unchanged:
-# everything that was automatic before stays automatic.
-_AUTOMATIC_RADIUS_M = 750.0
+# How far from a stop a photograph may be taken and still obviously
+# belong to it, when the day already agrees.
+#
+# The rule used to be a stack of thresholds - a near radius, a wider
+# radius, a runner-up ratio, an absolute margin - and every one of them
+# was refusing pictures for a reason nobody had. A wildlife park bigger
+# than 750 m left 253 photographs waiting. A town with four stops in a
+# kilometre was called ambiguous, although all four were the same day.
+# A day's hike in Skuleskogen, 2.6 to 3.9 km out and *between* two stops
+# of that day, failed both the radius and the runner-up test at once.
+#
+# What all of them got wrong is what the doubt is about. A photograph
+# carries two facts: when it was taken and where. The nearest stop is
+# the answer to "where", and its day is compared with "when". Where the
+# two agree there is nothing to ask - the worst that can happen is the
+# wrong stop of the right day, which is one tap and the same chapter.
+# Where they disagree, no distance settles it: a night ferry and a
+# camper still parked at yesterday's site look identical from outside,
+# so 0 m on the wrong date stays a question.
+#
+# Five kilometres, because that is roughly how far an afternoon on foot
+# gets from where the camper stands. Beyond it the nearest stop is no
+# longer evidence of anything.
+_SAME_DAY_RADIUS_M = 5_000.0
 
-# The second way to be certain: not near, but *unambiguous*.
-#
-# A fixed radius asks the wrong question. It asks "is this photo close?"
-# when the thing that decides whether a human can answer is "is there
-# anything else it could be?". A wildlife park is bigger than 750 m, so
-# 253 photographs taken 799-912 m from the only stop for twenty
-# kilometres landed in "zu prüfen" - not because anyone was in doubt, but
-# because a place was larger than a number. Meanwhile 700 m in a town
-# with four stops within a kilometre is a genuine coin toss, and that one
-# was being decided automatically.
-#
-# So the second rule looks at the runner-up. If the nearest stop is
-# within reach and the next-nearest is far behind it, nobody would pick
-# differently, and asking is a formality. Both a ratio and an absolute
-# margin have to hold: the ratio is what makes "clearly the closest"
-# meaningful at any scale, and the margin stops a few dozen metres of
-# difference from counting as clarity.
-#
-# Twice as far, and at least 800 m further. Three times was the first
-# number and it was too cautious to help: at 800 m it would demand the
-# runner-up be 2.4 km away, and the campsite the same evening is often
-# nearer than that. The cost of the two mistakes is not symmetric - a
-# photo filed under the wrong stop of the *right day* is a small thing
-# and can be corrected in one tap, while 253 photographs waiting for a
-# click is what made this worth changing.
-#
-# Which runner-up, and the walk that made the difference
-# ------------------------------------------------------
-#
-# A day in Skuleskogen national park: the family parks, walks to a lake,
-# eats in a hut, walks back. Every photograph of that hike sat in "zu
-# prüfen" at 2.6 to 3.9 km from the stop - the whole day, gone from the
-# film. Two separate thresholds were saying no, and both were asking the
-# wrong question.
-#
-# The radius was one. A hike is not a point; it is the only thing that
-# day, and 4 km on foot from where the camper stands is an ordinary
-# afternoon rather than evidence of doubt.
-#
-# The runner-up test was the other, and this is the real correction.
-# Doubt about *which day* has to be kept - the day is what the film makes
-# a chapter of. Doubt about *which stop of the same day* is not worth
-# keeping at all: whichever of them wins, the photograph lands in the
-# right chapter, and the difference is one tap. A hike between two stops
-# of one day is precisely the case where the old rule found the two
-# candidates too close together and refused - so the walk failed a test
-# designed to protect against something that was not happening.
-#
-# So the runner-up is now only ever a stop of *another* day.
-_CLEAR_RADIUS_M = 5_000.0
-_CLEAR_SEPARATION = 2.0
-_CLEAR_MARGIN_M = 800.0
+# Past the same-day radius nothing is decided, but the nearest stop is
+# still worth naming: "8 km von der Hütte" is something a person can act
+# on, while a bare day is a search.
+_SUGGESTED_RADIUS_M = 8_000.0
 
-_SUGGESTED_RADIUS_M = 5_000.0
+# Why a photograph is still waiting, in the words it is shown in. A
+# status without a reason is why the same screenshot came back three
+# times: "Zu prüfen" looks identical whether the date is one day out,
+# the stop is kilometres away, or the camera never recorded a position.
+REASON_OTHER_DAY = "anderer Tag"
+REASON_TOO_FAR = "zu weit entfernt"
+REASON_NO_STOP_NEARBY = "kein Stopp in der Nähe"
+REASON_NO_POSITION = "kein Ort im Foto"
 # How near a suggestion has to be before it can be accepted in bulk.
 # The reason a photograph this close is only a suggestion is almost
 # never the distance - inside 750 m the same day is automatic already -
@@ -962,6 +941,7 @@ class MediaLibraryManager:
                 "linked_day_id": day_id or None,
                 "assignment_status": "suggested",
                 "confidence": 0.55,
+                "assignment_reason": REASON_NO_POSITION,
             }
 
         stop_candidates: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
@@ -976,29 +956,22 @@ class MediaLibraryManager:
             day_id = str(day.get("id") or "")
             stop_id = str(stop.get("id") or "")
             same_day = _day_date(day) == local_date
-            # The nearest thing it could belong to on **another** day. A
-            # photograph two hundred metres from tomorrow's campsite is
-            # ambiguous about the day, and that is the doubt worth
-            # keeping, because the day is what becomes a chapter.
+            # Two facts, and a decision only where they agree.
             #
-            # Another stop of the *same* day is not a runner-up in that
-            # sense. Whichever wins, the photograph lands in the right
-            # chapter. Counting those was what refused a whole day's hike
-            # between two stops of one day.
-            other_day_distances = [
-                candidate_distance
-                for candidate_distance, candidate_day, _stop in stop_candidates
-                if str(candidate_day.get("id") or "") != day_id
-            ]
-            runner_up = other_day_distances[0] if other_day_distances else None
-            alone = runner_up is None or (
-                runner_up >= distance * _CLEAR_SEPARATION
-                and runner_up - distance >= _CLEAR_MARGIN_M
-            )
-            if same_day and (
-                distance <= _AUTOMATIC_RADIUS_M
-                or (distance <= _CLEAR_RADIUS_M and alone)
-            ):
+            # The photograph carries a timestamp and a coordinate. The
+            # nearest stop of all is the distance's answer; its day is
+            # compared with the timestamp's. When both name the same
+            # thing there is nothing left to ask, and every extra test
+            # beyond that was refusing pictures for the wrong reason - a
+            # hike between two stops of one day, a park bigger than a
+            # radius, a town with four stops in a kilometre. In each of
+            # those the day was never in doubt.
+            #
+            # Where they disagree - the nearest stop belongs to another
+            # day - the doubt is real and stays, however close the photo
+            # is. That is the night ferry, and it is why 0 m is still a
+            # question.
+            if same_day and distance <= _SAME_DAY_RADIUS_M:
                 return {
                     "linked_day_id": day_id or None,
                     "linked_stop_id": stop_id or None,
@@ -1013,12 +986,14 @@ class MediaLibraryManager:
                     "assignment_status": "suggested",
                     "confidence": round(max(0.45, 1 - distance / 10_000), 4),
                     "distance_m": distance,
+                    "assignment_reason": REASON_OTHER_DAY if not same_day else REASON_TOO_FAR,
                 }
         if exact_days:
             return {
                 "linked_day_id": str(exact_days[0].get("id") or "") or None,
                 "assignment_status": "suggested",
                 "confidence": 0.45,
+                "assignment_reason": REASON_NO_STOP_NEARBY,
             }
         return {"assignment_status": "unassigned", "confidence": 0.0}
 

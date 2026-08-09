@@ -5,9 +5,16 @@ wildlife park. Every one of them already named the right stop and every
 one of them was 799-912 m away - just past a 750 m threshold. Nobody was
 in doubt; a place was simply bigger than a number.
 
-The rule therefore asks a second question. Not only "is this close?" but
-"is there anything else it could be?". These checks are about that
-second question, and about the cases where the answer has to stay no.
+Three more rounds of that followed - a wider radius, a runner-up ratio,
+an absolute margin - and each one refused a different set of real
+photographs for a reason nobody had. What survived is smaller than any
+of them: a photograph carries a time and a place, the nearest stop
+answers "where", its day is compared with "when", and where the two
+agree there is nothing to ask. Where they disagree the doubt is real
+and no distance settles it.
+
+These checks are the cases on both sides of that line, and the reasons
+a waiting photograph gives for waiting.
 """
 from __future__ import annotations
 
@@ -86,9 +93,17 @@ def _load_rule():
 
     constants = {}
     for line in source.splitlines():
-        if line.startswith(("_AUTOMATIC_RADIUS_M", "_CLEAR_", "_SUGGESTED_RADIUS_M")):
+        if line.startswith(("_SAME_DAY_RADIUS_M", "_SUGGESTED_RADIUS_M", "_CONFIRMABLE_RADIUS_M")):
             name, _, value = line.partition(" = ")
             constants[name.strip()] = float(value.split("#")[0].strip().replace("_", ""))
+    # The reason strings are read from the module too, and for the same
+    # reason as the thresholds: a copy of them here would let the panel
+    # show one wording while this file asserts another.
+    reasons = {}
+    for line in source.splitlines():
+        if line.startswith("REASON_"):
+            name, _, value = line.partition(" = ")
+            reasons[name.strip()] = value.strip().strip('"')
 
     namespace: dict = {
         "_coordinate": module._coordinate,
@@ -99,12 +114,13 @@ def _load_rule():
         "_parse_datetime": module._parse_datetime,
         "dt_util": _ha_dt,
         **constants,
+        **reasons,
     }
     exec("class _Rule:\n" + body, namespace)
-    return namespace["_Rule"](), constants
+    return namespace["_Rule"](), constants, reasons
 
 
-rule, LIMITS = _load_rule()
+rule, LIMITS, REASONS = _load_rule()
 
 
 def _day(day_id: str, date: str, stops: list[dict]) -> dict:
@@ -208,18 +224,39 @@ def verify_a_days_walk_belongs_to_that_day() -> None:
         assert verdict["assignment_status"] == "automatic", (metres, verdict)
 
 
-def verify_a_neighbouring_day_can_take_the_certainty_away() -> None:
-    """A photo near tomorrow's campsite is ambiguous about the day.
+def verify_a_nearer_stop_on_another_day_takes_the_certainty_away() -> None:
+    """A photo nearest to tomorrow's campsite is ambiguous about the day.
 
-    The runner-up is any other stop, not merely another stop of the same
-    day - because the doubt worth keeping here is which day it was.
+    This is the doubt that has to survive every simplification: the day
+    is what becomes a chapter, and a picture in the wrong chapter is a
+    picture in the wrong place in the film.
+    """
+    days = [
+        _day("day-1", DATE, [_stop("heute", _north(BASE_LAT, 1200), BASE_LON)]),
+        _day("day-2", "2026-08-07", [_stop("morgen", _north(BASE_LAT, 900), BASE_LON)]),
+    ]
+    verdict = rule._assignment_for(_photo(BASE_LAT, BASE_LON), days)
+    assert verdict["assignment_status"] == "suggested", verdict
+    assert verdict["linked_stop_id"] == "morgen"
+    assert verdict["assignment_reason"] == REASONS["REASON_OTHER_DAY"], verdict
+
+
+def verify_a_stop_on_the_same_day_is_not_a_rival() -> None:
+    """The reverse: the day agrees, so the neighbour does not matter.
+
+    Nine hundred metres from today's stop and twelve hundred from
+    tomorrow's campsite used to be refused, on the grounds that the two
+    were too close together to tell apart. But they are not equally
+    likely - the timestamp already says today, and ignoring that was
+    throwing away the better of the two facts.
     """
     days = [
         _day("day-1", DATE, [_stop("heute", _north(BASE_LAT, 900), BASE_LON)]),
         _day("day-2", "2026-08-07", [_stop("morgen", _north(BASE_LAT, 1200), BASE_LON)]),
     ]
     verdict = rule._assignment_for(_photo(BASE_LAT, BASE_LON), days)
-    assert verdict["assignment_status"] == "suggested", verdict
+    assert verdict["assignment_status"] == "automatic", verdict
+    assert verdict["linked_stop_id"] == "heute"
 
 
 def verify_far_is_still_far() -> None:
@@ -249,22 +286,50 @@ def verify_a_photo_without_coordinates_gets_a_day_at_most() -> None:
     assert verdict.get("linked_stop_id") is None
 
 
+def verify_every_waiting_photo_can_say_why() -> None:
+    """"Zu prüfen" alone sent the same screenshot back three times.
+
+    The three ways a photograph can end up waiting look identical in the
+    library, and only one of them - a date one day out - is something
+    the bulk confirmation can settle. So each verdict carries its reason
+    and the card shows it.
+    """
+    far = rule._assignment_for(
+        _photo(_north(BASE_LAT, 6_500), BASE_LON),
+        [_day("day-1", DATE, [_stop("huette", BASE_LAT, BASE_LON)])],
+    )
+    assert far["assignment_reason"] == REASONS["REASON_TOO_FAR"], far
+
+    without_position = rule._assignment_for(
+        {"taken_at": "2026-08-06T14:00:00+02:00"},
+        [_day("day-1", DATE, [_stop("irgendwo", BASE_LAT, BASE_LON)])],
+    )
+    assert without_position["assignment_reason"] == REASONS["REASON_NO_POSITION"], without_position
+
+    # And a decided photograph carries none: a reason on an assigned
+    # picture would be a leftover, not an explanation.
+    decided = rule._assignment_for(_photo(_north(BASE_LAT, 100), BASE_LON), [
+        _day("day-1", DATE, [_stop("platz", BASE_LAT, BASE_LON)])
+    ])
+    assert "assignment_reason" not in decided, decided
+
+
 def verify_the_thresholds_are_the_ones_that_were_argued_about() -> None:
     """The numbers are a decision, so a silent change should be visible."""
-    assert LIMITS["_AUTOMATIC_RADIUS_M"] == 750.0, "die alte Schwelle bleibt"
-    assert LIMITS["_CLEAR_RADIUS_M"] == 5000.0, "eine Tageswanderung passt hinein"
-    assert LIMITS["_CLEAR_SEPARATION"] == 2.0
-    assert LIMITS["_CLEAR_MARGIN_M"] == 800.0
-    assert LIMITS["_SUGGESTED_RADIUS_M"] == 5000.0
+    assert LIMITS["_SAME_DAY_RADIUS_M"] == 5000.0, "eine Tageswanderung passt hinein"
+    assert LIMITS["_SUGGESTED_RADIUS_M"] == 8000.0
+    assert LIMITS["_CONFIRMABLE_RADIUS_M"] == 1500.0
 
 
 verify_a_place_larger_than_the_radius_is_still_certain()
 verify_being_close_still_wins_on_its_own()
 verify_a_crowded_day_is_still_one_day()
 verify_a_days_walk_belongs_to_that_day()
-verify_a_neighbouring_day_can_take_the_certainty_away()
+verify_a_nearer_stop_on_another_day_takes_the_certainty_away()
+verify_a_stop_on_the_same_day_is_not_a_rival()
 verify_far_is_still_far()
 verify_a_different_date_is_never_automatic()
 verify_a_photo_without_coordinates_gets_a_day_at_most()
+verify_every_waiting_photo_can_say_why()
 verify_the_thresholds_are_the_ones_that_were_argued_about()
 print("Media assignment rule tests passed.")

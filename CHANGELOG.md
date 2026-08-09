@@ -6,6 +6,21 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.54.0] - 2026-08-09
+
+### Changed
+
+- **Die Zuordnungsregel besteht nur noch aus einer Frage.** Vorher war sie ein Stapel Schwellen – Nahradius, Weitradius, Konkurrenzverhältnis, Mindestabstand –, und jede davon hat echte Fotos aus einem Grund abgelehnt, den niemand hatte: ein Wildpark größer als 750 m (253 wartende Bilder), eine Stadt mit vier Stopps auf einem Kilometer („mehrdeutig", obwohl alle vier derselbe Tag waren), eine Tageswanderung in Skuleskogen 2,6–3,9 km draußen *zwischen* zwei Stopps desselben Tages.
+
+  Ein Foto trägt zwei Tatsachen: **wann** und **wo**. Der nächstgelegene Stopp beantwortet das Wo, sein Tag wird mit dem Wann verglichen. **Stimmen beide überein, gibt es nichts zu fragen** – schlimmstenfalls ist es der falsche Stopp des richtigen Tages, ein Tipp und dasselbe Kapitel. Widersprechen sie sich, hilft kein Abstand: eine Nachtfähre und ein Camper, der noch auf dem gestrigen Platz steht, sehen von außen gleich aus. Deshalb bleiben 0 m am falschen Datum eine Frage.
+
+  Praktisch: gleicher Tag und höchstens 5 km → zugeordnet. Alles andere → Vorschlag.
+
+### Added
+
+- **Jedes wartende Foto sagt jetzt, worauf es wartet.** „Zu prüfen" sah identisch aus, egal ob das Datum einen Tag danebenliegt, der Stopp kilometerweit weg ist oder die Kamera gar keine Position aufgezeichnet hat – und nur der erste Fall lässt sich mit dem Sammel-Knopf erledigen. Die Karte zeigt den Grund direkt am Status: *anderer Tag*, *zu weit entfernt*, *kein Stopp in der Nähe*, *kein Ort im Foto*. Ein zugeordnetes Foto trägt keinen Grund mehr mit sich herum.
+- Vorschläge behalten ihren nächstgelegenen Stopp jetzt bis 8 km (vorher 5). „7 km von der Hütte" ist etwas, womit man arbeiten kann; ein nackter Tag ist eine Suche.
+
 ## [4.53.0] - 2026-08-09
 
 ### Changed
