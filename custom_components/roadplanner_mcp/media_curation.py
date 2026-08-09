@@ -497,8 +497,12 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
         label = specific[0]
         if label not in must:
             must.append(label)
+        # Only the specific words answer the requirement. The generic
+        # tail must not: "Elchpark" splits into "elch" + "park", and a
+        # photograph of a *Parkplatz* then satisfied a day about a moose
+        # - a category word matches far too much to be evidence.
         alternatives.setdefault(label, [])
-        for token in tokens:
+        for token in specific:
             if token not in alternatives[label]:
                 alternatives[label].append(token)
         for token in tokens[1:]:
