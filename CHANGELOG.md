@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.71.0] - 2026-08-09
+
+### Fixed
+
+- **Der Fehlertext beim Camper-Bild nannte die falsche Ursache.** Jede Ablehnung sagte „Erwartet wird ein PNG mit transparentem Hintergrund" — auch dann, wenn das Bild genau das war und lediglich über der Größengrenze landete. Jemandem zu sagen, er solle etwas reparieren, das nicht kaputt ist, ist schlimmer als nichts zu sagen: Er ändert die eine Sache, die nicht helfen kann, und schließt daraus, dass die Funktion nicht funktioniert.
+
+  Jetzt gibt es drei verschiedene Antworten, und nur eine davon handelt von Transparenz: **nicht lesbar** (iPhone-HEIC wird namentlich genannt, weil das der wahrscheinlichste Fall am Handy ist), **kein transparenter Hintergrund** (das Bild würde als Rechteck auf der Karte liegen) und **zu groß**.
+
+- **Eine detaillierte Zeichnung wird verkleinert statt abgelehnt.** Über der Größengrenze war bisher ein Grund, jemanden wegzuschicken. Die Figur wird höchstens auf einem Drittel eines 1280-Pixel-Bildes gezeigt — den Unterschied zwischen 16 Millionen Farben und 256 sieht dort niemand. Also wird in Stufen reduziert (volle Farbtiefe → 256 Farben → 128 → 128 und kleiner), und erst wenn auch das nicht reicht, gibt es eine Absage.
+
 ## [4.70.0] - 2026-08-09
 
 ### Fixed
