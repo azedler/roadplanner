@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.72.0] - 2026-08-09
+
 ### Added
 
 - **Erzählerisch relevante und funktionale Stopps werden unterschieden** (`stop_relevance.py`). Aus der Abnahme von `reise(8)`: Ein Fast-Food-Stopp las sich wie der Punkt eines Tages. Der naheliegende Fix wäre ein Stringfilter gewesen — und er wäre falsch: Die nächste Tankstelle, Apotheke und der nächste Parkplatz würden dann einzeln über je einen Livefilm entdeckt.
