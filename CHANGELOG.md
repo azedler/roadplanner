@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.52.0] - 2026-08-09
+
 ### Added
 
 - **„Nahe Vorschläge übernehmen": 110 Fotos, ein Klick.** In der Mediathek waren 478 Bilder zugeordnet und 110 „Zu prüfen" – darunter eines mit **0 m** Abstand zur Überfahrt Trelleborg→Rostock. Das ist keine kaputte Regel: eine automatische Zuordnung verlangt, dass das *Datum* passt, und der nächstgelegene Stopp darf aus dem Nachbartag stammen. Dann hilft kein Abstand mehr, auch 0 m nicht – **mit Absicht**, denn eine Nachtfähre und ein Camper, der noch auf dem gestrigen Platz steht, sehen von außen gleich aus, und Nähe darf die Morgenfotos nicht in den Vortag schieben.
