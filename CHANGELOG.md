@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- **Eine Tageswanderung gehört zu ihrem Tag.** In Skuleskogen lag die komplette Wanderung – parken, zum See laufen, in der Hütte essen, zurück – bei 2,6 bis 3,9 km von den Stopps und damit vollständig in „Zu prüfen". Zwei Schwellen haben Nein gesagt, und beide stellten die falsche Frage.
+
+  Der Radius war die eine: eine Wanderung ist kein Punkt, und 4 km zu Fuß sind ein normaler Nachmittag, kein Indiz für Zweifel. Die Obergrenze für „eindeutig, auch wenn nicht nah" steigt von 2,5 auf **5 km**.
+
+  Die zweite ist die eigentliche Korrektur: Als Konkurrent zählt jetzt nur noch ein Stopp eines **anderen Tages**. Zweifel am *Tag* muss bleiben – der Tag wird zum Kapitel. Zweifel daran, *welcher Stopp desselben Tages* gemeint ist, lohnt sich nicht: Das Foto landet so oder so im richtigen Kapitel, der Unterschied ist ein Tipp. Genau dieser Test hat die Wanderung *zwischen* zwei Stopps eines Tages abgelehnt.
+
+### Fixed
+
+- **Blättern am Ende der Seite.** Nach sechzig Fotos steht man unten und will die nächste Seite – und musste dafür wieder ganz nach oben scrollen. Die Blätterleiste steht jetzt auch unter dem Raster, und ein Seitenwechsel springt an den Anfang der neuen Seite statt an ihr Ende.
+
 ## [4.52.0] - 2026-08-09
 
 ### Added

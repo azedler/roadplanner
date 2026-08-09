@@ -158,12 +158,15 @@ def verify_being_close_still_wins_on_its_own() -> None:
     assert verdict["linked_stop_id"] == "platz"
 
 
-def verify_a_crowded_place_stays_a_question() -> None:
-    """Four stops within a kilometre: which one is a genuine coin toss.
+def verify_a_crowded_day_is_still_one_day() -> None:
+    """Three stops within two kilometres, and no question worth asking.
 
-    This is the case the old rule got wrong in the other direction - it
-    answered automatically because the winner happened to be inside 750 m,
-    while a human looking at the map could not have told either.
+    This check used to expect "suggested", on the grounds that a human
+    looking at the map could not say whether it was the market or the
+    church either. True, and beside the point: it is the same day, so
+    whichever wins, the photograph is in the right chapter, and the
+    difference is one tap. Keeping the doubt cost the picture entirely,
+    because a photograph that stays a suggestion never reaches the film.
     """
     days = [
         _day(
@@ -176,10 +179,33 @@ def verify_a_crowded_place_stays_a_question() -> None:
             ],
         )
     ]
-    # 900 m to the winner, 1500 m to the runner-up: closest, but not alone.
     verdict = rule._assignment_for(_photo(BASE_LAT, BASE_LON), days)
-    assert verdict["assignment_status"] == "suggested", verdict
-    assert verdict["linked_stop_id"] == "markt"
+    assert verdict["assignment_status"] == "automatic", verdict
+    assert verdict["linked_stop_id"] == "markt", "der nächstgelegene gewinnt"
+
+
+def verify_a_days_walk_belongs_to_that_day() -> None:
+    """Skuleskogen, reported live: a whole hike sat in "zu prüfen".
+
+    Park, walk to the lake, eat in the hut, walk back. The photographs
+    were 2.6 to 3.9 km from the stops - beyond the old 2.5 km ceiling,
+    and *between* two stops of the same day, so the runner-up test
+    refused them as well. Two thresholds, both answering a question
+    nobody had asked: the day was never in doubt.
+    """
+    days = [
+        _day(
+            "day-1",
+            DATE,
+            [
+                _stop("entre-nord", BASE_LAT, BASE_LON),
+                _stop("slattdalsskrevan", _north(BASE_LAT, 6_000), BASE_LON),
+            ],
+        )
+    ]
+    for metres in (2_600.0, 3_900.0):
+        verdict = rule._assignment_for(_photo(_north(BASE_LAT, metres), BASE_LON), days)
+        assert verdict["assignment_status"] == "automatic", (metres, verdict)
 
 
 def verify_a_neighbouring_day_can_take_the_certainty_away() -> None:
@@ -196,17 +222,17 @@ def verify_a_neighbouring_day_can_take_the_certainty_away() -> None:
     assert verdict["assignment_status"] == "suggested", verdict
 
 
-def verify_far_is_far_however_alone_it_is() -> None:
-    """Beyond the clear radius, being the only candidate is not enough.
+def verify_far_is_still_far() -> None:
+    """There is an end to it: past the clear radius nothing is decided.
 
-    Four kilometres from the only stop of the day is a real distance. It
-    may well belong there, and it may equally be a roadside stop nobody
-    wrote down - so it is offered, not decided.
+    Six kilometres is no longer "somewhere around the stop". It may be a
+    roadside stop nobody wrote down, and beyond this the rule offers
+    rather than decides - which is also where the bulk confirmation
+    deliberately does not reach.
     """
     days = [_day("day-1", DATE, [_stop("einsam", BASE_LAT, BASE_LON)])]
-    verdict = rule._assignment_for(_photo(_north(BASE_LAT, 4_000), BASE_LON), days)
-    assert verdict["assignment_status"] == "suggested", verdict
-    assert verdict["distance_m"] > LIMITS["_CLEAR_RADIUS_M"]
+    verdict = rule._assignment_for(_photo(_north(BASE_LAT, 6_000), BASE_LON), days)
+    assert verdict["assignment_status"] != "automatic", verdict
 
 
 def verify_a_different_date_is_never_automatic() -> None:
@@ -226,7 +252,7 @@ def verify_a_photo_without_coordinates_gets_a_day_at_most() -> None:
 def verify_the_thresholds_are_the_ones_that_were_argued_about() -> None:
     """The numbers are a decision, so a silent change should be visible."""
     assert LIMITS["_AUTOMATIC_RADIUS_M"] == 750.0, "die alte Schwelle bleibt"
-    assert LIMITS["_CLEAR_RADIUS_M"] == 2500.0
+    assert LIMITS["_CLEAR_RADIUS_M"] == 5000.0, "eine Tageswanderung passt hinein"
     assert LIMITS["_CLEAR_SEPARATION"] == 2.0
     assert LIMITS["_CLEAR_MARGIN_M"] == 800.0
     assert LIMITS["_SUGGESTED_RADIUS_M"] == 5000.0
@@ -234,9 +260,10 @@ def verify_the_thresholds_are_the_ones_that_were_argued_about() -> None:
 
 verify_a_place_larger_than_the_radius_is_still_certain()
 verify_being_close_still_wins_on_its_own()
-verify_a_crowded_place_stays_a_question()
+verify_a_crowded_day_is_still_one_day()
+verify_a_days_walk_belongs_to_that_day()
 verify_a_neighbouring_day_can_take_the_certainty_away()
-verify_far_is_far_however_alone_it_is()
+verify_far_is_still_far()
 verify_a_different_date_is_never_automatic()
 verify_a_photo_without_coordinates_gets_a_day_at_most()
 verify_the_thresholds_are_the_ones_that_were_argued_about()

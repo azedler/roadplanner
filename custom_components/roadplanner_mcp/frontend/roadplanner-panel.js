@@ -1217,6 +1217,11 @@ class RoadplannerPanel extends HTMLElement {
       const delta = Number(target.dataset.delta || 0);
       this._mediaPage = Math.max(0, Number(this._mediaPage || 0) + (Number.isFinite(delta) ? delta : 0));
       this._render({ preserveScroll: true });
+      // The same row of buttons now sits below the grid as well, and
+      // whoever presses it there wants the next page from its beginning,
+      // not the bottom of it. Keeping the scroll position would land
+      // them at the end of sixty new photographs.
+      this.shadowRoot?.querySelector(".media-controls")?.scrollIntoView({ block: "start" });
     } else if (action === "media-open") {
       const media = this._experienceData().media || [];
       const index = Math.max(0, Math.min(media.length - 1, Number(target.dataset.mediaIndex || 0)));
