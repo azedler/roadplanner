@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.70.0] - 2026-08-09
+
 ### Fixed
 
 - **Ortsnamen auf der Karte sind wieder lesbar** (Renderer-Add-on **0.15.0-labels.1**). Bisher wurde jeder Name gezeichnet: an seinem Punkt, immer nach rechts, mit Halo und sonst nichts. Auf einer dünn besetzten Karte geht das gut, auf einer echten entstehen zwei Fehler, die man sofort sieht, ohne sie benennen zu können.
