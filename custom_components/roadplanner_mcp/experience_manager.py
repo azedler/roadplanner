@@ -292,6 +292,11 @@ class RoadplannerExperienceManager:
     async def async_reassign_media(self, trip_id: str) -> dict[str, Any]:
         return await self._media_library.async_reassign_media(trip_id)
 
+    async def async_confirm_media_suggestions(
+        self, trip_id: str, *, day_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._media_library.async_confirm_suggestions(trip_id, day_id=day_id)
+
     async def async_delete_media(self, trip_id: str, media_id: str) -> dict[str, Any]:
         return await self._media_library.async_delete_media(trip_id, media_id)
 

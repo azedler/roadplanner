@@ -79,6 +79,17 @@ _CLEAR_SEPARATION = 2.0
 _CLEAR_MARGIN_M = 800.0
 
 _SUGGESTED_RADIUS_M = 5_000.0
+# How near a suggestion has to be before it can be accepted in bulk.
+# The reason a photograph this close is only a suggestion is almost
+# never the distance - inside 750 m the same day is automatic already -
+# but the date: the nearest stop belongs to the neighbouring day. An
+# overnight ferry is the plain case. A photograph taken at 0 m from the
+# crossing was taken the evening before the day the crossing is filed
+# under, and no distance can outvote that, by design: proximity must not
+# be able to file this morning's photographs at yesterday's campsite.
+# So the person decides, once, for all of them - and only for the ones
+# near enough that "which stop" is not in doubt.
+_CONFIRMABLE_RADIUS_M = 1_500.0
 _MEDIA_SYNC_STRATEGY_VERSION = 3
 _INITIAL_SCAN_MODE = "initial_scan"
 _DELTA_CATCHUP_MODE = "delta_catchup"
@@ -1033,6 +1044,26 @@ class MediaLibraryManager:
         else:
             filtered.setdefault("assignment_status", "manual")
         return await self.hass.async_add_executor_job(self.store.update_media, trip_id, media_id, filtered)
+
+    async def async_confirm_suggestions(
+        self, trip_id: str, *, day_id: str | None = None
+    ) -> dict[str, Any]:
+        """Accept every near suggestion at once, because they are film-invisible.
+
+        A photograph left as `suggested` is not in the film - the
+        selection only ever reads `manual` and `automatic`. Reviewing a
+        hundred of them one dialog at a time is the reason they stay
+        out.
+        """
+        result = await self.hass.async_add_executor_job(
+            partial(
+                self.store.confirm_suggestions,
+                trip_id,
+                max_distance_m=_CONFIRMABLE_RADIUS_M,
+                day_id=day_id or None,
+            )
+        )
+        return {"ok": True, "radius_m": _CONFIRMABLE_RADIUS_M, **result}
 
     async def async_delete_media(self, trip_id: str, media_id: str) -> dict[str, Any]:
         await self.hass.async_add_executor_job(self.store.delete_media, trip_id, media_id)

@@ -154,6 +154,7 @@ _ACTIONS = {
     "onedrive_sync",
     "media_update_assignment",
     "media_reassign",
+    "media_confirm_suggestions",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -235,6 +236,7 @@ _EDIT_ACTIONS = {
     "onedrive_sync",
     "media_update_assignment",
     "media_reassign",
+    "media_confirm_suggestions",
     "media_delete",
     "media_curate_stop",
     "media_curate_trip",
@@ -952,6 +954,16 @@ async def _execute_action(
             "media_reassign": await runtime.experience.async_reassign_media(trip_id),
             "experience": await runtime.experience.async_panel_payload(trip_id),
         }
+
+    if action == "media_confirm_suggestions":
+        trip_id = str(data.get("trip_id") or "")
+        if not trip_id:
+            raise ValidationError("Für die Bestätigung wurde keine Reise ausgewählt")
+        result = await runtime.experience.async_confirm_media_suggestions(
+            trip_id, day_id=str(data.get("day_id") or "") or None
+        )
+        result["experience"] = await runtime.experience.async_panel_payload(trip_id)
+        return result
 
     if action == "media_delete":
         result = await runtime.experience.async_delete_media(
