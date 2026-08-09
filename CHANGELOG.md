@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.55.0] - 2026-08-09
+
 ### Changed
 
 - **Media Curation 2.0: welche Fotos einen Tag erzählen, ist jetzt eine eigene Entscheidung.** Der Elchpark-Tag kam ohne Elch in den Film, obwohl die Bilder da waren. Vier Dinge mussten dafür zusammenkommen, und alle vier waren derselbe Fehler in anderer Kleidung — eine Entscheidung, bevor es etwas zu entscheiden gab:
