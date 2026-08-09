@@ -573,21 +573,40 @@ export const storyEditorMixin = {
     return all[chapter?.chapter_id] || null;
   },
 
+  /** Curate the trip a few days at a time, because it takes minutes.
+   *
+   * Looking at a three-week trip is roughly one model call per day. Done
+   * in one action that is long enough for the websocket to give up, and
+   * the person is told "Connection lost" while the work carries on
+   * behind them - which is exactly what happened on the first real run.
+   *
+   * So the backend does a few paid days per call and says how many are
+   * left, and this loops until nothing is. A resumed run is cheap: days
+   * already answered come from the cache and do not use up a batch.
+   */
   async _storyCurate({ force = false } = {}) {
-    const result = await this._runAction(
-      "media_curate_days",
-      { trip_id: this._selectedTripId, force },
-      "",
-      {
-        refresh: false,
-        errorMode: "dialog",
-        errorTitle: "Die Bildauswahl konnte nicht neu bestimmt werden",
-      },
-    );
-    if (!result) return;
-    const missing = Object.keys(result.unmet || {}).length;
+    let totals = null;
+    for (let round = 0; round < 40; round += 1) {
+      const result = await this._runAction(
+        "media_curate_days",
+        { trip_id: this._selectedTripId, force: force && round === 0, max_days: 4 },
+        "",
+        {
+          refresh: false,
+          errorMode: "dialog",
+          errorTitle: "Die Bildauswahl konnte nicht neu bestimmt werden",
+        },
+      );
+      if (!result) return;
+      totals = result;
+      const left = Number(result.remaining || 0);
+      if (!left) break;
+      this._showToast(`Bildauswahl läuft – noch ${left} Tage …`, "info", 4000);
+    }
+    if (!totals) return;
+    const missing = Object.keys(totals.unmet || {}).length;
     this._showToast(
-      `${result.selected_count} Bilder aus ${result.pool_count} Kandidaten gewählt` +
+      `${totals.selected_count} Bilder aus ${totals.pool_count} Kandidaten gewählt` +
         (missing ? ` · ${missing} Tage ohne ihr Hauptmotiv` : ""),
       "success",
       7000,

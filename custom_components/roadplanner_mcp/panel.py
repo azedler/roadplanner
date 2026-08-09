@@ -963,8 +963,11 @@ async def _execute_action(
         trip_id = str(data.get("trip_id") or "")
         if not trip_id:
             raise ValidationError("Für die Bildauswahl wurde keine Reise ausgewählt")
+        raw_days = data.get("max_days")
         result = await runtime.experience.async_curate_day_media(
-            trip_id, force=bool(data.get("force", False))
+            trip_id,
+            force=bool(data.get("force", False)),
+            max_days=int(raw_days) if isinstance(raw_days, int) and raw_days > 0 else None,
         )
         result["experience"] = await runtime.experience.async_panel_payload(trip_id)
         return result

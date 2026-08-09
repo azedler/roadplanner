@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.58.0] - 2026-08-09
+
+### Fixed
+
+- **„Connection lost" beim ersten echten Lauf der Bildauswahl.** Eine dreiwöchige Reise ist rund ein Modellaufruf je Tag; alle in einer Panel-Aktion am Stück dauert Minuten — lange genug, dass die Websocket-Verbindung aufgibt, während die Arbeit unsichtbar weiterläuft. Ein Aufruf bezahlt jetzt für höchstens vier Tage und meldet, wie viele noch offen sind; die Oberfläche fragt nach, bis keiner mehr offen ist, und zeigt dabei den Fortschritt. Ein fortgesetzter Lauf ist billig: bereits beantwortete Tage kommen aus dem Cache und verbrauchen kein Budget.
+
+- **Ein zwischengespeicherter Tag verbrauchte trotzdem das Budget.** `analysed_count` meinte gleichzeitig „so viele wurden angesehen" und „so viele Analysen liegen vor". Dadurch hätte eine Sechs-Tage-Reise ewig dieselben zwei Tage kuratiert und die Fortschrittsschleife wäre nie fertig geworden. Getrennt in `analysed_count` (bezahlt) und `analysis_count` (vorhanden).
+
 ## [4.57.0] - 2026-08-09
 
 ### Fixed

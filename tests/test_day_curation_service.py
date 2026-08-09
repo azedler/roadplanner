@@ -284,6 +284,62 @@ def verify_the_day_is_never_named_to_the_model() -> None:
         assert leak not in blob, leak
 
 
+def verify_a_long_trip_is_curated_in_batches() -> None:
+    """The first real run said "Connection lost" and kept going invisibly.
+
+    A three-week trip is roughly one model call per day. Done in a single
+    panel action that is minutes long, the websocket gives up while the
+    work carries on behind it - so a call pays for a few days and says
+    how many are left.
+
+    `remaining` counts days that would COST something, not days that
+    exist: a cached day is recomputed for free, and counting those would
+    leave a progress loop stuck at a number that never falls.
+    """
+    days = [
+        {**DAY, "id": f"day-{index}", "title": "Tag im Elchpark"}
+        for index in range(1, 7)
+    ]
+    media = []
+    for index in range(1, 7):
+        for entry in _media_set():
+            media.append({**entry, "id": f"d{index}-{entry['id']}",
+                          "provider_item_id": f"item-d{index}-{entry['id']}",
+                          "file_hash": f"hash-d{index}-{entry['id']}",
+                          "linked_day_id": f"day-{index}"})
+    table = {
+        f"d{index}-{key}": value
+        for index in range(1, 7)
+        for key, value in TABLE.items()
+    }
+    provider = _Provider(table)
+    directory = tempfile.mkdtemp()
+    store = store_module.ExperienceStore(Path(directory))
+    store.initialize()
+    state = store.load("trip-1")
+    state["media"] = [store_module.normalize_media(item) for item in media]
+    store.write(state)
+    service = service_module.DayCurationService(
+        _Hass(), store, _Manager(days), _Vision(provider)
+    )
+
+    first = asyncio.run(service.async_curate_trip("trip-1", max_days=2))
+    assert first["remaining"] == 4, first["remaining"]
+    rounds = 1
+    while first["remaining"]:
+        first = asyncio.run(service.async_curate_trip("trip-1", max_days=2))
+        rounds += 1
+        assert rounds < 10, "die Schleife kommt nicht zum Ende"
+    assert rounds == 3, rounds
+
+    # Everything is curated, so another round is free and finished.
+    calls = provider.calls
+    again = asyncio.run(service.async_curate_trip("trip-1", max_days=2))
+    assert again["remaining"] == 0, again
+    assert provider.calls == calls, "ein fertiger Lauf darf nichts mehr kosten"
+    assert len(store.load("trip-1")["day_curations"]) == 6
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -303,6 +359,7 @@ for check in (
     verify_a_day_still_works_with_the_model_switched_off,
     verify_an_excluded_photo_never_reaches_the_provider,
     verify_the_day_is_never_named_to_the_model,
+    verify_a_long_trip_is_curated_in_batches,
     verify_the_panel_summary_leaves_the_analysis_behind,
 ):
     check()

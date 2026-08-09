@@ -298,9 +298,13 @@ class RoadplannerExperienceManager:
     async def async_reassign_media(self, trip_id: str) -> dict[str, Any]:
         return await self._media_library.async_reassign_media(trip_id)
 
-    async def async_curate_day_media(self, trip_id: str, *, force: bool = False) -> dict[str, Any]:
+    async def async_curate_day_media(
+        self, trip_id: str, *, force: bool = False, max_days: int | None = None
+    ) -> dict[str, Any]:
         """Re-decide which photographs tell each day of this trip."""
-        return await self._day_curation.async_curate_trip(trip_id, force=force)
+        return await self._day_curation.async_curate_trip(
+            trip_id, force=force, max_days=max_days
+        )
 
     async def async_set_film_pin(self, trip_id: str, media_id: str, pin: str) -> dict[str, Any]:
         """Show it, keep it out, or hand it back to the curation.
