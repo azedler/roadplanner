@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.65.0] - 2026-08-09
+
+### Fixed
+
+- **Ein wichtiger Tag wird nicht mehr auf ein einzelnes Bild heruntergeschliffen.** Aus der Abnahme: Ein bedeutender Ort war „visuell zu schwach vertreten", obwohl passende Fotos vorhanden waren. Wenn das Gesamtbudget nicht reicht, nimmt die Verteilung bei den unwichtigsten Tagen zuerst — das ist richtig, aber sie hatte keinen Boden: Eine lange Reise konnte ein Highlight bis auf ein Bild abtragen, und ein Bild von einem Ort, der zählte, ist so gut wie keins.
+
+  Neu ist ein Boden je Wichtigkeit (1 / 2 / 4 / 5), der nur greift, solange der Tag das Material **hat** — er erfindet nie Bilder. Erst wenn alle Tage auf ihrem Boden stehen und es immer noch zu viele sind, geben auch die Böden nach, weiterhin bei den unwichtigsten zuerst.
+
+  Nichts daran kennt die Wolfsschanze. Was es kennt: Wichtigkeit plus vorhandenes Material muss ein knappes Budget überleben.
+
 ## [4.64.0] - 2026-08-09
 
 ### Changed
