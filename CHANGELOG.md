@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.69.0] - 2026-08-09
+
 ### Added
 
 - **Der Camper bekommt endlich ein Bild.** Der Film konnte eine Figur schon zeichnen — klein auf der Karte, groß im Vorspann. Was fehlte, war jeder Weg, wie eins *ankommt*. Ein Bildmodell wäre naheliegend und ist bewusst nicht der erste Weg: Es kostet bei jedem Versuch Geld und liefert jedes Mal ein anderes Fahrzeug — und dass es in jedem Film **dasselbe** ist, ist der ganze Wert der Figur.
