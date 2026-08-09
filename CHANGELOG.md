@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.59.0] - 2026-08-09
+
 ### Fixed
 
 - **„Smålandet" wurde zu „landet".** Die Motiverkennung hat Wörter *vor* dem Normalisieren zerlegt, wodurch jeder Ring, Schrägstrich und Akzent eine Wortgrenze war — auf einer Reise durch Schweden und Norwegen also die halbe Landkarte. Der Tag der Elchsafari verlangte dadurch ein Foto von „landet". Jetzt wird zuerst normalisiert (alle Akzente über die Unicode-Zerlegung, dazu ø, æ, ß, đ, ŋ) und dann zerlegt: `Smålandet Markaryds Älgsafari` → `smalandet, markaryds, algsafari`, `Tromsø Ålesund Ærø` → `tromso, alesund, aero`.
