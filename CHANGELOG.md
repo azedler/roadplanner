@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.68.0] - 2026-08-09
+
 ### Added
 
 - **Der Soundtrack ist jetzt ein Weg, kein Modul.** Der MusicPlan aus 4.66.0 konnte rechnen, war aber an nichts angeschlossen: Beide Aufrufstellen im Panel fragten nach Musik für einen Film der Länge **null**, und ein Plan über null Sekunden bestellt nichts. Jetzt fragt das Panel den Film nach seiner Länge, und zwar über denselben Szenenplaner, der den echten Render zeitet — eine Schätzung aus Sekunden je Bild würde bei der nächsten Timing-Änderung stumm auseinanderlaufen.
