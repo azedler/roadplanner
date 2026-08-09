@@ -801,6 +801,25 @@ export const PANEL_STYLES = `<style>
       .media-page-row span { color: var(--secondary-text-color); font-size: 0.9em; }
       .media-page-row button[disabled] { opacity: 0.4; pointer-events: none; }
       .media-controls-footer { justify-content: center; margin-top: 4px; }
+      .story-curation { border-top: 1px solid var(--divider-color); margin-top: 12px; padding-top: 12px; display: grid; gap: 10px; }
+      .story-curation-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+      .story-curation-counts { margin: 0; color: var(--secondary-text-color); font-size: 0.92em; }
+      .story-motifs { display: flex; flex-wrap: wrap; gap: 6px; }
+      .story-motif { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 10px; font-size: 0.85em; border: 1px solid var(--divider-color); }
+      .story-motif ha-icon { --mdc-icon-size: 16px; }
+      .story-motif.met { color: var(--success-color, #2e7d32); border-color: color-mix(in srgb, var(--success-color, #2e7d32) 45%, var(--divider-color)); }
+      .story-motif.unmet { color: var(--warning-color, #b26a00); border-color: color-mix(in srgb, var(--warning-color, #b26a00) 45%, var(--divider-color)); }
+      .story-missing { margin: 0; }
+      .story-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+      .story-pick { margin: 0; position: relative; border-radius: 12px; overflow: hidden; background: var(--card-background-color); border: 1px solid var(--divider-color); }
+      .story-pick img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+      .story-pick figcaption { padding: 4px 6px; font-size: 0.75em; color: var(--secondary-text-color); }
+      .story-pick.spare { opacity: 0.72; }
+      .story-pick.pin-show { border-color: var(--primary-color); }
+      .story-pick.pin-hero { border-color: var(--warning-color, #b26a00); }
+      .story-pick.pin-exclude { opacity: 0.4; }
+      .story-pick-actions { display: flex; justify-content: space-between; padding: 2px 4px; }
+      .story-pick-actions ha-icon { --mdc-icon-size: 18px; }
       .media-confirm-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
       .media-confirm-row small { color: var(--secondary-text-color); }
       .media-card { border: 1px solid var(--divider-color); border-radius: 18px; background: var(--card-background-color); overflow: hidden; display: grid; grid-template-rows: 190px auto auto; box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.12)); }
