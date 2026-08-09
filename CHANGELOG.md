@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.53.0] - 2026-08-09
+
 ### Changed
 
 - **Eine Tageswanderung gehört zu ihrem Tag.** In Skuleskogen lag die komplette Wanderung – parken, zum See laufen, in der Hütte essen, zurück – bei 2,6 bis 3,9 km von den Stopps und damit vollständig in „Zu prüfen". Zwei Schwellen haben Nein gesagt, und beide stellten die falsche Frage.
