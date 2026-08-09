@@ -377,7 +377,7 @@ jobs:
       # The whole point of the film: twenty-five days in one render. If the
       # manifest cannot carry a trip, this is where it shows - and it shows
       # here rather than on somebody's Home Assistant.
-      - name: Render a whole 25-day trip film
+      - name: Render a whole trip film
         run: |
           set -euo pipefail
           python3 - <<'INNER'
@@ -403,7 +403,19 @@ jobs:
           plan_module = importlib.import_module(f"{PACKAGE}.trip_film_plan")
           map_module = importlib.import_module(f"{PACKAGE}.trip_map_context")
 
-          DAYS = 25
+          # Ten days, and the number is a budget rather than a taste.
+          # Twenty-five took 37 minutes of a 40-minute deadline after the
+          # dramaturgy grew denser - three minutes from turning red, and a
+          # red render means no add-on image at all. Ten still covers
+          # every importance, every visual style and every story role,
+          # because the cycles are 4, 5 and 5 long.
+          #
+          # What is lost is the *combinations* of them, and that is
+          # deliberate: `tests/test_trip_film_plan.py` already walks every
+          # style against every plausible photo count in under a second.
+          # This step is here to prove the pipeline - package, render,
+          # music, crew, cleanup - not to re-enumerate the planner.
+          DAYS = 10
           # The film has to look different from day to day, so the CI film
           # exercises every importance and every style rather than one.
           WEIGHTS = ["transition", "normal", "highlight", "major_highlight"]
@@ -483,7 +495,8 @@ jobs:
           for day in range(DAYS):
               start = (23.0 + day * 0.35, 61.0 + day * 0.22)
               end = (23.0 + (day + 1) * 0.35, 61.0 + (day + 1) * 0.22)
-              mode = "ferry" if day == 11 else "driving"
+              # Day 5, so the crossing still exists in a ten-day film.
+              mode = "ferry" if day == 4 else "driving"
               line = [
                   [
                       start[0] + (end[0] - start[0]) * step / 40,
@@ -515,6 +528,12 @@ jobs:
               f"Kartenkontext: {map_context['chapter_count']} Kapitel, "
               f"{map_context['point_count']} Punkte, Faehre: {map_context['has_ferry']}"
           )
+          # Asserted rather than printed. The crossing was on day 12 while
+          # the film was 25 days long; shortening the film to ten silently
+          # removed it, and a printed False looks exactly like a printed
+          # True to everybody who is not reading the log that morning.
+          assert map_context["has_ferry"], "Der CI-Film hat keine Faehre mehr"
+          assert map_context["chapter_count"] == DAYS, map_context
 
           package = {
               "film_package_version": 1,

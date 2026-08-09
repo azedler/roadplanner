@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Der Renderer wurde seit dem 8. August nicht mehr veröffentlicht.** Die CI-Stufe, die einen ganzen Reisefilm rendert, lädt die Planer-Module über den Dateipfad – und ein so geladenes Modul hat kein Elternpaket. Als `trip_map_context` einen Geschwister-Import bekam (`from .trip_film_plan import readable_place`, damit aus `park4night - (595 50) Mjölby - 24 Vetagatan` ein `Mjölby` wird), brach der Schritt mit `ImportError` ab, bevor ein einziges Bild gerendert wurde.
+
+  Der teure Teil war nicht der, der fehlschlug – aber `Publish image` hängt an `needs: image`. Das Add-on **0.10.0-motion.1** wurde viermal gebaut und nie veröffentlicht; in Home Assistant sieht das aus wie „An unknown error occurred with app …", ohne dass irgendwo steht, warum. Dieselbe Form wie damals bei 0.8.0-journey.1. Die Module werden jetzt einmal als Paket registriert, alle vier – der nächste Geschwister-Import ist ein normaler Import statt eines Ausfalls.
+
+- **Der CI-Film war drei Minuten vor der eigenen Zeitgrenze.** 25 Tage brauchten 37 von 40 erlaubten Minuten, nachdem die Bild-Dramaturgie dichter geworden war – und rot heißt hier: kein Add-on-Image. Jetzt zehn Tage (~16 min), was jede Wichtigkeit, jeden visuellen Stil und jede Erzählrolle weiterhin abdeckt; die *Kombinationen* daraus prüft `tests/test_trip_film_plan.py` in unter einer Sekunde. Die Fähre lag auf Tag 12 und wäre beim Kürzen still verschwunden – sie steht jetzt auf Tag 5 und wird geprüft statt nur gedruckt.
+
 ## [4.54.0] - 2026-08-09
 
 ### Changed
