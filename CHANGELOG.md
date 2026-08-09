@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.54.0] - 2026-08-09
+
 ### Changed
 
 - **Die Zuordnungsregel besteht nur noch aus einer Frage.** Vorher war sie ein Stapel Schwellen – Nahradius, Weitradius, Konkurrenzverhältnis, Mindestabstand –, und jede davon hat echte Fotos aus einem Grund abgelehnt, den niemand hatte: ein Wildpark größer als 750 m (253 wartende Bilder), eine Stadt mit vier Stopps auf einem Kilometer („mehrdeutig", obwohl alle vier derselbe Tag waren), eine Tageswanderung in Skuleskogen 2,6–3,9 km draußen *zwischen* zwei Stopps desselben Tages.
