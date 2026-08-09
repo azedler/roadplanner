@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.61.0] - 2026-08-09
+
+### Changed
+
+- **Motive heißen jetzt so, wie man sie liest.** Am echten Elchsafari-Tag stand unter dem Elchfoto „zeigt smalandet" und im Motiv-Chip „smalandet" — ein Datenbankschlüssel im Satzgewand. Angezeigt wird jetzt der Ort, wie er im Roadbook steht: „zeigt Smålandet Markaryds Älgsafari". Das Token bleibt, was vergleicht — Vergleichen ist das, was es gut kann.
+
 ## [4.60.0] - 2026-08-09
 
 ### Added

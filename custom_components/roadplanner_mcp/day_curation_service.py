@@ -461,6 +461,7 @@ def day_summary(record: dict[str, Any]) -> dict[str, Any]:
         "analysed_count": record.get("analysed_count") or 0,
         "analysis_count": record.get("analysis_count") or 0,
         "must_cover": (record.get("brief") or {}).get("must_cover") or [],
+        "labels": (record.get("brief") or {}).get("labels") or {},
         "covered": (record.get("coverage") or {}).get("met") or [],
         "missing": (record.get("coverage") or {}).get("unmet") or [],
         "media_ids": record.get("media_ids") or [],

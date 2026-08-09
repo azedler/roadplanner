@@ -499,6 +499,7 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
     must: list[str] = []
     nice: list[str] = []
     alternatives: dict[str, list[str]] = {}
+    labels: dict[str, str] = {}
 
     def _absorb(text: Any) -> None:
         """One name is one requirement, answered by any of its words.
@@ -523,6 +524,11 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
         label = specific[0]
         if label not in must:
             must.append(label)
+        # What a person is shown instead of the token. "zeigt smalandet"
+        # is a database key wearing a sentence; "zeigt Smålandet
+        # Markaryds Älgsafari" is the place they went. The token stays
+        # the thing that matches, because matching is what it is good at.
+        labels.setdefault(label, " ".join(_text(text).split())[:80])
         # Only the specific words answer the requirement. The generic
         # tail must not: "Elchpark" splits into "elch" + "park", and a
         # photograph of a *Parkplatz* then satisfied a day about a moose
@@ -573,6 +579,7 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
     kept = must[:MAX_MUST_COVER]
     return {
         "must_cover": kept,
+        "labels": {label: labels.get(label, label) for label in kept},
         "story_motifs": story_tokens,
         # What else counts as showing each requirement. Kept beside the
         # labels rather than inside them so the panel can print a short
@@ -603,6 +610,12 @@ def motif_matches(required: str, motifs: Iterable[str]) -> bool:
         if wanted in seen or seen in wanted:
             return True
     return False
+
+
+def _label_for(brief: dict[str, Any], token: str) -> str:
+    """The readable name of a requirement, falling back to its token."""
+    labels = brief.get("labels") if isinstance(brief.get("labels"), dict) else {}
+    return str(labels.get(token) or token)
 
 
 def coverage(
@@ -734,7 +747,7 @@ def select_for_chapter(
         for media_id in matches:
             if media_id not in selected and len(selected) < max(limit, 1):
                 selected.append(media_id)
-                reasons[media_id] = f"zeigt {required}"
+                reasons[media_id] = f"zeigt {_label_for(brief, required)}"
                 break
 
     remaining = [media_id for media_id in ordered if media_id not in selected]
