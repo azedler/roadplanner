@@ -102,11 +102,14 @@ _IMPORTANCE_ORDER = (
 # for a day follows from the scenes it actually got. A day with one photo
 # stays short even when it is a highlight - padding a thin day is exactly
 # the "artificially extended" the brief rules out.
+# A title card is read, so its floor comes from reading rather than from
+# taste. These are the minimums; `reading_frames` raises them for a long
+# title, because a card nobody finished reading is a card nobody read.
 _CARD_FRAMES = {
-    IMPORTANCE_TRANSITION: 45,
-    IMPORTANCE_NORMAL: 60,
-    IMPORTANCE_HIGHLIGHT: 75,
-    IMPORTANCE_MAJOR: 90,
+    IMPORTANCE_TRANSITION: 66,
+    IMPORTANCE_NORMAL: 84,
+    IMPORTANCE_HIGHLIGHT: 100,
+    IMPORTANCE_MAJOR: 120,
 }
 _PHOTO_FRAMES = {
     IMPORTANCE_TRANSITION: 105,
@@ -168,11 +171,16 @@ PHOTO_WEIGHTS = {
 # more briefly and more of them are grouped, few pictures means each gets
 # room. What must not happen is a chapter growing linearly with its
 # library, which is what a per-picture duration guarantees.
+# Raised across the board after the first full watch-through: "das
+# gesamte Tempo ist zu hoch, Bilder, Text und Karte wechseln zu
+# schnell". A film that has to be paused to be read is not a film.
+# Length is explicitly the cheaper currency here - five to seven minutes
+# for three weeks is fine if it is comfortable to watch.
 _CHAPTER_FRAMES = {
-    IMPORTANCE_TRANSITION: 240,
-    IMPORTANCE_NORMAL: 375,
-    IMPORTANCE_HIGHLIGHT: 495,
-    IMPORTANCE_MAJOR: 630,
+    IMPORTANCE_TRANSITION: 300,
+    IMPORTANCE_NORMAL: 450,
+    IMPORTANCE_HIGHLIGHT: 600,
+    IMPORTANCE_MAJOR: 780,
 }
 
 # What a shot is worth when nothing is competing for the time: the
@@ -184,9 +192,9 @@ _CHAPTER_FRAMES = {
 # So a day is worth the smaller of "what its importance buys" and "what
 # its material can honestly fill".
 _NATURAL_FRAMES = {
-    SCENE_HERO: 165,
-    SCENE_COLLAGE: 180,
-    SCENE_PHOTO: 110,
+    SCENE_HERO: 210,
+    SCENE_COLLAGE: 240,
+    SCENE_PHOTO: 140,
     # A clip is worth what it was cut to, so it has no natural length of
     # its own - the value here is only a fallback for a clip that arrived
     # without one.
@@ -196,8 +204,17 @@ _NATURAL_FRAMES = {
 # The shortest a single picture may be held, and the shortest a group may.
 # Below the first a photograph is a flicker rather than a memory; a group
 # needs longer because there is more in it to look at.
-MIN_PHOTO_FRAMES = 52
-MIN_GROUP_FRAMES = 95
+# Raised from 52/95. At 30 fps the old floor held a photograph for 1.7
+# seconds - long enough to register that something was there, not long
+# enough to look at it. A collage at 3.2 seconds asked for four pictures
+# to be taken in at under a second each.
+#
+# These floors are what makes a rich day LONGER rather than faster. That
+# is the intended trade: the day's importance buys a budget, and when
+# the budget cannot pay for its pictures at a watchable pace, the day
+# overruns instead of the pictures flickering.
+MIN_PHOTO_FRAMES = 78
+MIN_GROUP_FRAMES = 140
 # Above this many single pictures in one day, the rest are grouped. Four
 # stills in a row is a sequence; nine is a slideshow.
 MAX_SINGLES_PER_CHAPTER = 3
@@ -241,12 +258,64 @@ MAP_FOCUS_SHARE = 0.60
 # started squeezing the map: a leg is recap, then a glide, then the drive,
 # and at a second and a half the recap is a sixth of a second. A map that
 # short is not a short map, it is a glitch.
-MAP_FRAMES_MIN = 78
+MAP_FRAMES_MIN = 105
 MAP_FRAMES_MAX = 210
 # How short the pictures of a mapped day may be scaled, and how short any
 # single scene may become. Below these a photograph is a flicker.
 MIN_PICTURE_SHARE = 0.6
-MIN_SCENE_FRAMES = 45
+MIN_SCENE_FRAMES = 66
+
+# --- how long a text has to stay on screen ----------------------------
+#
+# The complaint was not "the film is fast", it was "es wechselt zu
+# schnell" - and a text that changes before it is finished is the worst
+# case of that, because the viewer knows exactly what they missed.
+#
+# So a text's duration comes from the text. Fifteen characters a second
+# is a deliberately unhurried on-screen reading pace for German (roughly
+# 180 words a minute); screen text is read slower than a book, and a
+# viewer is also looking at a photograph.
+#
+# The two constants around it matter as much as the rate: something has
+# to be noticed before it can be read, and past a point a still frame
+# with a sentence on it stops being a scene.
+READING_CHARS_PER_SECOND = 15.0
+READING_LEAD_IN_FRAMES = 24
+READING_MIN_FRAMES = 78
+READING_MAX_FRAMES = 260
+
+
+def reading_frames(
+    text: Any,
+    *,
+    minimum: int = READING_MIN_FRAMES,
+    maximum: int = READING_MAX_FRAMES,
+) -> int:
+    """How long this text needs to be readable, in frames at 30 fps.
+
+    Derived rather than fixed, because "a caption" is anything from four
+    words to three lines, and one duration for both is either a flicker
+    or a wait. A short caption may go by quickly; a real sentence gets
+    the seconds it takes.
+    """
+    length = len(" ".join(str(text or "").split()))
+    if not length:
+        return 0
+    needed = READING_LEAD_IN_FRAMES + round(length / READING_CHARS_PER_SECOND * FILM_FPS)
+    return int(max(minimum, min(maximum, needed)))
+
+
+# How much text still reads over a photograph, and where it stops being a
+# caption and becomes a page.
+#
+# Above this, a caption over a picture is a paragraph with a photograph
+# behind it: the scrim has to cover half the frame to stay legible, the
+# picture is gone anyway, and the text is still clamped. The planner
+# gives that text its own scene instead - which also fixes the reported
+# "Text läuft unten aus dem Bild", because the fix for text that does not
+# fit is not a smaller font, it is a different scene.
+CAPTION_OVER_PHOTO_CHARS = 105
+
 
 # What the map costs is taken back out of the same day. A day keeps at
 # least one picture - a map that ate the last photograph would have
@@ -518,7 +587,22 @@ def _chapter_scenes(
     # a row are most of why the film read as "announcement, one photo,
     # announcement, one photo".
     folded = has_map and (importance == IMPORTANCE_TRANSITION or style == "map_focus")
-    card_frames = 0 if folded else _CARD_FRAMES[importance]
+    # A card carries a title and often a line of facts. Whichever takes
+    # longer to read sets its length, never less than the importance
+    # floor - a card that changes mid-title is the reported complaint in
+    # its purest form.
+    card_frames = (
+        0
+        if folded
+        else max(
+            _CARD_FRAMES[importance],
+            reading_frames(
+                str(chapter.get("title") or ""),
+                minimum=_CARD_FRAMES[importance],
+                maximum=200,
+            ),
+        )
+    )
 
     map_frames = 0
     if has_map:
@@ -554,9 +638,23 @@ def _chapter_scenes(
         # Not "keine Fotos vorhanden" on screen - that is a diagnostic and
         # belongs in a log. The day gets a written page instead, which is
         # also what makes a photo-less last day flow into the outro.
-        text_frames = max(MIN_GROUP_FRAMES, total - card_frames - map_frames)
+        # A written page IS the scene, so it is paid by what it says
+        # rather than by what is left over. The leftover was how a long
+        # day-without-photos text got the same seconds as a short one.
+        text_frames = max(
+            MIN_GROUP_FRAMES,
+            reading_frames(caption),
+            total - card_frames - map_frames,
+        )
         scenes.append(scene(SCENE_TEXT, [], text_frames))
         return scenes
+
+    # A caption longer than a caption is a page. Giving it to the photo
+    # scene means a scrim over half the frame, a clamped sentence, and
+    # the reported "Text läuft unten aus dem Bild" - so it gets a scene
+    # of its own, before the pictures, and the pictures keep their room.
+    long_caption = len(caption) > CAPTION_OVER_PHOTO_CHARS
+    caption_frames = reading_frames(caption) if long_caption else 0
 
     chosen_clips = list(clips or [])
     clip_shots = _clip_shots(chosen_clips, importance)
@@ -572,11 +670,13 @@ def _chapter_scenes(
     natural = sum(_NATURAL_FRAMES.get(kind, MIN_PHOTO_FRAMES) for kind, _, _ in shots)
     picture_budget = max(
         MIN_PHOTO_FRAMES,
-        min(total - card_frames - map_frames - clip_frames, natural),
+        min(total - card_frames - map_frames - clip_frames - caption_frames, natural),
     )
     # Movement first, then the stills. A clip after the photographs reads
     # as an afterthought; a clip before them reads as arriving somewhere
     # and then looking around.
+    if caption_frames:
+        scenes.append(scene(SCENE_TEXT, [], caption_frames))
     for _, indices, _ in clip_shots:
         clip = chosen_clips[indices[0]]
         scenes.append(

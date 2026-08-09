@@ -84,10 +84,16 @@ def verify_importance_decides_how_long_a_day_lasts() -> None:
     plan = _plan(chapters)
     seconds = [_chapter_frames(plan, index) / plan_module.FILM_FPS for index in range(4)]
     assert seconds[0] < seconds[1] < seconds[2] < seconds[3], seconds
-    assert 4 <= seconds[0] <= 9, seconds[0]
-    assert 8 <= seconds[1] <= 14, seconds[1]
-    assert 12 <= seconds[2] <= 20, seconds[2]
-    assert 15 <= seconds[3] <= 26, seconds[3]
+    # Widened after the tempo pass. The reported complaint was that
+    # everything changed too fast, so every floor went up: a photograph
+    # holds 2.6 s instead of 1.7, a group 4.7 s instead of 3.2, and a
+    # title card is paid for by how long its title takes to read. The
+    # ordering by importance is what this check is really about; the
+    # absolute seconds are a sanity band, not a target.
+    assert 8 <= seconds[0] <= 14, seconds[0]
+    assert 12 <= seconds[1] <= 20, seconds[1]
+    assert 16 <= seconds[2] <= 26, seconds[2]
+    assert 20 <= seconds[3] <= 34, seconds[3]
 
 
 def verify_more_pictures_do_not_buy_more_minutes() -> None:
@@ -397,6 +403,65 @@ verify_the_whole_trip_stays_inside_the_photo_budget()
 verify_a_technical_stop_name_does_not_reach_a_title_card()
 verify_the_route_line_is_short_and_without_repeats()
 verify_a_broken_plan_is_refused()
+def verify_a_text_is_shown_long_enough_to_read_it() -> None:
+    """The reported complaint, as arithmetic.
+
+    "Das gesamte Tempo ist zu hoch: Bilder, Text und Karte wechseln zu
+    schnell." A text that changes before it is finished is the worst
+    case of that, because the viewer knows exactly what they missed.
+
+    So a text's duration comes from the text, at a deliberately
+    unhurried German on-screen reading pace, with a floor for noticing
+    it and a ceiling past which a still frame stops being a scene.
+    """
+    short = plan_module.reading_frames("Erster Halt am See.")
+    long = plan_module.reading_frames(
+        "Nach unserem Start bogen wir ab zur Älgsafari, wo uns mächtige "
+        "Elche und Bisons direkt auf dem Weg begegneten."
+    )
+    assert short < long, (short, long)
+    assert short >= plan_module.READING_MIN_FRAMES
+    assert long <= plan_module.READING_MAX_FRAMES
+    # Roughly four seconds for a sentence of that length, not two.
+    assert long / plan_module.FILM_FPS >= 4.0, long / plan_module.FILM_FPS
+    assert plan_module.reading_frames("") == 0
+    assert plan_module.reading_frames("   ") == 0
+
+
+def verify_a_long_caption_gets_its_own_scene() -> None:
+    """The other half of "Text läuft unten aus dem Bild".
+
+    A paragraph over a photograph needs a scrim across half the frame to
+    stay legible, and then the photograph is gone anyway. The fix for
+    text that does not fit is not a smaller font - it is a different
+    scene.
+    """
+    long_caption = (
+        "Nach unserem Start bogen wir ab zur Älgsafari, wo uns mächtige Elche "
+        "und Bisons direkt auf dem Weg begegneten. Am Abend machten wir es uns "
+        "am Lagerfeuer gemütlich."
+    )
+    assert len(long_caption) > plan_module.CAPTION_OVER_PHOTO_CHARS
+    # A package chapter carries its final text in `story` - the choice
+    # between caption and story was made when the package was built.
+    chapter = _chapter(0, importance="normal", photos=4, story=long_caption)
+    plan = _plan([chapter])
+    kinds = [scene["type"] for scene in plan["scenes"]]
+    assert plan_module.SCENE_TEXT in kinds, kinds
+    text_scene = next(s for s in plan["scenes"] if s["type"] == plan_module.SCENE_TEXT)
+    assert text_scene["frames"] >= plan_module.reading_frames(long_caption)
+    # And the pictures are still there - the text did not replace them.
+    assert any(s["type"] in {plan_module.SCENE_PHOTO, plan_module.SCENE_HERO,
+                             plan_module.SCENE_COLLAGE} for s in plan["scenes"]), kinds
+
+    # A short caption stays over the photograph, where it belongs.
+    brief = _chapter(1, importance="normal", photos=4, story="Erster Halt am See.")
+    kinds = [scene["type"] for scene in _plan([brief])["scenes"]]
+    assert plan_module.SCENE_TEXT not in kinds, kinds
+
+
+verify_a_text_is_shown_long_enough_to_read_it()
+verify_a_long_caption_gets_its_own_scene()
 print("Trip film plan tests passed.")
 
 def verify_no_curated_picture_is_ever_dropped() -> None:

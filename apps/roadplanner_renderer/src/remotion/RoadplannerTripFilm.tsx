@@ -27,6 +27,13 @@
  */
 import React from "react";
 import {
+  MAX_TEXT_WIDTH,
+  SAFE_BOTTOM,
+  SAFE_SIDE,
+  captionBox,
+  fitText,
+} from "../textfit.mjs";
+import {
   AbsoluteFill,
   Audio,
   Img,
@@ -206,6 +213,12 @@ const formatDuration = (minutes: number): string => {
  */
 const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPhoto }) => {
   if (!text) return null;
+  // Sized to fit rather than clamped to two lines. The old version cut
+  // the sentence off mid-word with `overflow: hidden`, which reads as
+  // "text ran out of the frame" and is worse than running out: the
+  // viewer cannot tell whether they missed anything.
+  const box = captionBox();
+  const fitted = fitText(text, box);
   return (
     <AbsoluteFill style={{ justifyContent: "flex-end" }}>
       <div
@@ -215,19 +228,21 @@ const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPho
           background: overPhoto
             ? "linear-gradient(transparent, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.78))"
             : "transparent",
-          padding: overPhoto ? "150px 96px 58px" : "0 110px 0",
+          padding: overPhoto
+            ? `150px ${SAFE_SIDE}px ${SAFE_BOTTOM}px`
+            : `0 ${SAFE_SIDE + 14}px 0`,
           fontFamily: "sans-serif",
           color: INK,
-          fontSize: 29,
-          lineHeight: 1.36,
-          maxWidth: 1030,
-          display: "-webkit-box",
-          WebkitBoxOrient: "vertical",
-          WebkitLineClamp: 2,
-          overflow: "hidden",
+          fontSize: fitted.fontSize,
+          lineHeight: box.lineHeight,
+          maxWidth: MAX_TEXT_WIDTH,
+          // No clamp and no hidden overflow. A text that genuinely does
+          // not fit here never reaches this component - the planner
+          // gives it its own scene, which is the honest answer.
+          overflowWrap: "break-word",
         }}
       >
-        {text}
+        {fitted.text}
       </div>
     </AbsoluteFill>
   );
@@ -299,7 +314,28 @@ const ChapterCardScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = (
       <div style={{ fontSize: 26, color: MUTED, letterSpacing: 4 }}>
         {[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
       </div>
-      <div style={{ fontSize: 62, fontWeight: 700, marginTop: 16, maxWidth: 1240, lineHeight: 1.1 }}>
+      <div
+        style={{
+          // Sized to the frame rather than typed in. A long German title
+          // at 62 px wraps to three lines and puts the third one below
+          // the picture - which is the reported "Text läuft unten aus
+          // dem Bild" in its most visible form.
+          ...(() => {
+            const fitted = fitText(chapter.title || `Tag ${chapter.dayNumber}`, {
+              width: MAX_TEXT_WIDTH,
+              maxLines: 3,
+              maxFontSize: 62,
+              minFontSize: 34,
+              weight: 700,
+              lineHeight: 1.12,
+            });
+            return { fontSize: fitted.fontSize, lineHeight: 1.12 };
+          })(),
+          fontWeight: 700,
+          marginTop: 16,
+          maxWidth: MAX_TEXT_WIDTH,
+        }}
+      >
         {chapter.title || `Tag ${chapter.dayNumber}`}
       </div>
       <div style={{ height: 5, width: 150, backgroundColor: accent, margin: "24px 0" }} />
@@ -570,7 +606,25 @@ const TextScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
         {[`TAG ${chapter.dayNumber}`, chapter.date].filter(Boolean).join("   ·   ")}
       </div>
       <div style={{ height: 5, width: 110, backgroundColor: accent, margin: "22px 0 30px" }} />
-      <div style={{ fontSize: 42, lineHeight: 1.45, maxWidth: 1320 }}>
+      <div
+        style={{
+          ...(() => {
+            const fitted = fitText(
+              chapter.story || chapter.title || `Tag ${chapter.dayNumber}`,
+              {
+                width: MAX_TEXT_WIDTH,
+              maxLines: 7,
+              maxFontSize: 42,
+              minFontSize: 26,
+              lineHeight: 1.45,
+              },
+            );
+            return { fontSize: fitted.fontSize };
+          })(),
+          lineHeight: 1.45,
+          maxWidth: MAX_TEXT_WIDTH,
+        }}
+      >
         {chapter.story || chapter.title || `Tag ${chapter.dayNumber}`}
       </div>
     </AbsoluteFill>
