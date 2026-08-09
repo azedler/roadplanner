@@ -48,6 +48,7 @@ import world from "world-atlas/countries-50m.json";
 import coarse from "world-atlas/countries-110m.json";
 
 import { Camper } from "./CharacterAssets";
+import { placeLabels } from "../maplabels.mjs";
 import {
   bearingAtDistance,
   bearingWindow,
@@ -465,52 +466,84 @@ export const TripMap: React.FC<TripMapProps> = ({
           every magnification, so a zoom changes the map and not the
           typography. */}
       {markPoint ? <Mark projection={projection} camera={camera} point={markPoint} /> : null}
-      {labels.map((label) => {
-        const [x, y] = onScreen(projection, camera, projection.project(label.point));
-        if (x < -200 || y < -200 || x > projection.width + 200 || y > projection.height + 200) {
-          return null;
-        }
-        // The camper stands on the place it has just reached, so its
-        // label lands underneath the vehicle. Dropping it is right
-        // rather than nudging it: the caption along the bottom already
-        // names where the day ends, and a name half behind a van reads
-        // as a mistake in a way that no name does not.
-        if (camperScreen) {
-          const gap = Math.hypot(x - camperScreen[0], y - camperScreen[1]);
-          if (gap < CAMPER_LABEL_CLEARANCE) return null;
-        }
-        return label.kind === "country" ? (
-          <text
-            key={`${label.text}-country`}
-            x={x}
-            y={y}
-            fill={COUNTRY_LABEL}
-            fontSize={26}
-            fontFamily="sans-serif"
-            letterSpacing={6}
-            textAnchor="middle"
-            opacity={0.75}
-          >
-            {label.text.toUpperCase()}
-          </text>
-        ) : (
-          <g key={`${label.text}-${Math.round(x)}`}>
-            <circle cx={x} cy={y} r={3.6} fill={LABEL} />
-            <text
-              x={x + 10}
-              y={y + 5}
-              fill={LABEL}
-              fontSize={19}
-              fontFamily="sans-serif"
-              stroke={WATER}
-              strokeWidth={4}
-              paintOrder="stroke"
-            >
-              {label.text}
-            </text>
-          </g>
+      {(() => {
+        // Decided once per frame, from geometry: which names can be read
+        // and which side of their dot they sit on. Two haloed names in
+        // the same twenty pixels are not two names, they are a smudge -
+        // so the second is dropped rather than drawn over the first.
+        const countries = labels.filter((label) => label.kind === "country");
+        const places = labels.filter((label) => label.kind !== "country");
+        const candidates = places
+          .map((label) => {
+            const [x, y] = onScreen(projection, camera, projection.project(label.point));
+            return { text: label.text, x, y, fontSize: 19 };
+          })
+          .filter((label) => {
+            // The camper stands on the place it has just reached, so
+            // its label lands underneath the vehicle. Dropping it is
+            // right rather than nudging it: the caption along the
+            // bottom already names where the day ends, and a name half
+            // behind a van reads as a mistake in a way that no name
+            // does not.
+            if (!camperScreen) return true;
+            return (
+              Math.hypot(label.x - camperScreen[0], label.y - camperScreen[1]) >=
+              CAMPER_LABEL_CLEARANCE
+            );
+          });
+        const placed = placeLabels(candidates, {
+          width: projection.width,
+          height: projection.height,
+        });
+        return (
+          <>
+            {countries.map((label) => {
+              const [x, y] = onScreen(projection, camera, projection.project(label.point));
+              if (
+                x < -200 ||
+                y < -200 ||
+                x > projection.width + 200 ||
+                y > projection.height + 200
+              ) {
+                return null;
+              }
+              return (
+                <text
+                  key={`${label.text}-country`}
+                  x={x}
+                  y={y}
+                  fill={COUNTRY_LABEL}
+                  fontSize={26}
+                  fontFamily="sans-serif"
+                  letterSpacing={6}
+                  textAnchor="middle"
+                  opacity={0.75}
+                >
+                  {label.text.toUpperCase()}
+                </text>
+              );
+            })}
+            {placed.map((label) => (
+              <g key={`${label.text}-${Math.round(label.x)}`}>
+                <circle cx={label.x} cy={label.y} r={3.6} fill={LABEL} />
+                <text
+                  x={label.side === "left" ? label.x - 10 : label.x + 10}
+                  y={label.y + 5}
+                  fill={LABEL}
+                  fontSize={19}
+                  fontFamily="sans-serif"
+                  textAnchor={label.side === "left" ? "end" : "start"}
+                  stroke={WATER}
+                  strokeWidth={4}
+                  paintOrder="stroke"
+                >
+                  {label.text}
+                </text>
+              </g>
+            ))}
+          </>
         );
-      })}
+      })()}
       {camper ? (
         <Camper
           {...(() => {

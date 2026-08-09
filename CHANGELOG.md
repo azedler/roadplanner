@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ortsnamen auf der Karte sind wieder lesbar** (Renderer-Add-on **0.15.0-labels.1**). Bisher wurde jeder Name gezeichnet: an seinem Punkt, immer nach rechts, mit Halo und sonst nichts. Auf einer dünn besetzten Karte geht das gut, auf einer echten entstehen zwei Fehler, die man sofort sieht, ohne sie benennen zu können.
+
+  Zwei Stopps vierzig Kilometer auseinander liegen auf einer Skandinavienkarte zwanzig Pixel auseinander — und zwei Namen mit Halo in denselben zwanzig Pixeln sind keine zwei Namen, sondern ein Fleck. Keiner davon ist lesbar, also ist *beide* zeichnen strikt schlechter als einen. Und ein Stopp nahe dem rechten Rand schob seinen Namen aus dem Bild, weil nie etwas auf die andere Seite umgeklappt hat.
+
+  Neu `maplabels.mjs`: entscheidet je Bild aus reiner Geometrie, welche Namen gezeichnet werden und auf welcher Seite ihres Punktes sie sitzen. Die Reihenfolge entscheidet bei Überschneidung — die Rangfolge der Karte, nicht die Position auf dem Bildschirm. Das ist der wichtige Teil: Der Bildschirm bewegt sich, und ein Name, der bei Bild 100 gewinnt und bei Bild 101 verliert, flackert.
+
 ## [4.69.0] - 2026-08-09
 
 ### Added
