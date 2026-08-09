@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Der Soundtrack ist jetzt ein Weg, kein Modul.** Der MusicPlan aus 4.66.0 konnte rechnen, war aber an nichts angeschlossen: Beide Aufrufstellen im Panel fragten nach Musik für einen Film der Länge **null**, und ein Plan über null Sekunden bestellt nichts. Jetzt fragt das Panel den Film nach seiner Länge, und zwar über denselben Szenenplaner, der den echten Render zeitet — eine Schätzung aus Sekunden je Bild würde bei der nächsten Timing-Änderung stumm auseinanderlaufen.
+
+  Neu im Story-Editor: **„KI-Musik: was würde sie kosten?"** — kostenlos, liest nur. Es zeigt die Abschnitte, welche davon schon erzeugt sind und den Preis der fehlenden, bevor der Knopf existiert, der etwas ausgibt. Danach steht **„KI-Musik"** als Auswahl neben den eigenen Titeln.
+
+- **Der Renderer spielt den Soundtrack als Abschnitte.** Bisher konnte ein Filmpaket genau eine Datei mitbringen, geloopt über die ganze Reise. Neu reisen bis zu vier nummerierte Dateien mit, jede mit Startzeitpunkt, Länge und ihren Ein-/Ausblenden — die Überblendungen kommen aus demselben Plan, der die Erzeugung bepreist hat, damit Klang und Preis nie von zwei verschiedenen Rechnungen stammen. Jeder Abschnitt wird wie die Einzeldatei geprüft: Pfad im Auftragsordner, Größe, SHA-256. Ein Abschnitt, dessen Datei fehlt, kostet den Abschnitt und nicht den Film.
+
+### Fixed
+
+- **Jeder bezahlte Knopf im Panel sah aus wie ein kostenloser.** Die Kostentabelle wird mit Unterstrichen benannt (`media_curate_days`), die Knöpfe im DOM mit Bindestrichen — und nachgeschlagen wurde stur der übergebene Name. Der Treffer blieb also immer aus, und ein Fehltreffer ist hier kein fehlender Tooltip: Er fällt auf den Zweig „nicht deklariert, zeichne einen gewöhnlichen Knopf" zurück. „Fotos neu bewerten lassen" und „Bilder auswählen lassen" wurden damit als schlichte Textknöpfe gezeichnet — ohne Kostenklasse, ohne Hinweis, ohne Preis. Genau die eine Regel, für die das Modul existiert.
+
+  Der Python-Kontrakttest konnte das nicht sehen: Er prüft, dass bezahlte Aktionen **durch** den Helfer gehen, nicht, was der Helfer daraus zeichnet. Der neue Test führt ihn aus.
+
+- **Lyria-Audio wurde in einer der beiden dokumentierten Antwortformen nicht erkannt.** Gesucht wurde nur nach Blöcken mit `"type": "audio"`; `generateContent` liefert `inlineData` mit Audio-MIME-Typ. Das hätte bedeutet: bezahlt erzeugt, und danach weggeworfen.
+
+- **Ein Film ohne Musik enthält jetzt gar keine Tonspur** statt einer stummen. Eine stille AAC-Spur kostet Bytes, lässt Player eine Lautstärkeregelung zeigen, die nichts tut, und macht „ist die Musik angekommen?" an der Datei unbeantwortbar.
+
 ## [4.67.0] - 2026-08-09
 
 ### Fixed

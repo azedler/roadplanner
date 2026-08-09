@@ -206,14 +206,20 @@ def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
         if found or depth > 12:
             return
         if isinstance(node, dict):
-            if str(node.get("type") or "") == "audio" and node.get("data"):
-                mime = str(node.get("mime_type") or node.get("mimeType") or "audio/mp3")
+            # Two shapes, because there are two documented ways to ask.
+            # The Interactions response nests blocks that say `"type":
+            # "audio"`; generateContent returns `inlineData` with an
+            # audio mime type. Recognising only one of them would mean a
+            # paid generation whose audio we then threw away.
+            mime = str(node.get("mime_type") or node.get("mimeType") or "")
+            is_audio = str(node.get("type") or "") == "audio" or mime.startswith("audio/")
+            if is_audio and node.get("data"):
                 try:
                     blob = base64.b64decode(str(node["data"]), validate=False)
                 except Exception:  # noqa: BLE001 - a bad block is simply skipped
                     return
                 if blob and len(blob) <= MAX_TRACK_BYTES:
-                    found.append((blob, mime))
+                    found.append((blob, mime or "audio/mp3"))
                 return
             for value in node.values():
                 walk(value, depth + 1)

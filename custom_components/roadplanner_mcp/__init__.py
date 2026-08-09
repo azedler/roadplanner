@@ -767,6 +767,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # the portraits rather than inside them: a portrait is derived from a
     # photograph and can be re-made, a generated illustration cannot.
     character_assets = CharacterAssetStore(archive_root / "character_assets")
+    # Its own service, and deliberately not a method on the exporter: the
+    # exporter must have no way to reach a paid call, however convenient
+    # a "generate if missing" would look in a future edit.
+    film_music = TripFilmMusicService(
+        hass,
+        story_context,
+        lambda: async_get_clientsession(hass),
+        api_key_provider=lambda: str(options.get(CONF_GEMINI_API_KEY, "") or ""),
+    )
     trip_film = TripFilmExporter(
         hass,
         manager,
@@ -777,15 +786,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         crew=crew,
         crew_portraits=crew_portraits,
         characters=character_assets,
-    )
-    # Its own service, and deliberately not a method on the exporter: the
-    # exporter must have no way to reach a paid call, however convenient
-    # a "generate if missing" would look in a future edit.
-    film_music = TripFilmMusicService(
-        hass,
-        story_context,
-        lambda: async_get_clientsession(hass),
-        api_key_provider=lambda: str(options.get(CONF_GEMINI_API_KEY, "") or ""),
+        # ONE read-only question - "what has already been generated, and
+        # when does it play?" - rather than the service itself. The film
+        # can play a soundtrack somebody paid for; it cannot buy one.
+        music_timeline=lambda trip_id, seconds: film_music.async_timeline(
+            trip_id, film_seconds=seconds
+        ),
     )
 
     trip_summaries = TripSummaryService(

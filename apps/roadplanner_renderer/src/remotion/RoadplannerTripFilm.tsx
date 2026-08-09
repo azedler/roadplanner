@@ -130,7 +130,20 @@ export type FilmScene = {
 
 export type FilmCrewMember = { name: string; path: string };
 export type FilmCrew = { members: FilmCrewMember[] };
-export type FilmMusic = { path: string; volume: number; title: string };
+export type FilmMusicSection = {
+  path: string;
+  startSeconds: number;
+  seconds: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+};
+export type FilmMusic = {
+  path: string;
+  volume: number;
+  title: string;
+  /** A generated score plays in sections; a chosen file has none. */
+  sections?: FilmMusicSection[] | null;
+};
 
 export type RoadplannerTripFilmProps = {
   trip: FilmTrip;
@@ -1303,6 +1316,79 @@ const Soundtrack: React.FC<{ music: FilmMusic; totalFrames: number }> = ({
   );
 };
 
+/**
+ * One section of a generated score, faded in and out where the plan says.
+ *
+ * The fades are the whole reason this exists. Four pieces butted
+ * together is a playlist with three audible splices in it; four pieces
+ * overlapping by four seconds is a score that changes character where
+ * the journey does. The overlap is already in the plan - each section
+ * starts a crossfade early - so this only has to honour it.
+ *
+ * Volume is a pure function of the frame, which matters more here than
+ * it looks: Remotion renders frames across parallel workers, so
+ * anything that remembered the previous frame would fade differently
+ * depending on which worker drew it.
+ */
+const MusicSection: React.FC<{
+  section: FilmMusicSection;
+  volume: number;
+  fps: number;
+}> = ({ section, volume, fps }) => {
+  const frame = useCurrentFrame();
+  const frames = Math.max(1, Math.round(section.seconds * fps));
+  // Never longer than the section itself, and never so long that the two
+  // fades meet in the middle of a very short one.
+  const fadeIn = Math.min(Math.round(section.fadeInSeconds * fps), Math.floor(frames / 2));
+  const fadeOut = Math.min(Math.round(section.fadeOutSeconds * fps), Math.floor(frames / 2));
+  const level =
+    volume *
+    Math.min(
+      fadeIn > 0
+        ? interpolate(frame, [0, fadeIn], [0, 1], { extrapolateRight: "clamp" })
+        : 1,
+      fadeOut > 0
+        ? interpolate(frame, [frames - fadeOut, frames], [1, 0], {
+            extrapolateLeft: "clamp",
+          })
+        : 1,
+    );
+  return (
+    <Audio
+      src={`/${section.path}`}
+      volume={Math.max(0, level)}
+      loop
+      loopVolumeCurveBehavior="extend"
+    />
+  );
+};
+
+/**
+ * The generated score: each section placed where the plan put it.
+ *
+ * A section whose file never arrived is simply not here. That is the
+ * same rule as everywhere else in this film - an absence renders as an
+ * absence, not as a failure and not as something invented to fill it.
+ */
+const SectionedSoundtrack: React.FC<{
+  music: FilmMusic;
+  sections: FilmMusicSection[];
+  fps: number;
+}> = ({ music, sections, fps }) => (
+  <>
+    {sections.map((section, index) => (
+      <Sequence
+        key={`${section.path}-${index}`}
+        from={Math.max(0, Math.round(section.startSeconds * fps))}
+        durationInFrames={Math.max(1, Math.round(section.seconds * fps))}
+        name={`Musik ${index + 1}`}
+      >
+        <MusicSection section={section} volume={music.volume} fps={fps} />
+      </Sequence>
+    ))}
+  </>
+);
+
 export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
   trip,
   chapters,
@@ -1425,7 +1511,15 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
     <CharacterAssetContext.Provider value={characters?.assets ?? EMPTY_ASSETS}>
       <AbsoluteFill style={{ backgroundColor: BACKDROP }}>
         {rendered}
-        {music ? <Soundtrack music={music} totalFrames={durationInFrames} /> : null}
+        {music ? (
+          // A generated score plays as its sections; a file somebody
+          // chose themselves plays as one track under everything.
+          music.sections && music.sections.length ? (
+            <SectionedSoundtrack music={music} sections={music.sections} fps={fps} />
+          ) : (
+            <Soundtrack music={music} totalFrames={durationInFrames} />
+          )
+        ) : null}
       </AbsoluteFill>
     </CharacterAssetContext.Provider>
   );

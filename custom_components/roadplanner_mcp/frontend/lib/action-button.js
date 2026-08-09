@@ -38,13 +38,30 @@ const ICONS = {
  * backend so that the sentence a user reads and the sentence a test
  * checks are the same sentence.
  */
+/**
+ * The declaration for an action, under either spelling.
+ *
+ * The backend names actions with underscores (`media_curate_days`); the
+ * DOM names them with dashes, and that is the form every attribute in
+ * the panel carries. Every call site passes the dashed form, so a
+ * straight lookup into the underscore-keyed table missed
+ * every entry - and a missed entry is not a missing tooltip, it is a
+ * paid button drawn as a free one, which is the single rule this module
+ * exists to enforce. Normalising here rather than at the call sites
+ * means it cannot be forgotten by the next one.
+ */
+const entryFor = (costs, action) => {
+  const name = String(action || "");
+  return costs?.[name] || costs?.[name.replace(/-/g, "_")] || null;
+};
+
 export const actionHint = (costs, action) => {
-  const entry = costs?.[action];
+  const entry = entryFor(costs, action);
   if (!entry) return "";
   return [entry.effect, entry.note].filter(Boolean).join(" ");
 };
 
-export const actionCost = (costs, action) => costs?.[action]?.cost || "";
+export const actionCost = (costs, action) => entryFor(costs, action)?.cost || "";
 
 /**
  * A button for a repeatable action.
@@ -86,7 +103,7 @@ export const actionButton = (costs, action, label, options = {}) => {
 export const actionNotes = (costs, actions) => {
   const lines = actions
     .map((action) => {
-      const entry = costs?.[action];
+      const entry = entryFor(costs, action);
       if (!entry) return "";
       return `${entry.effect}${entry.note ? ` ${entry.note}` : ""}`;
     })

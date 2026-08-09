@@ -136,13 +136,76 @@ def build_music_package(
     )
 
 
+MAX_MUSIC_SECTIONS = 4
+
+
+def build_music_timeline_package(
+    timeline: list[dict[str, Any]],
+    root: str | Path = DEFAULT_MUSIC_ROOT,
+    *,
+    volume: float = DEFAULT_VOLUME,
+) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+    """A soundtrack in sections, and the files that go with it.
+
+    Same defence as the single track: every entry names a file, the name
+    is matched against the folder listing, and a name that is not in the
+    listing never becomes a path. The difference is only that there are
+    up to four of them and each says when it plays.
+
+    A section whose file has gone missing is dropped rather than fatal -
+    the rest of the score still plays, and a gap in the music is a much
+    smaller failure than a film that will not render.
+    """
+    entries: list[dict[str, Any]] = []
+    files: dict[str, bytes] = {}
+    for index, section in enumerate(list(timeline or [])[:MAX_MUSIC_SECTIONS]):
+        found = read_track(str((section or {}).get("name") or ""), root)
+        if not found:
+            _LOGGER.info("Musikabschnitt %s ist nicht verfügbar - er entfällt", index + 1)
+            continue
+        extension, blob = found
+        path = f"{MUSIC_DIR}/section-{index + 1:02d}{extension}"
+        files[path] = blob
+        entries.append(
+            {
+                "path": path,
+                "size_bytes": len(blob),
+                "sha256": hashlib.sha256(blob).hexdigest(),
+                "start_seconds": round(max(0.0, float(section.get("start_seconds") or 0)), 2),
+                "seconds": round(max(0.0, float(section.get("seconds") or 0)), 2),
+                "fade_in_seconds": round(max(0.0, float(section.get("fade_in_seconds") or 0)), 2),
+                "fade_out_seconds": round(
+                    max(0.0, float(section.get("fade_out_seconds") or 0)), 2
+                ),
+            }
+        )
+    if not entries:
+        return None, {}
+    return (
+        {
+            # The first section doubles as the single-track field, so a
+            # renderer that only knows about one file still plays music
+            # rather than nothing.
+            "path": entries[0]["path"],
+            "size_bytes": entries[0]["size_bytes"],
+            "sha256": entries[0]["sha256"],
+            "volume": max(0.0, min(1.0, float(volume))),
+            "title": "KI-Musik",
+            "sections": entries,
+        },
+        files,
+    )
+
+
 __all__ = [
     "ALLOWED_EXTENSIONS",
     "DEFAULT_MUSIC_ROOT",
     "DEFAULT_VOLUME",
+    "MAX_MUSIC_SECTIONS",
     "MAX_TRACK_BYTES",
     "MUSIC_DIR",
     "build_music_package",
+    "build_music_timeline_package",
     "list_tracks",
     "read_track",
 ]

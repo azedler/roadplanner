@@ -259,4 +259,67 @@ function crewlessMusic() {
   return { path: "music/track.mp3", size_bytes: 3_000_000, sha256: HASH };
 }
 
+// --- a generated score, in sections ------------------------------------
+//
+// A chosen file plays as one looped track; a generated score plays as a
+// few long pieces that hand over to each other. Absent sections mean the
+// former, which is what every job built before this looked like.
+
+assert.deepEqual(parseMusic(crewlessMusic()).sections, []);
+
+const section = (overrides = {}) => ({
+  path: "music/section-01.mp3",
+  size_bytes: 2_000_000,
+  sha256: HASH,
+  start_seconds: 0,
+  seconds: 120,
+  fade_in_seconds: 2,
+  fade_out_seconds: 4,
+  ...overrides,
+});
+
+const scored = parseMusic({
+  ...crewlessMusic(),
+  sections: [
+    section(),
+    section({ path: "music/section-02.mp3", start_seconds: 116, fade_in_seconds: 4 }),
+  ],
+});
+assert.equal(scored.sections.length, 2);
+assert.equal(scored.sections[1].startSeconds, 116);
+assert.equal(scored.sections[1].fadeInSeconds, 4);
+// The second starts before the first ends: the handover is a crossfade,
+// not a cut, and the plan is what decides that - not the renderer.
+assert.ok(
+  scored.sections[1].startSeconds <
+    scored.sections[0].startSeconds + scored.sections[0].seconds,
+);
+
+// Every section is a file with a hash, checked exactly like the track.
+assert.throws(() => parseMusic({ ...crewlessMusic(), sections: {} }), /Liste/);
+assert.throws(
+  () => parseMusic({ ...crewlessMusic(), sections: [section({ path: "../x.mp3" })] }),
+  /Auftragsordner/,
+);
+assert.throws(
+  () => parseMusic({ ...crewlessMusic(), sections: [section({ sha256: "nope" })] }),
+  /SHA-256/,
+);
+assert.throws(
+  () => parseMusic({ ...crewlessMusic(), sections: [section({ size_bytes: 0 })] }),
+  /Größe/,
+);
+assert.throws(
+  () => parseMusic({ ...crewlessMusic(), sections: [section(), section(), section(), section(), section()] }),
+  /Zu viele/,
+);
+// Nonsense timing degrades to zero rather than reaching an audio node.
+const oddTiming = parseMusic({
+  ...crewlessMusic(),
+  sections: [section({ start_seconds: -5, seconds: "lang", fade_in_seconds: NaN })],
+});
+assert.equal(oddTiming.sections[0].startSeconds, 0);
+assert.equal(oddTiming.sections[0].seconds, 0);
+assert.equal(oddTiming.sections[0].fadeInSeconds, 0);
+
 console.log("Renderer app film map tests passed.");

@@ -398,16 +398,28 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
       }
     }
     if (parsed.music) {
-      const bytes = await readBounded(path.join(inputsDir, parsed.music.path), MAX_MUSIC_BYTES);
-      if (bytes === null) {
-        throw new RenderError("PACKAGE_MISSING", "Im Filmpaket fehlt die angekündigte Musik.");
+      // The single track and, when the score is generated, its sections.
+      // Every one of them is announced with a hash, so every one of them
+      // is checked - a section is not a lesser file.
+      const announced = [
+        { path: parsed.music.path, sha256: parsed.music.sha256 },
+        ...(parsed.music.sections || []),
+      ];
+      const copied = new Set();
+      for (const entry of announced) {
+        if (copied.has(entry.path)) continue;
+        copied.add(entry.path);
+        const bytes = await readBounded(path.join(inputsDir, entry.path), MAX_MUSIC_BYTES);
+        if (bytes === null) {
+          throw new RenderError("PACKAGE_MISSING", "Im Filmpaket fehlt die angekündigte Musik.");
+        }
+        if (createHash("sha256").update(bytes).digest("hex") !== entry.sha256) {
+          throw new RenderError("PACKAGE_INVALID", "Musikdatei: SHA-256 stimmt nicht.");
+        }
+        const target = path.join(stage, entry.path);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, bytes);
       }
-      if (createHash("sha256").update(bytes).digest("hex") !== parsed.music.sha256) {
-        throw new RenderError("PACKAGE_INVALID", "Musikdatei: SHA-256 stimmt nicht.");
-      }
-      const target = path.join(stage, parsed.music.path);
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(target, bytes);
     }
     await fs.cp(BUNDLE_DIR, stage, { recursive: true });
     const prepareSeconds = (Date.now() - started) / 1000;
@@ -582,6 +594,11 @@ async function renderComposition({
       // One browser tab: a Home Assistant box shares its cores with
       // everything else the user runs on it.
       concurrency: 1,
+      // A film with no music must contain no audio track at all, not a
+      // silent one. A silent AAC stream costs bytes, makes some players
+      // show an audio control that does nothing, and makes "did the
+      // music arrive?" unanswerable from the file.
+      enforceAudioTrack: false,
       onProgress: ({ progress }) => onProgress?.(progress),
     });
     try {

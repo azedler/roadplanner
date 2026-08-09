@@ -303,6 +303,10 @@ _PROVIDER_CALL_ACTIONS = {
     # Verifies and copies tens of megabytes. Being cancelled halfway would
     # leave a partial file where a download expects a whole one.
     "renderer_app_download",
+    # Up to four Lyria generations, each a minute or two of audio. Money
+    # is spent the moment the request goes out; a dropped connection must
+    # not orphan a track that was already paid for and never stored.
+    "story_film_music_generate",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1552,9 +1556,15 @@ async def _execute_action(
         # What generated music would cost and what would be ordered -
         # read-only, free, and the only thing the panel may do before
         # somebody has agreed to a price.
+        trip_id = str(data.get("trip_id") or "")
         return {
             "film_music_offer": await runtime.film_music.async_offer(
-                str(data.get("trip_id") or "")
+                trip_id,
+                # How long the film runs decides how many pieces of music
+                # it needs, and therefore the price. Asked of the film
+                # rather than guessed here, so the offer and the render
+                # cannot disagree about what is being scored.
+                film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
             )
         }
 
@@ -1563,9 +1573,15 @@ async def _execute_action(
         # exactly that reason: there is no path from rendering a film to
         # here. A cached track for the same brief is returned without
         # generating again, so a second attempt costs nothing.
+        trip_id = str(data.get("trip_id") or "")
         return {
             "film_music_generated": await runtime.film_music.async_generate(
-                str(data.get("trip_id") or "")
+                trip_id,
+                # The same length the offer quoted a price for. Both go
+                # through the same estimate, and the plan rounds it, so
+                # agreeing to an offer cannot silently order a different
+                # number of sections than the one shown.
+                film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
             )
         }
 

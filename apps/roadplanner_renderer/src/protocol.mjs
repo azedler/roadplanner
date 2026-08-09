@@ -705,6 +705,9 @@ export function parseCrew(value) {
 }
 
 export const MUSIC_FILENAME = "music/track";
+// Sections are numbered files beside it, so the check is the folder
+// rather than the one name.
+export const MUSIC_FILENAME_PREFIX = "music/";
 export const MAX_MUSIC_BYTES = 40 * 1024 * 1024;
 export const MUSIC_EXTENSIONS = new Set([".mp3", ".m4a", ".ogg", ".wav", ".flac"]);
 
@@ -742,7 +745,64 @@ export function parseMusic(value) {
     // Clamped here rather than trusted: it reaches an audio node.
     volume: Math.max(0, Math.min(1, volume)),
     title: cleanText(value.title, 80),
+    sections: parseMusicSections(value.sections),
   };
+}
+
+export const MAX_MUSIC_SECTIONS = 4;
+
+/**
+ * A score in sections, or nothing.
+ *
+ * A generated soundtrack is a few long pieces rather than one loop: an
+ * opening, the journey, the way home, an ending. Each says when it
+ * starts and how it arrives and leaves, so the renderer never decides
+ * any of that - the same plan priced the generation.
+ *
+ * Absent is normal and means "one track, looped", which is what every
+ * job built before this looked like.
+ */
+export function parseMusicSections(value) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Musikabschnitte sind keine Liste.");
+  }
+  if (value.length > MAX_MUSIC_SECTIONS) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Zu viele Musikabschnitte.");
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Musikabschnitt ist kein Objekt.");
+    }
+    const path = String(entry.path ?? "");
+    const extension = path.slice(path.lastIndexOf("."));
+    if (!path.startsWith(`${MUSIC_FILENAME_PREFIX}`) || !MUSIC_EXTENSIONS.has(extension)) {
+      throw new ProtocolError(
+        ERROR_INVALID_JOB,
+        "Musikabschnitt liegt nicht im Auftragsordner.",
+      );
+    }
+    const size = entry.size_bytes;
+    if (!Number.isInteger(size) || size <= 0 || size > MAX_MUSIC_BYTES) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Musikabschnitt mit ungültiger Größe.");
+    }
+    if (!/^[0-9a-f]{64}$/.test(String(entry.sha256 ?? ""))) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Musikabschnitt ohne gültigen SHA-256.");
+    }
+    const number = (key, fallback = 0) =>
+      typeof entry[key] === "number" && Number.isFinite(entry[key])
+        ? Math.max(0, entry[key])
+        : fallback;
+    return {
+      path,
+      sizeBytes: size,
+      sha256: entry.sha256,
+      startSeconds: number("start_seconds"),
+      seconds: number("seconds"),
+      fadeInSeconds: number("fade_in_seconds"),
+      fadeOutSeconds: number("fade_out_seconds"),
+    };
+  });
 }
 
 const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
