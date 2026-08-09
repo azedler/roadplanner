@@ -51,6 +51,8 @@ from .media_curation_vision import (
     parse_analyses,
 )
 from .media_intelligence import media_quality_score
+from .story_context_builder import OVERRIDE_STORY_KEY
+from .trip_summaries import SUMMARY_DETAIL_KEY
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_film_plan import readable_place
 
@@ -248,7 +250,24 @@ class DayCurationService:
             for stop in canonical_roadbook_stops(day)
             if isinstance(stop, dict)
         ]
-        brief = visual_brief({"title": str(day.get("title") or ""), "stops": stops})
+        # The day's own text, in the order somebody would trust it: what
+        # was edited by hand, then what the editorial pass wrote, then
+        # the stored summary. It never creates a requirement - it helps
+        # answer one, which is what a stop called "Smålandet Markaryds
+        # Älgsafari" cannot do on its own.
+        details = day.get("details") if isinstance(day.get("details"), dict) else {}
+        story = (
+            str(details.get(OVERRIDE_STORY_KEY) or "")
+            or str(details.get(SUMMARY_DETAIL_KEY) or "")
+            or str(day.get("summary") or "")
+        )
+        brief = visual_brief(
+            {
+                "title": str(day.get("title") or ""),
+                "story": story,
+                "stops": stops,
+            }
+        )
 
         pinned = [
             str(item.get("id"))
