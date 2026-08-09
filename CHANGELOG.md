@@ -6,6 +6,28 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.64.0] - 2026-08-09
+
+### Changed
+
+- **Das Tempo wird ruhiger — gemessen, nicht pauschal.** Aus der visuellen Abnahme: „Bilder, Text und Karte wechseln zu schnell." Nicht der ganze Film wurde verlangsamt, sondern jede Untergrenze wurde daraufhin geprüft, ob sie noch etwas erlaubt, das man ansehen kann: ein Foto hält jetzt **2,6 s** statt 1,7, eine Collage **4,7 s** statt 3,2, eine Karte mindestens **3,5 s** statt 2,6. Die Zeitbudgets je Wichtigkeit steigen auf 300/450/600/780 Frames.
+
+  Diese Untergrenzen sind es, die einen reichen Tag **länger** machen statt schneller — genau der gewollte Handel: Die Wichtigkeit kauft ein Budget, und wenn das Budget seine Bilder nicht in ansehbarem Tempo bezahlen kann, läuft der Tag über, statt dass die Bilder flackern. Gemessen am CI-Film bei identischem Material: **170,6 s → 202,8 s**, dieselben 65 Bilder.
+
+- **Texte bekommen die Zeit, die sie zum Lesen brauchen.** Neu `reading_frames()`: 15 Zeichen je Sekunde als bewusst unhastige deutsche Bildschirm-Lesegeschwindigkeit, plus knapp eine Sekunde, um den Text überhaupt wahrzunehmen, mit Unter- und Obergrenze. Titelkarten und Textseiten werden danach bemessen statt aus dem Restbudget — vorher bekam ein langer Tagestext dieselben Sekunden wie ein kurzer.
+
+### Fixed
+
+- **„Text läuft unten aus dem Bild" — zwei verschiedene Fehler unter einer Beschreibung.**
+
+  Der erste: Die Bildunterschrift war auf zwei Zeilen geklemmt und der Rest per `overflow: hidden` **abgeschnitten**. Da lief nichts aus dem Bild — ein Satz endete mitten im Wort, was schlimmer ist, weil man nicht erkennen kann, ob etwas gefehlt hat. Jetzt wird die Schriftgröße so gewählt, dass der ganze Text passt.
+
+  Der zweite: Kapiteltitel, Textseite und Eröffnungsabsatz hatten **gar keine** Grenze. Ein langer deutscher Titel bei 62 px bricht auf drei Zeilen um, und die dritte liegt unter dem Bildrand.
+
+  Neu ist eine verbindliche Safe Area (unten 72 px, seitlich 96 px, nutzbare Textbreite 1088 px) und ein `textfit`-Modul, das die größte Schriftgröße bestimmt, bei der der **ganze** Text passt — wortweise umbrechend, weil „Übernachtungsmöglichkeitensuche" nicht bricht, und bewusst pessimistisch schätzend, weil eine zu optimistische Schätzung genau den Fehler erzeugt, um den es geht.
+
+  Und wenn ein Text auch dann nicht passt: **Er bekommt eine eigene Szene.** Über 105 Zeichen ist eine Bildunterschrift keine Unterschrift mehr, sondern eine Seite — dann bräuchte der Verlaufsschleier das halbe Bild, und das Foto wäre ohnehin weg.
+
 ## [4.63.0] - 2026-08-09
 
 ### Fixed
