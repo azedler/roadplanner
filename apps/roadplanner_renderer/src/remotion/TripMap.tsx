@@ -316,7 +316,7 @@ export type { Camera } from "../camera.mjs";
 import { cameraTransform, onScreen } from "../camera.mjs";
 import type { Camera } from "../camera.mjs";
 
-export { CAPTION_STRIP, blendCamera, cameraFor, onScreen } from "../camera.mjs";
+export { CAPTION_STRIP, blendCamera, cameraFor, onScreen, smoothed } from "../camera.mjs";
 
 
 const polyline = (projection: Projection, points: MapPoint[]): string => {

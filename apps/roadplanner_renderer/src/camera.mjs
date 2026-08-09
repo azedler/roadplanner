@@ -109,3 +109,41 @@ export function onScreen(frame, camera, point) {
 export function cameraTransform(frame, camera) {
   return `translate(${frame.width / 2} ${frame.height / 2}) scale(${camera.zoom}) translate(${-camera.x} ${-camera.y})`;
 }
+
+/**
+ * The same quantity, averaged over a few neighbouring frames.
+ *
+ * Reported from the abnahme: the map still has a residual judder. It is
+ * not the movement - that is metric and smooth by construction - it is
+ * the camera FOLLOWING it. A recorded route is a polyline of GPS points,
+ * and where those points are dense or noisy the position wobbles by a
+ * few metres from frame to frame. The camper barely shows it; a camera
+ * pinned to the camper amplifies it across the whole frame.
+ *
+ * A boxcar average over a symmetric window removes exactly that: it is
+ * a low-pass filter with no state, so every frame still computes its own
+ * answer independently. That matters more here than elsewhere - Remotion
+ * renders frames across parallel tabs seeking arbitrary positions, so
+ * anything that remembered the previous frame would render differently
+ * depending on which tab got it.
+ *
+ * The window is in frames rather than seconds because judder is a
+ * per-frame phenomenon: eleven frames is a third of a second at 30 fps,
+ * long enough to swallow the wobble and short enough that a real turn
+ * still arrives on time.
+ */
+export function smoothed(at, frame, radius = 5) {
+  const span = Math.max(0, Math.round(radius));
+  if (!span) return at(frame);
+  let x = 0;
+  let y = 0;
+  let count = 0;
+  for (let offset = -span; offset <= span; offset += 1) {
+    const sample = at(frame + offset);
+    if (!sample) continue;
+    x += sample[0];
+    y += sample[1];
+    count += 1;
+  }
+  return count ? [x / count, y / count] : at(frame);
+}

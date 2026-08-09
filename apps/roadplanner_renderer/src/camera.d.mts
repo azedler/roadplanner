@@ -14,3 +14,10 @@ export function blendCamera(from: Camera, to: Camera, t: number): Camera;
 export function onScreen(frame: Frame, camera: Camera, point: [number, number]): [number, number];
 
 export function cameraTransform(frame: Frame, camera: Camera): string;
+
+/** A vector quantity averaged over a symmetric window of frames. */
+export function smoothed(
+  at: (frame: number) => [number, number] | null,
+  frame: number,
+  radius?: number,
+): [number, number];
