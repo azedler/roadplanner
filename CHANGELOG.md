@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.57.0] - 2026-08-09
+
 ### Fixed
 
 - **Ein Foto vom Parkplatz hat den Elchpark-Tag als abgedeckt gemeldet.** „Elchpark" zerfällt in „elch" + „park", und beide galten als Wege, das Pflichtmotiv zu erfüllen. „park" passt aber auf *Parkplatz*, *Nationalpark* und die halbe Mediathek — ein Kategoriewort ist kein Beleg für ein Motiv. Die Coverage stand damit auf grün, während der Elch weiterhin fehlte: genau der Fehler, den dieser Block beheben soll, eine Ebene höher. Nur die spezifischen Wörter eines Namens beantworten seine Anforderung.
