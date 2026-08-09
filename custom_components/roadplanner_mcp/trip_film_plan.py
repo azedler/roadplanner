@@ -43,6 +43,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .stop_relevance import has_no_real_name, may_lead_day
+
 FILM_FPS = 30
 PLAN_VERSION = 1
 
@@ -434,16 +436,36 @@ def readable_place(stop: dict[str, Any]) -> str:
     return " ".join(words)[:_MAX_PLACE_LENGTH]
 
 
-def readable_places(stops: list[dict[str, Any]], *, limit: int = 3) -> list[str]:
-    """The day's route, as few readable names, in order and without repeats."""
-    names: list[str] = []
+def readable_places(
+    stops: list[dict[str, Any]], *, limit: int = 3, story_text: str = ""
+) -> list[str]:
+    """The day's route, as few readable names, in order and without repeats.
+
+    Functional stops are held back rather than dropped. From the live
+    acceptance: a fast-food stop was reading as the point of a day. It
+    was a real stop and it stays in the roadbook - it simply does not get
+    to introduce a day when there is anything else to say.
+
+    "Held back" and not "removed": a day that genuinely consisted of a
+    supply run still has to be able to say where it went, so the
+    functional names are appended after the narrative ones and only fill
+    the space nothing else claimed.
+    """
+    leading: list[str] = []
+    trailing: list[str] = []
     for stop in stops:
-        name = readable_place(stop if isinstance(stop, dict) else {})
-        if name and name not in names:
-            names.append(name)
-        if len(names) >= limit:
-            break
-    return names
+        entry = stop if isinstance(stop, dict) else {}
+        name = readable_place(entry)
+        if not name or name in leading or name in trailing:
+            continue
+        if has_no_real_name(entry):
+            # A router's placeholder is not a place.
+            continue
+        if may_lead_day(entry, story_text=story_text):
+            leading.append(name)
+        else:
+            trailing.append(name)
+    return (leading + trailing)[:limit]
 
 
 # --- photo budget --------------------------------------------------------

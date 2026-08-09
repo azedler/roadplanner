@@ -97,6 +97,7 @@ _ACTIONS = {
     "story_film_render",
     # The camper's picture: look, upload, confirm, throw away. No model
     # is called by any of them - the picture comes from the user.
+    "media_diagnose_day",
     "character_assets",
     "character_asset_upload",
     "character_asset_confirm",
@@ -1588,6 +1589,18 @@ async def _execute_action(
                 # agreeing to an offer cannot silently order a different
                 # number of sections than the one shown.
                 film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
+            )
+        }
+
+    if action == "media_diagnose_day":
+        # Where a day's pictures were lost, stage by stage. Free: it
+        # reads what is stored and counts. "An important place is barely
+        # in the film" has at least four causes needing opposite fixes,
+        # and this says which one it is instead of inviting a guess.
+        return {
+            "day_diagnosis": await runtime.experience.async_diagnose_day_film(
+                str(data.get("trip_id") or ""),
+                str(data.get("day_id") or ""),
             )
         }
 

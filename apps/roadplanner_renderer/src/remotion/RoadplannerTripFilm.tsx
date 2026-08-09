@@ -663,6 +663,20 @@ const CAMERA_FOLLOW_REACH = 0.16;
 
 const MAP_RECAP_SHARE = 0.26;
 const MAP_APPROACH_SHARE = 0.16;
+// A share alone is not enough for the recap. It is the shot that answers
+// "how far have we come?", and on a short map scene a quarter of it is
+// under a second - long enough to notice something changed, too short to
+// read a route. Reported from the live acceptance as the map still being
+// hectic while the film as a whole had calmed down.
+//
+// So the orientation phase has an absolute floor as well: it takes what
+// it needs from the scene, and only the drive gives way. The ceiling
+// stops it from eating a whole short scene.
+const MAP_RECAP_MIN_FRAMES = 78; // 2.6 s
+const MAP_RECAP_MAX_FRAMES = 105; // 3.5 s
+// The move down into the day is a move, not a cut. Never so fast that
+// the eye loses the place it was just looking at.
+const MAP_APPROACH_MIN_FRAMES = 24;
 
 /** A quiet strip along the bottom, so the map itself stays uncovered. */
 const MapLabel: React.FC<{
@@ -862,8 +876,18 @@ const MapLegScene: React.FC<{
     [projection, live, previous, overview],
   );
 
-  const recapFrames = Math.round(scene.frames * recapShare);
-  const approachFrames = Math.round(scene.frames * approachShare);
+  // The recap gets its floor, then the approach gets its floor, and the
+  // drive keeps the rest - in that order, because "how far have we come"
+  // and "where are we going" are what the scene is for, and the drive
+  // still reads at any length.
+  const recapFrames = Math.min(
+    Math.max(Math.round(scene.frames * recapShare), MAP_RECAP_MIN_FRAMES),
+    Math.min(MAP_RECAP_MAX_FRAMES, Math.round(scene.frames * 0.55)),
+  );
+  const approachFrames = Math.max(
+    Math.round(scene.frames * approachShare),
+    Math.min(MAP_APPROACH_MIN_FRAMES, Math.round(scene.frames * 0.15)),
+  );
   const driveFrames = Math.max(1, scene.frames - recapFrames - approachFrames);
 
   // The camera: still on the overview while the recap reads, then a
@@ -951,6 +975,12 @@ const MapLegScene: React.FC<{
         projection={projection}
         camera={camera}
         past={past}
+        // While the recap reads, the road already travelled is the
+        // subject of the shot rather than context for today's, so it is
+        // drawn brighter. The brief asks the overview to say "das haben
+        // wir bis jetzt zurückgelegt", and a route at context weight
+        // says "here we are" instead.
+        pastStroke={frame < recapFrames ? "#b9c6d6" : undefined}
         live={frame >= recapFrames ? drive.runs : []}
         camper={frame >= recapFrames ? { position: drive.position, heading: drive.heading } : null}
         labels={frame >= recapFrames ? labels : []}
