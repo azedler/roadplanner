@@ -21,6 +21,7 @@ import {
   cameraFor,
   cameraTransform,
   onScreen,
+  smoothed,
 } from "../apps/roadplanner_renderer/src/camera.mjs";
 
 const FRAME = { width: 1280, height: 720 };
@@ -216,5 +217,52 @@ const detail = cameraFor(FRAME, DAY, { fill: 0.58, maxZoom: 22, bottom: CAPTION_
     }
   }
 }
+
+
+
+function verifyTheCameraIsSmoothedWithoutRememberingAnything() {
+  // Reported from the abnahme: a residual judder on the map. It is not
+  // the movement - that is metric and smooth - it is the camera
+  // FOLLOWING a recorded polyline, which wobbles by a few metres where
+  // its points are dense.
+  //
+  // A boxcar average over a symmetric window removes exactly that. The
+  // property that matters as much as the smoothing: it is stateless, so
+  // a frame rendered in one parallel tab is identical to the same frame
+  // rendered in another.
+  const jittery = (frame) => [frame * 10 + (frame % 2 ? 6 : -6), 100];
+  const raw = [];
+  const smooth = [];
+  for (let frame = 20; frame <= 40; frame += 1) {
+    raw.push(jittery(frame)[0]);
+    smooth.push(smoothed(jittery, frame, 5)[0]);
+  }
+  const wobble = (values) => {
+    let total = 0;
+    for (let index = 2; index < values.length; index += 1) {
+      total += Math.abs(
+        values[index] - 2 * values[index - 1] + values[index - 2],
+      );
+    }
+    return total;
+  };
+  assert.ok(
+    wobble(smooth) < wobble(raw) / 4,
+    `geglättet ist nicht ruhiger: ${wobble(smooth)} vs ${wobble(raw)}`,
+  );
+
+  // Stateless: the same frame gives the same answer, in any order.
+  assert.deepEqual(smoothed(jittery, 33, 5), smoothed(jittery, 33, 5));
+
+  // And it still follows: a real move arrives, it is not averaged away.
+  const early = smoothed(jittery, 20, 5)[0];
+  const late = smoothed(jittery, 40, 5)[0];
+  assert.ok(late - early > 150, `die Bewegung wurde weggemittelt: ${late - early}`);
+
+  // A radius of zero is the raw value, not a special case to guard.
+  assert.deepEqual(smoothed(jittery, 30, 0), jittery(30));
+}
+
+verifyTheCameraIsSmoothedWithoutRememberingAnything();
 
 console.log("Camera move tests passed.");

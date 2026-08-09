@@ -48,6 +48,7 @@ import {
   TripMap,
   blendCamera,
   buildProjection,
+  smoothed,
   CAPTION_STRIP,
   cameraFor,
   countryAt,
@@ -642,6 +643,9 @@ const MAP_HEIGHT = 720;
 // and how far that drift may ever reach. Both deliberately small: the
 // view should breathe with the vehicle, not track it.
 const CAMERA_FOLLOW = 0.34;
+// A third of a second at 30 fps: long enough to swallow the polyline's
+// wobble, short enough that a real turn still arrives on time.
+const CAMERA_SMOOTHING_FRAMES = 5;
 const CAMERA_FOLLOW_REACH = 0.16;
 
 const MAP_RECAP_SHARE = 0.26;
@@ -882,7 +886,26 @@ const MapLegScene: React.FC<{
   // here that could disagree with the movement.
   const camera = React.useMemo(() => {
     if (!live || !drive || frame < recapFrames + approachFrames) return settled;
-    const target = projection.project(drive.position);
+    // Averaged over a third of a second rather than taken from this
+    // frame alone. A recorded route wobbles by a few metres where its
+    // points are dense; the camper barely shows it, a camera pinned to
+    // the camper amplifies it across the whole frame. Stateless, so
+    // every frame still computes its own answer - which matters because
+    // Remotion renders frames in parallel tabs.
+    const target = smoothed(
+      (at: number) =>
+        live
+          ? projection.project(
+              driveState(
+                live,
+                Math.max(0, at - recapFrames - approachFrames) / driveFrames,
+                driveFrames,
+              ).position,
+            )
+          : null,
+      frame,
+      CAMERA_SMOOTHING_FRAMES,
+    );
     const reach = Math.min(projection.width, projection.height) * CAMERA_FOLLOW_REACH;
     const dx = target[0] - detail.x;
     const dy = target[1] - detail.y;
@@ -891,7 +914,17 @@ const MapLegScene: React.FC<{
       x: settled.x + Math.max(-reach, Math.min(reach, dx)) * CAMERA_FOLLOW,
       y: settled.y + Math.max(-reach, Math.min(reach, dy)) * CAMERA_FOLLOW,
     };
-  }, [live, drive, frame, recapFrames, approachFrames, settled, detail, projection]);
+  }, [
+    live,
+    drive,
+    frame,
+    recapFrames,
+    approachFrames,
+    driveFrames,
+    settled,
+    detail,
+    projection,
+  ]);
   const country = React.useMemo(() => (live ? countryAt(live.end) : ""), [live]);
   if (!live || !drive) return <ChapterCardScene chapter={chapter} scene={scene} />;
 

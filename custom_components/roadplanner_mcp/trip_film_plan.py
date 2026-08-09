@@ -269,7 +269,7 @@ MAP_FOCUS_SHARE = 0.60
 # and at a second and a half the recap is a sixth of a second. A map that
 # short is not a short map, it is a glitch.
 MAP_FRAMES_MIN = 105
-MAP_FRAMES_MAX = 210
+MAP_FRAMES_MAX = 260
 # How short the pictures of a mapped day may be scaled, and how short any
 # single scene may become. Below these a photograph is a flicker.
 MIN_PICTURE_SHARE = 0.6

@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.67.0] - 2026-08-09
+
+### Fixed
+
+- **Das verbliebene Ruckeln der Karte ist die Kamera, nicht die Bewegung.** Die Camperfahrt ist metrisch und von Bauart her glatt. Was ruckelt, ist die Kamera, die ihr *folgt*: Eine aufgezeichnete Route ist eine Polylinie aus GPS-Punkten, und wo die dicht oder verrauscht liegen, wackelt die Position um wenige Meter von Bild zu Bild. Am Camper sieht man das kaum — eine an ihm hängende Kamera verstärkt es über das ganze Bild.
+
+  Neu `smoothed()`: ein gleitender Mittelwert über ±5 Frames, also eine Drittelsekunde. Lang genug, um das Wackeln zu schlucken, kurz genug, dass eine echte Kurve pünktlich ankommt. **Zustandslos** — jedes Bild rechnet weiterhin seine eigene Antwort, was hier wichtiger ist als anderswo: Remotion rendert Bilder in parallelen Tabs, und alles, was sich das vorherige Bild merkt, käme je nach Tab anders heraus.
+
+- **Kartenfahrten dürfen etwas länger laufen** (Obergrenze 210 → 260 Frames).
+
 ## [4.66.0] - 2026-08-09
 
 ### Added
