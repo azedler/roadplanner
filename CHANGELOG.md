@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Der Reisefilm schlug fehl, weil die Add-on-Version nicht mitgezogen wurde.** Mit der neuen Bilddichte trägt ein Kapitel bis zu elf Fotos, also gibt es `photos/c00-11.jpg`. Der Renderer akzeptierte in **0.10.0-motion.1** nur `-1` bis `-10`; die erweiterte Regel steckte zwar seit 4.56.0 im Quelltext, aber die Add-on-Version blieb dieselbe — also hat Home Assistant nie ein Update angeboten, und das installierte Image wies das Paket ab. Add-on jetzt **0.11.0-curation.1**.
+
+  Die Lehre steht im Fehler selbst: Die Add-on-Version *ist* der Vertrag zwischen Integration und Renderer. Wer den Vertrag ändert und die Version stehen lässt, veröffentlicht nichts — und die CI merkt es nicht, weil sie ihr Image immer frisch aus dem Quelltext baut.
+
+- **„nicht fertig geworden (failed)" sagt jetzt auch, woran es lag.** Der Renderer nennt seinen Grund; das Panel hat ihn weggeworfen. Ein Paket, das das installierte Add-on nicht lesen kann, sah damit aus wie ein Absturz.
+
 ## [4.61.0] - 2026-08-09
 
 ### Changed

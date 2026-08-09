@@ -1,5 +1,5 @@
 import { actionButton } from "../lib/action-button.js";
-import { escapeHtml } from "../lib/core-helpers.js";
+import { cleanText, escapeHtml } from "../lib/core-helpers.js";
 
 /**
  * The story editor: a small editorial desk on top of the roadbook.
@@ -553,7 +553,11 @@ export const storyEditorMixin = {
           : ""
       }`;
     }
-    return `<small class="story-film-job">Der zuletzt gestartete Reisefilm ist nicht fertig geworden (${escapeHtml(String(job.state || "unbekannt"))}).</small>`;
+    // The renderer says WHY it refused, and saying only "failed" throws
+    // that away. A package the installed add-on is too old to read looks
+    // exactly like a crash until the reason is printed.
+    const why = cleanText(job.reason || job.detail || "");
+    return `<small class="story-film-job">Der zuletzt gestartete Reisefilm ist nicht fertig geworden (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
   },
 
   // --- rendering -------------------------------------------------------
