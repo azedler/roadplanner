@@ -40,6 +40,7 @@ import { tripDayStopMixin } from "./features/trip-day-stop.js";
 import { crewMixin } from "./features/crew.js";
 import { remotionSpikeMixin } from "./features/remotion-spike.js";
 import { rendererAppMixin } from "./features/renderer-app.js";
+import { characterAssetsMixin } from "./features/character-assets.js";
 import { storyEditorMixin } from "./features/story-editor.js";
 import { pitchesMixin } from "./features/pitches.js";
 
@@ -799,6 +800,11 @@ class RoadplannerPanel extends HTMLElement {
       void this._handleArchiveFileInput(fileInput);
       return;
     }
+    const characterInput = event.target.closest("input[data-character-file-input]");
+    if (characterInput) {
+      void this._handleCharacterFileInput(characterInput);
+      return;
+    }
     const cropSize = event.target.closest('input[type="range"][data-action="crew-crop-size"]');
     if (cropSize) {
       this._resizeCrewCrop(cropSize.closest("form"));
@@ -1190,6 +1196,12 @@ class RoadplannerPanel extends HTMLElement {
       });
     } else if (action === "story-film-music") {
       void this._storyFilmMusicLoad();
+    } else if (action === "character-upload" && this._canEdit()) {
+      this._characterPick(cleanText(target.dataset.kind), cleanText(target.dataset.variant));
+    } else if (action === "character-confirm" && this._canEdit()) {
+      void this._characterConfirm(cleanText(target.dataset.filename));
+    } else if (action === "character-discard" && this._canEdit()) {
+      void this._characterDiscard(cleanText(target.dataset.filename));
     } else if (action === "story-film-music-offer") {
       // Free and read-only: what a soundtrack would cost, before the
       // button that spends anything exists.
@@ -2447,6 +2459,7 @@ class RoadplannerPanel extends HTMLElement {
         </main>
         <input id="roadplanner-document-input" data-archive-file-input type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,text/plain,text/markdown,text/csv,text/calendar,application/json,application/gpx+xml,application/xml,text/xml,application/zip,.md,.markdown,.txt,.json,.csv,.gpx,.ics,.ical,.zip" hidden>
         <input id="roadplanner-camera-input" data-archive-file-input type="file" accept="image/*" capture="environment" hidden>
+        <input id="roadplanner-character-input" data-character-file-input type="file" accept="image/png,image/webp" hidden>
       </div>
       <!-- Overlays live OUTSIDE .app on purpose. .app carries the container
            context, and containment makes it the containing block for
@@ -2767,6 +2780,7 @@ Object.assign(RoadplannerPanel.prototype, remotionSpikeMixin);
 Object.assign(RoadplannerPanel.prototype, rendererAppMixin);
 Object.assign(RoadplannerPanel.prototype, pitchesMixin);
 Object.assign(RoadplannerPanel.prototype, storyEditorMixin);
+Object.assign(RoadplannerPanel.prototype, characterAssetsMixin);
 
 if (!customElements.get("roadplanner-panel")) {
   customElements.define("roadplanner-panel", RoadplannerPanel);

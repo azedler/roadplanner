@@ -477,7 +477,8 @@ export const storyEditorMixin = {
       </div>
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
-    </div></div>`;
+    </div></div>
+    ${this._renderCharacterAssets()}`;
   },
 
   /**

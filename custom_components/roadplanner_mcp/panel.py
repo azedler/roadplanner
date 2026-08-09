@@ -95,6 +95,12 @@ _ACTIONS = {
     "story_film_music_offer",
     "story_film_music_generate",
     "story_film_render",
+    # The camper's picture: look, upload, confirm, throw away. No model
+    # is called by any of them - the picture comes from the user.
+    "character_assets",
+    "character_asset_upload",
+    "character_asset_confirm",
+    "character_asset_discard",
     "renderer_app_trip_days",
     "renderer_app_trip_day",
     "renderer_app_job_status",
@@ -1582,6 +1588,39 @@ async def _execute_action(
                 # agreeing to an offer cannot silently order a different
                 # number of sections than the one shown.
                 film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
+            )
+        }
+
+    if action == "character_assets":
+        # What the film would draw as the camper, and what is waiting to
+        # be looked at. Reads a folder; calls nothing.
+        return {"character_assets": await runtime.character_asset_service.async_state()}
+
+    if action == "character_asset_upload":
+        # Bytes from a browser, re-encoded through Pillow before anything
+        # is stored, and stored as a CANDIDATE. A picture nobody has
+        # looked at is never in a film.
+        return {
+            "character_asset": await runtime.character_asset_service.async_upload(
+                str(data.get("kind") or ""),
+                str(data.get("variant") or ""),
+                str(data.get("image") or ""),
+            )
+        }
+
+    if action == "character_asset_confirm":
+        # The one step that lets a film draw it, and it is a rename: what
+        # somebody approved is byte for byte what every later film shows.
+        return {
+            "character_assets": await runtime.character_asset_service.async_confirm(
+                str(data.get("filename") or "")
+            )
+        }
+
+    if action == "character_asset_discard":
+        return {
+            "character_assets": await runtime.character_asset_service.async_discard(
+                str(data.get("filename") or "")
             )
         }
 
