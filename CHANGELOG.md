@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **„Nahe Vorschläge übernehmen": 110 Fotos, ein Klick.** In der Mediathek waren 478 Bilder zugeordnet und 110 „Zu prüfen" – darunter eines mit **0 m** Abstand zur Überfahrt Trelleborg→Rostock. Das ist keine kaputte Regel: eine automatische Zuordnung verlangt, dass das *Datum* passt, und der nächstgelegene Stopp darf aus dem Nachbartag stammen. Dann hilft kein Abstand mehr, auch 0 m nicht – **mit Absicht**, denn eine Nachtfähre und ein Camper, der noch auf dem gestrigen Platz steht, sehen von außen gleich aus, und Nähe darf die Morgenfotos nicht in den Vortag schieben.
+
+  Kaputt war, was danach passiert: ein Foto mit dem Status „Zu prüfen" kommt **gar nicht in den Film** – die Auswahl liest ausschließlich `manual` und `automatic` –, und der einzige Weg hinein war ein Dialog pro Foto. Hundert davon sind keine Aufgabenliste, sondern hundert stillschweigend fehlende Bilder. Der neue Knopf übernimmt alle Vorschläge, die höchstens **1,5 km** von ihrem Stopp entfernt sind, und schreibt `manual`, weil ein Mensch es gesagt hat. Weiter entfernte Vorschläge bleiben Vermutungen: dort ist unklar, *welcher Stopp* gemeint ist, und nicht bloß das Datum.
+
 ## [4.51.0] - 2026-08-08
 
 ### Added

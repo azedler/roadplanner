@@ -407,7 +407,11 @@ export const mediaMixin = {
       suggested: media.filter((item) => item.assignment_status === "suggested").length,
       assigned: media.filter((item) => ["automatic", "manual"].includes(item.assignment_status)).length,
     };
-    const mediaControls = `<div class="media-controls"><div class="media-filter-row">${filterChip("all", "Alle", counts.all)}${filterChip("assigned", "Zugeordnet", counts.assigned)}${filterChip("suggested", "Zu prüfen", counts.suggested)}${filterChip("unassigned", "Ohne Tag", counts.unassigned)}</div>${pageCount > 1 ? `<div class="media-page-row"><button class="text-button" type="button" data-action="media-page" data-delta="-1" ${page <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon>Neuere</button><span>Bilder ${filtered.length ? page * pageSize + 1 : 0}–${Math.min((page + 1) * pageSize, filtered.length)} von ${filtered.length}</span><button class="text-button" type="button" data-action="media-page" data-delta="1" ${page >= pageCount - 1 ? "disabled" : ""}>Ältere<ha-icon icon="mdi:chevron-right"></ha-icon></button></div>` : ""}</div>`;
+    const confirmable = this._canEdit() ? this._confirmableSuggestions() : 0;
+    const confirmRow = confirmable
+      ? `<div class="media-confirm-row"><button class="text-button" type="button" data-action="media-confirm-suggestions" title="Übernimmt alle Vorschläge, die höchstens 1,5 km von ihrem Stopp entfernt sind. Meistens sind das Fotos rund um Mitternacht oder auf einer Nachtfähre, bei denen nur das Datum um einen Tag danebenliegt."><ha-icon icon="mdi:check-all"></ha-icon>${confirmable} nahe Vorschläge übernehmen</button><small>Solange ein Foto „Zu prüfen“ ist, kommt es nicht in den Film.</small></div>`
+      : "";
+    const mediaControls = `<div class="media-controls"><div class="media-filter-row">${filterChip("all", "Alle", counts.all)}${filterChip("assigned", "Zugeordnet", counts.assigned)}${filterChip("suggested", "Zu prüfen", counts.suggested)}${filterChip("unassigned", "Ohne Tag", counts.unassigned)}</div>${confirmRow}${pageCount > 1 ? `<div class="media-page-row"><button class="text-button" type="button" data-action="media-page" data-delta="-1" ${page <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon>Neuere</button><span>Bilder ${filtered.length ? page * pageSize + 1 : 0}–${Math.min((page + 1) * pageSize, filtered.length)} von ${filtered.length}</span><button class="text-button" type="button" data-action="media-page" data-delta="1" ${page >= pageCount - 1 ? "disabled" : ""}>Ältere<ha-icon icon="mdi:chevron-right"></ha-icon></button></div>` : ""}</div>`;
     const phase = syncState.mode || "";
     const phaseLabel = { initial_scan: "Selektiver Erstscan", delta_catchup: "Änderungen seit Scan nachziehen", delta: "Nur Änderungen" }[phase] || "Synchronisierung";
     const currentFolderValue = String(scanStats.current_folder || "");
@@ -481,6 +485,55 @@ export const mediaMixin = {
         : "keine davon wurde automatisch";
       this._showToast(`${changed} Zuordnungen neu berechnet – ${detail}.`, "success", 6000);
     }
+    await this._loadData({ silent: true, force: true });
+  },
+
+  /** How many suggestions are near enough to be accepted in one go. */
+  _confirmableSuggestions() {
+    return (this._experienceData().media || []).filter(
+      (item) =>
+        item.assignment_status === "suggested" &&
+        item.linked_day_id &&
+        Number.isFinite(Number(item.distance_m)) &&
+        Number(item.distance_m) <= 1500,
+    ).length;
+  },
+
+  /** Accept the near suggestions, all of them, once.
+   *
+   * A photograph left as "Zu prüfen" is not in the film - the selection
+   * reads `manual` and `automatic` and nothing else. So a hundred of
+   * them are not a to-do list, they are a hundred pictures quietly
+   * missing, and the only existing way back in is one dialog each.
+   *
+   * Only the near ones: the reason a photograph twenty metres from a
+   * stop is merely a suggestion is nearly always the date - the nearest
+   * stop belongs to the neighbouring day, as with a night ferry - and
+   * not any doubt about which stop it is. A suggestion five kilometres
+   * out is a guess and stays one.
+   */
+  async _mediaConfirmSuggestions() {
+    const count = this._confirmableSuggestions();
+    if (!count) return;
+    const result = await this._runAction(
+      "media_confirm_suggestions",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        errorMode: "dialog",
+        errorTitle: "Die Vorschläge konnten nicht übernommen werden",
+      },
+    );
+    if (!result) return;
+    const confirmed = Number(result.confirmed || 0);
+    this._showToast(
+      confirmed
+        ? `${confirmed} Vorschläge übernommen – diese Fotos sind jetzt im Film.`
+        : "Kein Vorschlag war nah genug, um ihn ungeprüft zu übernehmen.",
+      "success",
+      6000,
+    );
     await this._loadData({ silent: true, force: true });
   },
 
