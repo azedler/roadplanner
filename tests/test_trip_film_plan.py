@@ -283,12 +283,12 @@ def verify_the_photo_budget_is_weighted_not_flat() -> None:
     what they have, which measures the fixture rather than the rule.
     """
     chapters = [
-        {"chapter_id": "a", "importance": "transition", "media": list(range(10))},
-        {"chapter_id": "b", "importance": "normal", "media": list(range(10))},
-        {"chapter_id": "c", "importance": "highlight", "media": list(range(10))},
-        {"chapter_id": "d", "importance": "major_highlight", "media": list(range(10))},
+        {"chapter_id": "a", "importance": "transition", "media": list(range(16))},
+        {"chapter_id": "b", "importance": "normal", "media": list(range(16))},
+        {"chapter_id": "c", "importance": "highlight", "media": list(range(16))},
+        {"chapter_id": "d", "importance": "major_highlight", "media": list(range(16))},
     ]
-    budget = plan_module.allocate_photos(chapters, total_budget=90, per_chapter_cap=10)
+    budget = plan_module.allocate_photos(chapters, total_budget=140, per_chapter_cap=16)
     assert budget["a"] < budget["b"] < budget["c"] < budget["d"], budget
     assert budget == {
         "a": plan_module.PHOTO_WEIGHTS["transition"],
@@ -297,7 +297,7 @@ def verify_the_photo_budget_is_weighted_not_flat() -> None:
         "d": plan_module.PHOTO_WEIGHTS["major_highlight"],
     }, budget
     # And the weights really are the richer ones the brief asked for.
-    assert budget["d"] >= 6, budget
+    assert budget["d"] >= 8, budget
 
 
 def verify_a_day_is_never_given_more_pictures_than_it_has() -> None:

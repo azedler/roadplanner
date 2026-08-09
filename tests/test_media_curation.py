@@ -32,6 +32,7 @@ _root.__path__ = [str(ROOT / "custom_components" / "roadplanner_mcp")]
 sys.modules[_PACKAGE] = _root
 
 curation = importlib.import_module(f"{_PACKAGE}.media_curation")
+vision = importlib.import_module(f"{_PACKAGE}.media_curation_vision")
 
 
 def _photo(media_id: str, *, seconds: int, lat: float = 63.4, lon: float = 18.4, **extra):
@@ -296,6 +297,61 @@ def verify_every_dropped_photo_can_say_why() -> None:
     assert all(entry.get("reason") for entry in pool["rejected"])
 
 
+def verify_the_model_answers_about_the_picture_and_nothing_else() -> None:
+    """Nouns, not a caption - and nothing about the journey.
+
+    The old contract asked "pick the best few" and got back an order.
+    An order cannot answer "does any of these show a moose?", which is
+    why the coverage question had nowhere to look.
+    """
+    assert "motive" in vision.SYSTEM_PROMPT
+    assert "Erfinde nichts" in vision.SYSTEM_PROMPT
+    assert "Reisetagebuch" in vision.SYSTEM_PROMPT
+    assert "Identifiziere keine Personen" in vision.SYSTEM_PROMPT
+    blob = repr(vision.build_prompt(7))
+    for leak in ("day-", "2026-", "Elch"):
+        assert leak not in blob, leak
+
+
+def verify_an_invented_id_is_discarded_not_trusted() -> None:
+    """The one way a curation could point at a photograph that is not there."""
+    parsed = vision.parse_analyses(
+        {
+            "photos": [
+                {"image_id": "real", "motifs": ["Elch", "Elch", "Wald"], "visual_quality": 4, "story_value": 9},
+                {"image_id": "invented", "motifs": ["Gold"], "visual_quality": 5, "story_value": 5},
+            ]
+        },
+        known_ids={"real"},
+    )
+    assert set(parsed) == {"real"}, parsed
+    assert parsed["real"]["motifs"] == ["Elch", "Wald"], "Dubletten fallen weg"
+    assert parsed["real"]["story_value"] == 5, "ausserhalb der Skala wird begrenzt"
+    assert vision.parse_analyses("nope", known_ids={"real"}) == {}
+
+
+def verify_a_batch_is_never_a_sample_of_one() -> None:
+    """Uniqueness cannot be judged against nothing.
+
+    25 photographs split as 24+1 asks the second call to rate how
+    different one picture is from the others it was shown - and it was
+    shown none.
+    """
+    split = vision.batches([str(index) for index in range(25)], size=24)
+    assert len(split) == 2, split
+    assert min(len(part) for part in split) >= 10, split
+    assert sum(len(part) for part in split) == 25
+    assert vision.batches([]) == []
+
+
+def verify_an_unchanged_photo_is_never_paid_for_twice() -> None:
+    prints = {"a": "hash-a", "b": "hash-b"}
+    first = vision.analysis_key(["a", "b"], prints)
+    assert first == vision.analysis_key(["b", "a"], prints), "Reihenfolge ist keine Frage"
+    assert first != vision.analysis_key(["a", "b"], {**prints, "a": "changed"})
+    assert first != vision.analysis_key(["a"], prints)
+
+
 for check in (
     verify_a_series_keeps_every_member,
     verify_a_separate_moment_is_a_separate_series,
@@ -310,6 +366,10 @@ for check in (
     verify_one_animal_encounter_may_still_be_the_whole_day,
     verify_the_person_outranks_every_rule,
     verify_every_dropped_photo_can_say_why,
+    verify_the_model_answers_about_the_picture_and_nothing_else,
+    verify_an_invented_id_is_discarded_not_trusted,
+    verify_a_batch_is_never_a_sample_of_one,
+    verify_an_unchanged_photo_is_never_paid_for_twice,
 ):
     check()
 

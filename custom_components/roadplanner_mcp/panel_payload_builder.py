@@ -188,6 +188,11 @@ class PanelPayloadBuilder:
         return {
             "decisions": decisions,
             "media": media,
+            # The curation of each day, carried alongside the media
+            # rather than folded into it: the film reads which photos
+            # were chosen, the panel reads why, and neither has to
+            # recompute the other's answer.
+            "day_curations": deepcopy(state.get("day_curations") or {}),
             "destination_galleries": destination_galleries,
             "presentation": presentation,
             "by_day": by_day,
