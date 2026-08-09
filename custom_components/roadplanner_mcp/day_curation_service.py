@@ -36,7 +36,6 @@ from .manager import RoadplannerManager
 from .media_curation import (
     CURATION_VERSION,
     candidate_pool,
-    coverage,
     group_series,
     select_for_chapter,
     semantic_score,
@@ -60,6 +59,18 @@ _LOGGER = logging.getLogger(__name__)
 # What one day may show at most. The film's own plan takes fewer than
 # this for a quiet day; this is the ceiling, not the target.
 MAX_SELECTED_PER_DAY = 14
+
+# The daily ceiling this service reserves against, which is deliberately
+# NOT the stop curation's.
+#
+# That limit exists because stop curation runs by itself when photographs
+# arrive; five a day is a guard against a sync quietly spending money.
+# This one only ever runs because somebody pressed a button that says
+# what it costs, and a three-week trip needs roughly one call per day -
+# so the guard designed for background work would stop a foreground job
+# a fifth of the way in and leave twenty days uncurated with no obvious
+# reason why.
+DAY_CURATION_DAILY_LIMIT = 60
 
 
 class DayCurationService:
@@ -286,7 +297,7 @@ class DayCurationService:
                 self.store.reserve_vision_call,
                 trip_id,
                 datetime.now(timezone.utc).date().isoformat(),
-                getattr(self._vision, "media_vision_daily_limit", 0),
+                DAY_CURATION_DAILY_LIMIT,
             )
             if not reservation.get("reserved"):
                 note = "Tageslimit für die KI-Bildauswahl erreicht"
@@ -350,4 +361,9 @@ def day_summary(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["DayCurationService", "MAX_SELECTED_PER_DAY", "day_summary"]
+__all__ = [
+    "DAY_CURATION_DAILY_LIMIT",
+    "DayCurationService",
+    "MAX_SELECTED_PER_DAY",
+    "day_summary",
+]

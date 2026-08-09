@@ -6,6 +6,25 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- **Media Curation 2.0: welche Fotos einen Tag erzählen, ist jetzt eine eigene Entscheidung.** Der Elchpark-Tag kam ohne Elch in den Film, obwohl die Bilder da waren. Vier Dinge mussten dafür zusammenkommen, und alle vier waren derselbe Fehler in anderer Kleidung — eine Entscheidung, bevor es etwas zu entscheiden gab:
+
+  1. **Die Serie fiel zuerst zusammen.** Sechs Elchbilder in vier Sekunden galten als ein Burst, und der Burst behielt genau eines: das mit den besten *Metadaten*. Die anderen fünf waren weg, bevor irgendein Auge sie gesehen hatte.
+  2. **Die Bewertung sah das Bild nie an.** `media_quality_score` liest Dateigröße, Megapixel, Seitenverhältnis, Entfernung zum Stopp. Das alles trifft genauso auf ein scharfes Foto eines Parkplatzes zu. Ein Elch zweihundert Meter weiter vom Stopp bewertet *schlechter* als Kies.
+  3. **Gemini wurde nie gefragt.** Die semantische Auswahl gab es, aber sie lief pro Stopp und sortierte nur um, was die lokale Stufe schon ausgewählt hatte — und der Filmpfad (`story_context_builder`) rief die lokale Auswahl direkt auf und übergab gar keine Kuratierung. Der Film hat noch nie eine Gemini-Meinung gesehen.
+  4. **Niemand wusste, dass ein Elch zu erwarten war.** Ein Tag mit dem Stopp „Elchpark" hat ein offensichtliches Motiv, und nirgends in der Pipeline gab es einen Ort, das aufzuschreiben.
+
+  Neu, in Stufen, die man einzeln ansehen kann: **technische Vorfilterung** wirft nur weg, was kaputt ist (Bildschirmfoto, exakte Dublette, unlesbar, Briefmarkengröße, 12:1-Streifen) — im Zweifel behalten. **Serienerkennung** gruppiert und reduziert **nicht**: zeitliche Nähe ist ein Gruppierungssignal, kein Qualitätsurteil. **Kandidatenpool** ist bewusst größer als der Film braucht (ein Tag mit 80 Fotos bietet 15–30 statt fester 12) und jede Serie steuert ihre besten zwei bis drei bei statt ihres einen. **Visual Brief** leitet deterministisch aus Stopps und Titel ab, worum es an dem Tag geht — kein KI-Aufruf für eine Angabe, die im Roadbook steht. **Coverage** sagt, ob die gewählten Bilder das auch zeigen, und „hat niemand fotografiert" ist eine gültige Antwort. **Auswahl**: Pins zuerst, dann je ein Bild pro Motiv, dann Vielfalt über die Momente.
+
+- **Der Vision-Vertrag fragt jetzt nach dem Bild statt nach einer Reihenfolge.** Pro Foto: Motive als einzelne Substantive, technische Qualität, Storywert, Wirkung, Einzigartigkeit, Hero-Eignung. Eine Reihenfolge kann die Frage „zeigt eines davon einen Elch?" nicht beantworten — genau deshalb hatte die Coverage-Frage vorher keinen Ort, an dem sie nachsehen konnte. Ein Aufruf pro Tag, gecacht über die Dateihashes der Kandidaten; unveränderte Tage werden nicht erneut analysiert. Es gehen nur verkleinerte Vorschaubilder hinaus, ohne Tag, Ort, Datum oder Namen.
+
+- **Bilder pro Tag im Film: 3 / 6 / 10 / 14** (vorher 2/4/6/8). Die alten Zahlen waren eine Absicherung gegen eine blinde Auswahl — mehr davon zu zeigen hieß mehr Kies zu zeigen.
+
+### Added
+
+- **Bildauswahl im Story-Editor.** Pro Tag: wie viele Fotos existieren, wie viele Kandidaten wurden kuratiert, wie viele Momente erkannt, welche Bilder ausgewählt und **warum**, welche Pflichtmotive abgedeckt sind und welche nicht. Je Bild drei Entscheidungen — *im Film zeigen*, *als Kapitelbild*, *nicht verwenden*. Ein Pin überstimmt die Kuratierung dauerhaft, ein Ausschluss taucht nie wieder auf. Standardmäßig werden nur die ausgewählten Bilder geladen; achtzig Vorschaubilder auf einem Telefon sind keine Übersicht, sondern ein Download.
+
 ### Fixed
 
 - **Der Renderer wurde seit dem 8. August nicht mehr veröffentlicht.** Die CI-Stufe, die einen ganzen Reisefilm rendert, lädt die Planer-Module über den Dateipfad – und ein so geladenes Modul hat kein Elternpaket. Als `trip_map_context` einen Geschwister-Import bekam (`from .trip_film_plan import readable_place`, damit aus `park4night - (595 50) Mjölby - 24 Vetagatan` ein `Mjölby` wird), brach der Schritt mit `ImportError` ab, bevor ein einziges Bild gerendert wurde.
