@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.71.0] - 2026-08-09
+
 ### Fixed
 
 - **Der Fehlertext beim Camper-Bild nannte die falsche Ursache.** Jede Ablehnung sagte „Erwartet wird ein PNG mit transparentem Hintergrund" — auch dann, wenn das Bild genau das war und lediglich über der Größengrenze landete. Jemandem zu sagen, er solle etwas reparieren, das nicht kaputt ist, ist schlimmer als nichts zu sagen: Er ändert die eine Sache, die nicht helfen kann, und schließt daraus, dass die Funktion nicht funktioniert.
