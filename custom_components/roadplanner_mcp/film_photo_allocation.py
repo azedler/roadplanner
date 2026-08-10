@@ -342,6 +342,43 @@ def allocate_trip(
     }
 
 
+
+def spread_series(
+    media_ids: list[str], series_by_media: dict[str, str] | None
+) -> list[str]:
+    """The same pictures, ordered so a burst does not read as a stutter.
+
+    The series cap already decided that two frames of one burst may be in
+    the film. It said nothing about where, and the film put them side by
+    side: two nearly identical pictures of the same dog, one after the
+    other, which reads as a mistake rather than as a moment.
+
+    So this is a reordering and never a selection - every id goes in and
+    every id comes out. Greedy and minimal: an item whose series matches
+    the one just placed steps aside for the next item that differs, and if
+    nothing differs it is placed anyway. A day that is genuinely one long
+    burst is allowed to look like one; it is not worth distorting the
+    day's order to hide it.
+    """
+    series = series_by_media or {}
+    remaining = list(media_ids or [])
+    if len(remaining) < 3:
+        return remaining
+    ordered: list[str] = []
+    previous = ""
+    while remaining:
+        index = 0
+        if previous:
+            for position, media_id in enumerate(remaining):
+                if series.get(media_id, media_id) != previous:
+                    index = position
+                    break
+        chosen = remaining.pop(index)
+        ordered.append(chosen)
+        previous = series.get(chosen, chosen)
+    return ordered
+
+
 def visual_richness(entry: dict[str, Any]) -> str:
     """A label for the panel, derived from the demand. Never an input.
 
@@ -368,6 +405,7 @@ __all__ = [
     "cap_for",
     "earned_for_day",
     "score_of",
+    "spread_series",
     "visual_richness",
 ]
 

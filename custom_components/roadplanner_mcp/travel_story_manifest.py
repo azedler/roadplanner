@@ -60,6 +60,7 @@ import re
 from typing import Any
 
 from .film_photo_allocation import PHOTO_CAPS_BY_IMPORTANCE
+from .stop_relevance import is_functional
 
 MANIFEST_VERSION = 2
 SCHEMA_ID = "roadplanner.travel_story"
@@ -651,6 +652,16 @@ def story_context_hash(manifest: dict[str, Any]) -> str:
                         "stop_id": stop.get("stop_id") or "",
                         "name": stop.get("name") or "",
                         "kind": stop.get("kind") or "",
+                        # What the stop MEANS to the story, not just what
+                        # it is called. Without it a stored direction
+                        # survived every improvement to the classification
+                        # that produced it: the editor was told a fast
+                        # food stop was the start of the day, wrote it
+                        # into the title, and no later fix could reach the
+                        # cached answer because none of the three fields
+                        # above had moved. A cache key that cannot see the
+                        # input it depends on is not a cache key.
+                        "functional": is_functional(stop),
                     }
                     for stop in chapter.get("stops") or []
                 ],
