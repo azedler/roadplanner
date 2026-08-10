@@ -44,6 +44,11 @@ Pitfalls that have already cost time:
   (`if: github.event_name != 'pull_request'`). A red film render means no image.
 - The CI film render takes ~18 minutes. Do not poll it; use Monitor or check
   runs.
+- `prepare` insists on being run from a branch named `develop`, so a release
+  leaves you standing on one. **Switch back to the working branch afterwards.**
+  Otherwise the next commit lands on a local `develop` that tracks the feature
+  branch, and every check comparing `develop` to `origin/develop` reports it as
+  unpushed although it is safely on the feature branch.
 
 ## Test system is not the live system
 
