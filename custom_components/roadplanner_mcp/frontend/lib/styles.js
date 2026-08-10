@@ -12,7 +12,18 @@ export const PANEL_STYLES = `<style>
       button, input, select, textarea { font: inherit; }
       button { -webkit-tap-highlight-color: transparent; }
       a { color: var(--primary-color); }
-      .app { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; position: relative; }
+      /* The height is MEASURED (--rp-app-height, set in roadplanner-panel.js),
+         not inherited. "height: 100%" silently degrades to auto whenever the
+         host chain above this element has no resolved height - and Home
+         Assistant's does not always hand one down. When that happened, .app
+         grew to its full content height, the minmax(0, 1fr) row grew with it,
+         and .content never overflowed: it was an overflow:auto box that had
+         nothing to scroll. So the wheel found no scroll target in the panel,
+         Home/End had none either, and the only scrollbar on screen belonged to
+         an ancestor - which is exactly why dragging it worked while every other
+         way of scrolling did nothing. Measured against the viewport, the row is
+         always definite and .content is always the scroller. */
+      .app { height: 100vh; height: var(--rp-app-height, 100dvh); min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; position: relative; }
       .app.busy { cursor: progress; }
       .topbar { min-height: 64px; padding: max(10px, env(safe-area-inset-top)) 18px 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--app-header-background-color, var(--primary-background-color)); border-bottom: 1px solid var(--divider-color); z-index: 4; }
       .topbar-start, .topbar-actions, .title-line { display: flex; align-items: center; gap: 12px; min-width: 0; }

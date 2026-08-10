@@ -327,13 +327,40 @@ class RoadplannerPanel extends HTMLElement {
 
   connectedCallback() {
     this._connected = true;
+    this._syncAppHeight();
+    // The panel is sized against the VIEWPORT, not against whatever height
+    // its host happens to resolve to - see the .app rule in styles.js for
+    // what breaks when that height is `auto`. Recomputed on resize because
+    // a rotated phone, an opened sidebar and a browser's disappearing
+    // toolbar all move where this element starts.
+    if (!this._viewportListener) {
+      this._viewportListener = () => this._syncAppHeight();
+      window.addEventListener("resize", this._viewportListener);
+      window.addEventListener("orientationchange", this._viewportListener);
+    }
     this._startWhenReady();
+  }
+
+  /** Give `.app` a height the ancestor chain cannot take away. */
+  _syncAppHeight() {
+    if (!this.isConnected) return;
+    // Measured from the document, not the viewport: a scrolled page would
+    // otherwise report a negative top and shrink the panel on every wheel
+    // tick. Once the height is right the page no longer scrolls at all.
+    const top = this.getBoundingClientRect().top + (window.scrollY || 0);
+    const offset = Math.max(0, Math.round(top));
+    this.style.setProperty("--rp-app-height", `calc(100dvh - ${offset}px)`);
   }
 
   disconnectedCallback() {
     this._connected = false;
     this._started = false;
     this._mapHydrationToken += 1;
+    if (this._viewportListener) {
+      window.removeEventListener("resize", this._viewportListener);
+      window.removeEventListener("orientationchange", this._viewportListener);
+      this._viewportListener = null;
+    }
     if (this._eventUnsubscribe) {
       this._eventUnsubscribe();
       this._eventUnsubscribe = null;

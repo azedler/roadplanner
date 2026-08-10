@@ -573,7 +573,15 @@ class DayCurationService:
                 [by_id[media_id] for media_id in group if media_id in by_id]
             )
             if len(images) < 2:
-                note = "zu wenige Vorschaubilder abrufbar"
+                # WITH the numbers. "zu wenige Vorschaubilder abrufbar" reads
+                # like a rounding problem; "0 von 19" says the thumbnails are
+                # not reachable at all, which is a different repair (the
+                # photographs' OneDrive items) than a model or quota fault.
+                note = (
+                    f"nur {len(images)} von {len(group)} Vorschaubildern abrufbar - "
+                    "ohne Vorschaubilder kann keine Analyse stattfinden "
+                    "(OneDrive-Verknüpfung der Fotos prüfen)"
+                )
                 continue
             try:
                 result = await self._vision.provider.async_analyze_images(
