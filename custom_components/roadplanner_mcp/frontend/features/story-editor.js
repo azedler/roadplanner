@@ -728,18 +728,33 @@ export const storyEditorMixin = {
       if (!result) return;
       if (!freshAfter && result.run_marker) freshAfter = String(result.run_marker);
       totals = result;
+      if (result.quota_exhausted) break;
       const left = Number(result.remaining || 0);
       if (!left) break;
       this._showToast(`Bildauswahl läuft – noch ${left} Tage …`, "info", 4000);
     }
     if (!totals) return;
     const missing = Object.keys(totals.unmet || {}).length;
-    this._showToast(
-      `${totals.selected_count} Bilder aus ${totals.pool_count} Kandidaten gewählt` +
-        (missing ? ` · ${missing} Tage ohne ihr Hauptmotiv` : ""),
-      "success",
-      7000,
-    );
+    if (totals.quota_exhausted) {
+      // The run stopped because the day's paid budget is gone, and saying
+      // "273 Bilder gewählt" here would report that as a success - the
+      // reader would go looking for a fault in the photographs instead of
+      // simply coming back tomorrow.
+      this._showToast(
+        "Tageslimit für die KI-Bildauswahl erreicht – noch nicht angesehene Tage " +
+          "bleiben ohne Analyse. Morgen erneut „Bildauswahl erneuern“ drücken; " +
+          "Tage ohne Analyse kommen dann zuerst dran.",
+        "error",
+        12000,
+      );
+    } else {
+      this._showToast(
+        `${totals.selected_count} Bilder aus ${totals.pool_count} Kandidaten gewählt` +
+          (missing ? ` · ${missing} Tage ohne ihr Hauptmotiv` : ""),
+        "success",
+        7000,
+      );
+    }
     await this._loadData({ silent: true, force: true });
     await this._storyLoad({ force: true, quiet: true });
   },

@@ -15,6 +15,7 @@ plumbing, not Gemini.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import importlib
 import importlib.machinery
 import importlib.util
@@ -459,6 +460,101 @@ def verify_an_empty_stored_analysis_is_asked_again() -> None:
     assert healed["analyses"], "der Tag ist geheilt"
 
 
+def verify_unseen_days_get_the_daily_budget_before_refreshes() -> None:
+    """Whose day the limited daily budget belongs to.
+
+    The daily limit is one budget for the whole trip. Spent in journey
+    order, a run re-asks days that already hold good answers and can
+    reach the end of the budget before a day that has NO answer at all -
+    which is what kept days 2-5 of the real trip at "analysiert 0" while
+    every later day was analysed. A day nobody has looked at goes first.
+    """
+    days = [
+        {**DAY, "id": f"day-{index}", "title": "Tag im Elchpark"}
+        for index in range(1, 5)
+    ]
+    media = []
+    for index in range(1, 5):
+        for entry in _media_set():
+            media.append({**entry, "id": f"d{index}-{entry['id']}",
+                          "provider_item_id": f"item-d{index}-{entry['id']}",
+                          "file_hash": f"hash-d{index}-{entry['id']}",
+                          "linked_day_id": f"day-{index}"})
+    table = {
+        f"d{index}-{key}": value
+        for index in range(1, 5)
+        for key, value in TABLE.items()
+    }
+    provider = _Provider(table)
+    directory = tempfile.mkdtemp()
+    store = store_module.ExperienceStore(Path(directory))
+    store.initialize()
+    state = store.load("trip-1")
+    state["media"] = [store_module.normalize_media(item) for item in media]
+    store.write(state)
+    service = service_module.DayCurationService(
+        _Hass(), store, _Manager(days), _Vision(provider)
+    )
+
+    # Days 1 and 2 already answered; days 3 and 4 never looked at.
+    asyncio.run(service.async_curate_trip("trip-1", max_days=2))
+    answered = set(store.load("trip-1")["day_curations"])
+    assert answered == {"day-1", "day-2"}, answered
+
+    # One paid day left in this call: it must go to a day with NOTHING,
+    # not to refreshing day 1.
+    result = asyncio.run(service.async_curate_trip("trip-1", force=True, max_days=1))
+    paid = [entry["day_id"] for entry in result["days"] if entry["analysed_count"]]
+    assert paid == ["day-3"], paid
+
+
+def verify_the_daily_limit_stops_the_run_and_says_so() -> None:
+    """A spent budget is a fact about the trip, not about one day.
+
+    Marching on stamps "Tageslimit erreicht" over every remaining day's
+    note - erasing the more useful thing it said - and hands the panel a
+    `remaining` it loops on for forty rounds that each do nothing, which
+    is why a run with no budget left "finished" in five seconds.
+    """
+    days = [
+        {**DAY, "id": f"day-{index}", "title": "Tag im Elchpark"}
+        for index in range(1, 5)
+    ]
+    media = []
+    for index in range(1, 5):
+        for entry in _media_set():
+            media.append({**entry, "id": f"d{index}-{entry['id']}",
+                          "provider_item_id": f"item-d{index}-{entry['id']}",
+                          "file_hash": f"hash-d{index}-{entry['id']}",
+                          "linked_day_id": f"day-{index}"})
+    provider = _Provider({})
+    directory = tempfile.mkdtemp()
+    store = store_module.ExperienceStore(Path(directory))
+    store.initialize()
+    state = store.load("trip-1")
+    state["media"] = [store_module.normalize_media(item) for item in media]
+    # Today's budget is already gone.
+    state["vision_usage"] = {
+        "date": datetime.now(timezone.utc).date().isoformat(),
+        "count": service_module.DAY_CURATION_DAILY_LIMIT,
+    }
+    store.write(state)
+    service = service_module.DayCurationService(
+        _Hass(), store, _Manager(days), _Vision(provider)
+    )
+
+    result = asyncio.run(service.async_curate_trip("trip-1", max_days=None))
+    assert result["quota_exhausted"] is True, result
+    assert provider.calls == 0, "ohne Kontingent darf nichts an den Provider gehen"
+    assert result["remaining"] == 0, (
+        "die Schleife im Panel darf nicht vierzig Runden lang nichts tun"
+    )
+    assert len(result["days"]) == 1, "nach dem Limit wird kein weiterer Tag angefasst"
+    assert "Tageslimit" in result["days"][0]["note"]
+    # The days it never reached keep whatever they knew before.
+    assert set(store.load("trip-1")["day_curations"]) == {"day-1"}
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -480,6 +576,8 @@ for check in (
     verify_the_day_is_never_named_to_the_model,
     verify_a_long_trip_is_curated_in_batches,
     verify_a_forced_rerun_pays_each_day_once_and_converges,
+    verify_unseen_days_get_the_daily_budget_before_refreshes,
+    verify_the_daily_limit_stops_the_run_and_says_so,
     verify_a_failed_look_never_erases_the_stored_answer,
     verify_an_empty_stored_analysis_is_asked_again,
     verify_the_panel_summary_leaves_the_analysis_behind,
