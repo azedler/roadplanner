@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.84.0] - 2026-08-10
+
+### Fixed
+
+- **Updates kamen im Browser nicht stabil an — der 4.83.0-Fix lief auf dem Handy, aber der Desktop führte trotz Strg+F5 und „App aktualisieren" weiter alten Code aus.** Ursache: Nur die Einstiegsdatei `roadplanner-panel.js` war über `?v=<Version>` cache-gebustet. Ihre eigenen Importe (`./lib/*.js`, `./features/*.js`) lösen relativ zum Pfad der Einstiegsdatei auf und trugen **keine** Version — und genau dort steckten beide Fixes. Der `Cache-Control: no-cache`-Header hilft nur, wenn der Browser ihn respektiert; Desktop-Chromes heuristischer Cache (und der Service Worker von Home Assistant, der manche Routen ohne Query-String matcht) taten das nicht. Jetzt steckt die Release-Version **im Pfad** (`/roadplanner_mcp_static/v-4.84.0/…`): Jede Version bedeutet für jede Datei eine URL, die kein Cache je gesehen hat. Frischer Einstieg über alten Untermodulen kann damit strukturell nicht mehr vorkommen.
+
+- **„Bildauswahl erneuern" bezahlte mit funktionierendem `force` die Tage 1–4 in jeder Runde erneut und erreichte Tag 5 nie.** Die Schleife schickt `force` seit 4.82.0 in jeder Runde — richtig gegen das Festkleben am Cache, aber `force` allein unterschied nicht zwischen „noch nicht neu bewertet" und „gerade eben in dieser Schleife bewertet". Die ersten vier Tage mit Fotos verbrauchten das Runden-Budget immer wieder, bis das Tageslimit (60 KI-Aufrufe) aufgebraucht war. Das Backend beantwortet Runde 0 jetzt mit seiner eigenen Startzeit (`run_marker`); spätere Runden schicken sie zurück, und ein Tag, dessen Ergebnis jünger als die Marke ist, ist die eigene fertige Arbeit dieses Laufs und wird nicht erneut erzwungen. Ein erzwungener Gesamtlauf bezahlt jeden Tag genau einmal.
+
+- **Ein fehlgeschlagener Analyse-Blick überschrieb gespeicherte Antworten mit Leere — und die Leere galt danach als gültiger Cache.** Beides repariert: (1) Liefert ein Blick nichts (Tageslimit erreicht, Transportfehler, zu wenige Vorschaubilder), bleiben die Antworten des letzten erfolgreichen Blicks erhalten, und der **alte** Schlüssel wird behalten, damit der nächste Lauf erneut fragt statt dem Fehlschlag zu vertrauen. (2) Eine leere gespeicherte Analyse unter passendem Schlüssel zählt nicht mehr als Cache-Treffer — genau dieser vergiftete Zustand hielt die Tage 2–5 seit dem allerersten Lauf dauerhaft auf „analysiert 0". Ein ganz normaler, unerzwungener Lauf heilt solche Tage jetzt von selbst.
+
+- **Der Bildschirm, der während der Bildauswahl ausgeht, brach den laufenden Stapel ab.** `media_curate_days` läuft jetzt serverseitig abgeschirmt wie die anderen bezahlten Aktionen: Der aktuelle Stapel (bis zu vier Tage) wird zu Ende gerechnet und gespeichert, auch wenn die Verbindung wegfällt, und statt „Connection lost" erscheint der Hinweis, dass Roadplanner auf dem Server weiterarbeitet.
+
 ## [4.83.0] - 2026-08-10
 
 ### Fixed

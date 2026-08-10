@@ -60,6 +60,7 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "renderer_app_render",
   "park4night_lookup",
   "place_link_lookup",
+  "media_curate_days",
 ]);
 
 class RoadplannerPanel extends HTMLElement {

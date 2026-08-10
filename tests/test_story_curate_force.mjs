@@ -91,4 +91,42 @@ const CHAPTER = { chapter_id: "day-1" };
   assert.doesNotMatch(button, /data-force="1"/);
 }
 
+// --- the loop forces every round, but marks its own finished work ---------
+//
+// Force alone re-paid days 1-4 in every round and never reached day 5: the
+// first days with photographs consumed the batch budget again and again
+// until the daily limit was gone. The backend answers round 0 with its own
+// start time (`run_marker`); every later round must send it back as
+// `fresh_after` so this run's finished days are not forced twice.
+
+{
+  const panel = makePanel({ curated: true });
+  panel._selectedTripId = "trip-1";
+  panel._showToast = () => {};
+  panel._loadData = async () => {};
+  panel._storyLoad = async () => {};
+  const payloads = [];
+  let remaining = 2;
+  panel._runAction = async (_action, data) => {
+    payloads.push({ ...data });
+    const result = {
+      remaining,
+      run_marker: "2026-08-10T09:00:00Z",
+      selected_count: 3,
+      pool_count: 5,
+      unmet: {},
+    };
+    remaining = Math.max(0, remaining - 1);
+    return result;
+  };
+
+  await panel._storyCurate({ force: true });
+
+  assert.equal(payloads.length, 3, "remaining 2 -> 1 -> 0 takes three rounds");
+  assert.ok(payloads.every((entry) => entry.force === true), "force goes out on EVERY round");
+  assert.equal(payloads[0].fresh_after, undefined, "round 0 has no marker yet");
+  assert.equal(payloads[1].fresh_after, "2026-08-10T09:00:00Z");
+  assert.equal(payloads[2].fresh_after, "2026-08-10T09:00:00Z");
+}
+
 console.log("Story curate force tests passed.");

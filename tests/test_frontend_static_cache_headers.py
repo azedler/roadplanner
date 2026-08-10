@@ -121,6 +121,34 @@ def verify_missing_file_raises_not_found() -> None:
             raise AssertionError("a missing file must 404")
 
 
+def verify_release_versioned_prefix_maps_to_the_same_files() -> None:
+    """"v-4.84.0/lib/styles.js" serves lib/styles.js - the version is URL.
+
+    The entry file's relative imports resolve against the entry's own
+    path, so putting the release version INTO that path gives every
+    submodule a URL no cache - browser heuristic or the Home Assistant
+    service worker, which matches some routes without the query string -
+    has ever answered before. "?v=" alone only ever busted the entry.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "lib").mkdir()
+        (root / "lib" / "styles.js").write_text("export const s = 1;")
+        view = module.RoadplannerFrontendStaticView("/x/{filename:.+}", "test", root)
+        response = _run(view.get(None, "v-4.84.0/lib/styles.js"))
+        assert response.path == (root / "lib" / "styles.js").resolve()
+        assert response.headers["Cache-Control"] == "no-cache"
+
+
+def verify_module_url_carries_the_version_as_a_path_segment() -> None:
+    panel_source = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    assert "/v-{INTEGRATION_VERSION}/roadplanner-panel.js" in panel_source, (
+        "without the version in the PATH, the entry's relative imports "
+        "keep their release-independent URLs and a stale cache entry "
+        "survives the update"
+    )
+
+
 def verify_path_traversal_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "frontend"
@@ -128,7 +156,13 @@ def verify_path_traversal_is_rejected() -> None:
         secret = Path(tmp) / "secret.txt"
         secret.write_text("do not serve me")
         view = module.RoadplannerFrontendStaticView("/x/{filename:.+}", "test", root)
-        for traversal in ("../secret.txt", "../../secret.txt", "sub/../../secret.txt"):
+        for traversal in (
+            "../secret.txt",
+            "../../secret.txt",
+            "sub/../../secret.txt",
+            "v-4.84.0/../secret.txt",
+            "v-4.84.0/../../secret.txt",
+        ):
             try:
                 _run(view.get(None, traversal))
             except (module.web.HTTPForbidden, module.web.HTTPNotFound):
@@ -167,6 +201,8 @@ def verify_panel_wiring_uses_the_new_view() -> None:
 
 if __name__ == "__main__":
     verify_serves_a_real_file_with_no_cache_header()
+    verify_release_versioned_prefix_maps_to_the_same_files()
+    verify_module_url_carries_the_version_as_a_path_segment()
     verify_missing_file_raises_not_found()
     verify_path_traversal_is_rejected()
     verify_directory_request_is_rejected()
