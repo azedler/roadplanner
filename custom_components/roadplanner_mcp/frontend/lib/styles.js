@@ -810,6 +810,10 @@ export const PANEL_STYLES = `<style>
       .story-motif.met { color: var(--success-color, #2e7d32); border-color: color-mix(in srgb, var(--success-color, #2e7d32) 45%, var(--divider-color)); }
       .story-motif.unmet { color: var(--warning-color, #b26a00); border-color: color-mix(in srgb, var(--warning-color, #b26a00) 45%, var(--divider-color)); }
       .story-missing { margin: 0; }
+      .story-diagnosis { border: 1px solid var(--divider-color); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+      .story-diagnosis-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 0.88em; }
+      .story-diagnosis-list li { display: flex; justify-content: space-between; gap: 12px; }
+      .story-diagnosis-list span { color: var(--secondary-text-color); }
       .story-music-plan { border-top: 1px solid var(--divider-color); margin-top: 12px; padding-top: 12px; display: grid; gap: 8px; }
       .story-music-plan p { margin: 0; }
       .character-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 10px; }
