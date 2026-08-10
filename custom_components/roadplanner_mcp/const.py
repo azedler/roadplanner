@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "roadplanner_mcp"
 NAME = "Roadplanner"
-INTEGRATION_VERSION = "4.86.0"
+INTEGRATION_VERSION = "4.87.0"
 
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
@@ -92,6 +92,7 @@ CONF_MEDIA_CURATION_MODE = "media_curation_mode"
 CONF_MEDIA_VISION_MAX_CANDIDATES = "media_vision_max_candidates"
 CONF_MEDIA_VISION_MAX_HIGHLIGHTS = "media_vision_max_highlights"
 CONF_MEDIA_VISION_DAILY_LIMIT = "media_vision_daily_limit"
+CONF_DAY_CURATION_DAILY_LIMIT = "day_curation_daily_limit"
 # Two switches that spend money and send private material to a cloud, so
 # both are off unless somebody turned them on. Neither has a "sensible
 # default" that would be sensible for everybody: analysing a family's
@@ -215,12 +216,20 @@ DEFAULT_AI_MUSIC_ENABLED = False
 DEFAULT_MEDIA_VISION_MAX_CANDIDATES = 12
 DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS = 5
 DEFAULT_MEDIA_VISION_DAILY_LIMIT = 5
+# The day curation's own ceiling, deliberately NOT the stop curation's:
+# stop curation runs by itself when photographs arrive, so five a day is a
+# guard against a sync quietly spending money. This one only ever runs
+# because somebody pressed a button that says what it costs, and a
+# three-week trip needs roughly one call per day.
+DEFAULT_DAY_CURATION_DAILY_LIMIT = 60
 MIN_MEDIA_VISION_MAX_CANDIDATES = 3
 MAX_MEDIA_VISION_MAX_CANDIDATES = 15
 MIN_MEDIA_VISION_MAX_HIGHLIGHTS = 1
 MAX_MEDIA_VISION_MAX_HIGHLIGHTS = 8
 MIN_MEDIA_VISION_DAILY_LIMIT = 0
 MAX_MEDIA_VISION_DAILY_LIMIT = 100
+MIN_DAY_CURATION_DAILY_LIMIT = 0
+MAX_DAY_CURATION_DAILY_LIMIT = 300
 MIN_DOCUMENT_MAX_UPLOAD_MB = 1
 MAX_DOCUMENT_MAX_UPLOAD_MB = 100
 MIN_ROUTING_REQUEST_TIMEOUT = 10

@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import AssistantProvider
+from .const import DEFAULT_DAY_CURATION_DAILY_LIMIT
 from .decision_manager import DecisionManager
 from .destination_gallery_manager import DestinationGalleryManager
 from .destination_images import DestinationImageProvider
@@ -61,6 +62,7 @@ class RoadplannerExperienceManager:
         media_vision_max_candidates: int = 12,
         media_vision_max_highlights: int = 5,
         media_vision_daily_limit: int = 5,
+        day_curation_daily_limit: int = DEFAULT_DAY_CURATION_DAILY_LIMIT,
         folder_path: str,
         sync_interval_minutes: int,
         auto_sync: bool,
@@ -122,7 +124,13 @@ class RoadplannerExperienceManager:
         # mode of the stop curation. They answer different questions: one
         # picks a stop's best few, the other decides which photographs
         # tell a whole day - and the second one is what the film reads.
-        self._day_curation = DayCurationService(hass, store, manager, self._vision_curation)
+        self._day_curation = DayCurationService(
+            hass,
+            store,
+            manager,
+            self._vision_curation,
+            daily_limit=day_curation_daily_limit,
+        )
         self._destination_gallery = DestinationGalleryManager(
             hass,
             store,
