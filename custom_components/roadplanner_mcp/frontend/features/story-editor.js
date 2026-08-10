@@ -478,6 +478,7 @@ export const storyEditorMixin = {
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
       ${this._renderStoryTripDiagnosis()}
+      ${this._renderStoryAllocationSimulation()}
     </div></div>
     ${this._renderCharacterAssets()}`;
   },
@@ -923,6 +924,58 @@ export const storyEditorMixin = {
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-diagnose-copy"><ha-icon icon="mdi:content-copy"></ha-icon>Bericht kopieren</button>
         <button class="text-button" type="button" data-action="story-diagnose-trip-close">Schließen</button>
+      </div>
+    </div>`;
+  },
+
+  /**
+   * What a quality-earned photo allocation would do to this trip.
+   *
+   * The bar a picture has to clear cannot be chosen in a repository: the
+   * scores live here, on this Home Assistant, and only their real
+   * distribution can justify a number. So the panel offers the run and
+   * the report gets pasted back into the conversation that picks it.
+   */
+  async _storySimulateAllocation() {
+    const result = await this._runAction(
+      "media_simulate_allocation",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Simulation konnte nicht erstellt werden",
+      },
+    );
+    if (!result?.allocation_simulation) return;
+    this._storyAllocationSimulation = result.allocation_simulation;
+    this._render({ preserveScroll: true });
+  },
+
+  _renderStoryAllocationSimulation() {
+    const found = this._storyAllocationSimulation;
+    const canEdit = this._canEdit();
+    if (!found) {
+      return canEdit
+        ? `<button class="text-button" type="button" data-action="story-simulate-allocation"><ha-icon icon="mdi:scale-balance"></ha-icon>Bildzuteilung simulieren (kostenlos)</button>`
+        : "";
+    }
+    const distribution = found.distribution || {};
+    const row = (entry) =>
+      `<li><span>Schwelle ${escapeHtml(String(entry.threshold))}</span><strong>${escapeHtml(String(entry.total_from_pool))} Bilder · ${escapeHtml(String(entry.days_empty))} leere Tage</strong></li>`;
+    return `<div class="story-diagnosis">
+      <p class="story-curation-counts"><strong>${escapeHtml(String(found.day_count))} Tage simuliert · heute ${escapeHtml(String(found.old_total))} Bilder im Film</strong></p>
+      ${
+        distribution.count
+          ? `<p class="hint">${escapeHtml(String(distribution.count))} bewertete Bilder · Median ${escapeHtml(String(distribution.median))} von 20 · p75 ${escapeHtml(String(distribution.p75))} · p90 ${escapeHtml(String(distribution.p90))}</p>`
+          : `<p class="hint">Für diese Reise sind noch keine Bildanalysen gespeichert - ohne sie kann keine Schwelle bestimmt werden.</p>`
+      }
+      <ul class="story-diagnosis-list">${(found.candidates || []).map(row).join("")}</ul>
+      <p class="hint">Nichts davon ist entschieden: Der vollständige Bericht enthält die Verteilung und jede Schwelle Tag für Tag.</p>
+      <div class="button-row">
+        <button class="secondary-button" type="button" data-action="story-simulate-allocation-copy"><ha-icon icon="mdi:content-copy"></ha-icon>Bericht kopieren</button>
+        <button class="text-button" type="button" data-action="story-simulate-allocation-close">Schließen</button>
       </div>
     </div>`;
   },

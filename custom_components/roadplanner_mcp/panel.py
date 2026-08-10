@@ -98,6 +98,7 @@ _ACTIONS = {
     # is called by any of them - the picture comes from the user.
     "media_diagnose_day",
     "media_diagnose_trip",
+    "media_simulate_allocation",
     "character_assets",
     "character_asset_upload",
     "character_asset_confirm",
@@ -1630,6 +1631,26 @@ async def _execute_action(
         return {
             "trip_diagnosis": await runtime.experience.async_diagnose_trip_film(
                 diagnosis_trip_id, manifest=diagnosis_manifest
+            )
+        }
+
+    if action == "media_simulate_allocation":
+        # What a quality-earned allocation would do to this trip, at
+        # several candidate thresholds at once. Calls nothing, writes
+        # nothing, and no picture leaves the system - only the scores
+        # that were paid for when the days were curated are counted.
+        simulation_trip_id = str(data.get("trip_id") or "")
+        try:
+            simulation_manifest = await runtime.story_context.async_manifest(
+                simulation_trip_id
+            )
+        except RoadplannerError:
+            # Without it the run still reports the distribution; it just
+            # cannot state a ceiling or compare against today's film.
+            simulation_manifest = None
+        return {
+            "allocation_simulation": await runtime.experience.async_simulate_film_allocation(
+                simulation_trip_id, manifest=simulation_manifest
             )
         }
 

@@ -63,6 +63,7 @@ from .story_context_builder import OVERRIDE_STORY_KEY
 from .trip_summaries import SUMMARY_DETAIL_KEY
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_film_package import MAX_FILM_IMAGES, MAX_PHOTOS_PER_CHAPTER
+from .film_allocation_simulation import format_report, simulate
 from .trip_film_plan import allocate_photos, readable_place
 
 _LOGGER = logging.getLogger(__name__)
@@ -629,6 +630,120 @@ class DayCurationService:
                 )
             },
         }
+
+    async def async_simulate_allocation(
+        self, trip_id: str, *, manifest: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """What the quality-earned allocation would do to THIS trip.
+
+        The bar a picture has to clear cannot be chosen in a repository.
+        `semantic_score` runs 0 to 20, and where a real trip's pictures
+        sit on that range is the only thing that can justify a number -
+        a fixture would just repeat whatever assumption wrote it.
+
+        So this reports the evidence instead of guessing: the whole
+        distribution of the stored scores, then, for every candidate bar,
+        what each day would earn and what the film would carry. Nothing
+        is decided here and nothing is written; the numbers go to a
+        person who picks the bar.
+
+        Free and read-only in the strict sense - the scores, the series
+        and the motifs were all paid for when the days were curated, and
+        this only counts them.
+        """
+        trip_id = str(trip_id or "").strip()
+        if not trip_id:
+            raise ValidationError("Für die Simulation wurde keine Reise ausgewählt")
+        payload = await self.manager.async_get_assistant_payload(trip_id)
+        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
+        curations = state.get("day_curations") or {}
+        by_day: dict[str, list[dict[str, Any]]] = {}
+        for item in state.get("media") or []:
+            if not isinstance(item, dict):
+                continue
+            day = str(item.get("linked_day_id") or "")
+            if day:
+                by_day.setdefault(day, []).append(item)
+
+        # The film as it stands today, computed with the production
+        # allocator rather than a copy of it: a proposal is only readable
+        # next to the thing it would replace.
+        importance_by_day: dict[str, str] = {}
+        allocation: dict[str, int] = {}
+        chapters = [
+            chapter
+            for chapter in ((manifest or {}).get("chapters") or [])
+            if isinstance(chapter, dict)
+        ]
+        if chapters:
+            for chapter in chapters:
+                chapter_id = str(chapter.get("chapter_id") or "")
+                if chapter_id:
+                    importance_by_day[chapter_id] = str(
+                        chapter.get("importance") or "normal"
+                    )
+            allocation = allocate_photos(
+                chapters,
+                total_budget=MAX_FILM_IMAGES,
+                per_chapter_cap=MAX_PHOTOS_PER_CHAPTER,
+            )
+
+        days: list[dict[str, Any]] = []
+        for index, day in enumerate(_all_days(payload)):
+            day_id = str(day.get("id") or "")
+            if not day_id:
+                continue
+            record = curations.get(day_id) or {}
+            media = by_day.get(day_id) or []
+            series_by_media = {
+                media_id: entry["series_id"]
+                for entry in group_series(media)
+                for media_id in entry.get("media_ids") or []
+            }
+            brief = record.get("brief") or {}
+            selected = list(record.get("media_ids") or [])
+            budget = allocation.get(day_id)
+            days.append(
+                {
+                    "chapter_id": day_id,
+                    "day_number": index + 1,
+                    "title": str(day.get("title") or ""),
+                    "importance": importance_by_day.get(day_id, "normal"),
+                    "curated": selected,
+                    # Every analysed candidate of the day. The curation
+                    # keeps at most fourteen, so a major highlight can
+                    # never reach its ceiling of eighteen from the
+                    # selection alone - which of the two limits actually
+                    # binds is one of the things this run has to show.
+                    "pool": list(record.get("pool_media_ids") or selected),
+                    "analyses": record.get("analyses") or {},
+                    "series_by_media": series_by_media,
+                    "pinned": list(record.get("pinned") or []),
+                    "excluded": list(record.get("excluded") or []),
+                    "must_cover": list(brief.get("must_cover") or []),
+                    "alternatives": brief.get("alternatives") or {},
+                    "old_selected": (
+                        min(len(selected), budget) if budget is not None else None
+                    ),
+                }
+            )
+
+        result = simulate(days)
+        result["trip_id"] = trip_id
+        # The days worth looking at by name are the ones that MOVE, plus
+        # any that would end up empty. Naming fixed day numbers here
+        # would only work for one trip and would quietly report nothing
+        # for every other.
+        movers = sorted(
+            (row for row in result["days"] if row["old_selected"] is not None),
+            key=lambda row: -abs(row["new_from_pool"] - int(row["old_selected"])),
+        )[:5]
+        empty = [row for row in result["days"] if not row["new_from_pool"]]
+        result["check_days"] = sorted(
+            {row["day_number"] for row in [*movers, *empty]}
+        )
+        result["report"] = format_report(result, check_days=result["check_days"])
+        return result
 
     async def _async_look(
         self,

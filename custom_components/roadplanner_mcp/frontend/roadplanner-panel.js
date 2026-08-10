@@ -1274,6 +1274,17 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "story-diagnose-trip-close") {
       this._storyTripDiagnosis = null;
       this._render({ preserveScroll: true });
+    } else if (action === "story-simulate-allocation" && this._canEdit()) {
+      // Free and read-only: it counts scores that were already paid for.
+      void this._storySimulateAllocation();
+    } else if (action === "story-simulate-allocation-close") {
+      this._storyAllocationSimulation = null;
+      this._render({ preserveScroll: true });
+    } else if (action === "story-simulate-allocation-copy") {
+      void this._copyToClipboard(
+        this._storyAllocationSimulation?.report || "",
+        "Simulationsbericht kopiert",
+      );
     } else if (action === "story-diagnose-copy") {
       void this._copyToClipboard(this._storyDiagnosisText(), "Diagnosebericht kopiert");
     } else if (action === "story-diagnose-close") {

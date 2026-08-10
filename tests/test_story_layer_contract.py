@@ -223,6 +223,11 @@ def verify_only_two_fields_are_editable() -> None:
         # to a paid button without a confirmation.
         "media_diagnose_day",
         "media_diagnose_trip",
+        # Arithmetic over the same stored derivation: what a different
+        # photo allocation WOULD select. It decides nothing, writes
+        # nothing and calls no model - the report exists so a threshold
+        # is chosen against real scores instead of a guess.
+        "media_simulate_allocation",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.

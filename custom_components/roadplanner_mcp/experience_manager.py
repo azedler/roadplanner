@@ -322,6 +322,19 @@ class RoadplannerExperienceManager:
         """
         return await self._day_curation.async_diagnose_trip(trip_id, manifest=manifest)
 
+    async def async_simulate_film_allocation(
+        self, trip_id: str, *, manifest: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """What a quality-earned photo allocation would do. Free.
+
+        Reads the stored analyses and counts. The manifest carries the
+        importance per chapter, which sets each day's ceiling and the
+        film it is compared against.
+        """
+        return await self._day_curation.async_simulate_allocation(
+            trip_id, manifest=manifest
+        )
+
     async def async_curate_day_media(
         self,
         trip_id: str,
