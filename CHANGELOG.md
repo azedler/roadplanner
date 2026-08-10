@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.90.0] - 2026-08-10
+
 ### Added
 
 - **Die Filmzuteilung fragt jetzt, was ein Bild wert ist — nicht, wie sein Tag heißt.** Bisher bekam jeder Tag eine feste Zahl Plätze nach seiner Wichtigkeit: ein Überfahrtstag drei, ein normaler sechs, ein Highlight zehn. Das ist eine Entscheidung über die *Route*, getroffen bevor jemand angesehen hat, was tatsächlich fotografiert wurde — und sie ging in **beide** Richtungen schief: Ein Major-Highlight mit sieben mittelmäßigen Bildern wurde auf vierzehn aufgeblasen, ein normaler Tag mit zwölf starken auf sechs gekürzt. Auf der echten Reise blieben so **109 von 260 Plätzen ungenutzt, während 122 kuratierte Bilder auf einen warteten**. Neu gilt: **Wichtigkeit setzt die Obergrenze (6 / 10 / 14 / 18), Qualität setzt die Nachfrage, Redundanz deckelt eine Serie, ein globales Maximum begrenzt den Film.** Ein Tag bekommt so viele Bilder, wie er gute, nicht-redundante hat — höchstens so viele, wie sein Rang erlaubt. Angepinntes überlebt jede Regel inklusive der Tagesobergrenze, Ausgeschlossenes überlebt keine, und ein Bild unter der Schwelle wird gerettet, wenn es der einzige Beleg für das Pflichtmotiv des Tages ist. Aus der Fotomenge folgt dabei **niemals** Story-Wichtigkeit — eine Speicherkarte darf die Erzählung nicht umschreiben.
