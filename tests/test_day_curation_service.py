@@ -100,7 +100,18 @@ class _Provider:
         self.seen_ids: list[str] = []
         self.prompts: list[str] = []
 
-    async def async_analyze_images(self, *, system_instruction, prompt, images, schema, max_output_tokens):
+    async def async_analyze_images(
+        self, *, system_instruction, prompt, images, schema, max_output_tokens,
+        max_images=15,
+    ):
+        # The fake enforces the SAME ceiling as the real provider. A fake
+        # that quietly accepts any number of images is how a batch size
+        # larger than the provider allows passed every test here and
+        # failed on every real trip.
+        if len(images) > int(max_images):
+            raise AssertionError(
+                f"{len(images)} Bilder in einem Aufruf, erlaubt sind {max_images}"
+            )
         self.calls += 1
         self.prompts.append(prompt)
         self.seen_ids.extend(item.image_id for item in images)
@@ -597,6 +608,85 @@ def verify_the_daily_limit_is_settable() -> None:
     )
 
 
+def verify_the_batch_size_and_the_provider_limit_agree() -> None:
+    """One number in two modules, and only one side was ever raised.
+
+    `batches()` splits a day at MAX_IMAGES_PER_CALL; the provider refused
+    anything above its own ceiling, which was a hard 15 written for the
+    STOP curation. Every day whose pool held 16 to 24 photographs
+    therefore produced exactly one oversized group, was refused, and went
+    unanalysed - forever, because no amount of quota or force changes an
+    argument the provider rejects. Days 2, 4 and 5 of the real trip stood
+    at "analysiert 0" through five releases because of it.
+
+    This reads BOTH numbers out of the real modules and compares them,
+    which is the remedy this project wrote down for exactly this pattern.
+    """
+    vision = importlib.import_module(f"{_PACKAGE}.media_curation_vision")
+    source = (
+        ROOT / "custom_components" / "roadplanner_mcp" / "day_curation_service.py"
+    ).read_text(encoding="utf-8")
+    assert "max_images=MAX_IMAGES_PER_CALL" in source, (
+        "die Tages-Kuratierung muss dem Provider ihre eigene Batchgröße nennen"
+    )
+
+    # And no batch of any plausible pool may exceed what it sends.
+    for pool_size in range(2, 121):
+        groups = vision.batches([f"m{i}" for i in range(pool_size)])
+        assert groups, pool_size
+        assert max(len(group) for group in groups) <= vision.MAX_IMAGES_PER_CALL, (
+            f"Pool {pool_size} erzeugt einen Batch über MAX_IMAGES_PER_CALL"
+        )
+        assert sum(len(group) for group in groups) == pool_size, pool_size
+
+
+def verify_one_refused_batch_does_not_cost_the_whole_day() -> None:
+    """A safety block is about those pictures, not about the day.
+
+    On the real trip a day of 28 photographs came back
+    PROHIBITED_CONTENT and the run stopped there, throwing away the other
+    group's answers as well. A refused group is skipped; what the rest
+    returned is kept.
+    """
+    errors = importlib.import_module(f"{_PACKAGE}.roadplanner")
+
+    class _Blocked(errors.RoadplannerError):
+        code = "content_blocked"
+
+    class _HalfBlocking:
+        """Refuses the first batch, answers the second."""
+
+        def __init__(self):
+            self.calls = 0
+            self.seen_ids = []
+            self.prompts = []
+
+        async def async_analyze_images(self, *, images, max_images=15, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise _Blocked(
+                    "Gemini hat die Anfrage aus Sicherheitsgründen blockiert "
+                    "(PROHIBITED_CONTENT)."
+                )
+            self.seen_ids.extend(item.image_id for item in images)
+            return _Result(
+                {"photos": [{"image_id": item.image_id, **TABLE.get(item.image_id, {})}
+                            for item in images]}
+            )
+
+    # A pool wide enough to need two batches.
+    media = [_photo(f"moose-{index}", seconds=index * 2) for index in range(30)]
+    provider = _HalfBlocking()
+    service, store = _service(media, provider=provider)
+    result = asyncio.run(service.async_curate_trip("trip-1"))
+    day = result["days"][0]
+
+    assert provider.calls == 2, "nach einem blockierten Batch muss weitergefragt werden"
+    assert day["analysed_count"] > 0, "die Antworten des zweiten Batches bleiben erhalten"
+    assert "blockiert" in day["note"], day["note"]
+    assert store.load("trip-1")["day_curations"]["day-1"]["analyses"], "der Tag ist nicht leer"
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -621,6 +711,8 @@ for check in (
     verify_unseen_days_get_the_daily_budget_before_refreshes,
     verify_the_daily_limit_stops_the_run_and_says_so,
     verify_the_daily_limit_is_settable,
+    verify_the_batch_size_and_the_provider_limit_agree,
+    verify_one_refused_batch_does_not_cost_the_whole_day,
     verify_a_failed_look_never_erases_the_stored_answer,
     verify_an_empty_stored_analysis_is_asked_again,
     verify_the_panel_summary_leaves_the_analysis_behind,
