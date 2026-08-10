@@ -556,3 +556,40 @@ def verify_no_curated_picture_is_ever_dropped() -> None:
 
 
 verify_no_curated_picture_is_ever_dropped()
+
+
+def verify_a_long_sentence_never_lands_on_a_collage() -> None:
+    """A collage is four pictures at a quarter of the frame each.
+
+    Whatever room is left for a sentence is a quarter of what a single
+    photograph offers, so text that reads comfortably over one picture
+    comes out too small over four - reported from the acceptance of
+    reise(8). A collage is primarily something to look at; anything
+    longer than a short caption gets a scene of its own, with the whole
+    frame, before the pictures.
+    """
+    chapter = {
+        "chapter_id": "d1",
+        "importance": "highlight",
+        "visual_style": "collage",
+        "media": [{"media_id": f"m{index}"} for index in range(8)],
+        "images": [""] * 8,
+        "story": (
+            "Am Morgen ging es durch den Nationalpark, mittags standen wir "
+            "am Wasserfall und abends fanden wir einen Platz direkt am See."
+        ),
+    }
+    scenes = plan_module._chapter_scenes(chapter, photo_count=8, index=0)
+    kinds = [scene["type"] for scene in scenes]
+    assert plan_module.SCENE_COLLAGE in kinds, kinds
+    assert plan_module.SCENE_TEXT in kinds, kinds
+    assert kinds.index(plan_module.SCENE_TEXT) < kinds.index(plan_module.SCENE_COLLAGE)
+    # A short caption still rides along on the pictures - the rule is
+    # about long text, not about forbidding words near a collage.
+    short = plan_module._chapter_scenes(
+        {**chapter, "story": "Am See."}, photo_count=8, index=0
+    )
+    assert plan_module.SCENE_TEXT not in [scene["type"] for scene in short]
+
+
+verify_a_long_sentence_never_lands_on_a_collage()
