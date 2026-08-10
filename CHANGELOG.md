@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.76.0] - 2026-08-10
+
 ### Added
 
 - **Musik wird jetzt in den fertigen Film gemischt, statt vorher bestellt zu werden** (`audiomux.mjs`). Die alte Reihenfolge war verkehrt herum, und das ist von außen aufgefallen: Man musste Musik für einen Film bestellen, den man noch nicht gesehen hatte, weil Remotion den Ton beim Rendern einmischt und der Track deshalb schon im Paket liegen musste, bevor das erste Bild existierte. Die Filmlänge war eine Schätzung, und ein anderer Soundtrack bedeutete, den ganzen Film neu zu rendern.
