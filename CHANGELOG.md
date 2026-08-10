@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.75.0] - 2026-08-10
+
 ### Added
 
 - **Die Diagnose läuft jetzt über die ganze Reise**, nicht nur über einen Tag. Ein Tag sagt etwas über einen Tag; die eigentliche Frage — „ist ein wichtiger Ort unterrepräsentiert, und an welcher Stufe geht das schief?" — ist eine Frage nach einem Muster. Außerdem muss dann niemand raten, welchen Tag er zuerst ansehen soll.
