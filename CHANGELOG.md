@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.95.0] - 2026-08-10
+
 ### Added
 
 - **Im Film zu sein ist nicht dasselbe wie gezeigt zu werden.** Im ersten abgenommenen Film waren die Bunkermotive des Tages, um den es der Reise teils ging, korrekt vorhanden — in drei viertelgroßen Collagenkacheln, während ein Picknickfoto den Bildschirm allein hielt. **Jede Coverage-Prüfung war grün.** Neben „ist das zentrale Motiv da?" steht jetzt „bekommt es einen Platz, an dem man es sieht?". Prominent ist, wer das Bild für einen Moment für sich hat: der eröffnende Clip oder das Hero-Foto. Vier Bilder in einer Kachel sind *unterstützend* — mitgenommen, aber nicht gezeigt. **Medium-neutral**, und nicht als Parole: Foto und Clip werden auf ihren eigenen Punktwerten verglichen, in beide Richtungen geprüft. Die Verdrahtung ist eine reine Umsortierung — der Szenenplan macht das erste Foto ohnehin zum Hero und spielt Clips ohnehin zuerst. Es wird nichts hinzugefügt, nichts entfernt und nichts erfunden: Ein Tag ohne Pflichtmotiv bleibt unangetastet. Kein Ortsname im Code; ein Test sucht nach fünf Schreibweisen.
