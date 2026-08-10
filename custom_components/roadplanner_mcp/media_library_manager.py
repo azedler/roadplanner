@@ -93,7 +93,19 @@ REASON_NO_POSITION = "kein Ort im Foto"
 # So the person decides, once, for all of them - and only for the ones
 # near enough that "which stop" is not in doubt.
 _CONFIRMABLE_RADIUS_M = 1_500.0
-_MEDIA_SYNC_STRATEGY_VERSION = 3
+# Raised to 4 so every library scans its folder once more.
+#
+# Videos became media the library accepts, but the sync is delta-based:
+# after the first full scan it only ever hears about what CHANGED. A
+# recording that was skipped by the older reader, and has not been
+# touched since, is not a change - so it never arrives, and a trip with
+# fifteen videos in OneDrive reports "0 Videos gefunden" for ever.
+#
+# Bumping this discards the stored sync state and starts one fresh scan.
+# It costs folder listings and nothing else: no model, no download, no
+# money. Anything already in the library is recognised by its provider
+# id and updated rather than duplicated.
+_MEDIA_SYNC_STRATEGY_VERSION = 4
 _INITIAL_SCAN_MODE = "initial_scan"
 _DELTA_CATCHUP_MODE = "delta_catchup"
 _DELTA_MODE = "delta"
