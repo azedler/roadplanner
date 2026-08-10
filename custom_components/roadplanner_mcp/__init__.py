@@ -49,6 +49,7 @@ from .const import (
     CONF_MEDIA_VISION_MAX_HIGHLIGHTS,
     CONF_MEDIA_VISION_MAX_CANDIDATES,
     CONF_MEDIA_VISION_DAILY_LIMIT,
+    CONF_DAY_CURATION_DAILY_LIMIT,
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
     CONF_GEOCODING_URL,
@@ -117,6 +118,7 @@ from .const import (
     DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
     DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
     DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+    DEFAULT_DAY_CURATION_DAILY_LIMIT,
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
@@ -627,6 +629,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             options.get(
                 CONF_MEDIA_VISION_DAILY_LIMIT,
                 DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+            )
+        ),
+        day_curation_daily_limit=int(
+            options.get(
+                CONF_DAY_CURATION_DAILY_LIMIT,
+                DEFAULT_DAY_CURATION_DAILY_LIMIT,
             )
         ),
         folder_path=str(

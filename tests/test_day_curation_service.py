@@ -555,6 +555,48 @@ def verify_the_daily_limit_stops_the_run_and_says_so() -> None:
     assert set(store.load("trip-1")["day_curations"]) == {"day-1"}
 
 
+def verify_the_daily_limit_is_settable() -> None:
+    """The budget is a setting, not a constant recompiled into a release.
+
+    It used to be a number in the source, so the one day somebody needed
+    a few more looks - a trip whose early days had never been analysed -
+    the only way to get them was to wait for the UTC rollover.
+    """
+    provider = _Provider(TABLE)
+    directory = tempfile.mkdtemp()
+    store = store_module.ExperienceStore(Path(directory))
+    store.initialize()
+    state = store.load("trip-1")
+    state["media"] = [store_module.normalize_media(item) for item in _media_set()]
+    store.write(state)
+
+    # Zero means off, and it must not reach the provider at all.
+    service = service_module.DayCurationService(
+        _Hass(), store, _Manager([DAY]), _Vision(provider), daily_limit=0
+    )
+    result = asyncio.run(service.async_curate_trip("trip-1"))
+    assert provider.calls == 0, "ein Limit von null darf nichts kosten"
+    assert result["quota_exhausted"] is True
+    # ...and the day still comes out usable, ordered locally.
+    assert result["days"][0]["media_ids"], result["days"][0]
+
+    # A raised limit is honoured by the same service.
+    generous = service_module.DayCurationService(
+        _Hass(), store, _Manager([DAY]), _Vision(provider), daily_limit=120
+    )
+    assert generous.daily_limit == 120
+    asyncio.run(generous.async_curate_trip("trip-1", force=True))
+    assert provider.calls >= 1, "mit Kontingent wird wieder gefragt"
+
+    # The default stays what the code always used.
+    assert (
+        service_module.DayCurationService(
+            _Hass(), store, _Manager([DAY]), _Vision(provider)
+        ).daily_limit
+        == service_module.DAY_CURATION_DAILY_LIMIT
+    )
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -578,6 +620,7 @@ for check in (
     verify_a_forced_rerun_pays_each_day_once_and_converges,
     verify_unseen_days_get_the_daily_budget_before_refreshes,
     verify_the_daily_limit_stops_the_run_and_says_so,
+    verify_the_daily_limit_is_settable,
     verify_a_failed_look_never_erases_the_stored_answer,
     verify_an_empty_stored_analysis_is_asked_again,
     verify_the_panel_summary_leaves_the_analysis_behind,
