@@ -1198,6 +1198,13 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmMusicLoad();
     } else if (action === "story-diagnose" && this._canEdit()) {
       void this._storyDiagnose(cleanText(target.dataset.chapterId));
+    } else if (action === "story-diagnose-trip" && this._canEdit()) {
+      void this._storyDiagnoseTrip();
+    } else if (action === "story-diagnose-trip-close") {
+      this._storyTripDiagnosis = null;
+      this._render({ preserveScroll: true });
+    } else if (action === "story-diagnose-copy") {
+      void this._copyToClipboard(this._storyDiagnosisText(), "Diagnosebericht kopiert");
     } else if (action === "story-diagnose-close") {
       this._storyDiagnosis = null;
       this._render({ preserveScroll: true });

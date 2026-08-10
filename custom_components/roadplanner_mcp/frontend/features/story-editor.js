@@ -477,6 +477,7 @@ export const storyEditorMixin = {
       </div>
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
+      ${this._renderStoryTripDiagnosis()}
     </div></div>
     ${this._renderCharacterAssets()}`;
   },
@@ -795,6 +796,90 @@ export const storyEditorMixin = {
           : `<p class="hint">Für diesen Tag ist kein Pflichtmotiv abgeleitet worden.</p>`
       }
       <button class="text-button" type="button" data-action="story-diagnose-close">Schließen</button>
+    </div>`;
+  },
+
+  /**
+   * The same counting for every day, in one answer.
+   *
+   * One day tells you about one day. The question actually being asked -
+   * "is an important place under-represented, and where does that go
+   * wrong?" - is about a pattern, and it also means nobody has to guess
+   * which day to look at first.
+   */
+  async _storyDiagnoseTrip() {
+    const result = await this._runAction(
+      "media_diagnose_trip",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Diagnose konnte nicht erstellt werden",
+      },
+    );
+    if (!result?.trip_diagnosis) return;
+    this._storyTripDiagnosis = result.trip_diagnosis;
+    this._render({ preserveScroll: true });
+  },
+
+  /** The whole report as plain text, because that is what gets sent on. */
+  _storyDiagnosisText() {
+    const found = this._storyTripDiagnosis;
+    if (!found) return "";
+    const lines = [
+      `Reisediagnose: ${found.day_count} Tage, ${found.weak_day_count} auffällig`,
+      Object.entries(found.by_verdict || {})
+        .map(([verdict, count]) => `${verdict}=${count}`)
+        .join(" · "),
+      "",
+    ];
+    for (const day of found.days || []) {
+      const stages = day.stages || {};
+      lines.push(
+        `Tag ${day.day_number} · ${day.title || day.day_id} · ${day.importance} · ${day.verdict}`,
+      );
+      lines.push(
+        `  Medien ${stages.media_total} → akzeptiert ${stages.technically_accepted}` +
+          ` → Pool ${stages.pool_size} → analysiert ${stages.analysed}` +
+          ` → kuratiert ${stages.selected} → im Film ${stages.in_film}` +
+          ` · Serien ${stages.series_count} · abgelehnt ${stages.rejected}`,
+      );
+      for (const motif of day.motifs || []) {
+        lines.push(
+          `  Motiv "${motif.label}": ${motif.in_pool} im Pool, ${motif.in_selection} gewählt, ${motif.in_film} im Film`,
+        );
+      }
+      if (day.verdict !== "ok") lines.push(`  → ${day.detail}`);
+      lines.push("");
+    }
+    return lines.join("\n");
+  },
+
+  _renderStoryTripDiagnosis() {
+    const found = this._storyTripDiagnosis;
+    const canEdit = this._canEdit();
+    if (!found) {
+      return canEdit
+        ? `<button class="text-button" type="button" data-action="story-diagnose-trip"><ha-icon icon="mdi:stethoscope"></ha-icon>Ganze Reise prüfen: wo gehen Bilder verloren?</button>`
+        : "";
+    }
+    const weak = (found.days || []).filter((day) => day.verdict !== "ok");
+    const row = (day) =>
+      `<li><span>Tag ${escapeHtml(String(day.day_number))} · ${escapeHtml(String(day.title || day.day_id))}</span><strong>${escapeHtml(String(day.verdict))}</strong></li>`;
+    return `<div class="story-diagnosis">
+      <p class="story-curation-counts"><strong>${escapeHtml(String(found.day_count))} Tage geprüft · ${escapeHtml(String(found.weak_day_count))} auffällig</strong></p>
+      ${
+        weak.length
+          ? `<ul class="story-diagnosis-list">${weak.map(row).join("")}</ul>
+             <p class="hint">${escapeHtml(String(weak[0].detail || ""))}</p>`
+          : `<p class="hint">Auf jedem Tag ist jedes Pflichtmotiv angemessen vertreten.</p>`
+      }
+      <div class="button-row">
+        <button class="secondary-button" type="button" data-action="story-diagnose-copy"><ha-icon icon="mdi:content-copy"></ha-icon>Bericht kopieren</button>
+        <button class="text-button" type="button" data-action="story-diagnose-trip-close">Schließen</button>
+      </div>
     </div>`;
   },
 

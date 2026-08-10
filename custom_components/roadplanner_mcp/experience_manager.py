@@ -302,6 +302,10 @@ class RoadplannerExperienceManager:
         """Where one day's pictures were lost, stage by stage. Free."""
         return await self._day_curation.async_diagnose(trip_id, day_id)
 
+    async def async_diagnose_trip_film(self, trip_id: str) -> dict[str, Any]:
+        """The same diagnosis for every day of the trip. Free."""
+        return await self._day_curation.async_diagnose_trip(trip_id)
+
     async def async_curate_day_media(
         self, trip_id: str, *, force: bool = False, max_days: int | None = None
     ) -> dict[str, Any]:
