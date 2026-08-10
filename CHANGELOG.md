@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Die Diagnose hat jetzt einen Knopf.** Sie war in 4.72.0 als Aktion vorhanden, aber über nichts erreichbar — und ein Diagnosewerkzeug, das genau die Person nicht aufrufen kann, die es an der echten Reise braucht, ist keins. Im Story-Editor neben der Bildauswahl: **„Warum fehlt etwas?"**, kostenlos und nur lesend, deshalb ohne Rückfrage neben dem kostenpflichtigen Knopf.
+
+  Angezeigt werden die Zahlen, nicht nur das Urteil: Medien am Tag, technisch akzeptiert, abgelehnt, Seriengruppen, Kandidatenpool, analysiert, kuratiert, im Film — und je Pflichtmotiv, wie viele Bilder es im Pool, in der Auswahl und im Film gibt. Das Urteil ist eine Lesart dieser Zahlen; die Zahlen sind das Ergebnis.
+
 ## [4.72.0] - 2026-08-09
 
 ### Added
