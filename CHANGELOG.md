@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.85.0] - 2026-08-10
+
+### Fixed
+
+- **Das Panel ließ sich nur mit dem Scrollbalken bewegen — die eigentliche Ursache, nach drei Anläufen endlich gefunden und reproduziert.** `.app` bezog seine Höhe über `height: 100%` aus der Elternkette. Löst dort niemand eine Höhe auf — und Home Assistant tut das nicht immer —, wird daraus `auto`: `.app` wuchs auf die volle Inhaltshöhe (im Test 4486 px), die Zeile `minmax(0, 1fr)` wuchs mit, und **`.content` war ein `overflow: auto`-Kasten ohne irgendetwas zum Scrollen** (`scrollHeight === clientHeight`). Damit fand das Mausrad im Panel kein Ziel, die Tastatur ebenso wenig, und der einzige Scrollbalken auf dem Schirm gehörte einem Vorfahren — weshalb ausgerechnet Ziehen funktionierte. Das erklärt auch, warum `min-height: 0` (4.82.0) und der Fokus-Fix (4.83.0) nicht helfen konnten: Beide setzen eine definite Höhe voraus, die nie ankam. Die Höhe wird jetzt **gegen den Viewport gemessen** (`--rp-app-height`, bei Größenänderung und Drehung neu berechnet) statt vererbt. In einem echten Chromium vorher/nachher nachgestellt: vorher nicht scrollbar, danach scrollen Mausrad, Pos1, Ende und Bild-auf/-ab.
+
+- **Die Reisediagnose beschuldigte die Fotos, wenn nie eine Analyse stattgefunden hatte.** Für Tage mit vollem Pool und `analysiert 0` meldete sie „kein einziges Bild zeigt das Motiv — entweder existieren keine passenden Fotos, oder die Bildanalyse hat sie nicht verbunden". Beides war falsch: Ohne **irgendeine** gespeicherte Analyse *kann* kein Motiv erkannt worden sein, die Frage nach den Fotos stellt sich gar nicht. Dieser Fall wird jetzt zuerst geprüft und klar benannt — samt dem Grund, den die Bildauswahl selbst gespeichert hat (`Hinweis der Bildauswahl:` im kopierbaren Bericht). Der Hinweis nennt jetzt außerdem Zahlen: statt „zu wenige Vorschaubilder abrufbar" steht dort „nur 0 von 19 Vorschaubildern abrufbar — OneDrive-Verknüpfung der Fotos prüfen", weil Kontingent, ausgeschaltetes Modell und unerreichbare Vorschaubilder entgegengesetzte Reparaturen brauchen.
+
 ## [4.84.0] - 2026-08-10
 
 ### Fixed

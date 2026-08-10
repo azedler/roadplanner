@@ -112,12 +112,20 @@ def diagnose_day(
             }
         )
 
-    verdict, detail = _verdict(stages, motifs, selected=selected, film=film_media_ids)
+    # What the curation itself said about its last look. It is the only
+    # place that knows WHY nothing was analysed - quota, unreachable
+    # thumbnails, the model switched off - and leaving it out is how this
+    # report blamed missing photographs for an analysis that never ran.
+    note = str(curation.get("note") or "")
+    verdict, detail = _verdict(
+        stages, motifs, selected=selected, film=film_media_ids, note=note
+    )
     return {
         "day_id": curation.get("day_id") or chapter.get("chapter_id") or "",
         "title": chapter.get("title") or "",
         "importance": chapter.get("importance") or "normal",
         "curated": bool(curation),
+        "analysis_note": note,
         "stages": stages,
         "must_cover": must,
         "motifs": motifs,
@@ -162,6 +170,7 @@ def _verdict(
     *,
     selected: list[str],
     film: list[str] | None,
+    note: str = "",
 ) -> tuple[str, str]:
     """Which stage is the first one where the numbers stop adding up."""
     if not stages.get("media_total"):
@@ -182,7 +191,23 @@ def _verdict(
         return VERDICT_OK, "Jedes Pflichtmotiv ist angemessen vertreten."
 
     names = ", ".join(entry["label"] for entry in weak)
-    # The order of these three questions is the point of the module.
+    # The order of these questions is the point of the module, and this one
+    # comes first because it outranks every answer below it: with no stored
+    # analysis at all, NO motif can have been recognised, so "no photograph
+    # shows it" is not a finding about the photographs. Reported as missing
+    # pictures, it sent the reader looking through a gallery that was never
+    # the problem.
+    if stages.get("pool_size") and not stages.get("analysed"):
+        reason = f" Die Bildauswahl meldet dazu: „{note}“." if note else ""
+        return (
+            VERDICT_CURATION,
+            f"Für {names} liegt es nicht an den Fotos: für diesen Tag ist "
+            f"überhaupt keine Bildanalyse gespeichert "
+            f"({stages['pool_size']} Bilder im Pool, 0 analysiert), also kann "
+            f"kein Motiv erkannt worden sein.{reason} Ohne Analyse ordnet die "
+            "Auswahl nur nach lokaler Bildqualität - der Tag ist im Film, aber "
+            "niemand hat die Bilder je angesehen.",
+        )
     if all(entry["in_pool"] == 0 for entry in weak):
         return (
             VERDICT_CURATION,

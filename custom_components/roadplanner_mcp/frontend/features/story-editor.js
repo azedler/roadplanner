@@ -860,6 +860,11 @@ export const storyEditorMixin = {
           ` → kuratiert ${stages.selected} → im Film ${stages.in_film}` +
           ` · Serien ${stages.series_count} · abgelehnt ${stages.rejected}`,
       );
+      // What the curation said about its own last look. Without it a day
+      // reading "analysiert 0" gives no way to tell "the model is off"
+      // from "the daily limit ran out" from "no thumbnail was reachable",
+      // and those need opposite fixes.
+      if (day.analysis_note) lines.push(`  Hinweis der Bildauswahl: ${day.analysis_note}`);
       for (const motif of day.motifs || []) {
         lines.push(
           `  Motiv "${motif.label}": ${motif.in_pool} im Pool, ${motif.in_selection} gewählt, ${motif.in_film} im Film`,
