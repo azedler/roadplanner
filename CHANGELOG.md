@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.75.0] - 2026-08-10
+
+### Added
+
+- **Die Diagnose läuft jetzt über die ganze Reise**, nicht nur über einen Tag. Ein Tag sagt etwas über einen Tag; die eigentliche Frage — „ist ein wichtiger Ort unterrepräsentiert, und an welcher Stufe geht das schief?" — ist eine Frage nach einem Muster. Außerdem muss dann niemand raten, welchen Tag er zuerst ansehen soll.
+
+  Neu im Story-Editor: **„Ganze Reise prüfen"**, kostenlos und nur lesend. Angezeigt wird, wie viele Tage auffällig sind und welche — bei 23 Tagen ist eine Liste aus 23 Urteilen eine Wand, „vier Tage sind schwach, und hier ist die Stufe" ist eine Antwort. Dazu **„Bericht kopieren"**: der vollständige Verlauf je Tag als Text (Medien → akzeptiert → Pool → analysiert → kuratiert → im Film, plus je Pflichtmotiv), zum Weitergeben.
+
 ## [4.74.0] - 2026-08-10
 
 ### Added

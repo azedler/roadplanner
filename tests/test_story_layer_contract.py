@@ -222,6 +222,7 @@ def verify_only_two_fields_are_editable() -> None:
         # cannot call a model - which is what makes it safe to offer next
         # to a paid button without a confirmation.
         "media_diagnose_day",
+        "media_diagnose_trip",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.

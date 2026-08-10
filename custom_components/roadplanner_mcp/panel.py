@@ -98,6 +98,7 @@ _ACTIONS = {
     # The camper's picture: look, upload, confirm, throw away. No model
     # is called by any of them - the picture comes from the user.
     "media_diagnose_day",
+    "media_diagnose_trip",
     "character_assets",
     "character_asset_upload",
     "character_asset_confirm",
@@ -1601,6 +1602,16 @@ async def _execute_action(
             "day_diagnosis": await runtime.experience.async_diagnose_day_film(
                 str(data.get("trip_id") or ""),
                 str(data.get("day_id") or ""),
+            )
+        }
+
+    if action == "media_diagnose_trip":
+        # The same counting for every day at once. One day tells you
+        # about one day; whether an important place is under-represented
+        # is a question about a pattern.
+        return {
+            "trip_diagnosis": await runtime.experience.async_diagnose_trip_film(
+                str(data.get("trip_id") or "")
             )
         }
 

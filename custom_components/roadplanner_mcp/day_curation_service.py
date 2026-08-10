@@ -33,7 +33,13 @@ from homeassistant.core import HomeAssistant
 from .experience_helpers import _all_days, canonical_roadbook_stops
 from .experience_store import ExperienceStore, utc_now_iso
 from .manager import RoadplannerManager
-from .day_film_diagnosis import diagnose_day
+from .day_film_diagnosis import (
+    VERDICT_CURATION,
+    VERDICT_NO_MATERIAL,
+    VERDICT_OK,
+    VERDICT_SCENE_PLAN,
+    diagnose_day,
+)
 from .media_curation import (
     CURATION_VERSION,
     candidate_pool,
@@ -431,6 +437,73 @@ class DayCurationService:
             # renderer reports back; stated rather than guessed.
             film_media_ids=list((curation or {}).get("media_ids") or []) or None,
         )
+
+    async def async_diagnose_trip(self, trip_id: str) -> dict[str, Any]:
+        """The same diagnosis for every day of the trip, in one answer.
+
+        One day tells you about one day. The question actually being
+        asked - "is an important place under-represented, and where does
+        that go wrong?" - is about a pattern, and a pattern needs the
+        whole journey. It also means the person running it does not have
+        to guess which day to look at.
+
+        Free and read-only, like the single-day version: the payload and
+        the stored state are loaded once and everything else is counting.
+        """
+        trip_id = str(trip_id or "").strip()
+        if not trip_id:
+            raise ValidationError("Für die Diagnose wurde keine Reise ausgewählt")
+        payload = await self.manager.async_get_assistant_payload(trip_id)
+        state = await self.hass.async_add_executor_job(self.store.load, trip_id)
+        curations = state.get("day_curations") or {}
+        by_day: dict[str, list[dict[str, Any]]] = {}
+        for item in state.get("media") or []:
+            if not isinstance(item, dict):
+                continue
+            day = str(item.get("linked_day_id") or "")
+            if day:
+                by_day.setdefault(day, []).append(item)
+
+        days: list[dict[str, Any]] = []
+        for index, day in enumerate(_all_days(payload)):
+            day_id = str(day.get("id") or "")
+            if not day_id:
+                continue
+            found = diagnose_day(
+                chapter={
+                    "chapter_id": day_id,
+                    "title": str(day.get("title") or ""),
+                    "importance": str(day.get("importance") or "normal"),
+                },
+                curation=curations.get(day_id),
+                media=by_day.get(day_id) or [],
+                film_media_ids=list(
+                    (curations.get(day_id) or {}).get("media_ids") or []
+                )
+                or None,
+            )
+            found["day_number"] = index + 1
+            days.append(found)
+
+        # The summary is what makes this readable at 23 days. A list of
+        # twenty-three verdicts is a wall; "four days are weak, and here
+        # is which stage" is an answer.
+        weak = [entry for entry in days if entry["verdict"] != VERDICT_OK]
+        return {
+            "trip_id": trip_id,
+            "day_count": len(days),
+            "days": days,
+            "weak_day_count": len(weak),
+            "by_verdict": {
+                verdict: sum(1 for entry in days if entry["verdict"] == verdict)
+                for verdict in (
+                    VERDICT_OK,
+                    VERDICT_CURATION,
+                    VERDICT_SCENE_PLAN,
+                    VERDICT_NO_MATERIAL,
+                )
+            },
+        }
 
     async def _async_look(
         self,
