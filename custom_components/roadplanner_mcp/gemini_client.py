@@ -29,6 +29,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assistant_provider import (
     AssistantImageInput,
+    AssistantVideoInput,
     AssistantImageResult,
     AssistantJsonResult,
     AssistantSource,
@@ -1328,6 +1329,160 @@ class GeminiClient:
             {
                 "vision_image_count": len(normalized),
                 "vision_input_bytes": total_bytes,
+            }
+        )
+        return AssistantJsonResult(
+            value=value,
+            sources=[],
+            model_version=model_version,
+            usage=usage,
+            diagnostics=diagnostics,
+        )
+
+    async def async_analyze_video(
+        self,
+        *,
+        system_instruction: str,
+        prompt: str,
+        video: AssistantVideoInput,
+        schema: dict[str, Any],
+        max_output_tokens: int = 2048,
+        low_resolution: bool = True,
+    ) -> AssistantJsonResult:
+        """Analyze one prefiltered video window and return JSON.
+
+        What arrives here is an analysis proxy the caller already cut and
+        shrank - never an original. The bound below is therefore a
+        guardrail against a mistake upstream, not a working limit: inline
+        data has to fit in one request, and a proxy that approaches it
+        means the proxy profile is wrong, which is worth an error naming
+        the cause rather than a rejected request from Google.
+
+        `low_resolution` is the cost dial. Video is billed by what it
+        costs to look at - roughly 300 tokens per second at default media
+        resolution against about 100 at low - so the cheap pass is the
+        default here and a caller asks for the expensive one deliberately,
+        for the one short window it already has reason to care about.
+        """
+        if not isinstance(video, AssistantVideoInput):
+            raise ValidationError("Der Videokandidat hat ein ungültiges Format")
+        video_id = str(video.video_id or "").strip()[:300]
+        if not video_id:
+            raise ValidationError("Der Videokandidat benötigt eine ID")
+        mime_type = str(video.mime_type or "").strip().casefold()
+        if mime_type not in {"video/mp4", "video/webm", "video/quicktime"}:
+            raise ValidationError(
+                f"Nicht unterstütztes Videoformat: {mime_type or 'unbekannt'}"
+            )
+        data = bytes(video.data or b"")
+        if not data:
+            raise ValidationError("Für die Videoanalyse konnten keine Daten geladen werden")
+        if len(data) > 15_000_000:
+            raise ValidationError(
+                "Der Analyseproxy ist zu groß für eine Videoanalyse - "
+                "er sollte deutlich kleiner sein als das Original"
+            )
+
+        # startOffset/endOffset are seconds-with-suffix strings in the API,
+        # and they are sent even though the proxy is already cut: a proxy
+        # that carries a little handle around the window is easier to make
+        # with ffmpeg than a frame-exact one, and the model should still
+        # judge the window that was asked about.
+        metadata: dict[str, Any] = {}
+        if isinstance(video.start_offset, (int, float)) and video.start_offset >= 0:
+            metadata["startOffset"] = f"{float(video.start_offset):.3f}s"
+        if isinstance(video.end_offset, (int, float)) and video.end_offset > 0:
+            metadata["endOffset"] = f"{float(video.end_offset):.3f}s"
+        if isinstance(video.fps, (int, float)) and video.fps > 0:
+            metadata["fps"] = round(float(video.fps), 3)
+
+        def content_parts(extra_instruction: str = "") -> list[dict[str, Any]]:
+            parts: list[dict[str, Any]] = [
+                {
+                    "text": (
+                        str(prompt or "").strip()
+                        + ("\n\n" + extra_instruction if extra_instruction else "")
+                    )
+                }
+            ]
+            if video.label:
+                parts.append({"text": str(video.label)[:1_000]})
+            part: dict[str, Any] = {
+                "inlineData": {
+                    "mimeType": mime_type,
+                    "data": base64.b64encode(data).decode("ascii"),
+                }
+            }
+            if metadata:
+                part["videoMetadata"] = dict(metadata)
+            parts.append(part)
+            return parts
+
+        def body_for_model(model: str) -> list[BodyVariant]:
+            max_tokens = max(256, min(int(max_output_tokens), 8_192))
+            base_config: dict[str, Any] = {
+                "maxOutputTokens": max_tokens,
+                "responseMimeType": "application/json",
+            }
+            if low_resolution:
+                base_config["mediaResolution"] = "MEDIA_RESOLUTION_LOW"
+            if not model.casefold().startswith("gemini-3"):
+                base_config["temperature"] = 0.1
+            base = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"role": "user", "parts": content_parts()}],
+            }
+            return [
+                (
+                    "video_schema",
+                    {
+                        **base,
+                        "generationConfig": {
+                            **base_config,
+                            "responseJsonSchema": self._supported_schema(schema),
+                        },
+                    },
+                ),
+                (
+                    "video_json_mime",
+                    {
+                        "systemInstruction": base["systemInstruction"],
+                        "contents": [
+                            {
+                                "role": "user",
+                                "parts": content_parts(
+                                    "Antworte ausschließlich mit genau einem gültigen JSON-Objekt."
+                                ),
+                            }
+                        ],
+                        "generationConfig": base_config,
+                    },
+                ),
+            ]
+
+        payload, diagnostics = await self._post(body_for_model, search_requested=False)
+        candidate = self._candidate(payload)
+        text = self._text(candidate)
+        usage = self._usage(payload)
+        model_version = str(payload.get("modelVersion") or "") or None
+        try:
+            value, normalization = parse_structured_object(text, schema)
+        except StructuredOutputError as err:
+            # Deliberately NOT repaired by a second paid call. An unreadable
+            # answer about one window costs that window, and the caller
+            # already treats a missing analysis as "no moment found here" -
+            # paying twice to rescue one clip is the wrong trade.
+            raise GeminiApiError(
+                "Gemini hat keine zuverlässig lesbare Videoanalyse geliefert.",
+                code="invalid_video_output",
+                provider_detail=str(err)[:500],
+            ) from err
+        diagnostics.update(
+            {
+                "structured_output_normalization": normalization,
+                "video_input_bytes": len(data),
+                "video_media_resolution": "low" if low_resolution else "default",
+                **({"video_metadata": dict(metadata)} if metadata else {}),
             }
         )
         return AssistantJsonResult(
