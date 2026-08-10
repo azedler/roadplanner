@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Die Filmzuteilung fragt jetzt, was ein Bild wert ist — nicht, wie sein Tag heißt.** Bisher bekam jeder Tag eine feste Zahl Plätze nach seiner Wichtigkeit: ein Überfahrtstag drei, ein normaler sechs, ein Highlight zehn. Das ist eine Entscheidung über die *Route*, getroffen bevor jemand angesehen hat, was tatsächlich fotografiert wurde — und sie ging in **beide** Richtungen schief: Ein Major-Highlight mit sieben mittelmäßigen Bildern wurde auf vierzehn aufgeblasen, ein normaler Tag mit zwölf starken auf sechs gekürzt. Auf der echten Reise blieben so **109 von 260 Plätzen ungenutzt, während 122 kuratierte Bilder auf einen warteten**. Neu gilt: **Wichtigkeit setzt die Obergrenze (6 / 10 / 14 / 18), Qualität setzt die Nachfrage, Redundanz deckelt eine Serie, ein globales Maximum begrenzt den Film.** Ein Tag bekommt so viele Bilder, wie er gute, nicht-redundante hat — höchstens so viele, wie sein Rang erlaubt. Angepinntes überlebt jede Regel inklusive der Tagesobergrenze, Ausgeschlossenes überlebt keine, und ein Bild unter der Schwelle wird gerettet, wenn es der einzige Beleg für das Pflichtmotiv des Tages ist. Aus der Fotomenge folgt dabei **niemals** Story-Wichtigkeit — eine Speicherkarte darf die Erzählung nicht umschreiben.
+
+- **„Bildzuteilung simulieren" — kostenlos, rein lesend.** Die Schwelle, ab der ein Bild als gut gilt, lässt sich nicht im Quelltext raten: `semantic_score` läuft von 0 bis 20, und wo die Bilder einer echten Reise auf dieser Skala liegen, weiß nur das eigene Home Assistant. Die neue Aktion liest die **längst bezahlten** gespeicherten Analysen und rechnet: die vollständige Verteilung der Bewertungen, dann für sieben Kandidatenschwellen nebeneinander, was jeder Tag verdienen würde und was der Film insgesamt trüge — gegenüber dem, was er heute trägt. Und zwar in zwei Spalten, aus der Kuratierung und aus dem analysierten Pool, weil die Kuratierung selbst bei 14 deckelt und ein Major-Highlight seine 18 aus der Auswahl heraus nie erreichen kann; welche der beiden Grenzen wirklich bindet, muss sichtbar sein. **Kein Modellaufruf, kein Schreiben, kein Bild verlässt das System** — ein Test prüft das namentlich. Der Bericht ist Text zum Kopieren.
+
+Die neue Zuteilung ist noch **nicht** an den Filmexport angeschlossen: An gerenderten Filmen ändert diese Version nichts. Sie macht die Zahlen lesbar, damit die Schwelle an echten Daten gewählt wird.
+
 ## [4.89.0] - 2026-08-10
 
 ### Fixed
