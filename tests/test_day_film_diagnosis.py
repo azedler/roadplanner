@@ -51,8 +51,14 @@ def _curation(*, pool, selected, shows, must=("wolfsschanze",)):
             "met": [name for name in must if any(item in shows for item in selected)],
             "unmet": [name for name in must if not any(item in shows for item in selected)],
         },
+        # The fields the curation ACTUALLY stores. The first version of
+        # this test invented `zeigt`, which let a broken matcher pass
+        # here and then report zero matches on every day of a real trip.
         "analyses": {
-            media_id: {"zeigt": "Wolfsschanze Bunker" if media_id in shows else "Wald"}
+            media_id: {
+                "motifs": ["Wolfsschanze", "Bunker"] if media_id in shows else ["Wald"],
+                "shows": ["Wolfsschanze"] if media_id in shows else [],
+            }
             for media_id in pool
         },
     }
@@ -165,6 +171,25 @@ def verify_an_uncurated_day_is_a_finding_not_an_error() -> None:
     assert empty["verdict"] == diagnosis.VERDICT_NO_MATERIAL
 
 
+def verify_it_reads_the_fields_the_curation_writes() -> None:
+    """The diagnosis must use the selection's own matcher and fields.
+
+    A diagnosis with its own matching describes a system nobody is
+    running - and it is worse than no diagnosis, because it points
+    confidently at the wrong stage. Checked against a real curation
+    record's shape rather than an invented one.
+    """
+    analysis = {"motifs": ["Elchgehege", "Wald"], "shows": ["Elch"]}
+    assert diagnosis._shows(analysis, "elch")
+    # Folded and matched both ways round, exactly like the coverage.
+    assert diagnosis._shows(analysis, "elchgehege")
+    assert not diagnosis._shows(analysis, "wolfsschanze")
+    # Alternatives count, because a requirement is "this OR that".
+    assert diagnosis._shows(analysis, "gehege", ["gehege", "elch"])
+    # And the fields the first version invented must not be enough.
+    assert not diagnosis._shows({"zeigt": "Elch"}, "elch")
+
+
 def verify_it_knows_nothing_about_any_particular_place() -> None:
     source = (
         ROOT / "custom_components" / "roadplanner_mcp" / "day_film_diagnosis.py"
@@ -184,6 +209,7 @@ for check in (
     verify_a_day_that_is_fine_says_so,
     verify_every_stage_is_counted,
     verify_an_uncurated_day_is_a_finding_not_an_error,
+    verify_it_reads_the_fields_the_curation_writes,
     verify_it_knows_nothing_about_any_particular_place,
 ):
     check()

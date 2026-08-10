@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .media_curation import motif_tokens
+from .media_curation import motif_matches
 
 # A motif is "represented" once this share of the day's chosen pictures
 # show it. Below that, a story that talks about a place is illustrated by
@@ -85,8 +85,17 @@ def diagnose_day(
     # the chosen ones do. The gap between those two numbers is the whole
     # diagnosis.
     motifs: list[dict[str, Any]] = []
+    alternatives = brief.get("alternatives") or {}
     for name in must:
-        in_pool = [media_id for media_id in pool if _shows(analyses.get(media_id), name)]
+        # The same alternatives the selection used. A requirement is
+        # "Wolfsschanze OR Bunker OR Gierloz", and checking only the
+        # first would under-count exactly the way the coverage does not.
+        options = list(alternatives.get(name) or [])
+        in_pool = [
+            media_id
+            for media_id in pool
+            if _shows(analyses.get(media_id), name, options)
+        ]
         in_selection = [media_id for media_id in selected if media_id in in_pool]
         in_film = [
             media_id for media_id in (film_media_ids or []) if media_id in in_pool
@@ -120,27 +129,31 @@ def diagnose_day(
     }
 
 
-def _shows(analysis: Any, motif: str) -> bool:
+def _shows(analysis: Any, motif: str, alternatives: list[str] | None = None) -> bool:
     """Whether the vision pass connected this picture to this motif.
 
-    Matched on the folded tokens the curation itself uses, so the answer
-    here is the same answer the selection had - a diagnosis that used its
-    own matching would describe a system nobody is running.
+    Uses the curation's OWN matcher against the curation's own fields.
+    The first version read `zeigt` and `motive`, which the analyses do
+    not have - they store `motifs` and `shows` - so it reported zero
+    matches on every day of a real trip while the coverage on the same
+    data reported the motif as met.
+
+    That is the failure this module's docstring warns about, committed
+    by the module itself: a diagnosis with its own matching describes a
+    system nobody is running. Worse than no diagnosis, because it points
+    confidently at the wrong stage.
     """
     if not isinstance(analysis, dict):
         return False
-    wanted = set(motif_tokens(motif))
-    if not wanted:
-        return False
-    seen: set[str] = set()
-    for key in ("zeigt", "motive", "subject_or_activity"):
+    seen: list[str] = []
+    for key in ("motifs", "shows"):
         value = analysis.get(key)
-        if isinstance(value, str):
-            seen.update(motif_tokens(value))
-        elif isinstance(value, list):
-            for entry in value:
-                seen.update(motif_tokens(str(entry)))
-    return bool(wanted & seen)
+        if isinstance(value, list):
+            seen.extend(str(entry) for entry in value)
+        elif isinstance(value, str):
+            seen.append(value)
+    wanted = list(alternatives or []) or [motif]
+    return any(motif_matches(token, seen) for token in wanted)
 
 
 def _verdict(

@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.79.0] - 2026-08-10
+
+### Fixed
+
+- **Die Diagnose las die falschen Felder und meldete deshalb überall null.** Aus dem ersten echten Lauf über 23 Tage: `curation=23`, und bei jedem Motiv „0 im Pool" — auch an Tagen, an denen die Kuratierung dasselbe Motiv auf denselben Daten als **erfüllt** ausweist. Die Analysen speichern `motifs` und `shows`; die Diagnose fragte nach `zeigt` und `motive`.
+
+  Genau der Fehler, vor dem der Modulkommentar warnt, begangen vom Modul selbst: Eine Diagnose mit eigener Vergleichslogik beschreibt ein System, das niemand betreibt — und das ist schlimmer als keine Diagnose, weil sie mit Überzeugung auf die falsche Stufe zeigt. Sie benutzt jetzt den Matcher und die Felder der Auswahl, inklusive der Alternativen je Anforderung.
+
+  Der Test hatte das durchgelassen, weil er sich die Feldnamen selbst ausgedacht hatte. Er benutzt jetzt die Form eines echten Kuratierungsdatensatzes und prüft ausdrücklich, dass die erfundenen Felder **nicht** genügen.
+
 ## [4.78.0] - 2026-08-10
 
 ### Added
