@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Musik wird jetzt in den fertigen Film gemischt, statt vorher bestellt zu werden** (`audiomux.mjs`). Die alte Reihenfolge war verkehrt herum, und das ist von außen aufgefallen: Man musste Musik für einen Film bestellen, den man noch nicht gesehen hatte, weil Remotion den Ton beim Rendern einmischt und der Track deshalb schon im Paket liegen musste, bevor das erste Bild existierte. Die Filmlänge war eine Schätzung, und ein anderer Soundtrack bedeutete, den ganzen Film neu zu rendern.
+
+  Jetzt kommt die Musik zuletzt: Film ohne Ton rendern, exakte Länge messen, MusicPlan gegen diese Zahl finalisieren, Ton in die fertige MP4 mischen. Der Grund, warum das billig ist, ist auch der Grund, warum es sich lohnt — **die Videospur wird kopiert, nicht neu kodiert.** Sekunden statt zwanzig Minuten, und ohne neue Kompressionsartefakte. Eine andere Musikvariante auszuprobieren ist damit keine Abwägung mehr.
+
+  Details, die im fertigen Film hörbar wären: `amix` mit `normalize=0`, weil Normalisieren durch die Anzahl der Eingänge teilt und damit jede Überblendung zu einem Lautstärkeloch machen würde — dem genauen Gegenteil einer Überblendung. `adelay` mit Wert je Kanal, weil ein einzelner Wert auf manchen Builds nur den linken Kanal verzögert. Und die **Filmlänge** begrenzt die Ausgabe: `-shortest` würde einen zu kurz geratenen Soundtrack die Bilder abschneiden lassen.
+
 ## [4.75.0] - 2026-08-10
 
 ### Added
