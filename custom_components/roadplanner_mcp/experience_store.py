@@ -443,6 +443,19 @@ def normalize_media(raw: dict[str, Any]) -> dict[str, Any]:
         "file_hash": _clean(raw.get("file_hash"), 500) or None,
         "width": int(raw.get("width") or 0) if isinstance(raw.get("width"), int) and not isinstance(raw.get("width"), bool) and raw.get("width") > 0 else None,
         "height": int(raw.get("height") or 0) if isinstance(raw.get("height"), int) and not isinstance(raw.get("height"), bool) and raw.get("height") > 0 else None,
+        # How long a video is. Dropped here for as long as videos existed,
+        # which quietly removed the one fact the whole video pipeline is
+        # built on: the windows a recording is offered in, the estimate of
+        # what analysing it costs, and the bound a proposed segment is
+        # checked against all come from this number. A photograph simply
+        # has none, so it stays None and nothing changes for photographs.
+        "duration_seconds": (
+            round(float(raw["duration_seconds"]), 3)
+            if isinstance(raw.get("duration_seconds"), (int, float))
+            and not isinstance(raw.get("duration_seconds"), bool)
+            and float(raw["duration_seconds"]) > 0
+            else None
+        ),
         "linked_day_id": _clean(raw.get("linked_day_id"), 200) or None,
         "linked_stop_id": _clean(raw.get("linked_stop_id"), 200) or None,
         "assignment_status": assignment,

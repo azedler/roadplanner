@@ -304,6 +304,43 @@ def verify_the_analysis_proxy_seeks_fast_and_the_render_proxy_accurately() -> No
     assert analysis_call.index("-ss") < analysis_call.index("-i")
 
 
+def verify_a_video_keeps_its_length_through_the_store() -> None:
+    """The one fact the whole video pipeline is built on.
+
+    `normalize_media` dropped `duration_seconds`, so every stored video
+    had no length: the windows a recording is offered in, the estimate of
+    what analysing it costs and the bound a proposed segment is checked
+    against all come from that number. Nothing failed - it simply
+    behaved as though every recording were of unknown length.
+    """
+    store = importlib.import_module(f"{_PACKAGE}.experience_store")
+    stored = store.normalize_media(
+        {
+            "id": "m1",
+            "trip_id": "t1",
+            "provider_item_id": "p1",
+            "media_type": "video",
+            "duration_seconds": 123.4,
+        }
+    )
+    assert stored["media_type"] == "video"
+    assert stored["duration_seconds"] == 123.4, stored["duration_seconds"]
+    # A photograph has no length, and gains none.
+    photo = store.normalize_media(
+        {"id": "m2", "trip_id": "t1", "provider_item_id": "p2", "media_type": "photo"}
+    )
+    assert photo["duration_seconds"] is None
+
+
+def verify_the_library_rescans_once_for_videos() -> None:
+    """A delta sync only reports changes, so old videos never arrive."""
+    library = (INTEGRATION / "media_library_manager.py").read_text(encoding="utf-8")
+    version = int(
+        library.split("_MEDIA_SYNC_STRATEGY_VERSION = ")[1].split("\n")[0]
+    )
+    assert version >= 4, version
+
+
 for check in (
     verify_two_videos_never_share_a_cache_key,
     verify_the_key_moves_with_model_and_schema,
@@ -325,6 +362,8 @@ for check in (
     verify_a_window_cannot_become_the_whole_recording,
     verify_the_render_proxy_is_silent_too,
     verify_the_analysis_proxy_seeks_fast_and_the_render_proxy_accurately,
+    verify_a_video_keeps_its_length_through_the_store,
+    verify_the_library_rescans_once_for_videos,
 ):
     check()
 
