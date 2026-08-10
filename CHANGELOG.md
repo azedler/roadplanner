@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.81.0] - 2026-08-10
+
 ### Fixed
 
 - **Lange Texte landen nicht mehr in Collagen.** Aus der Abnahme von `reise(8)`: Texte in Collagen sind zwar nicht mehr abgeschnitten, aber „relativ klein". Der Grund ist Arithmetik — eine Collage sind vier Bilder zu je einem Viertel des Rahmens, also ist der Platz für einen Satz ein Viertel dessen, was ein einzelnes Foto bietet. Derselbe Satz, der über einem Bild bequem liest, kommt über vier zu klein heraus.
