@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.93.0] - 2026-08-10
+
 ### Fixed
 
 - **Ein Versorgungsstopp benannte einen Tag.** Der Regie-Brief beschrieb jeden Stopp nach Position und Art — ein benanntes Schnellrestaurant, markiert als *Beginn* des Tages, ohne jeden Hinweis, dass es ein Sandwich unterwegs war. Das Modell schrieb genau den Titel, zu dem diese Beschreibung einlädt. Es lag nicht falsch, es war uninformiert. `is_functional()` existierte längst und wurde von Kuratierung, Karte und Filmplan benutzt — **die Regie war der einzige Verbraucher, der nie gefragt hat.** Sie fragt jetzt, und die Anweisung sagt generisch: Ein solcher Stopp darf im Text vorkommen, wenn wirklich etwas an ihm hing, aber er bestimmt nicht den Titel und verdrängt nicht das Ziel des Tages. Keine Marke im Code; ein Test durchsucht das Modul nach sechs davon.
