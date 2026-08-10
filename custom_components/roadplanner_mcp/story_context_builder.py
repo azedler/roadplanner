@@ -79,6 +79,7 @@ from .film_photo_allocation import (
     spread_series,
 )
 from .media_curation import group_series
+from .visual_prominence import promote_for_prominence
 from .trip_summaries import SUMMARY_DETAIL_KEY
 
 _LOGGER = logging.getLogger(__name__)
@@ -206,9 +207,27 @@ class StoryContextBuilder:
             "days": days,
             "media": media,
             "day_curations": state.get("day_curations") or {},
+            # The video moments that were already analysed and stored.
+            # Read, never produced - the same rule as the editing pass, and
+            # for the same reason: a panel refresh must not be able to cost
+            # money. A trip whose videos were never looked at simply has
+            # none, which is a normal trip.
+            "video_segments": await self._async_video_segments(trip_id),
             "direction": await self._async_direction(trip_id),
             "crew": await self._async_crew(),
         }
+
+    async def _async_video_segments(self, trip_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Stored video moments by day. Free, read-only, absent is normal."""
+        service = getattr(self._experience, "video_curation", None)
+        if service is None:
+            return {}
+        try:
+            return await self._hass.async_add_executor_job(
+                service.segments_by_day, trip_id
+            )
+        except RoadplannerError:
+            return {}
 
     async def _async_direction(self, trip_id: str) -> dict[str, Any] | None:
         """The stored editing pass, if there is one.
@@ -266,6 +285,7 @@ def _film_allocation(
     media_by_day: dict[str, list[dict[str, Any]]],
     day_curations: Any,
     directed_chapters: Any,
+    clips_by_day: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, list[str]]:
     """Which of a day's curated pictures have earned a place in the film.
 
@@ -313,13 +333,27 @@ def _film_allocation(
     if not entries:
         return {}
     result = allocate_trip(entries)
-    series_by_day = {entry["chapter_id"]: entry["series_by_media"] for entry in entries}
-    # Which pictures is decided; where they sit is decided here. Two frames
-    # of one burst side by side read as a stutter rather than as a moment.
-    return {
-        day_id: spread_series(list(found["media_ids"]), series_by_day.get(day_id))
-        for day_id, found in (result.get("days") or {}).items()
-    }
+    by_day = {entry["chapter_id"]: entry for entry in entries}
+    ordered: dict[str, list[str]] = {}
+    for day_id, found in (result.get("days") or {}).items():
+        entry = by_day.get(day_id) or {}
+        # Which pictures is decided; where they sit is decided here, in two
+        # steps that answer different questions. Spreading stops two frames
+        # of one burst reading as a stutter. Promotion puts the day's own
+        # subject where it can be seen - a motif that exists only as a
+        # quarter-tile in a collage is covered without being shown, which
+        # is how a day the trip was partly about opened on a picnic.
+        media_ids = spread_series(
+            list(found["media_ids"]), entry.get("series_by_media")
+        )
+        ordered[day_id] = promote_for_prominence(
+            media_ids,
+            must_cover=entry.get("must_cover"),
+            alternatives=entry.get("alternatives"),
+            analyses=entry.get("analyses"),
+            clips=(clips_by_day or {}).get(day_id),
+        )
+    return ordered
 
 
 def _build(context: dict[str, Any]) -> dict[str, Any]:
@@ -366,7 +400,11 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
     # deciding it in the export - would need the analyses shipped there,
     # or a second, weaker rule beside the real one.
     allocation = _film_allocation(
-        context["days"], media_by_day, day_curations, directed_chapters
+        context["days"],
+        media_by_day,
+        day_curations,
+        directed_chapters,
+        clips_by_day=context.get("video_segments") or {},
     )
 
     # The last line of defence against one picture in two chapters: a
