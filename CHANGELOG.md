@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.92.0] - 2026-08-10
+
+### Fixed
+
+- **Der Renderer brach lange Filme jenseits der Hälfte ab — die Zeitgrenze war an einem Film gemessen, den es nicht mehr gibt.** Zwei echte Renderläufe der 23-Tage-Reise starben nach mehr als 55 % mit nichts am Ende. Die feste Grenze von 2 400 s stand mit ihrer eigenen Begründung im Code: „126 ms je Bild, der längste Film den das baut — 25 Tage, **rund 9 000 Bilder** — also etwa 1 150 s, verdoppelt". Ehrliche Rechnung für einen Film mit 9 000 Bildern; deiner hat seit dem Collage-Deckel **rund 18 000**. Die Bildzahl hat sich ungefähr verdoppelt, die Konstante blieb stehen — dasselbe Muster wie die zwei Obergrenzen der Vorversion, nur ein Deployable weiter. Die Grenze wird jetzt **je Lauf aus der tatsächlichen Bildzahl** berechnet (400 ms je Bild, das Dreifache des auf einer Entwicklermaschine gemessenen Werts); die alte Konstante ist nur noch die Untergrenze. Ein hängender Browser wird dafür von einem eigenen Wächter erkannt, der nach zehn Minuten **ohne jeden Fortschritt** abbricht — eine Wanduhr kann „langsam" nicht von „steckengeblieben" unterscheiden.
+
+- **Das Add-on-Image enthielt ein Modul nicht, das der Renderer importiert.** Der Dockerfile zählt die Laufzeitquellen einzeln auf, und das scheiterte auf die unangenehmste denkbare Art: Image gebaut, Container gestartet, Heartbeat meldet „bereit", korrekte Version — und erst der **erste Render** stirbt an der fehlenden Datei. Alles, was Gesundheit meldet, sagte, dem Renderer gehe es gut. Ein Test folgt jetzt den Importen ab dem Einstiegspunkt und vergleicht sie mit der Liste im Dockerfile.
+
+**Das Add-on muss mit aktualisiert werden** (Version 0.20.0). Ohne das neue Image bleibt der Abbruch bestehen, egal welche Integrationsversion läuft.
+
 ## [4.91.0] - 2026-08-10
 
 ### Changed
