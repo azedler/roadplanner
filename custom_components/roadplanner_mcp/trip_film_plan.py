@@ -327,6 +327,16 @@ def reading_frames(
 # "Text läuft unten aus dem Bild", because the fix for text that does not
 # fit is not a smaller font, it is a different scene.
 CAPTION_OVER_PHOTO_CHARS = 105
+# A collage is four pictures at a quarter of the frame each. Whatever
+# room is left for a sentence is a quarter of the room a single
+# photograph offers, so the same text that reads comfortably over one
+# picture comes out too small over four - reported from the acceptance
+# of reise(8) as "innerhalb von Collagen relativ klein".
+#
+# A collage is primarily something to LOOK at. It may carry a short
+# caption; anything longer belongs to a scene of its own, before the
+# pictures, where it has the whole frame.
+CAPTION_OVER_COLLAGE_CHARS = 48
 
 
 # What the map costs is taken back out of the same day. A day keeps at
@@ -717,7 +727,16 @@ def _chapter_scenes(
     # scene means a scrim over half the frame, a clamped sentence, and
     # the reported "Text läuft unten aus dem Bild" - so it gets a scene
     # of its own, before the pictures, and the pictures keep their room.
-    long_caption = len(caption) > CAPTION_OVER_PHOTO_CHARS
+    # The threshold depends on where the caption would land. Over a
+    # collage the usable room is a quarter of a frame, so the same
+    # sentence that reads over one photograph is too small over four.
+    shows_collage = any(kind == SCENE_COLLAGE for kind, _, _ in _shot_list(style, photo_count))
+    caption_limit = (
+        min(CAPTION_OVER_PHOTO_CHARS, CAPTION_OVER_COLLAGE_CHARS)
+        if shows_collage
+        else CAPTION_OVER_PHOTO_CHARS
+    )
+    long_caption = len(caption) > caption_limit
     caption_frames = reading_frames(caption) if long_caption else 0
 
     chosen_clips = list(clips or [])
