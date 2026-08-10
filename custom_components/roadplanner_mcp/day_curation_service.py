@@ -119,6 +119,7 @@ class DayCurationService:
         *,
         force: bool = False,
         max_days: int | None = DAYS_PER_CALL,
+        fresh_after: str | None = None,
     ) -> dict[str, Any]:
         """Curate a trip's days, a few paid ones per call.
 
@@ -126,10 +127,21 @@ class DayCurationService:
         not how many are looked at: a day whose answer is still cached is
         recomputed for free and never uses up the batch. `remaining` is
         what the panel loops on.
+
+        `fresh_after` is what lets `force` survive that loop. Forcing
+        every round unconditionally re-paid days 1-4 in every round - the
+        first four days with photographs consumed the batch again and
+        again, day 5 was never reached, and the daily limit went up in
+        re-answering questions asked a minute earlier. So the first round
+        is answered with this call's own start time (`run_marker`), later
+        rounds send it back, and a day whose record is younger than the
+        marker is this run's own finished work: recomputed for free, not
+        forced again.
         """
         trip_id = str(trip_id or "").strip()
         if not trip_id:
             raise ValidationError("Für die Bildauswahl wurde keine Reise ausgewählt")
+        run_marker = utc_now_iso()
         payload = await self.manager.async_get_assistant_payload(trip_id)
         days = _all_days(payload)
         state = await self.hass.async_add_executor_job(self.store.load, trip_id)
@@ -152,12 +164,13 @@ class DayCurationService:
             if not day_id:
                 continue
             existing = stored.get(day_id) if isinstance(stored, dict) else None
+            day_force = force and not _curated_since(existing, fresh_after)
             if budget is not None and paid_days >= budget:
                 # Out of batch. A day that would only be recomputed from
                 # cache is still not "remaining" - only one that would
                 # have to pay is, or the panel would loop forever over
                 # days that never change.
-                if self._would_pay(day, by_day.get(day_id, []), existing, force=force):
+                if self._would_pay(day, by_day.get(day_id, []), existing, force=day_force):
                     remaining += 1
                 continue
             record = await self.async_curate_day(
@@ -165,7 +178,7 @@ class DayCurationService:
                 day,
                 by_day.get(day_id, []),
                 existing=existing,
-                force=force,
+                force=day_force,
             )
             results.append(record)
             looked_at += int(record.get("analysed_count") or 0)
@@ -174,6 +187,7 @@ class DayCurationService:
         return {
             "ok": True,
             "trip_id": trip_id,
+            "run_marker": run_marker,
             "remaining": remaining,
             "day_count": len(results),
             "analysed_count": looked_at,
@@ -229,6 +243,8 @@ class DayCurationService:
                 if str(item.get("film_pin") or "") == "exclude"
             ],
         )
+        if not pool["media_ids"]:
+            return False
         by_id = {str(item.get("id")): item for item in media}
         fingerprints = {
             media_id: str(
@@ -237,9 +253,14 @@ class DayCurationService:
             for media_id in pool["media_ids"]
             if media_id in by_id
         }
-        return str(existing.get("analysis_key") or "") != analysis_key(
+        if str(existing.get("analysis_key") or "") != analysis_key(
             pool["media_ids"], fingerprints
-        )
+        ):
+            return True
+        # A matching key over an EMPTY answer is the leftover of a failed
+        # look, and the real pass no longer accepts it as a cache hit - so
+        # predicting "free" here would strand the progress loop on it.
+        return not (existing.get("analyses") or {})
 
     async def async_curate_day(
         self,
@@ -319,6 +340,11 @@ class DayCurationService:
             not force
             and isinstance(existing, dict)
             and str(existing.get("analysis_key") or "") == key
+            # An empty stored answer under a matching key is what a failed
+            # first look leaves behind, not an answer. Honouring it as one
+            # pinned days at "analysiert 0" through every unforced run -
+            # the record never changed, so it was never asked again.
+            and ((existing.get("analyses") or {}) or not (pool["media_ids"] and self.enabled))
         ):
             analyses = {
                 media_id: value
@@ -342,6 +368,21 @@ class DayCurationService:
                     or set(brief.get("must_cover") or [])
                 ),
             )
+            if not analysed and not analyses and isinstance(existing, dict):
+                # A look that produced nothing (daily limit, transport,
+                # too few thumbnails) is a failure, not an answer. Storing
+                # it as one would erase what the last successful look knew
+                # - which is how a quota that ran out mid-trip wiped whole
+                # days. Keep the old answers for the pictures still in the
+                # pool, and keep the OLD key, so the next run asks again
+                # instead of trusting this.
+                in_pool = set(pool["media_ids"])
+                analyses = {
+                    media_id: value
+                    for media_id, value in (existing.get("analyses") or {}).items()
+                    if isinstance(value, dict) and media_id in in_pool
+                }
+                key = str(existing.get("analysis_key") or "")
         elif pool["media_ids"]:
             note = "KI-Bildauswahl ist ausgeschaltet - lokale Reihenfolge"
 
@@ -553,6 +594,18 @@ class DayCurationService:
             analyses.update(parsed)
             analysed += len(images)
         return analyses, analysed, note
+
+
+def _curated_since(existing: Any, marker: str | None) -> bool:
+    """Was this day's stored answer written at or after `marker`?
+
+    `curated_at` and the marker both come from the server's own clock via
+    `utc_now_iso`, so the comparison never involves a browser clock, and
+    the fixed-width UTC format makes string order time order.
+    """
+    if not marker or not isinstance(existing, dict):
+        return False
+    return str(existing.get("curated_at") or "") >= str(marker)
 
 
 def _best_hero(media_ids: list[str], analyses: dict[str, dict[str, Any]]) -> str:

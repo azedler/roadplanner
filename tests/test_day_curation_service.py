@@ -340,6 +340,125 @@ def verify_a_long_trip_is_curated_in_batches() -> None:
     assert len(store.load("trip-1")["day_curations"]) == 6
 
 
+def verify_a_forced_rerun_pays_each_day_once_and_converges() -> None:
+    """Force must survive the panel's batching loop without paying twice.
+
+    The 4.83.0 loop sent force in every round, and force alone re-paid
+    days 1-4 in every round: they are the first days with photographs,
+    the batch budget was spent on them again, day 5 was never reached,
+    and the daily limit went up in re-answering questions asked a minute
+    earlier. The run marker is what makes the rounds converge: a record
+    younger than the first round's start time is this run's own finished
+    work and is not forced again.
+    """
+    days = [
+        {**DAY, "id": f"day-{index}", "title": "Tag im Elchpark"}
+        for index in range(1, 7)
+    ]
+    media = []
+    for index in range(1, 7):
+        for entry in _media_set():
+            media.append({**entry, "id": f"d{index}-{entry['id']}",
+                          "provider_item_id": f"item-d{index}-{entry['id']}",
+                          "file_hash": f"hash-d{index}-{entry['id']}",
+                          "linked_day_id": f"day-{index}"})
+    table = {
+        f"d{index}-{key}": value
+        for index in range(1, 7)
+        for key, value in TABLE.items()
+    }
+    provider = _Provider(table)
+    directory = tempfile.mkdtemp()
+    store = store_module.ExperienceStore(Path(directory))
+    store.initialize()
+    state = store.load("trip-1")
+    state["media"] = [store_module.normalize_media(item) for item in media]
+    store.write(state)
+    service = service_module.DayCurationService(
+        _Hass(), store, _Manager(days), _Vision(provider)
+    )
+
+    asyncio.run(service.async_curate_trip("trip-1", max_days=None))
+    primed = provider.calls
+    assert primed == 6, primed
+
+    # The marker has second granularity; in real life minutes pass between
+    # the first curation and a forced refresh, in this test microseconds
+    # do. Age the stored records so they are visibly older than the run.
+    state = store.load("trip-1")
+    for record in state["day_curations"].values():
+        record["curated_at"] = "2026-01-01T00:00:00Z"
+    store.write(state)
+
+    marker = None
+    rounds = 0
+    while True:
+        rounds += 1
+        assert rounds <= 6, "die erzwungene Schleife muss konvergieren"
+        result = asyncio.run(
+            service.async_curate_trip(
+                "trip-1", force=True, max_days=2, fresh_after=marker
+            )
+        )
+        if marker is None:
+            marker = result["run_marker"]
+        if not result["remaining"]:
+            break
+    assert rounds == 3, rounds
+    assert provider.calls == primed * 2, (
+        "jeder Tag wird in einem erzwungenen Lauf genau einmal neu bezahlt"
+    )
+
+
+def verify_a_failed_look_never_erases_the_stored_answer() -> None:
+    """A look that produced nothing is a failure, not an answer.
+
+    Storing an empty result over a good one is how a daily limit that ran
+    out mid-trip wiped whole days: the next unforced run found a matching
+    key, trusted the empty record, and never asked again.
+    """
+    errors = importlib.import_module(f"{_PACKAGE}.roadplanner")
+    provider = _Provider(TABLE)
+    service, store = _service(_media_set(), provider=provider)
+    asyncio.run(service.async_curate_trip("trip-1"))
+    record = store.load("trip-1")["day_curations"]["day-1"]
+    assert record["analyses"], record
+    good = dict(record["analyses"])
+    good_key = record["analysis_key"]
+
+    class _Broken:
+        async def async_analyze_images(self, **_kwargs):
+            raise errors.RoadplannerError("Provider nicht erreichbar")
+
+    service._vision.provider = _Broken()
+    asyncio.run(service.async_curate_trip("trip-1", force=True))
+    after = store.load("trip-1")["day_curations"]["day-1"]
+    assert after["analyses"] == good, "ein fehlgeschlagener Blick darf nichts löschen"
+    assert after["analysed_count"] == 0
+    assert after["analysis_key"] == good_key
+
+
+def verify_an_empty_stored_analysis_is_asked_again() -> None:
+    """The poisoned record that pinned days 2-5 at "analysiert 0".
+
+    A transient failure once stored an empty analysis under a matching
+    key; from then on every unforced run served it back as if it were an
+    answer. An empty analysis is not an answer, and the next ordinary run
+    must heal the day without anyone pressing force.
+    """
+    provider = _Provider(TABLE)
+    service, store = _service(_media_set(), provider=provider)
+    asyncio.run(service.async_curate_trip("trip-1"))
+    state = store.load("trip-1")
+    state["day_curations"]["day-1"]["analyses"] = {}
+    store.write(state)
+    calls = provider.calls
+    asyncio.run(service.async_curate_trip("trip-1"))
+    assert provider.calls > calls, "eine leere gespeicherte Analyse ist kein Cache-Treffer"
+    healed = store.load("trip-1")["day_curations"]["day-1"]
+    assert healed["analyses"], "der Tag ist geheilt"
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -360,6 +479,9 @@ for check in (
     verify_an_excluded_photo_never_reaches_the_provider,
     verify_the_day_is_never_named_to_the_model,
     verify_a_long_trip_is_curated_in_batches,
+    verify_a_forced_rerun_pays_each_day_once_and_converges,
+    verify_a_failed_look_never_erases_the_stored_answer,
+    verify_an_empty_stored_analysis_is_asked_again,
     verify_the_panel_summary_leaves_the_analysis_behind,
 ):
     check()
