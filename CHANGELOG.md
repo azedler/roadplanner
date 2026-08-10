@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.84.0] - 2026-08-10
+
 ### Fixed
 
 - **Updates kamen im Browser nicht stabil an — der 4.83.0-Fix lief auf dem Handy, aber der Desktop führte trotz Strg+F5 und „App aktualisieren" weiter alten Code aus.** Ursache: Nur die Einstiegsdatei `roadplanner-panel.js` war über `?v=<Version>` cache-gebustet. Ihre eigenen Importe (`./lib/*.js`, `./features/*.js`) lösen relativ zum Pfad der Einstiegsdatei auf und trugen **keine** Version — und genau dort steckten beide Fixes. Der `Cache-Control: no-cache`-Header hilft nur, wenn der Browser ihn respektiert; Desktop-Chromes heuristischer Cache (und der Service Worker von Home Assistant, der manche Routen ohne Query-String matcht) taten das nicht. Jetzt steckt die Release-Version **im Pfad** (`/roadplanner_mcp_static/v-4.84.0/…`): Jede Version bedeutet für jede Datei eine URL, die kein Cache je gesehen hat. Frischer Einstieg über alten Untermodulen kann damit strukturell nicht mehr vorkommen.
