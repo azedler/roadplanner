@@ -1613,9 +1613,23 @@ async def _execute_action(
         # The same counting for every day at once. One day tells you
         # about one day; whether an important place is under-represented
         # is a question about a pattern.
+        # The manifest comes along because a day's importance lives there
+        # and nowhere else - read from the roadbook day it defaults to
+        # "normal" for everything, which is what made every day of a real
+        # trip look equally weighted in the report.
+        diagnosis_trip_id = str(data.get("trip_id") or "")
+        try:
+            diagnosis_manifest = await runtime.story_context.async_manifest(
+                diagnosis_trip_id
+            )
+        except RoadplannerError:
+            # A diagnosis that counts is worth more than no diagnosis, so
+            # a manifest that cannot be built costs the film numbers and
+            # nothing else.
+            diagnosis_manifest = None
         return {
             "trip_diagnosis": await runtime.experience.async_diagnose_trip_film(
-                str(data.get("trip_id") or "")
+                diagnosis_trip_id, manifest=diagnosis_manifest
             )
         }
 

@@ -310,9 +310,17 @@ class RoadplannerExperienceManager:
         """Where one day's pictures were lost, stage by stage. Free."""
         return await self._day_curation.async_diagnose(trip_id, day_id)
 
-    async def async_diagnose_trip_film(self, trip_id: str) -> dict[str, Any]:
-        """The same diagnosis for every day of the trip. Free."""
-        return await self._day_curation.async_diagnose_trip(trip_id)
+    async def async_diagnose_trip_film(
+        self, trip_id: str, *, manifest: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """The same diagnosis for every day of the trip. Free.
+
+        The manifest carries the director's importance per chapter, which
+        is what decides how many pictures the film has room for. Without
+        it the diagnosis can still count the curation - it just cannot
+        claim to know what reached the screen.
+        """
+        return await self._day_curation.async_diagnose_trip(trip_id, manifest=manifest)
 
     async def async_curate_day_media(
         self,

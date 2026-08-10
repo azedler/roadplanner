@@ -62,7 +62,8 @@ from .media_intelligence import media_quality_score
 from .story_context_builder import OVERRIDE_STORY_KEY
 from .trip_summaries import SUMMARY_DETAIL_KEY
 from .roadplanner import RoadplannerError, ValidationError
-from .trip_film_plan import readable_place
+from .trip_film_package import MAX_FILM_IMAGES, MAX_PHOTOS_PER_CHAPTER
+from .trip_film_plan import allocate_photos, readable_place
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -517,7 +518,9 @@ class DayCurationService:
             film_media_ids=list((curation or {}).get("media_ids") or []) or None,
         )
 
-    async def async_diagnose_trip(self, trip_id: str) -> dict[str, Any]:
+    async def async_diagnose_trip(
+        self, trip_id: str, *, manifest: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """The same diagnosis for every day of the trip, in one answer.
 
         One day tells you about one day. The question actually being
@@ -525,6 +528,19 @@ class DayCurationService:
         that go wrong?" - is about a pattern, and a pattern needs the
         whole journey. It also means the person running it does not have
         to guess which day to look at.
+
+        `manifest` is what makes two of these numbers true rather than
+        plausible. A day's IMPORTANCE lives in the story manifest, where
+        the director writes it - a roadbook day has no such field, so
+        reading it there reported every day of a real trip as "normal"
+        and hid whichever days the editor had marked as highlights.
+
+        And "im Film" was the curation's own count, because the renderer
+        never reports back. But the film does not carry the curation: it
+        carries what `allocate_photos` grants a day, which depends on
+        exactly that importance. On the real trip the curation chose 273
+        pictures and the film had room for far fewer - a gap of that size
+        has to be visible, and it was not.
 
         Free and read-only, like the single-day version: the payload and
         the stored state are loaded once and everything else is counting.
@@ -543,34 +559,64 @@ class DayCurationService:
             if day:
                 by_day.setdefault(day, []).append(item)
 
+        # What the director decided, and what the film therefore has room
+        # for. Computed with the production allocator rather than a copy
+        # of its rules: a second implementation of "how many pictures fit"
+        # would describe a film nobody renders.
+        importance_by_day: dict[str, str] = {}
+        allocation: dict[str, int] = {}
+        chapters = (manifest or {}).get("chapters") or []
+        if chapters:
+            for chapter in chapters:
+                if not isinstance(chapter, dict):
+                    continue
+                chapter_id = str(chapter.get("chapter_id") or "")
+                if chapter_id:
+                    importance_by_day[chapter_id] = str(
+                        chapter.get("importance") or "normal"
+                    )
+            allocation = allocate_photos(
+                [chapter for chapter in chapters if isinstance(chapter, dict)],
+                total_budget=MAX_FILM_IMAGES,
+                per_chapter_cap=MAX_PHOTOS_PER_CHAPTER,
+            )
+
         days: list[dict[str, Any]] = []
         for index, day in enumerate(_all_days(payload)):
             day_id = str(day.get("id") or "")
             if not day_id:
                 continue
+            selected = list((curations.get(day_id) or {}).get("media_ids") or [])
+            # Without a manifest the honest answer is "unknown", not the
+            # curation's own number wearing the film's label.
+            in_film = selected[: allocation[day_id]] if day_id in allocation else None
             found = diagnose_day(
                 chapter={
                     "chapter_id": day_id,
                     "title": str(day.get("title") or ""),
-                    "importance": str(day.get("importance") or "normal"),
+                    "importance": importance_by_day.get(day_id, "normal"),
                 },
                 curation=curations.get(day_id),
                 media=by_day.get(day_id) or [],
-                film_media_ids=list(
-                    (curations.get(day_id) or {}).get("media_ids") or []
-                )
-                or None,
+                film_media_ids=in_film,
             )
             found["day_number"] = index + 1
+            found["film_photo_budget"] = allocation.get(day_id)
             days.append(found)
 
         # The summary is what makes this readable at 23 days. A list of
         # twenty-three verdicts is a wall; "four days are weak, and here
         # is which stage" is an answer.
         weak = [entry for entry in days if entry["verdict"] != VERDICT_OK]
+        curated_total = sum(int(entry["stages"].get("selected") or 0) for entry in days)
+        film_total = sum(allocation.values()) if allocation else None
         return {
             "trip_id": trip_id,
             "day_count": len(days),
+            # The one number the report never showed: how much of what was
+            # curated the film actually has room for.
+            "curated_total": curated_total,
+            "film_total": film_total,
             "days": days,
             "weak_day_count": len(weak),
             "by_verdict": {
