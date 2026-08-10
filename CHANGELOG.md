@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.79.0] - 2026-08-10
+
 ### Fixed
 
 - **Die Diagnose las die falschen Felder und meldete deshalb überall null.** Aus dem ersten echten Lauf über 23 Tage: `curation=23`, und bei jedem Motiv „0 im Pool" — auch an Tagen, an denen die Kuratierung dasselbe Motiv auf denselben Daten als **erfüllt** ausweist. Die Analysen speichern `motifs` und `shows`; die Diagnose fragte nach `zeigt` und `motive`.
