@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.86.0] - 2026-08-10
+
 ### Fixed
 
 - **Das Tageslimit wurde an Tagen verbraucht, die längst eine Analyse hatten — die ohne kamen nie dran.** Das Limit (60 KI-Aufrufe pro Reise und Tag) ist ein Budget für die *ganze* Reise. In Reisereihenfolge ausgegeben, bezahlte ein Lauf zuerst die Auffrischung bereits beantworteter Tage und war aufgebraucht, bevor er einen Tag erreichte, der **überhaupt keine** Analyse hatte. Genau so blieben die Tage 2–5 der echten Reise Lauf für Lauf bei „analysiert 0", während spätere Tage analysiert wurden. Jetzt kommen Tage, die noch nie angesehen wurden, **zuerst** dran; innerhalb der Gruppen bleibt die Reisereihenfolge erhalten.
