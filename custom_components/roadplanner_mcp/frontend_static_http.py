@@ -47,6 +47,14 @@ class RoadplannerFrontendStaticView(HomeAssistantView):
         self._frontend_dir = frontend_dir.resolve()
 
     async def get(self, request: web.Request, filename: str) -> web.StreamResponse:
+        # A release-versioned first segment ("v-4.84.0/lib/styles.js") is
+        # part of the URL, not of the directory. module_url carries it so
+        # that every relative import of a release resolves under a path no
+        # cache has ever seen - "no-cache" below forces revalidation, but
+        # a browser that ignores it heuristically (desktop Chrome did,
+        # across Ctrl+F5) is only ever beaten by a genuinely new URL.
+        if filename.startswith("v-") and "/" in filename:
+            filename = filename.split("/", 1)[1]
         try:
             target = (self._frontend_dir / filename).resolve()
         except (OSError, ValueError) as err:

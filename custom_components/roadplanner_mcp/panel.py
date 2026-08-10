@@ -46,7 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 PANEL_COMPONENT_NAME = "roadplanner-panel"
 PANEL_URL_PATH = "roadplanner-app"
 PANEL_STATIC_URL = "/roadplanner_mcp_static"
-PANEL_MODULE_URL = f"{PANEL_STATIC_URL}/roadplanner-panel.js"
 
 WS_GET_DATA = f"{DOMAIN}/panel/get_data"
 WS_ACTION = f"{DOMAIN}/panel/action"
@@ -322,6 +321,10 @@ _PROVIDER_CALL_ACTIONS = {
     # Walks every live interface end to end, including one Gemini call -
     # the whole point is that it finishes even on a shaky connection.
     "run_system_check",
+    # One batch of paid day-curation looks (up to four days, a Gemini call
+    # or two per day). A phone screen switching off mid-batch must not
+    # orphan calls that were already reserved against the daily limit.
+    "media_curate_days",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -980,6 +983,7 @@ async def _execute_action(
             trip_id,
             force=bool(data.get("force", False)),
             max_days=int(raw_days) if isinstance(raw_days, int) and raw_days > 0 else None,
+            fresh_after=str(data.get("fresh_after") or "") or None,
         )
         result["experience"] = await runtime.experience.async_panel_payload(trip_id)
         return result
@@ -2123,7 +2127,20 @@ async def async_register_frontend_panel(
         webcomponent_name=PANEL_COMPONENT_NAME,
         sidebar_title=NAME,
         sidebar_icon="mdi:map-marker-path",
-        module_url=f"{PANEL_MODULE_URL}?v={INTEGRATION_VERSION}",
+        # The release version is a PATH segment, not only a query
+        # parameter. "?v=" cache-busts the entry file alone; its relative
+        # imports (./lib/*.js, ./features/*.js) resolve against the
+        # entry's path and carried no version at all, so a browser that
+        # chose to serve them from cache without revalidating - desktop
+        # Chrome's heuristic cache did exactly that, surviving Ctrl+F5 -
+        # ran a fresh entry over stale submodules with no visible sign.
+        # A new version means a new directory, and no cache has ever seen
+        # any of these URLs before. "?v=" stays because the panel reads
+        # its own loaded version from it (LOADED_MODULE_VERSION).
+        module_url=(
+            f"{PANEL_STATIC_URL}/v-{INTEGRATION_VERSION}/roadplanner-panel.js"
+            f"?v={INTEGRATION_VERSION}"
+        ),
         embed_iframe=False,
         trust_external=False,
         require_admin=False,
