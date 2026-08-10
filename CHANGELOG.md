@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Im Film zu sein ist nicht dasselbe wie gezeigt zu werden.** Im ersten abgenommenen Film waren die Bunkermotive des Tages, um den es der Reise teils ging, korrekt vorhanden — in drei viertelgroßen Collagenkacheln, während ein Picknickfoto den Bildschirm allein hielt. **Jede Coverage-Prüfung war grün.** Neben „ist das zentrale Motiv da?" steht jetzt „bekommt es einen Platz, an dem man es sieht?". Prominent ist, wer das Bild für einen Moment für sich hat: der eröffnende Clip oder das Hero-Foto. Vier Bilder in einer Kachel sind *unterstützend* — mitgenommen, aber nicht gezeigt. **Medium-neutral**, und nicht als Parole: Foto und Clip werden auf ihren eigenen Punktwerten verglichen, in beide Richtungen geprüft. Die Verdrahtung ist eine reine Umsortierung — der Szenenplan macht das erste Foto ohnehin zum Hero und spielt Clips ohnehin zuerst. Es wird nichts hinzugefügt, nichts entfernt und nichts erfunden: Ein Tag ohne Pflichtmotiv bleibt unangetastet. Kein Ortsname im Code; ein Test sucht nach fünf Schreibweisen.
+
+- **Der wichtigste Tag öffnet auf seinem eigenen Bild.** Jedes Kapitel lief Titelkarte → Karte → Text → Hero → Collage, dreiundzwanzigmal — der Hauptgrund, warum sich der Film wie ein ausgefülltes Formular las. Der wichtigste Tagestyp beginnt jetzt mit seinem stärksten Bild; Titelkarte und Karte **folgen**, sie entfallen nicht. Alle anderen behalten ihre Reihenfolge: Ein Film, in dem jeder Tag anders aufgebaut ist, ist nicht abwechslungsreich, sondern uneinheitlich.
+
+- **Die Kamera führt, statt geschleppt zu werden** (Add-on 0.21.0). Sie zielte auf die *aktuelle* Position des Campers, weshalb eine Kurve als Ruck ankam. Jetzt blickt sie eine halbe Sekunde Fahrtweg voraus. Der Vorausblick wird aus derselben Routenfunktion gelesen wie alles andere und bleibt eine **reine Funktion des Bildindex** — kein gemerkter Vorframe, nichts, was in parallelen Tabs anders rendert. Dämpfung und Zittern-Unterdrückung waren bereits richtig und bleiben unverändert.
+
+**Das Add-on muss mit aktualisiert werden** (0.21.0).
+
 ## [4.94.0] - 2026-08-10
 
 ### Added
