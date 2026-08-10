@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- **Ein voller Tag kauft jetzt Zeit statt Dichte — und die Bildzuteilung ist scharf.** Die Simulation auf der echten Reise hat die Schwelle beantwortet und dahinter etwas Größeres freigelegt. Zuerst die Schwelle: 419 analysierte Bilder, **nichts unter 6,0** auf der Skala 0–20, Median 13, über ein Drittel zwischen 12 und 14. Zwischen Riegel 8,0 und 11,0 bewegt sich die ganze Reise um **neun Bilder**, weil an **15 von 23 Tagen** die Obergrenze des Tages bindet und nicht die Qualität. `GOOD_IMAGE_THRESHOLD` steht deshalb auf **12,0** — dem ersten Quartil, dem ersten Wert, der überhaupt etwas entfernt; bei 14,0 fiele der Film auf 140 Bilder, **unter die heutigen 151**. Und dann der eigentliche Fund: **Mehr Bilder machten einen Tag nicht länger.** Ein Überfahrtstag lief mit drei Bildern exakt so lang wie mit acht (10,5 s), weil beim Zusammenpacken Gruppen bis zur doppelten Größe verschmolzen wurden — acht Fotos in einer Kachel von 4,7 Sekunden, die doppelte Dichte dessen, wofür die Mindestzeiten angehoben wurden. Das betraf genau die Tage, denen die neue Regel am meisten gibt. Verschmolzen wird jetzt nur noch bis zur normalen Gruppengröße: Ein voller Tag läuft über, statt sich zu stauchen. Damit ist die Zuteilung angeschlossen — sie entsteht beim Bau des Manifests, dem einzigen Ort, der Kuratierung, Serien und Regie-Wichtigkeit gleichzeitig kennt, und die zweite Zuteilung im Export ist **entfernt** statt danebengestellt. Gemessen an der echten Reise: vorher **151 Bilder in 6,3 Minuten** Kapitel, nachher **211 Bilder in 9,9 Minuten**, größte Collage 4 statt 8.
+
+### Fixed
+
+- **Zwei Obergrenzen hätten die neue Zuteilung stillschweigend beschnitten.** Das Manifest-Schema ließ 16 Medien je Kapitel zu, der Kontext-Aufbau 14 — ein Major-Highlight darf jetzt 18 zeigen. Die beiden besten Bilder des wichtigsten Tages einer Reise wären ohne jede Meldung verschwunden. Beide Zahlen werden jetzt aus den Filmobergrenzen **abgeleitet**, und ein Test liest **beide Dateien** und vergleicht sie — das aufgeschriebene Gegenmittel für den Fehler, den dieses Projekt viermal ausgeliefert hat.
+
 ## [4.90.0] - 2026-08-10
 
 ### Added
