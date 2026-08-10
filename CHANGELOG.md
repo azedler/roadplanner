@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.77.0] - 2026-08-10
+
 ### Added
 
 - **Ein Video ist jetzt ein MediaAsset wie ein Foto** (`video_asset.py`). Der Film weiß bereits, was ein Foto ist; ein Video ist dieselbe Art Sache — etwas, das jemand an einem Reisetag aufgenommen hat — und soll dieselbe Art Sache bleiben: eine Bibliothek, eine Zuordnung zum Tag, eine Kuratierung, ein Szenenplan. Eine parallele „Videowelt" hieße, jede Regel über Tage, Stopps und Story Coverage zweimal zu schreiben und die zweite Kopie auseinanderlaufen zu lassen.
