@@ -103,11 +103,17 @@ class DayCurationService:
         store: ExperienceStore,
         manager: RoadplannerManager,
         vision: Any,
+        *,
+        daily_limit: int = DAY_CURATION_DAILY_LIMIT,
     ) -> None:
         self.hass = hass
         self.store = store
         self.manager = manager
         self._vision = vision
+        # Settable, because the one day somebody needs a few more looks -
+        # a trip whose early days were never analysed at all - waiting for
+        # the UTC rollover was the only way to get them.
+        self.daily_limit = max(0, int(daily_limit))
 
     @property
     def enabled(self) -> bool:
@@ -601,7 +607,7 @@ class DayCurationService:
                 self.store.reserve_vision_call,
                 trip_id,
                 datetime.now(timezone.utc).date().isoformat(),
-                DAY_CURATION_DAILY_LIMIT,
+                self.daily_limit,
             )
             if not reservation.get("reserved"):
                 note = (

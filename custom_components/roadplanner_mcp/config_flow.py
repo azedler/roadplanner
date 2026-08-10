@@ -46,6 +46,7 @@ from .const import (
     CONF_MEDIA_VISION_MAX_CANDIDATES,
     CONF_AI_MUSIC_ENABLED,
     CONF_MEDIA_VISION_DAILY_LIMIT,
+    CONF_DAY_CURATION_DAILY_LIMIT,
     CONF_VIDEO_ANALYSIS_ENABLED,
     CONF_MEDIA_CURATION_MODE,
     CONF_GEOCODING_ENABLED,
@@ -106,12 +107,15 @@ from .const import (
     MAX_MEDIA_VISION_MAX_CANDIDATES,
     MIN_MEDIA_VISION_MAX_CANDIDATES,
     MAX_MEDIA_VISION_DAILY_LIMIT,
+    MAX_DAY_CURATION_DAILY_LIMIT,
     MIN_MEDIA_VISION_DAILY_LIMIT,
+    MIN_DAY_CURATION_DAILY_LIMIT,
     MEDIA_CURATION_MODES,
     DEFAULT_MEDIA_VISION_MAX_HIGHLIGHTS,
     DEFAULT_MEDIA_VISION_MAX_CANDIDATES,
     DEFAULT_AI_MUSIC_ENABLED,
     DEFAULT_MEDIA_VISION_DAILY_LIMIT,
+    DEFAULT_DAY_CURATION_DAILY_LIMIT,
     DEFAULT_VIDEO_ANALYSIS_ENABLED,
     DEFAULT_MEDIA_CURATION_MODE,
     DEFAULT_GEOCODING_ENABLED,
@@ -438,6 +442,24 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 vol.Range(
                     min=MIN_MEDIA_VISION_DAILY_LIMIT,
                     max=MAX_MEDIA_VISION_DAILY_LIMIT,
+                ),
+            ),
+            # The day curation's budget is its own number. It was a
+            # constant in the code, which meant the one day somebody
+            # needed a few more looks - a trip whose early days had
+            # never been analysed at all - the only way to get them was
+            # to wait for the UTC rollover.
+            vol.Required(
+                CONF_DAY_CURATION_DAILY_LIMIT,
+                default=defaults.get(
+                    CONF_DAY_CURATION_DAILY_LIMIT,
+                    DEFAULT_DAY_CURATION_DAILY_LIMIT,
+                ),
+            ): vol.All(
+                int,
+                vol.Range(
+                    min=MIN_DAY_CURATION_DAILY_LIMIT,
+                    max=MAX_DAY_CURATION_DAILY_LIMIT,
                 ),
             ),
             # Both default to False and stay there unless somebody says
