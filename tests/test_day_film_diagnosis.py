@@ -190,6 +190,39 @@ def verify_it_reads_the_fields_the_curation_writes() -> None:
     assert not diagnosis._shows({"zeigt": "Elch"}, "elch")
 
 
+def verify_an_unanalysed_day_is_not_blamed_on_the_photographs() -> None:
+    """The report sent the reader through a gallery that was never at fault.
+
+    Days 2-5 of the real trip stood at "analysiert 0" with a full pool,
+    and the diagnosis said "kein einziges Bild zeigt das Motiv - entweder
+    existieren keine passenden Fotos, oder die Analyse hat sie nicht
+    verbunden". Neither was true: no analysis was stored at all, so no
+    motif COULD have been recognised. The curation's own note says why,
+    and not showing it is the same absent-answer-as-state mistake this
+    project keeps finding.
+    """
+    pool = [f"m{index}" for index in range(19)]
+    curation = _curation(pool=pool, selected=pool[:14], shows=set())
+    curation["analyses"] = {}
+    curation["analysis_count"] = 0
+    curation["note"] = "nur 0 von 19 Vorschaubildern abrufbar"
+    result = diagnosis.diagnose_day(
+        chapter=CHAPTER, curation=curation, media=MEDIA, film_media_ids=pool[:14]
+    )
+    assert result["verdict"] == diagnosis.VERDICT_CURATION
+    assert "keine Bildanalyse gespeichert" in result["detail"], result["detail"]
+    assert "0 von 19" in result["detail"], "der gespeicherte Grund gehört in die Antwort"
+    assert "existieren keine passenden Fotos" not in result["detail"]
+    assert result["analysis_note"] == curation["note"]
+
+    # ...and a day that WAS analysed still gets the answer about its photographs.
+    analysed = _curation(pool=pool, selected=pool[:14], shows=set())
+    still = diagnosis.diagnose_day(
+        chapter=CHAPTER, curation=analysed, media=MEDIA, film_media_ids=pool[:14]
+    )
+    assert "kein einziges Bild" in still["detail"], still["detail"]
+
+
 def verify_it_knows_nothing_about_any_particular_place() -> None:
     source = (
         ROOT / "custom_components" / "roadplanner_mcp" / "day_film_diagnosis.py"
@@ -210,6 +243,7 @@ for check in (
     verify_every_stage_is_counted,
     verify_an_uncurated_day_is_a_finding_not_an_error,
     verify_it_reads_the_fields_the_curation_writes,
+    verify_an_unanalysed_day_is_not_blamed_on_the_photographs,
     verify_it_knows_nothing_about_any_particular_place,
 ):
     check()
