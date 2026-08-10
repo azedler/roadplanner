@@ -12,7 +12,7 @@ export const PANEL_STYLES = `<style>
       button, input, select, textarea { font: inherit; }
       button { -webkit-tap-highlight-color: transparent; }
       a { color: var(--primary-color); }
-      .app { height: 100%; display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; position: relative; }
+      .app { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; position: relative; }
       .app.busy { cursor: progress; }
       .topbar { min-height: 64px; padding: max(10px, env(safe-area-inset-top)) 18px 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--app-header-background-color, var(--primary-background-color)); border-bottom: 1px solid var(--divider-color); z-index: 4; }
       .topbar-start, .topbar-actions, .title-line { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -46,7 +46,15 @@ export const PANEL_STYLES = `<style>
       .tab ha-icon { --mdc-icon-size: 21px; }
       .count-badge { min-width: 22px; height: 22px; padding: 0 6px; font-size: 11px; color: white; background: var(--error-color, #d32f2f); }
       .count-badge.warning { background: var(--warning-color, #f57c00); }
-      .content { overflow: auto; overscroll-behavior: contain; padding: 24px max(18px, calc((100vw - 1320px) / 2)); padding-bottom: max(36px, calc(24px + env(safe-area-inset-bottom))); }
+      /* min-height: 0 is load-bearing, not tidying.
+         A grid item defaults to min-height: auto, which refuses to
+         shrink below its content. Without this the content area grows
+         past the viewport instead of becoming its own scroll container,
+         and the wheel - which scrolls whatever is under the pointer -
+         finds nothing scrollable there. Dragging the scrollbar still
+         worked, because that scrollbar belonged to an ancestor. Reported
+         from Edge, where other Home Assistant panels scrolled fine. */
+      .content { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px max(18px, calc((100vw - 1320px) / 2)); padding-bottom: max(36px, calc(24px + env(safe-area-inset-bottom))); }
       .hero-card, .panel-card, .toolbar-card, .map-card, .route-flow-card, .handoff-card, .trip-card, .stop-card, .total-day-card { background: var(--card-background-color); border: 1px solid var(--divider-color); box-shadow: var(--ha-card-box-shadow, none); border-radius: 22px; }
       .hero-card { overflow: hidden; display: grid; grid-template-columns: 1fr; min-height: 220px; margin-bottom: 18px; }
       .hero-card.with-image { grid-template-columns: minmax(260px, 42%) 1fr; }

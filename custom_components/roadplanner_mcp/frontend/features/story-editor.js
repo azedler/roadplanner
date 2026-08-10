@@ -704,7 +704,14 @@ export const storyEditorMixin = {
     for (let round = 0; round < 40; round += 1) {
       const result = await this._runAction(
         "media_curate_days",
-        { trip_id: this._selectedTripId, force: force && round === 0, max_days: 4 },
+        // `force` on EVERY round, not only the first. It used to apply
+        // to round 0 alone, which meant only the first four days were
+        // really re-derived and every day after that came back from the
+        // cache - including days whose stored analysis was empty. On the
+        // real trip that left days 2-5 at "analysiert 0" through
+        // repeated "Bildauswahl erneuern", and no amount of pressing it
+        // could ever have fixed them.
+        { trip_id: this._selectedTripId, force, max_days: 4 },
         "",
         {
           refresh: false,

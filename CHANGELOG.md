@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **„Bildauswahl erneuern" hat nur die ersten vier Tage wirklich neu abgeleitet.** Das `force` galt nur für die erste Runde der Schleife; jede weitere Runde fragte ohne es an und bekam den Cache zurück — **einschließlich Tagen, deren gespeicherte Analyse leer war**. Auf der echten Reise standen die Tage 2–5 dadurch dauerhaft auf „analysiert 0", und kein noch so häufiges Drücken des Knopfes hätte daran je etwas geändert. Das ist auch die Erklärung für die Wolfsschanze: An Tag 4 hat nie eine Bildanalyse stattgefunden.
+
+- **Die Diagnose beschuldigte eine Stufe, die alles richtig gemacht hatte.** „Angemessen vertreten" war ein fester Anteil am Tag — ein Ort, der einmal fotografiert wurde, kann aber nie ein Viertel von vierzehn Bildern erreichen. Ein Tag, an dem das einzige existierende Foto gefunden, gewählt und gezeigt wurde, galt trotzdem als Kuratierungsfehler. Jetzt gilt zuerst: Ein Motiv, das **jedes** Bild bekommen hat, das der Pool von ihm hat, ist vertreten. Es gibt nichts mehr zu geben.
+
+- **Im Panel ließ sich mit dem Mausrad nicht scrollen** (gemeldet aus Edge; Scrollbalken ziehen ging). Ein Grid-Element hat standardmäßig `min-height: auto` und weigert sich, unter seine Inhaltshöhe zu schrumpfen — der Inhaltsbereich wuchs also über den Bildschirm hinaus, statt selbst zum Scroll-Container zu werden. Das Mausrad scrollt, was unter dem Zeiger liegt, und fand dort nichts Scrollbares; der Scrollbalken gehörte einem Vorfahren. **Auf Edge nicht nachgeprüft** — hier steht kein Edge zur Verfügung.
+
 ## [4.81.0] - 2026-08-10
 
 ### Fixed

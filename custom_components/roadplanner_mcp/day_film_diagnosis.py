@@ -217,9 +217,25 @@ def _verdict(
 
 
 def _is_represented(motif: dict[str, Any], chosen: int, *, in_film: bool) -> bool:
-    """Whether a motif got a fair share of the day's pictures."""
+    """Whether a motif got a fair share of the day's pictures.
+
+    "Fair" cannot mean a fixed share of the day, because a stop that was
+    photographed once can never reach a quarter of fourteen pictures.
+    From the first clean run: a day where the single existing photograph
+    of a place was found, chosen and shown was still reported as a
+    curation fault - which is the diagnosis blaming a stage that did
+    everything right.
+
+    So the first question is whether anything was left behind. A motif
+    that got EVERY picture the pool has of it is represented, whatever
+    the share works out at. There is nothing else to give it.
+    """
     if not chosen:
         return False
+    in_pool = int(motif.get("in_pool") or 0)
+    taken = int(motif.get("in_film" if in_film else "in_selection") or 0)
+    if in_pool > 0 and taken >= in_pool:
+        return True
     needed = max(1, min(REPRESENTATION_MINIMUM, chosen))
     share = int(chosen * REPRESENTATION_SHARE)
     have = int(motif.get("in_film" if in_film else "in_selection") or 0)
