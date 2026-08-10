@@ -228,6 +228,13 @@ def verify_only_two_fields_are_editable() -> None:
         # nothing and calls no model - the report exists so a threshold
         # is chosen against real scores instead of a guess.
         "media_simulate_allocation",
+        # The videos of the trip, in two steps that are separate on
+        # purpose: the offer counts and prices and is the only one the
+        # panel may reach on its own; the analyse call is the one that
+        # spends money, and it carries nothing but a trip and a force
+        # flag - never a path, never a file, never a story.
+        "media_video_offer",
+        "media_video_analyze",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.

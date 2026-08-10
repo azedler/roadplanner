@@ -26,6 +26,9 @@ from .media_library_manager import (
 from .media_token_service import MediaTokenService
 from .media_vision_curation import VisionCurationEngine
 from .onedrive_media import OneDrivePersonalClient
+from .renderer_app_client import default_exchange_dir
+from .video_curation_service import VideoCurationService
+from .video_media_source import VideoMediaSource
 from .panel_payload_builder import PanelPayloadBuilder
 from .park4night_lookup import Park4NightLookupService
 from .place_cleanup import PlaceCleanupService
@@ -108,6 +111,17 @@ class RoadplannerExperienceManager:
             else None
         )
         self._media_tokens = MediaTokenService(hass=hass, store=store, onedrive=onedrive)
+        # The video pipeline. Built here because this is where the store,
+        # the provider and the OneDrive client already are - and kept as
+        # its own object because everything it does costs money or writes
+        # files, which should never be reachable from a refresh.
+        self.video_curation = VideoCurationService(
+            hass,
+            store,
+            provider,
+            share_root=default_exchange_dir().parent,
+            media_source=VideoMediaSource(hass, onedrive),
+        )
         self._google_photo_tokens = (
             GooglePhotoTokenService(image_provider.google_places)
             if image_provider.google_places is not None

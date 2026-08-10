@@ -479,6 +479,7 @@ export const storyEditorMixin = {
       ${this._renderStoryFilmJobLine()}
       ${this._renderStoryTripDiagnosis()}
       ${this._renderStoryAllocationSimulation()}
+      ${this._renderStoryVideoAnalysis()}
     </div></div>
     ${this._renderCharacterAssets()}`;
   },
@@ -976,6 +977,93 @@ export const storyEditorMixin = {
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-simulate-allocation-copy"><ha-icon icon="mdi:content-copy"></ha-icon>Bericht kopieren</button>
         <button class="text-button" type="button" data-action="story-simulate-allocation-close">Schließen</button>
+      </div>
+    </div>`;
+  },
+
+  /**
+   * What the trip's videos would cost to look at, and what came back.
+   *
+   * Two steps on purpose. The offer is free and read-only and says the
+   * price, the cloud transfer and the number of NEW calls; the run is the
+   * one that spends money. Nobody should discover the cost afterwards.
+   */
+  async _storyVideoOffer() {
+    const result = await this._runAction(
+      "media_video_offer",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Videos konnten nicht geprüft werden",
+      },
+    );
+    if (!result?.video_offer) return;
+    this._storyVideoOfferData = result.video_offer;
+    this._render({ preserveScroll: true });
+  },
+
+  async _storyVideoAnalyze() {
+    const result = await this._runAction(
+      "media_video_analyze",
+      { trip_id: this._selectedTripId },
+      "KI-Videoanalyse abgeschlossen",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Videoanalyse ist fehlgeschlagen",
+      },
+    );
+    if (!result?.video_analysis) return;
+    this._storyVideoResult = result.video_analysis;
+    // The offer is stale the moment anything was analysed.
+    void this._storyVideoOffer();
+  },
+
+  _renderStoryVideoAnalysis() {
+    const offer = this._storyVideoOfferData;
+    const done = this._storyVideoResult;
+    const canEdit = this._canEdit();
+    if (!offer) {
+      return canEdit
+        ? `<button class="text-button" type="button" data-action="story-video-offer"><ha-icon icon="mdi:movie-search-outline"></ha-icon>Videos prüfen: was würde eine KI-Analyse kosten?</button>`
+        : "";
+    }
+    // Below a cent, "0,00 €" reads like "free" - which it nearly is, but
+    // the honest phrasing is the one that does not have to be corrected.
+    const price =
+      offer.estimated_eur >= 0.01
+        ? `rund ${String(offer.estimated_eur).replace(".", ",")} €`
+        : "unter 0,01 €";
+    return `<div class="story-diagnosis">
+      <p class="story-curation-counts"><strong>${escapeHtml(String(offer.videos_found))} Videos gefunden</strong> · ${escapeHtml(String(offer.technically_usable))} technisch brauchbar · ${escapeHtml(String(offer.windows_cached))} Analysen im Cache · ${escapeHtml(String(offer.segments_stored))} gespeicherte Momente</p>
+      ${
+        offer.enabled
+          ? offer.windows_new > 0
+            ? `<p class="hint"><strong>${escapeHtml(String(offer.windows_new))} neue Analysen</strong> (${escapeHtml(String(offer.analysis_seconds))} s Video, ${price}). Dabei werden <strong>verkleinerte, tonlose Ausschnitte</strong> an Google/Gemini übertragen - nie das Original, nie mit Ort, Tag oder Namen.</p>`
+            : `<p class="hint">Alles ist bereits analysiert. Ein erneuter Lauf würde nichts kosten und nichts ändern.</p>`
+          : `<p class="hint">Die KI-Videoanalyse ist ausgeschaltet. Sie überträgt Ausschnitte an Google und wird deshalb bewusst in den Einstellungen eingeschaltet.</p>`
+      }
+      ${
+        (offer.skipped || []).length
+          ? `<p class="hint">${escapeHtml(String(offer.skipped.length))} übersprungen: ${escapeHtml((offer.skipped[0] || {}).reason || "")}${offer.skipped.length > 1 ? " u. a." : ""}</p>`
+          : ""
+      }
+      ${
+        done
+          ? `<p class="hint"><strong>Letzter Lauf:</strong> ${escapeHtml(String(done.analysed))} analysiert · ${escapeHtml(String(done.cached))} aus dem Cache · ${escapeHtml(String(done.segments))} Momente gefunden${(done.failed || []).length ? ` · ${escapeHtml(String(done.failed.length))} fehlgeschlagen` : ""}</p>`
+          : ""
+      }
+      <div class="button-row">
+        ${
+          canEdit && offer.enabled && offer.windows_new > 0
+            ? `<button class="secondary-button" type="button" data-action="story-video-analyze"><ha-icon icon="mdi:movie-open-play-outline"></ha-icon>KI-Videoanalyse starten (${price})</button>`
+            : ""
+        }
+        <button class="text-button" type="button" data-action="story-video-close">Schließen</button>
       </div>
     </div>`;
   },
