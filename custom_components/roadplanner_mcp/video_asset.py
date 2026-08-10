@@ -210,14 +210,25 @@ def cache_key(asset: dict[str, Any], *, model: str, schema_version: int, samplin
     Content, model, schema and sampling - the four things that change
     the answer. Anything else moving (a rename, a new folder, another
     render) must not, or every film would pay again.
+
+    "Content" has to be read from the record the LIBRARY actually stores,
+    not from the shape this module builds. Those are two different dicts:
+    a video that arrived through the media library carries `file_hash`
+    and `provider_item_id` and no `content_hash` at all. Reading only the
+    field this module invents gave every such video the same key - one
+    cached answer for the whole camera roll, which is worse than no cache
+    because it is silent and wrong.
     """
     asset = asset if isinstance(asset, dict) else {}
-    return content_key(
-        asset.get("content_hash"),
-        model,
-        schema_version,
-        sampling,
+    identity = (
+        asset.get("content_hash")
+        or asset.get("file_hash")
+        or asset.get("provider_item_id")
+        or asset.get("id")
     )
+    if not identity:
+        raise VideoAssetError("Video ohne Identität kann nicht zwischengespeichert werden")
+    return content_key(identity, model, schema_version, sampling)
 
 
 __all__ = [

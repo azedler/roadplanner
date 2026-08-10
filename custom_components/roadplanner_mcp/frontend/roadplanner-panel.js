@@ -1274,6 +1274,16 @@ class RoadplannerPanel extends HTMLElement {
     } else if (action === "story-diagnose-trip-close") {
       this._storyTripDiagnosis = null;
       this._render({ preserveScroll: true });
+    } else if (action === "story-video-offer" && this._canEdit()) {
+      // Free and read-only: it counts videos and prices a run.
+      void this._storyVideoOffer();
+    } else if (action === "story-video-analyze" && this._canEdit()) {
+      // The paid one. The button carries the estimate in its own label.
+      void this._storyVideoAnalyze();
+    } else if (action === "story-video-close") {
+      this._storyVideoOfferData = null;
+      this._storyVideoResult = null;
+      this._render({ preserveScroll: true });
     } else if (action === "story-simulate-allocation" && this._canEdit()) {
       // Free and read-only: it counts scores that were already paid for.
       void this._storySimulateAllocation();

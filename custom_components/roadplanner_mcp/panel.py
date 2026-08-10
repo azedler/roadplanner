@@ -99,6 +99,8 @@ _ACTIONS = {
     "media_diagnose_day",
     "media_diagnose_trip",
     "media_simulate_allocation",
+    "media_video_offer",
+    "media_video_analyze",
     "character_assets",
     "character_asset_upload",
     "character_asset_confirm",
@@ -248,6 +250,7 @@ _EDIT_ACTIONS = {
     "media_reassign",
     "media_confirm_suggestions",
     "media_curate_days",
+    "media_video_analyze",
     "media_set_film_pin",
     "media_delete",
     "media_curate_stop",
@@ -326,6 +329,10 @@ _PROVIDER_CALL_ACTIONS = {
     # or two per day). A phone screen switching off mid-batch must not
     # orphan calls that were already reserved against the daily limit.
     "media_curate_days",
+    # Downloads a recording, cuts a proxy and calls Gemini per window.
+    # Minutes, and money already spent - a phone screen switching off
+    # must not orphan calls that were paid for.
+    "media_video_analyze",
 }
 _ASSISTANT_ACTIONS = {
     "assistant_chat",
@@ -1651,6 +1658,26 @@ async def _execute_action(
         return {
             "allocation_simulation": await runtime.experience.async_simulate_film_allocation(
                 simulation_trip_id, manifest=simulation_manifest
+            )
+        }
+
+    if action == "media_video_offer":
+        # Free and read-only: what an analysis run WOULD do and what it
+        # would cost. Separate from the run itself because nobody should
+        # find out the price after paying it.
+        return {
+            "video_offer": runtime.experience.video_curation.offer(
+                str(data.get("trip_id") or "")
+            )
+        }
+
+    if action == "media_video_analyze":
+        # The paid one. Reached from a button that showed the estimate,
+        # the cloud transfer and the number of new calls first.
+        return {
+            "video_analysis": await runtime.experience.video_curation.async_analyze(
+                str(data.get("trip_id") or ""),
+                force=bool(data.get("force")),
             )
         }
 

@@ -498,6 +498,12 @@ class ExperienceStore:
             "media_curations": {},
             "day_curations": {},
             "vision_usage": {},
+            # What a model said about a video, keyed by the analysis cache
+            # key. Separate from `media` because it is an ANSWER about a
+            # recording rather than a fact about it: a re-analysis replaces
+            # it, a lost one costs a paid call rather than a decision, and
+            # the key already carries the model and schema it belongs to.
+            "video_analyses": {},
             "destination_galleries": {},
         }
 
@@ -575,6 +581,14 @@ class ExperienceStore:
                 raw.get("day_curations") if isinstance(raw.get("day_curations"), dict) else {}
             ),
             "vision_usage": _json_safe(raw.get("vision_usage") if isinstance(raw.get("vision_usage"), dict) else {}),
+            # What a model said about a video, by analysis cache key.
+            # Named here as well as in the default, because `load` returns
+            # a KNOWN set of keys rather than whatever is on disk: a
+            # section that is written but not read back is a section that
+            # silently does not exist.
+            "video_analyses": _json_safe(
+                raw.get("video_analyses") if isinstance(raw.get("video_analyses"), dict) else {}
+            ),
             "destination_galleries": galleries,
         }
 
@@ -879,6 +893,31 @@ class ExperienceStore:
             state.setdefault("day_curations", {})[day_id] = stored
             self.write(state)
             return deepcopy(stored)
+
+    def save_video_analysis(
+        self, trip_id: str, cache_key: str, record: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one video window's answer under the key it was asked with.
+
+        The key carries the recording's identity, the model and the schema
+        version, so a stored answer can never be handed to a different
+        question. Written once per paid call and read on every render -
+        which is what keeps a film from ever costing money.
+        """
+        key = str(cache_key or "").strip()
+        if not key:
+            raise ValidationError("Für die Videoanalyse fehlt der Cache-Schlüssel")
+        with self._lock:
+            state = self.load(trip_id)
+            stored = _json_safe({**record, "cache_key": key})
+            state.setdefault("video_analyses", {})[key] = stored
+            self.write(state)
+            return deepcopy(stored)
+
+    def video_analyses(self, trip_id: str) -> dict[str, Any]:
+        """Every stored video answer for this trip, by cache key."""
+        found = self.load(trip_id).get("video_analyses")
+        return deepcopy(found) if isinstance(found, dict) else {}
 
     def set_film_pin(self, trip_id: str, media_id: str, pin: str) -> dict[str, Any]:
         """Show it, keep it out, or hand it back to the curation."""

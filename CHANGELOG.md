@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.94.0] - 2026-08-10
+
+### Added
+
+- **Echte Videomomente im Reisefilm — der Weg von der Aufnahme bis zum Film ist geschlossen.** Neu: ein Orchestrator, der eine Aufnahme herunterlädt, ein **verkleinertes, tonloses Fenster** ausschneidet, Gemini genau eine Frage stellt („wann ist hier der gute Moment?"), die Antwort **streng prüft**, sie auf die Zeitachse der Aufnahme zurückrechnet und dauerhaft speichert. Der Film liest anschließend nur noch das Gespeicherte: **Ein Render kann niemals Kosten auslösen.** Eine Reise ohne analysierte Videos hat schlicht keine Clips — das ist ein normaler Film, kein Fehler.
+
+- **Ein Knopf, der seinen Preis vorher nennt.** Zwei getrennte Aktionen: „Videos prüfen" ist kostenlos und rein lesend und zeigt gefundene Aufnahmen, technisch brauchbare, bereits beantwortete und den Preis für den Rest — berechnet vom **selben Planer**, den der Lauf benutzt, damit das Versprochene auch eintritt. Erst „KI-Videoanalyse starten" gibt Geld aus, und der Knopf trägt die Schätzung im eigenen Text. Unter einem Cent steht dort „unter 0,01 €" statt „0,00 €". Die Karte sagt ausdrücklich, dass **verkleinerte, tonlose Ausschnitte** an Google gehen — nie das Original, nie mit Tag, Ort oder Namen.
+
+- **Ein Clip kostet einen Fotoplatz, statt danebengestellt zu werden.** Clips werden **vor** dem Fotobudget geerntet und davon abgezogen. Andersherum würde jeder Tag mit Video aufgeblasen — genau der Fehler, für dessen Beseitigung die Fotozuteilung umgebaut wurde. Pro Tag höchstens 1/2/3/3 Clips nach Wichtigkeit, höchstens ein Hero, und ein schwacher Clip wird gar nicht verwendet: Zwölf Aufnahmen dürfen vier Momente ergeben.
+
+- **Originalton ist strukturell aus.** Beide Proxies werden mit `-an` geschnitten — es gibt gar keine Tonspur, die versehentlich hörbar werden könnte. `original_sound_interesting` wird gespeichert und nie automatisch befolgt.
+
+### Fixed
+
+- **Der Cache-Schlüssel für Videoanalysen las ein Feld, das die Bibliothek nie speichert.** `content_hash` gehört zu einer anderen Struktur; ein über die Medienbibliothek eingelesenes Video hat `file_hash` und `provider_item_id`. Also schlüsselte **jedes** Video auf `None` — **eine gespeicherte Antwort für die gesamte Kamerarolle**, still und falsch. Der Schlüssel liest jetzt die echte Struktur und verweigert ein Video ohne Identität, statt es einzusammeln.
+
+- **Ein neuer Speicherbereich wurde geschrieben und nicht zurückgelesen.** `load()` liefert eine **bekannte** Menge Schlüssel statt dessen, was auf der Platte liegt — der Bereich für Videoanalysen war damit vorhanden und gleichzeitig nicht vorhanden. Er ist jetzt an beiden Stellen benannt.
+
 ## [4.93.0] - 2026-08-10
 
 ### Fixed
