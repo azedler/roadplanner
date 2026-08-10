@@ -154,10 +154,29 @@ class DayCurationService:
             if day_id and str(item.get("assignment_status") or "") in {"manual", "automatic"}:
                 by_day.setdefault(day_id, []).append(item)
 
+        # A day nobody has ever looked at goes FIRST. The daily limit is a
+        # fixed budget for the whole trip, and spending it re-asking days
+        # that already hold good answers can leave a day with NO answer
+        # unserved - which is exactly what happened on the real trip: days
+        # 2-5 stayed at "analysiert 0" run after run while later days,
+        # already answered, consumed the quota ahead of them. Sorting is
+        # stable, so within each group the journey keeps its order.
+        days = sorted(
+            days,
+            key=lambda day: 0
+            if not (
+                (stored.get(str(day.get("id") or "")) or {}).get("analyses")
+                if isinstance(stored, dict)
+                else None
+            )
+            else 1,
+        )
+
         results: list[dict[str, Any]] = []
         looked_at = 0
         paid_days = 0
         remaining = 0
+        quota_exhausted = False
         budget = int(max_days) if max_days else None
         for day in days:
             day_id = str(day.get("id") or "")
@@ -184,10 +203,20 @@ class DayCurationService:
             looked_at += int(record.get("analysed_count") or 0)
             if int(record.get("analysed_count") or 0):
                 paid_days += 1
+            if record.get("quota_exhausted"):
+                # Nothing else can be paid for today, so marching on would
+                # only stamp "Tageslimit erreicht" over every remaining
+                # day's note - erasing the more useful thing it said - and
+                # hand the panel a `remaining` it would loop on for forty
+                # rounds that each do nothing. Stop, and say so.
+                quota_exhausted = True
+                remaining = 0
+                break
         return {
             "ok": True,
             "trip_id": trip_id,
             "run_marker": run_marker,
+            "quota_exhausted": quota_exhausted,
             "remaining": remaining,
             "day_count": len(results),
             "analysed_count": looked_at,
@@ -336,6 +365,7 @@ class DayCurationService:
         analyses: dict[str, dict[str, Any]] = {}
         analysed = 0
         note = ""
+        quota_exhausted = False
         if (
             not force
             and isinstance(existing, dict)
@@ -353,7 +383,7 @@ class DayCurationService:
             }
             note = "unverändert, keine neue Analyse"
         elif pool["media_ids"] and self.enabled:
-            analyses, analysed, note = await self._async_look(
+            analyses, analysed, note, quota_exhausted = await self._async_look(
                 trip_id,
                 [by_id[media_id] for media_id in pool["media_ids"] if media_id in by_id],
                 # Every word of every requirement, not just its label:
@@ -421,6 +451,7 @@ class DayCurationService:
             "analysed_count": analysed,
             "analysis_count": len(analyses),
             "note": note,
+            "quota_exhausted": quota_exhausted,
             "brief": brief,
             "media_ids": selection["media_ids"],
             "hero_media_id": hero or _best_hero(selection["media_ids"], analyses),
@@ -552,11 +583,17 @@ class DayCurationService:
         candidates: list[dict[str, Any]],
         *,
         checks: list[str] | None = None,
-    ) -> tuple[dict[str, dict[str, Any]], int, str]:
-        """One paid look at a day, split into batches that can compare."""
+    ) -> tuple[dict[str, dict[str, Any]], int, str, bool]:
+        """One paid look at a day, split into batches that can compare.
+
+        The last element says whether the DAILY LIMIT stopped it, which is
+        a fact about the whole trip rather than this day: the caller must
+        stop instead of asking the same doomed question of every day left.
+        """
         analyses: dict[str, dict[str, Any]] = {}
         analysed = 0
         note = ""
+        quota_exhausted = False
         identifiers = [str(item.get("id")) for item in candidates]
         by_id = {str(item.get("id")): item for item in candidates}
         for group in batches(identifiers):
@@ -567,7 +604,12 @@ class DayCurationService:
                 DAY_CURATION_DAILY_LIMIT,
             )
             if not reservation.get("reserved"):
-                note = "Tageslimit für die KI-Bildauswahl erreicht"
+                note = (
+                    "Tageslimit für die KI-Bildauswahl erreicht "
+                    f"({reservation.get('count')} von {reservation.get('limit')} "
+                    "Aufrufen heute) - morgen wieder versuchen"
+                )
+                quota_exhausted = True
                 break
             images = await self._vision.async_curation_images(
                 [by_id[media_id] for media_id in group if media_id in by_id]
@@ -601,7 +643,7 @@ class DayCurationService:
             )
             analyses.update(parsed)
             analysed += len(images)
-        return analyses, analysed, note
+        return analyses, analysed, note, quota_exhausted
 
 
 def _curated_since(existing: Any, marker: str | None) -> bool:
