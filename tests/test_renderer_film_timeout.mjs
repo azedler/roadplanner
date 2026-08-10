@@ -153,3 +153,36 @@ function verifyTheImageShipsEveryModuleTheRendererImports() {
 
 verifyTheImageShipsEveryModuleTheRendererImports();
 console.log("Renderer image source list checked.");
+
+
+/**
+ * The camera leads the vehicle, and does it without remembering anything.
+ *
+ * Remotion renders frames in parallel tabs, so anything stateful renders
+ * differently per tab. A look-ahead is exactly the kind of feature that
+ * invites a stored previous position - and would then produce a film that
+ * cannot be reproduced.
+ */
+function verifyTheCameraLooksAheadStatelessly() {
+  const film = readFileSync(
+    new URL("../apps/roadplanner_renderer/src/remotion/RoadplannerTripFilm.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    film.includes("CAMERA_LOOK_AHEAD_FRAMES"),
+    "die Kamera schaut nicht voraus",
+  );
+  assert.ok(
+    /at \+ CAMERA_LOOK_AHEAD_FRAMES/.test(film),
+    "der Vorausblick wird nicht auf die Fahrzeit addiert",
+  );
+  // The damping it rides on must still be there.
+  assert.ok(film.includes("CAMERA_SMOOTHING_FRAMES"), "die Dämpfung fehlt");
+  // And nothing that remembers a frame.
+  for (const forbidden of ["useRef(", "previousFrame", "lastCamera", "globalThis."]) {
+    assert.ok(!film.includes(forbidden), `zustandsbehaftet: ${forbidden}`);
+  }
+}
+
+verifyTheCameraLooksAheadStatelessly();
+console.log("Camera look-ahead checked.");
