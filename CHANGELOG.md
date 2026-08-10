@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **„0 Videos gefunden" — zwei stille Ursachen.** Auf der echten Reise mit rund fünfzehn Aufnahmen in OneDrive meldete das Panel keine einzige. Erstens: **Die Bibliothek verwarf die Länge jedes Videos.** `normalize_media` liefert eine *bekannte* Menge Felder, und `duration_seconds` war nicht darunter — es fiel an der Tür weg, solange es überhaupt Videos gibt. Das ist die eine Tatsache, auf der die ganze Videopipeline steht: die Fenster, in denen eine Aufnahme angeboten wird, die Kostenschätzung und die Grenze, gegen die ein vorgeschlagenes Segment geprüft wird. Nichts schlug fehl — jede Aufnahme verhielt sich schlicht, als sei ihre Länge unbekannt. Zweitens: **Die Aufnahmen kamen nie an.** Der Abgleich läuft über Delta und erfährt nach dem ersten vollständigen Durchlauf nur noch von *Änderungen*. Ein Video, das ein älterer Leser übersprungen hat und das seither niemand angefasst hat, ist keine Änderung — es wird nie wieder erwähnt. Die Abgleichstrategie steigt deshalb auf Version 4: Der gespeicherte Zustand wird verworfen und **einmal** vollständig neu eingelesen. Das kostet Ordnerabfragen und sonst nichts — kein Modell, kein Download, kein Geld; Vorhandenes wird an seiner Provider-ID erkannt statt verdoppelt.
+
 ## [4.95.0] - 2026-08-10
 
 ### Added
