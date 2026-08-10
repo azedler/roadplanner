@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.78.0] - 2026-08-10
+
 ### Added
 
 - **Analyse- und Renderproxy für Videos** (`videoproxy.mjs`, Renderer **0.19.0-proxy.1**). Ein Handyvideo ist gleich zweifach das Falsche zum Arbeiten: viel zu groß, um es an ein Modell zu schicken — vier Minuten 4K sind hunderte Megabyte, und die meisten dieser Pixel beantworten keine Frage —, und in Codec, Bildrate und Drehung genau so, wie es die Kamera für richtig hielt.
