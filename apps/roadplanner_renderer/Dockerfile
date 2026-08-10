@@ -168,7 +168,12 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /opt/roadplanner-renderer/bundle ./bundle
 COPY --from=builder /opt/roadplanner-renderer/browser ./browser
 COPY package.json ./
-COPY src/index.mjs src/protocol.mjs src/render.mjs ./src/
+# Every runtime module, named. A hand-kept list is a second place where the
+# source tree is written down, and it went wrong the first time a module was
+# added: the image built, the container started, the heartbeat said "ready",
+# and the FIRST RENDER died with "Cannot find module film_limits.mjs". A test
+# now reads this line and the imports in src/, and fails if they disagree.
+COPY src/index.mjs src/protocol.mjs src/render.mjs src/film_limits.mjs ./src/
 
 # One shell, one expansion, no guessing. ENV supports ${var:-default}, but
 # a nested ${...} inside that default is not something to bet the reported

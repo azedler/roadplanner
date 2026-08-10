@@ -28,6 +28,7 @@ import { promisify } from "node:util";
 
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
+import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
 import {
   FILM_MANIFEST_FILENAME,
   MAX_FILM_IMAGE_BYTES,
@@ -68,25 +69,6 @@ export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
 // composition is still caught before it renders for an hour.
 export const TRIP_FILM_MIN_SECONDS = 15;
 export const TRIP_FILM_MAX_SECONDS = 900;
-export const FILM_LIMITS = {
-  // Raised from 1_500_000 once a film had a map, and raised from a
-  // measurement rather than from the failure that prompted it.
-  //
-  // The old ceiling was set when a film was photographs and cards. A map
-  // added a quarter of a scene to every day plus an opening and a closing
-  // one, and the 25-day CI film went past it - which would have stopped a
-  // real film after twenty-five minutes of work with nothing at the end.
-  //
-  // Measured after making the map cheaper: 126 ms per frame here, so the
-  // longest film this builds - twenty-five days, about 9 000 frames -
-  // comes to roughly 1 150 s. Doubled, because a Home Assistant box is
-  // not a developer machine and the point of a ceiling is to catch a
-  // render that is stuck, never one that is merely slower than the one
-  // it was measured on.
-  renderTimeoutMs: Number(process.env.ROADPLANNER_FILM_TIMEOUT_MS || 2_400_000),
-  maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 512 * 1024 * 1024),
-};
-
 /**
  * Hard limits.
  *
@@ -573,20 +555,53 @@ async function renderComposition({
     if (finalExpected === null) finalExpected = expected(composition);
 
     const renderStarted = Date.now();
-    // A wall-clock ceiling on the render itself. Without it a wedged
-    // browser holds the single worker for as long as the container lives.
+    // Two guards, because "slow" and "stuck" are different failures and a
+    // single wall clock cannot tell them apart. The ceiling scales with
+    // the frames actually being drawn; the watchdog fires when nothing has
+    // moved at all, which is what a wedged browser looks like.
+    const ceilingMs = renderCeilingMs(limits, composition.durationInFrames);
+    const stallMs = Number(limits.stallTimeoutMs) || 0;
     let timer;
+    let watchdog;
+    let settled = false;
+    // Re-armed on every progress report; a no-op until the watchdog exists,
+    // so a run without one costs nothing.
+    let rearmWatchdog = () => {};
     const deadline = new Promise((_resolve, reject) => {
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
       timer = setTimeout(
         () =>
-          reject(
+          fail(
             new RenderError(
               "RENDER_TIMEOUT",
-              `Der Render hat die Zeitgrenze von ${Math.round(limits.renderTimeoutMs / 1000)} s überschritten.`,
+              `Der Render hat die Zeitgrenze von ${Math.round(ceilingMs / 1000)} s ` +
+                `für ${composition.durationInFrames} Bilder überschritten.`,
             ),
           ),
-        limits.renderTimeoutMs,
+        ceilingMs,
       );
+      if (stallMs > 0) {
+        const arm = () => {
+          clearTimeout(watchdog);
+          watchdog = setTimeout(
+            () =>
+              fail(
+                new RenderError(
+                  "RENDER_STALLED",
+                  `Der Render hat ${Math.round(stallMs / 1000)} s lang keinen ` +
+                    "Fortschritt gemeldet.",
+                ),
+              ),
+            stallMs,
+          );
+        };
+        arm();
+        rearmWatchdog = arm;
+      }
     });
     const render = renderMedia({
       composition,
@@ -605,12 +620,17 @@ async function renderComposition({
       // show an audio control that does nothing, and makes "did the
       // music arrive?" unanswerable from the file.
       enforceAudioTrack: false,
-      onProgress: ({ progress }) => onProgress?.(progress),
+      onProgress: ({ progress }) => {
+        rearmWatchdog();
+        onProgress?.(progress);
+      },
     });
     try {
       await Promise.race([render, deadline]);
     } finally {
+      settled = true;
       clearTimeout(timer);
+      clearTimeout(watchdog);
     }
     timings.render = (Date.now() - renderStarted) / 1000;
 
