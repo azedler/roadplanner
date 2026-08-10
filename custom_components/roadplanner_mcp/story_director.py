@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .stop_relevance import is_functional
 from .travel_story_manifest import (
     DEFAULT_IMPORTANCE,
     DEFAULT_STORY_ROLE,
@@ -139,6 +140,14 @@ Tage. Schreibe zu jedem gelieferten Tag:
   lesbar sind. Das ist keine Kürzung des Storytexts, sondern eine eigene
   Fassung.
 
+Ein Stopp, der als Versorgungsstopp gekennzeichnet ist, war dazu da, dass
+die Reise weitergehen konnte - tanken, einkaufen, entsorgen, schnell essen.
+Er darf im Text vorkommen, wenn an diesem Tag wirklich etwas daran hing.
+Er darf aber weder den Titel bestimmen noch das Ziel des Tages verdrängen:
+Der Tag heißt nach dem, woran man sich erinnert, nicht nach dem, wo man
+angehalten hat. Das gilt auch, wenn der Versorgungsstopp der Start des
+Tages war.
+
 Wenn ein Stoppname technisch ist - eine vollständige Adresse, ein
 Park4Night-Code, eine Nummer - darfst du für die Erzählung einen
 lesbaren Namen vorschlagen. Der echte Name bleibt davon unberührt; du
@@ -164,6 +173,15 @@ def _brief_stop(stop: dict[str, Any], role: str) -> str:
     The role comes from position, which is authoritative: the stops are
     in travel order. `kind` still travels, because "wildcamp" says
     something a position cannot.
+
+    And whether the stop is FUNCTIONAL travels too, because leaving it out
+    is how a fast-food restaurant ended up naming a day of a real trip.
+    The classification already existed and was already used by the
+    curation, the map and the film plan - the editor was the one consumer
+    that never asked. So it saw a named fast food place marked as the
+    day's beginning, with nothing to say it was a sandwich on the way, and
+    wrote exactly the title that description invites. The model was not
+    wrong; it was uninformed.
     """
     name = clean_line(stop.get("name"), limit=MAX_TITLE_LENGTH)
     if not name:
@@ -175,6 +193,10 @@ def _brief_stop(stop: dict[str, Any], role: str) -> str:
         parts.append(kind)
     if arrival:
         parts.append(arrival)
+    if is_functional(stop):
+        # Said in words rather than as a flag, because it is read by a
+        # language model and "Versorgungsstopp" carries its own meaning.
+        parts.append("Versorgungsstopp")
     return f"{name} [{', '.join(parts)}]"
 
 
