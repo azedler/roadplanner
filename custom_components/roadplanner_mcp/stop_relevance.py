@@ -255,7 +255,10 @@ def classify(stop: dict[str, Any]) -> str:
     if override in CATEGORIES:
         return override
 
-    declared = _fold(stop.get("type"))
+    # "kind" is what the curation brief calls it; "type" is what the
+    # roadbook calls it. Same field, two spellings, and a classifier
+    # that knew only one of them would silently see nothing.
+    declared = _fold(stop.get("type") or stop.get("kind"))
     if declared in _TYPE_CATEGORY:
         return _TYPE_CATEGORY[declared]
 

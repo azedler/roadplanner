@@ -524,7 +524,55 @@ def verify_a_day_with_nothing_to_photograph_is_not_a_failure() -> None:
     assert result["media_ids"] == ["road"]
 
 
+def verify_logistics_never_becomes_a_mandatory_motif() -> None:
+    """From the first real run over 23 days.
+
+    A sports shop, a pharmacy and a burger chain were mandatory motifs -
+    one of them standing beside the Wolfsschanze as an equal
+    requirement. A requirement diluted with logistics stops meaning
+    anything, and the coverage row that reports it stops being read.
+
+    They are not deleted: a photograph of the petrol station is not
+    wrong, it is simply not owed.
+    """
+    brief = curation.visual_brief(
+        {
+            "title": "Masuren nach Litauen",
+            "story": "",
+            "stops": [
+                {"name": "Wolfsschanze", "kind": "sightseeing"},
+                {"name": "Decathlon Suwałki", "kind": "shopping"},
+                {"name": "Apotheke", "kind": "pharmacy"},
+                {"name": "Berg der Kreuze", "kind": "attraction"},
+            ],
+        }
+    )
+    must = brief["must_cover"]
+    assert "wolfsschanze" in must, must
+    for logistics in ("decathlon", "apotheke"):
+        assert logistics not in must, must
+    # Still present as a bonus rather than gone.
+    assert "decathlon" in brief["nice_to_cover"], brief["nice_to_cover"]
+
+
+def verify_a_name_that_is_not_a_name_is_not_a_requirement() -> None:
+    """A geocoder's placeholder cannot be photographed."""
+    brief = curation.visual_brief(
+        {
+            "title": "Fahrt",
+            "story": "",
+            "stops": [
+                {"name": "Unnamed Rd, 12345 Municipality", "kind": ""},
+                {"name": "Skuleskogen", "kind": "hike"},
+            ],
+        }
+    )
+    assert brief["must_cover"] == ["skuleskogen"], brief["must_cover"]
+
+
 for check in (
+    verify_logistics_never_becomes_a_mandatory_motif,
+    verify_a_name_that_is_not_a_name_is_not_a_requirement,
     verify_a_series_keeps_every_member,
     verify_a_separate_moment_is_a_separate_series,
     verify_the_pool_is_wider_than_the_film,

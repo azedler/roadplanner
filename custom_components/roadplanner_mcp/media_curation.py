@@ -55,6 +55,8 @@ import re
 import unicodedata
 from typing import Any, Iterable
 
+from .stop_relevance import has_no_real_name, is_functional
+
 CURATION_VERSION = 1
 
 # --- stage 1: what is broken ------------------------------------------
@@ -543,6 +545,20 @@ def visual_brief(chapter: dict[str, Any]) -> dict[str, Any]:
 
     for stop in chapter.get("stops") or []:
         if not isinstance(stop, dict):
+            continue
+        # A stop that exists so the journey could continue is not what
+        # the day has to be SEEN to contain. From the first real run
+        # over 23 days: a sports shop, a pharmacy and a burger chain
+        # were mandatory motifs, one of them standing beside the
+        # Wolfsschanze as an equal requirement. A requirement diluted
+        # with logistics is a requirement that stops meaning anything.
+        #
+        # They still contribute bonuses - a photograph of the petrol
+        # station is not wrong, it is simply not owed.
+        if is_functional(stop) or has_no_real_name(stop):
+            for token in motif_tokens(stop.get("name")):
+                if token not in nice and token not in must:
+                    nice.append(token)
             continue
         _absorb(stop.get("name"))
         for token in motif_tokens(stop.get("kind") or stop.get("type")):
