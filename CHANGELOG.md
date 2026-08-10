@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.89.0] - 2026-08-10
+
+### Fixed
+
+- **Die Reisediagnose las die Wichtigkeit eines Tages an der falschen Stelle — und behauptete eine Filmmenge, die sie nicht kannte.** Die Wichtigkeit („normal", „Highlight", „Major-Highlight") steht im Story-Manifest, wo die Regie sie hinschreibt; die Diagnose fragte den Roadbook-Tag, der dieses Feld gar nicht hat. Ergebnis: **Alle 23 Tage einer echten Reise wurden als „normal" gemeldet**, unabhängig davon, was die Regie entschieden hatte — die als Highlight markierten Tage waren im Bericht unsichtbar. Und „im Film" war schlicht die Zahl der *kuratierten* Bilder, weil der Renderer nie zurückmeldet. Der Film trägt aber nicht die Kuratierung, sondern das, was `allocate_photos` einem Tag nach seiner Wichtigkeit zugesteht. Beides kommt jetzt aus dem Manifest, die Filmmenge wird mit der **Produktionsfunktion** berechnet statt nachgebaut, und der Bericht nennt die Lücke in der Kopfzeile: `Kuratiert 273 Bilder → im Film 137`. Ohne Manifest steht dort „unbekannt" statt einer geborgten Zahl.
+
 ## [4.88.0] - 2026-08-10
 
 ### Fixed
