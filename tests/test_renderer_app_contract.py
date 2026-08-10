@@ -154,9 +154,23 @@ def verify_the_image_is_built_slim() -> None:
     assert "chrome-headless-shell" in code, "kein vollstaendiges Chromium"
     assert "libnss3" in code, "die Bibliotheken des Shell werden benannt statt mitgeschleppt"
     assert "apt-get install -y --no-install-recommends chromium" not in code
-    assert "AS ffprobe-runtime" in code and "ldd /usr/bin/ffprobe" in code, (
-        "ffprobe wird mit seinen Bibliotheken herausgeloest, statt ffmpeg mitzunehmen"
+    # ffmpeg is in the image now, and on purpose: the renderer cuts video
+    # into clips, makes proxies and muxes a soundtrack into a finished
+    # film. What must NOT come back is installing the package into the
+    # runtime - the binaries are lifted out with exactly the libraries
+    # they name, so the documentation, data files and dependency closure
+    # stay in the build stage.
+    assert "AS ffprobe-runtime" in code and 'ldd "$binary"' in code, (
+        "die Medienwerkzeuge werden mit ihren Bibliotheken herausgeloest"
     )
+    # The runtime stage must never install the package itself. Comments
+    # are already stripped from `code`, so the stage is found by its
+    # only unnamed FROM - the last one.
+    runtime = code.rsplit("FROM ${BUILD_FROM}\n", 1)[-1]
+    assert "apt-get install -y --no-install-recommends ffmpeg" not in runtime, (
+        "das ffmpeg-Paket gehoert nicht in die Laufzeitstufe"
+    )
+    assert "ROADPLANNER_FFMPEG" in code, "der Encoder wird ueber die Umgebung benannt"
     package = json.loads((APP / "package.json").read_text(encoding="utf-8"))
     assert "@remotion/bundler" in package["devDependencies"], (
         "der Bundler laeuft nur beim Bauen"
