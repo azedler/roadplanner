@@ -1171,17 +1171,35 @@ class GeminiClient:
         images: list[AssistantImageInput],
         schema: dict[str, Any],
         max_output_tokens: int = 4096,
+        max_images: int = 15,
     ) -> AssistantJsonResult:
         """Analyze several bounded image thumbnails after local preselection.
 
         The caller is responsible for local duplicate/quality filtering before
         invoking this method. Image IDs are included as adjacent text parts so
         the model can return stable references without inventing filenames.
+
+        `max_images` belongs to the CALLER, because the two callers do not
+        want the same number. The stop curation compares one stop's best
+        few and its own option tops out at fifteen. The day curation
+        deliberately looks wider - that width is the point of it - and
+        batches at `media_curation_vision.MAX_IMAGES_PER_CALL`.
+
+        This used to be a hard fifteen here, which silently made every day
+        whose pool held 16 to 24 photographs unanalysable: `batches()`
+        produced one group larger than fifteen, this rejected it, and the
+        day fell back to local ordering with nobody having looked at it.
+        Days 2, 4 and 5 of a real trip stood at "analysiert 0" through
+        every release because of it. Whichever number moves, the two must
+        agree - a test reads both and compares.
         """
         if not isinstance(images, list) or not images:
             raise ValidationError("Für die Bildauswahl fehlen Kandidaten")
-        if len(images) > 15:
-            raise ValidationError("Für eine Bildauswahl sind maximal 15 Kandidaten erlaubt")
+        ceiling = max(1, int(max_images))
+        if len(images) > ceiling:
+            raise ValidationError(
+                f"Für eine Bildauswahl sind maximal {ceiling} Kandidaten erlaubt"
+            )
 
         normalized: list[AssistantImageInput] = []
         total_bytes = 0

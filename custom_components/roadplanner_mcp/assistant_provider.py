@@ -137,6 +137,7 @@ class AssistantProvider(Protocol):
         images: list[AssistantImageInput],
         schema: dict[str, Any],
         max_output_tokens: int = 4096,
+        max_images: int = 15,
     ) -> AssistantJsonResult:
         """Analyze several locally preselected images and return JSON."""
 
