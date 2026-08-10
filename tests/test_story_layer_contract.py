@@ -218,6 +218,10 @@ def verify_only_two_fields_are_editable() -> None:
         # touch a roadbook fact, a stop or a photograph itself.
         "media_curate_days",
         "media_set_film_pin",
+        # Reads the stored derivation and counts. It cannot write, and it
+        # cannot call a model - which is what makes it safe to offer next
+        # to a paid button without a confirmation.
+        "media_diagnose_day",
     }, f"der Editor ruft unerwartete Aktionen auf: {sorted(called)}"
     # And the director calls take a trip and a force flag - nothing that
     # could reach a day, a stop or a text somebody typed.

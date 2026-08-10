@@ -1196,6 +1196,11 @@ class RoadplannerPanel extends HTMLElement {
       });
     } else if (action === "story-film-music") {
       void this._storyFilmMusicLoad();
+    } else if (action === "story-diagnose" && this._canEdit()) {
+      void this._storyDiagnose(cleanText(target.dataset.chapterId));
+    } else if (action === "story-diagnose-close") {
+      this._storyDiagnosis = null;
+      this._render({ preserveScroll: true });
     } else if (action === "character-upload" && this._canEdit()) {
       this._characterPick(cleanText(target.dataset.kind), cleanText(target.dataset.variant));
     } else if (action === "character-confirm" && this._canEdit()) {

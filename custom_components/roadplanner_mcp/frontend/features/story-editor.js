@@ -743,6 +743,61 @@ export const storyEditorMixin = {
     await this._storyLoad({ force: true, quiet: true });
   },
 
+  /**
+   * Why an important place is barely in the film.
+   *
+   * Free and read-only. It exists because that one symptom has at least
+   * four causes needing opposite fixes - never accepted, never in the
+   * pool, never connected to the motif, or curated and then dropped by
+   * the scene plan - and choosing between them by eye is how a special
+   * case for a single place gets written.
+   */
+  async _storyDiagnose(chapterId) {
+    const result = await this._runAction(
+      "media_diagnose_day",
+      { trip_id: this._selectedTripId, day_id: chapterId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Diagnose konnte nicht erstellt werden",
+      },
+    );
+    if (!result?.day_diagnosis) return;
+    this._storyDiagnosis = { ...result.day_diagnosis, chapter_id: chapterId };
+    this._render({ preserveScroll: true });
+  },
+
+  _renderStoryDiagnosis(chapter) {
+    const found = this._storyDiagnosis;
+    if (!found || found.chapter_id !== chapter.chapter_id) return "";
+    const stages = found.stages || {};
+    const row = (label, value) =>
+      `<li><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value ?? 0))}</strong></li>`;
+    const motif = (entry) =>
+      `<li><span>${escapeHtml(String(entry.label || entry.motif))}</span><strong>${escapeHtml(String(entry.in_pool))} im Pool · ${escapeHtml(String(entry.in_selection))} gewählt · ${escapeHtml(String(entry.in_film))} im Film</strong></li>`;
+    return `<div class="story-diagnosis">
+      <p class="story-curation-counts"><strong>Diagnose:</strong> ${escapeHtml(String(found.detail || ""))}</p>
+      <ul class="story-diagnosis-list">
+        ${row("Medien am Tag", stages.media_total)}
+        ${row("technisch akzeptiert", stages.technically_accepted)}
+        ${row("abgelehnt", stages.rejected)}
+        ${row("Seriengruppen", stages.series_count)}
+        ${row("Kandidatenpool", stages.pool_size)}
+        ${row("analysiert", stages.analysed)}
+        ${row("kuratiert", stages.selected)}
+        ${row("im Film", stages.in_film)}
+      </ul>
+      ${
+        (found.motifs || []).length
+          ? `<ul class="story-diagnosis-list">${found.motifs.map(motif).join("")}</ul>`
+          : `<p class="hint">Für diesen Tag ist kein Pflichtmotiv abgeleitet worden.</p>`
+      }
+      <button class="text-button" type="button" data-action="story-diagnose-close">Schließen</button>
+    </div>`;
+  },
+
   _renderStoryCuration(chapter) {
     const curation = this._storyCuration(chapter);
     const canEdit = this._canEdit();
@@ -785,7 +840,8 @@ export const storyEditorMixin = {
     const spares = (curation.pool_media_ids || []).filter((mediaId) => !selected.includes(mediaId));
     const open = this._storySparesOpen === chapter.chapter_id;
     return `<div class="story-curation">
-      <div class="story-curation-head"><span class="eyebrow">Bildauswahl</span>${curateButton}</div>
+      <div class="story-curation-head"><span class="eyebrow">Bildauswahl</span><span>${canEdit ? `<button class="text-button" type="button" data-action="story-diagnose" data-chapter-id="${escapeHtml(chapter.chapter_id)}" title="Kostenlos. Zählt die ganze Kette und sagt, an welcher Stufe Bilder verloren gehen."><ha-icon icon="mdi:stethoscope"></ha-icon>Warum fehlt etwas?</button>` : ""}${curateButton}</span></div>
+      ${this._renderStoryDiagnosis(chapter)}
       <p class="story-curation-counts"><strong>${escapeHtml(String(selected.length))} von ${escapeHtml(String(curation.photo_count || 0))}</strong> Fotos ausgewählt · ${escapeHtml(String(curation.pool_size || 0))} Kandidaten · ${escapeHtml(String(curation.series_count || 0))} Momente${curation.note ? ` · ${escapeHtml(curation.note)}` : ""}</p>
       ${motifs}
       ${missing.length ? `<p class="hint story-missing">Kein Bild zeigt: ${escapeHtml(missing.join(", "))}. Falls doch eines existiert, kannst du es unten fest auswählen.</p>` : ""}
