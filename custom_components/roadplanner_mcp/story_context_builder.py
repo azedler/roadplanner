@@ -73,7 +73,11 @@ from .travel_story_manifest import (
     build_manifest,
     clean_line,
 )
-from .film_photo_allocation import PHOTO_CAPS_BY_IMPORTANCE, allocate_trip
+from .film_photo_allocation import (
+    PHOTO_CAPS_BY_IMPORTANCE,
+    allocate_trip,
+    spread_series,
+)
 from .media_curation import group_series
 from .trip_summaries import SUMMARY_DETAIL_KEY
 
@@ -309,8 +313,11 @@ def _film_allocation(
     if not entries:
         return {}
     result = allocate_trip(entries)
+    series_by_day = {entry["chapter_id"]: entry["series_by_media"] for entry in entries}
+    # Which pictures is decided; where they sit is decided here. Two frames
+    # of one burst side by side read as a stutter rather than as a moment.
     return {
-        day_id: list(found["media_ids"])
+        day_id: spread_series(list(found["media_ids"]), series_by_day.get(day_id))
         for day_id, found in (result.get("days") or {}).items()
     }
 
@@ -330,6 +337,24 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
         if stop_id:
             media_by_stop.setdefault(stop_id, []).append(item)
 
+    # One photograph belongs to ONE day. It could belong to two: a photo
+    # linked to day A whose stop also appears in day B was collected by
+    # both, so the same media_id reached two chapters and the same picture
+    # appeared twice in the film - once per day, with nothing reporting
+    # it. The day the photograph is LINKED to wins, because that is the
+    # assignment somebody made; the stop is only how it was found.
+    known_days = {str(day.get("id") or "") for day in context["days"]}
+    for stop_id, items in media_by_stop.items():
+        # A photograph with a day of its own is collected by that day. It
+        # stays in the stop index only when its day is unknown - otherwise
+        # it would be found twice, and the second finder is a day it does
+        # not belong to.
+        media_by_stop[stop_id] = [
+            item
+            for item in items
+            if str(item.get("linked_day_id") or "") not in known_days
+        ]
+
     day_curations = context.get("day_curations") or {}
     direction = context.get("direction") or {}
     directed_chapters = direction.get("chapters") or {}
@@ -343,6 +368,12 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
     allocation = _film_allocation(
         context["days"], media_by_day, day_curations, directed_chapters
     )
+
+    # The last line of defence against one picture in two chapters: a
+    # photograph with no day of its own, found through a stop that two
+    # days share, would still be collected twice. The first day in travel
+    # order keeps it.
+    claimed: set[str] = set()
 
     chapters = []
     for index, day in enumerate(context["days"]):
@@ -362,6 +393,7 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(day_curations, dict)
                 else None,
                 film_media_ids=allocation.get(day_id),
+                claimed=claimed,
                 # An edit for a day that no longer exists simply never
                 # finds a chapter to attach to.
                 direction=directed_chapters.get(day_id),
@@ -393,6 +425,7 @@ def _chapter(
     media_by_stop: dict[str, list[dict[str, Any]]],
     curation: dict[str, Any] | None = None,
     film_media_ids: list[str] | None = None,
+    claimed: set[str] | None = None,
     direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stop_ids = [str(stop.get("id") or "") for stop in stops if str(stop.get("id") or "")]
@@ -423,11 +456,20 @@ def _chapter(
         (curation or {}).get("media_ids") or [] if isinstance(curation, dict) else []
     )
     for media_id in source:
+        if claimed is not None and str(media_id) in claimed:
+            continue
         item = by_id.get(str(media_id))
         if item is not None and item not in chosen:
             chosen.append(item)
     if not chosen:
-        chosen, _stats = select_media_highlights(pool, limit=MEDIA_PER_CHAPTER)
+        available = [
+            item
+            for item in pool
+            if claimed is None or str(item.get("id") or "") not in claimed
+        ]
+        chosen, _stats = select_media_highlights(available, limit=MEDIA_PER_CHAPTER)
+    if claimed is not None:
+        claimed.update(str(item.get("id") or "") for item in chosen)
     hero_id = str((curation or {}).get("hero_media_id") or "")
     media = [
         {
