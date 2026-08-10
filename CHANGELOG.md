@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.88.0] - 2026-08-10
+
+### Fixed
+
+- **Tage mit 16 bis 24 Bildern im Pool konnten nie analysiert werden — die eigentliche Ursache hinter „analysiert 0".** Die Tages-Kuratierung teilt einen Tag in Stapel von bis zu 24 Bildern (`MAX_IMAGES_PER_CALL`), der Provider lehnte aber alles über **15** ab — eine Grenze, die für die *Stopp*-Kuratierung geschrieben wurde, deren eigene Option bei 15 endet. Ein Pool von 16 bis 24 Bildern ergibt genau **einen** zu großen Stapel und wurde jedes Mal zurückgewiesen; ein Pool ab 25 zerfällt in kleine Stapel und funktionierte. Genau deshalb standen die Tage 2, 4 und 5 der echten Reise dauerhaft auf „analysiert 0", während Tage mit mehr *und* mit weniger Bildern sauber liefen — und **kein Tageslimit und kein `force` hätte daran je etwas ändern können**, weil der Aufruf schon vor dem Netzwerk scheiterte. Die Obergrenze gehört jetzt dem Aufrufer (Standard weiterhin 15 für Stopps), und ein Test liest **beide** Zahlen aus den echten Modulen und vergleicht sie — das Gegenmittel, das dieses Projekt für genau dieses Fehlermuster aufgeschrieben hat.
+
+- **Ein von Gemini blockierter Stapel kostete den ganzen Tag.** Meldet der Dienst `PROHIBITED_CONTENT`, betrifft das die Bilder *dieses* Stapels — der Lauf brach aber ab und warf die Antworten der übrigen Stapel gleich mit weg. Ein abgelehnter Stapel wird jetzt übersprungen, das übrige Ergebnis bleibt erhalten, und der Hinweis nennt den Grund weiterhin.
+
+### Added
+
+- **Videoanalyse: der Aufruf an Gemini** (`async_analyze_video`). Bisher gab es die Verträge, die Zeitfensterprüfung und den Cache — aber nichts, was tatsächlich fragte. Ein Fenster geht als **Analyseproxy** hinaus, nie als Original, mit `startOffset`/`endOffset`/`fps` in der Form, die die API definiert. **Niedrige Medienauflösung ist der Standard** (rund 100 statt 300 Token je Sekunde); den genaueren Blick fordert ein Aufrufer bewusst für das eine kurze Fenster an, das ihn schon interessiert. Eine unlesbare Antwort wird **nicht** durch einen zweiten bezahlten Aufruf repariert.
+
 ## [4.87.0] - 2026-08-10
 
 ### Added

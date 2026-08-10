@@ -29,6 +29,33 @@ class AssistantImageInput:
     label: str = ""
 
 @dataclass(slots=True)
+class AssistantVideoInput:
+    """One bounded video clip supplied to a multimodal provider call.
+
+    Always an ANALYSIS PROXY, never an original: smaller, stripped of
+    metadata, and already cut to the window worth asking about. The
+    original stays where it is - sending it would mean paying to look at
+    footage nobody wants and handing a family's raw recording to a cloud
+    for no gain.
+
+    `fps` and `low_resolution` are the two cost dials the API gives us.
+    Video is billed by what it costs to look at - roughly 300 tokens per
+    second at default resolution and about 100 at low - so a first cheap
+    pass over a wide window and a closer second look at the promising
+    part of it is the difference between analysing a library and
+    affording one.
+    """
+
+    video_id: str
+    data: bytes
+    mime_type: str
+    start_offset: float | None = None
+    end_offset: float | None = None
+    fps: float | None = None
+    label: str = ""
+
+
+@dataclass(slots=True)
 class AssistantTextResult:
     """Natural-language result plus optional grounding and call diagnostics."""
 
@@ -110,8 +137,21 @@ class AssistantProvider(Protocol):
         images: list[AssistantImageInput],
         schema: dict[str, Any],
         max_output_tokens: int = 4096,
+        max_images: int = 15,
     ) -> AssistantJsonResult:
         """Analyze several locally preselected images and return JSON."""
+
+    async def async_analyze_video(
+        self,
+        *,
+        system_instruction: str,
+        prompt: str,
+        video: AssistantVideoInput,
+        schema: dict[str, Any],
+        max_output_tokens: int = 2048,
+        low_resolution: bool = True,
+    ) -> AssistantJsonResult:
+        """Analyze one locally prefiltered video window and return JSON."""
 
     async def async_generate_json(
         self,

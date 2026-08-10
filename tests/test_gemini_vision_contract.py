@@ -15,7 +15,19 @@ PANEL = Path("custom_components/roadplanner_mcp/frontend/roadplanner-panel.js").
 
 assert "async def async_analyze_images" in PROVIDER
 assert '"inlineData"' in PROVIDER
-assert 'if len(images) > 15' in PROVIDER
+# A ceiling on how many images one call may carry still has to exist -
+# that is what this line guards. It is no longer the literal 15, because
+# the two callers legitimately want different numbers: the stop curation
+# compares one stop's best few (its own option tops out at 15, which
+# stays the default here), while the day curation batches wider on
+# purpose and passes its own. Pinning the literal made the DAY path
+# unfixable without failing this test, and a hard 15 silently left every
+# day with 16 to 24 photographs unanalysed on the real trip. The
+# agreement between the two numbers is asserted where it can be checked
+# against both modules at once - test_day_curation_service.py's
+# `verify_the_batch_size_and_the_provider_limit_agree`.
+assert 'max_images: int = 15' in PROVIDER
+assert 'if len(images) > ceiling' in PROVIDER
 assert 'total_bytes > 10_000_000' in PROVIDER
 assert 'responseJsonSchema' in PROVIDER
 

@@ -50,6 +50,7 @@ from .media_curation import (
 )
 from .media_curation_vision import (
     CURATION_VISION_VERSION,
+    MAX_IMAGES_PER_CALL,
     RESPONSE_SCHEMA,
     SYSTEM_PROMPT,
     analysis_key,
@@ -638,9 +639,22 @@ class DayCurationService:
                     images=images,
                     schema=RESPONSE_SCHEMA,
                     max_output_tokens=4_096,
+                    # The day curation batches wider than the stop
+                    # curation on purpose, and the provider has to be told
+                    # so. Left at its default, every day whose pool held
+                    # 16 to 24 photographs produced one oversized group,
+                    # was refused, and went unanalysed forever.
+                    max_images=MAX_IMAGES_PER_CALL,
                 )
             except (RoadplannerError, asyncio.TimeoutError) as err:
                 note = str(err)[:200]
+                # One refused batch is not the day. A safety block fires on
+                # the pictures in THIS group, and stopping here threw away
+                # the other group's answers too - a whole day lost to a
+                # handful of photographs. Carry on; what came back before
+                # and after is kept, and the note still says what happened.
+                if _is_content_block(err):
+                    continue
                 break
             parsed = parse_analyses(
                 result.value,
@@ -650,6 +664,18 @@ class DayCurationService:
             analyses.update(parsed)
             analysed += len(images)
         return analyses, analysed, note, quota_exhausted
+
+
+def _is_content_block(err: Exception) -> bool:
+    """Did the provider refuse these pictures, rather than fail?
+
+    A safety block is about the batch that was sent; a transport or quota
+    failure is about the call. The first is worth carrying on past, the
+    second is worth stopping for, and treating them alike cost a whole
+    day of a real trip because one group of photographs was refused.
+    """
+    code = str(getattr(err, "code", "") or "")
+    return "block" in code.casefold() or "prohibited" in str(err).casefold()
 
 
 def _curated_since(existing: Any, marker: str | None) -> bool:
