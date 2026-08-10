@@ -73,6 +73,8 @@ from .travel_story_manifest import (
     build_manifest,
     clean_line,
 )
+from .film_photo_allocation import PHOTO_CAPS_BY_IMPORTANCE, allocate_trip
+from .media_curation import group_series
 from .trip_summaries import SUMMARY_DETAIL_KEY
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,7 +84,12 @@ OVERRIDE_STORY_KEY = "story_override"
 
 # How many media a chapter carries. A description, not an album: a renderer
 # that wants everything can still read the media records themselves.
-MEDIA_PER_CHAPTER = 14
+#
+# The ceiling comes from the film's own caps rather than from a number
+# typed here, because these two are the same fact seen from two sides: a
+# chapter that carried fewer than a major highlight may show would cut
+# the film's most important day without anything saying so.
+MEDIA_PER_CHAPTER = max(PHOTO_CAPS_BY_IMPORTANCE.values())
 
 
 def _media_sort_key(item: dict[str, Any]) -> tuple[str, str]:
@@ -250,6 +257,64 @@ def _crew_fingerprint(crew: dict[str, Any] | None) -> str:
     return "|".join([*crew.get("people", []), str(crew.get("vehicle") or "")])
 
 
+def _film_allocation(
+    days: list[dict[str, Any]],
+    media_by_day: dict[str, list[dict[str, Any]]],
+    day_curations: Any,
+    directed_chapters: Any,
+) -> dict[str, list[str]]:
+    """Which of a day's curated pictures have earned a place in the film.
+
+    Importance is a CEILING here, never an allowance: a day gets as many
+    pictures as it has good, non-redundant ones and no more than its rank
+    permits. The rule itself lives in `film_photo_allocation`; this only
+    assembles what it reads.
+
+    A day without stored analyses returns nothing and keeps the whole
+    curated selection. That is deliberate: a bar applied to scores that
+    do not exist would silently empty a chapter, and a film with weaker
+    pictures beats a film with none.
+    """
+    if not isinstance(day_curations, dict):
+        return {}
+    directed = directed_chapters if isinstance(directed_chapters, dict) else {}
+    entries: list[dict[str, Any]] = []
+    for day in days:
+        day_id = str(day.get("id") or "")
+        record = day_curations.get(day_id)
+        if not day_id or not isinstance(record, dict):
+            continue
+        analyses = record.get("analyses") or {}
+        if not analyses:
+            continue
+        brief = record.get("brief") or {}
+        edit = directed.get(day_id) if isinstance(directed.get(day_id), dict) else {}
+        entries.append(
+            {
+                "chapter_id": day_id,
+                "importance": (edit or {}).get("importance"),
+                "curated": list(record.get("media_ids") or []),
+                "analyses": analyses,
+                "series_by_media": {
+                    media_id: group["series_id"]
+                    for group in group_series(media_by_day.get(day_id) or [])
+                    for media_id in group.get("media_ids") or []
+                },
+                "pinned": list(record.get("pinned") or []),
+                "excluded": list(record.get("excluded") or []),
+                "must_cover": list(brief.get("must_cover") or []),
+                "alternatives": brief.get("alternatives") or {},
+            }
+        )
+    if not entries:
+        return {}
+    result = allocate_trip(entries)
+    return {
+        day_id: list(found["media_ids"])
+        for day_id, found in (result.get("days") or {}).items()
+    }
+
+
 def _build(context: dict[str, Any]) -> dict[str, Any]:
     """Assemble the manifest. Pure once the reading is done."""
     media_by_day: dict[str, list[dict[str, Any]]] = {}
@@ -269,6 +334,16 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
     direction = context.get("direction") or {}
     directed_chapters = direction.get("chapters") or {}
 
+    # Which pictures the film carries, decided here because this is the
+    # only place that holds all three things it needs at once: what the
+    # curation chose and scored, which pictures belong to one burst, and
+    # what the editing pass said the day was worth. The alternative -
+    # deciding it in the export - would need the analyses shipped there,
+    # or a second, weaker rule beside the real one.
+    allocation = _film_allocation(
+        context["days"], media_by_day, day_curations, directed_chapters
+    )
+
     chapters = []
     for index, day in enumerate(context["days"]):
         day_id = str(day.get("id") or "")
@@ -286,6 +361,7 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
                 curation=day_curations.get(day_id)
                 if isinstance(day_curations, dict)
                 else None,
+                film_media_ids=allocation.get(day_id),
                 # An edit for a day that no longer exists simply never
                 # finds a chapter to attach to.
                 direction=directed_chapters.get(day_id),
@@ -316,6 +392,7 @@ def _chapter(
     media_by_day: dict[str, list[dict[str, Any]]],
     media_by_stop: dict[str, list[dict[str, Any]]],
     curation: dict[str, Any] | None = None,
+    film_media_ids: list[str] | None = None,
     direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stop_ids = [str(stop.get("id") or "") for stop in stops if str(stop.get("id") or "")]
@@ -339,11 +416,16 @@ def _chapter(
     # pictures is better than a film with none.
     by_id = {str(item.get("id") or ""): item for item in pool if str(item.get("id") or "")}
     chosen: list[dict[str, Any]] = []
-    if isinstance(curation, dict):
-        for media_id in curation.get("media_ids") or []:
-            item = by_id.get(str(media_id))
-            if item is not None and item not in chosen:
-                chosen.append(item)
+    # What the film carries, when the allocation had scores to read. It is
+    # a subset of the curation in the curation's own order - the selection
+    # decides WHICH pictures, never in what sequence a day reads.
+    source = list(film_media_ids or []) or list(
+        (curation or {}).get("media_ids") or [] if isinstance(curation, dict) else []
+    )
+    for media_id in source:
+        item = by_id.get(str(media_id))
+        if item is not None and item not in chosen:
+            chosen.append(item)
     if not chosen:
         chosen, _stats = select_media_highlights(pool, limit=MEDIA_PER_CHAPTER)
     hero_id = str((curation or {}).get("hero_media_id") or "")

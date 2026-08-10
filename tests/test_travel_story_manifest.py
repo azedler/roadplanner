@@ -8,6 +8,8 @@ a test here that would fail rather than degrade.
 """
 from __future__ import annotations
 
+import importlib
+import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
@@ -21,15 +23,21 @@ sys.dont_write_bytecode = True
 
 PACKAGE_ROOT = Path("custom_components/roadplanner_mcp")
 
+# Registered as a PACKAGE, not loaded file by file. The manifest reads the
+# film's photo caps from `film_photo_allocation` so the two cannot drift
+# apart, and a relative import inside a module loaded by path fails with
+# "attempted relative import with no known parent package" - a message
+# that names neither the module nor the import.
+_PACKAGE = "roadplanner_manifest_under_test"
+_root = importlib.util.module_from_spec(
+    importlib.machinery.ModuleSpec(_PACKAGE, None, is_package=True)
+)
+_root.__path__ = [str(PACKAGE_ROOT.resolve())]
+sys.modules[_PACKAGE] = _root
+
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(
-        f"roadplanner_{name}", PACKAGE_ROOT / f"{name}.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return importlib.import_module(f"{_PACKAGE}.{name}")
 
 
 story = load("travel_story_manifest")

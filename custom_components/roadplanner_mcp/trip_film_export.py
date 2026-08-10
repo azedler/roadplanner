@@ -32,8 +32,6 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
 from .trip_film_package import (
-    MAX_FILM_IMAGES,
-    MAX_PHOTOS_PER_CHAPTER,
     build_film_package,
     shrink_film_photo,
 )
@@ -47,7 +45,6 @@ from .trip_film_music import (
 )
 from .trip_film_plan import (
     FilmPlanError,
-    allocate_photos,
     build_scene_plan,
     plan_seconds,
 )
@@ -108,9 +105,7 @@ class TripFilmExporter:
         """
         manifest = await self._story_context.async_manifest(trip_id)
         chapters = manifest.get("chapters") or []
-        budget = allocate_photos(
-            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
-        )
+        budget = _film_budget(chapters)
         with_photos = sum(1 for chapter in chapters if (chapter.get("media") or []))
         planned = sum(budget.values())
         per_chapter = max(budget.values()) if budget else 0
@@ -159,9 +154,7 @@ class TripFilmExporter:
         chapters = manifest.get("chapters") or []
         if not chapters:
             return 0.0
-        budget = allocate_photos(
-            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
-        )
+        budget = _film_budget(chapters)
         map_context = await self._map.async_build(trip_id, manifest)
         return _estimated_seconds(
             chapters, budget, map_context, manifest.get("narrative")
@@ -183,12 +176,7 @@ class TripFilmExporter:
             raise ValidationError("Diese Reise hat noch keine Kapitel")
 
         media_by_id = await self._async_media_records(trip_id)
-        # Weighted, not flat. A transfer day and the reason for the whole
-        # trip used to get the same three pictures, which is most of why
-        # film v0 felt like a contact sheet.
-        budget = allocate_photos(
-            chapters, total_budget=MAX_FILM_IMAGES, per_chapter_cap=MAX_PHOTOS_PER_CHAPTER
-        )
+        budget = _film_budget(chapters)
         session = async_get_clientsession(self._hass)
 
         photos_by_chapter: dict[str, list[bytes]] = {}
@@ -407,6 +395,24 @@ class TripFilmExporter:
             for item in state.get("media") or []
             if isinstance(item, dict) and str(item.get("id") or "")
         }
+
+
+def _film_budget(chapters: list[dict[str, Any]]) -> dict[str, int]:
+    """How many pictures each chapter contributes: the ones it carries.
+
+    There used to be a second allocation here, run over the manifest with
+    a per-chapter cap and a total. It has moved to where the evidence is
+    (`film_photo_allocation`, applied while the manifest is built), for
+    the reason this project keeps rediscovering: a module with its own
+    copy of a rule beside the real one describes a film nobody renders.
+    The manifest's chapter media list IS the decision now, so counting it
+    is the whole job.
+    """
+    return {
+        str(chapter.get("chapter_id") or ""): len(chapter.get("media") or [])
+        for chapter in chapters
+        if isinstance(chapter, dict)
+    }
 
 
 def _estimated_seconds(
