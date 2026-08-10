@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.74.0] - 2026-08-10
+
+### Added
+
+- **ffmpeg ist im Renderer-Image** (Add-on **0.17.0-ffmpeg.1**). Lange lag dort bewusst nur `ffprobe`, weil Metadaten lesen alles war, was der Renderer tat. Das stimmt nicht mehr: Er soll Video in Clips schneiden, Proxys erzeugen und einen Soundtrack in den fertigen Film mischen. ffmpeg ist damit kein Ballast mehr, sondern Teil dessen, was diese App **ist**.
+
+  Kontrolliert integriert: Beide Binaries werden mit genau den Bibliotheken herausgelöst, die sie laut `ldd` nennen — das Paket, seine Dokumentation und sein Abhängigkeitsschluss bleiben in der Build-Stufe und erreichen das Laufzeit-Image nie. Ein Test hält fest, dass in der Laufzeitstufe kein `apt-get install ffmpeg` zurückkehrt. Die Größe der Medienwerkzeuge wird im Build ausgegeben, die Imagegröße misst CI ohnehin bei jedem Lauf — die Zahl vorher/nachher steht damit in den Logs statt in einer Schätzung.
+
 ## [4.73.0] - 2026-08-10
 
 ### Added

@@ -8,9 +8,18 @@
 #   - `chrome-headless-shell` instead of a full Chromium. Same rendering
 #     engine, without the browser UI, the extension host and the sync
 #     stack. Downloaded once here, never at runtime.
-#   - `ffprobe` alone instead of the whole ffmpeg package. ffprobe is the
-#     only binary the validation uses, and it is copied with exactly the
-#     shared libraries it names.
+#   - `ffmpeg` and `ffprobe` lifted OUT of the ffmpeg package rather than
+#     the package installed into the runtime. The two binaries are copied
+#     with exactly the shared libraries they name, so the encoder,
+#     decoder and filter stack comes along and the package's
+#     documentation, data files and dependency closure do not.
+#
+#     For a long time only `ffprobe` was here, because reading metadata
+#     was all the renderer did. That is no longer true: it now cuts video
+#     into clips, makes proxies and muxes a soundtrack into a finished
+#     film. ffmpeg stopped being ballast and became part of what this
+#     app IS - so it is in, deliberately, and its cost is measured in
+#     the build rather than assumed.
 #   - a build stage that stays behind. The bundler, React, TypeScript and
 #     the npm cache produce the bundle and are then left in the builder.
 #
@@ -37,21 +46,30 @@ RUN set -eux; \
     # ever executes `node`.
     rm -rf /opt/node/include /opt/node/share /opt/node/lib/node_modules/corepack
 
-# --- ffprobe, lifted out of the ffmpeg package -------------------------
-# Installing ffmpeg pulls in the whole encoder/decoder/filter stack for one
-# binary that only reads metadata. It is copied here with exactly the
-# libraries it declares, resolved by ldd rather than guessed.
+# --- ffmpeg and ffprobe, lifted out of the package ---------------------
+# The binaries are copied with exactly the libraries they declare,
+# resolved by ldd rather than guessed. That keeps the multi-stage
+# hardening: the package, its documentation and its dependency closure
+# stay in this stage and never reach the runtime image.
+#
+# The size this costs is printed during the build. A number in a log is
+# the only version of "we measured it" that survives.
 FROM ${BUILD_FROM} AS ffprobe-runtime
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ffmpeg; \
     mkdir -p /opt/ffprobe/bin /opt/ffprobe/lib; \
     cp /usr/bin/ffprobe /opt/ffprobe/bin/ffprobe; \
-    ldd /usr/bin/ffprobe \
-      | awk '/=> \//{print $3}' \
-      | sort -u \
-      | xargs -I{} cp -L {} /opt/ffprobe/lib/; \
-    /opt/ffprobe/bin/ffprobe -version | head -1
+    cp /usr/bin/ffmpeg /opt/ffprobe/bin/ffmpeg; \
+    for binary in /usr/bin/ffprobe /usr/bin/ffmpeg; do \
+      ldd "$binary" \
+        | awk '/=> \//{print $3}' \
+        | sort -u \
+        | xargs -I{} cp -Ln {} /opt/ffprobe/lib/ 2>/dev/null || true; \
+    done; \
+    /opt/ffprobe/bin/ffprobe -version | head -1; \
+    /opt/ffprobe/bin/ffmpeg -version | head -1; \
+    echo "MEDIA TOOLS SIZE: $(du -sh /opt/ffprobe | cut -f1)"
 
 # --- the build: dependencies, bundle, browser --------------------------
 FROM ${BUILD_FROM} AS builder
@@ -103,6 +121,7 @@ ENV NODE_ENV=production \
     ROADPLANNER_BUNDLE_DIR=/opt/roadplanner-renderer/bundle \
     ROADPLANNER_BROWSER=/opt/roadplanner-renderer/browser/chrome-headless-shell \
     ROADPLANNER_FFPROBE=/opt/ffprobe/bin/ffprobe \
+    ROADPLANNER_FFMPEG=/opt/ffprobe/bin/ffmpeg \
     REMOTION_DISABLE_TELEMETRY=1 \
     REMOTION_SKIP_BROWSER_DOWNLOAD=1
 
@@ -158,6 +177,7 @@ COPY src/index.mjs src/protocol.mjs src/render.mjs ./src/
 RUN printf '%s' "${APP_VERSION:-${BUILD_VERSION}}" > /opt/roadplanner-renderer/VERSION \
     && cat /opt/roadplanner-renderer/VERSION \
     && ffprobe -version | head -1 \
+    && ffmpeg -version | head -1 \
     && test -x "${ROADPLANNER_BROWSER}"
 
 # The image trims system libraries on purpose, so it has to prove the

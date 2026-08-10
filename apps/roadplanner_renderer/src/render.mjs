@@ -45,6 +45,12 @@ const execFileAsync = promisify(execFile);
 const BUNDLE_DIR = process.env.ROADPLANNER_BUNDLE_DIR || "/opt/roadplanner-renderer/bundle";
 const BROWSER = process.env.ROADPLANNER_BROWSER || "/usr/bin/chromium";
 const FFPROBE = process.env.ROADPLANNER_FFPROBE || "ffprobe";
+// The encoder, not just the reader. It exists in the image on purpose:
+// the renderer cuts video into clips, makes proxies and muxes a
+// soundtrack into a finished film, and all three need ffmpeg rather
+// than ffprobe. Named through the environment for the same reason
+// ffprobe is - so a test can point it somewhere else.
+export const FFMPEG = process.env.ROADPLANNER_FFMPEG || "ffmpeg";
 
 export const COMPOSITION_ID = "roadplanner-remotion-test";
 export const TRIP_DAY_COMPOSITION_ID = "roadplanner-trip-day";
