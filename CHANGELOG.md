@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **„Bildauswahl erneuern" hat trotz 4.82.0 weiter „analysiert 0" für unveränderte Tage gemeldet.** Die vorige Reparatur (4.82.0) hat dafür gesorgt, dass `force` in jeder Runde der Schleife mitgeht — aber die Schleife bekam es nie zu sehen, weil der Knopf selbst `force` nie gesetzt hat. Der Dispatcher liest `force` aus dem `data-force="1"`-Attribut genau des geklickten Elements (derselbe Kniff wie bei „Route neu berechnen"), und kein Rendering des Kuratierungsknopfs hat dieses Attribut je gesetzt. `target.dataset.force === "1"` war damit immer `false`, „Bildauswahl erneuern" lief also jeden Mal wie der allererste, noch nicht kuratierte Durchlauf. Ein Tag, dessen Fotopool sich seit dem letzten Blick nicht verändert hat, kommt ohne `force` aus dem Cache — mit `analysed_count: 0`, wie vom Backend auch dokumentiert. Auf der echten Reise blieben die Tage 2–5 deshalb dauerhaft bei „analysiert 0", ganz gleich wie oft der Knopf gedrückt wurde. Der Knopf setzt `data-force="1"` jetzt, wenn für den Tag schon eine Kuratierung vorliegt (also genau dann, wenn er „Bildauswahl erneuern" statt „Bilder auswählen lassen" heißt).
+
 ## [4.82.0] - 2026-08-10
 
 ### Fixed
