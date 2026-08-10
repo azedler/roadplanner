@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.80.0] - 2026-08-10
+
 ### Fixed
 
 - **Funktionale Stopps werden keine Pflichtmotive mehr.** Aus dem ersten echten Diagnoselauf über 23 Tage: Als *verpflichtend* geführt wurden unter anderem `decathlon`, `apotheke`, `hesburger`, `burgers`, `minimani`, `rastplats`, `naturkompaniet` und `park4night`. Tag 4 verlangte *Wolfsschanze, Decathlon, Kybarteliai* — der eine Ort, der zählt, stand gleichberechtigt neben einem Sportgeschäft.
