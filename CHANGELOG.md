@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Ein Video ist jetzt ein MediaAsset wie ein Foto** (`video_asset.py`). Der Film weiß bereits, was ein Foto ist; ein Video ist dieselbe Art Sache — etwas, das jemand an einem Reisetag aufgenommen hat — und soll dieselbe Art Sache bleiben: eine Bibliothek, eine Zuordnung zum Tag, eine Kuratierung, ein Szenenplan. Eine parallele „Videowelt" hieße, jede Regel über Tage, Stopps und Story Coverage zweimal zu schreiben und die zweite Kopie auseinanderlaufen zu lassen.
+
+  Wirklich anders ist nur eins: Ein Video hat ein **Inneres**. Ein Foto wird gewählt oder nicht; ein Video sind vier Minuten, von denen sechs Sekunden sehenswert sind. Deshalb trägt ein Asset **zwei** Analysezustände — technisch (lokal, kostenlos) und semantisch (bezahlter Modellaufruf) — und eine Liste ausgewählter Segmente. Ein einzelner Zustand könnte „lokal angesehen, nie verschickt" nicht ausdrücken, und genau darin ist jedes Asset, bevor jemand einem Preis zugestimmt hat.
+
+  `source` und `source_account_id` werden **immer** geschrieben, auch bei genau einem Konto. Ein Konto nachträglich in gespeicherte Datensätze einzuziehen ist eine Migration; das Feld jetzt zu schreiben ist ein Feld.
+
+  Weitere Punkte, die sonst erst im fertigen Film aufgefallen wären: Die Ausrichtung berücksichtigt die Rotation, die ein Handy mitschreibt (sonst steht ein Clip quer im Film). Der Cache-Schlüssel hängt an Inhalt, Modell, Schemaversion und Sampling — ein Umbenennen darf ihn nicht bewegen, sonst zahlt jeder Render erneut. Und eine zu lange Aufnahme wird zum Schneiden markiert statt abgelehnt: Jemand hat vergessen zu stoppen, das ist keine kaputte Datei.
+
 ## [4.76.0] - 2026-08-10
 
 ### Added
