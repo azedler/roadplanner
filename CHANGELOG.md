@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Analyse- und Renderproxy für Videos** (`videoproxy.mjs`, Renderer **0.19.0-proxy.1**). Ein Handyvideo ist gleich zweifach das Falsche zum Arbeiten: viel zu groß, um es an ein Modell zu schicken — vier Minuten 4K sind hunderte Megabyte, und die meisten dieser Pixel beantworten keine Frage —, und in Codec, Bildrate und Drehung genau so, wie es die Kamera für richtig hielt.
+
+  Deshalb zwei Kopien mit verschiedenen Aufgaben: Der **Analyseproxy** ist absichtlich klein (360p, 5 fps) und wird nach der Analyse gelöscht; jedes Byte über „man erkennt, was passiert" ist Geld und Privatsphäre für nichts. Der **Renderproxy** ist der Clip, den der Film spielt — normalisierter Codec, Bildrate und Auflösung, Drehung in die Pixel gerechnet, damit die Komposition nie fragen muss, was sie da hält.
+
+  Zwei Regeln durchziehen alles: **Das Original wird nie angefasst** — jeder Aufruf schreibt eine neue Datei woanders hin, und es gibt in diesem Modul kein In-Place-Flag. **Metadaten reisen nicht mit** — GPS, Gerät, Seriennummern und Originalzeitstempel werden aus beiden Proxys entfernt. Der Analyseproxy geht zu einem Cloud-Anbieter, und Ortsdaten an einem Familienvideo müssen eine Entscheidung sein, keine Voreinstellung.
+
+  **Ton ist aus, außer jemand sagt etwas anderes.** Der Analyseproxy ist immer stumm: Der Ton eines Familienvideos ist ein Gespräch, und es zu verschicken, um herauszufinden, ob ein Moment gut aussieht, ist kein Tausch, dem jemand zugestimmt hat.
+
 ## [4.77.0] - 2026-08-10
 
 ### Added
