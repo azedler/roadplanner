@@ -169,6 +169,58 @@ def verify_the_allocation_reads_the_curation_and_the_edit() -> None:
     assert set(found["day-1"]) <= set(media_ids[:7])
 
 
+def verify_the_most_important_day_opens_on_its_own_picture() -> None:
+    """Twenty-three identical chapters is a form being filled in.
+
+    Every day ran card, map, text, hero, collage. The single most
+    important kind of day now starts with its strongest image and lets
+    the card and the map follow - one rule, not a grammar, because a
+    film where every day is arranged differently is not varied, it is
+    inconsistent.
+    """
+    def shape(importance):
+        scenes = plan._chapter_scenes(
+            {
+                "chapter_id": "c",
+                "title": "Ein Tag",
+                "importance": importance,
+                "visual_style": "normal",
+            },
+            photo_count=8,
+            index=0,
+            has_map=True,
+        )
+        return [scene["type"] for scene in scenes]
+
+    major = shape("major_highlight")
+    assert major[0] == plan.SCENE_HERO, major
+    # The card and the map are not skipped - they move.
+    assert plan.SCENE_CHAPTER_CARD in major and plan.SCENE_MAP_LEG in major, major
+    assert major.index(plan.SCENE_CHAPTER_CARD) < major.index(plan.SCENE_PHOTO), major
+
+    # And the ordinary days keep the order they had.
+    for importance in ("normal", "highlight"):
+        ordinary = shape(importance)
+        assert ordinary[0] == plan.SCENE_CHAPTER_CARD, (importance, ordinary)
+        assert ordinary[1] == plan.SCENE_MAP_LEG, (importance, ordinary)
+
+
+def verify_a_major_day_without_photographs_keeps_its_card() -> None:
+    """The variation needs a picture to open on, or it is not a variation."""
+    scenes = plan._chapter_scenes(
+        {
+            "chapter_id": "c",
+            "title": "Ein Tag",
+            "importance": "major_highlight",
+            "visual_style": "normal",
+        },
+        photo_count=0,
+        index=0,
+        has_map=True,
+    )
+    assert scenes[0]["type"] == plan.SCENE_CHAPTER_CARD, [s["type"] for s in scenes]
+
+
 for check in (
     verify_no_schema_ceiling_cuts_the_biggest_day,
     verify_the_export_has_no_allocation_of_its_own,
@@ -176,6 +228,8 @@ for check in (
     verify_no_group_ever_exceeds_the_readable_size,
     verify_a_day_without_analyses_keeps_its_whole_curation,
     verify_the_allocation_reads_the_curation_and_the_edit,
+    verify_the_most_important_day_opens_on_its_own_picture,
+    verify_a_major_day_without_photographs_keeps_its_card,
 ):
     check()
 
