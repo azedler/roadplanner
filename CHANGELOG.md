@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.80.0] - 2026-08-10
+
+### Fixed
+
+- **Funktionale Stopps werden keine Pflichtmotive mehr.** Aus dem ersten echten Diagnoselauf über 23 Tage: Als *verpflichtend* geführt wurden unter anderem `decathlon`, `apotheke`, `hesburger`, `burgers`, `minimani`, `rastplats`, `naturkompaniet` und `park4night`. Tag 4 verlangte *Wolfsschanze, Decathlon, Kybarteliai* — der eine Ort, der zählt, stand gleichberechtigt neben einem Sportgeschäft.
+
+  Eine mit Logistik verdünnte Anforderung hört auf, etwas zu bedeuten, und die Zeile, die sie meldet, hört auf, gelesen zu werden. Die Stop-Relevanz aus 4.72.0 entscheidet das jetzt: Ein Stopp, den es gab, damit die Reise weitergehen konnte, ist nicht das, was der Tag zu **zeigen** hat. Gelöscht wird nichts — ein Foto der Tankstelle ist nicht falsch, es ist nur nicht geschuldet, und die Wörter bleiben als Bonus erhalten.
+
+  Ebenso ausgeschlossen: Namen, die keine sind. Der Platzhalter eines Geocoders lässt sich nicht fotografieren, also kann er auch keine Anforderung sein.
+
 ## [4.79.0] - 2026-08-10
 
 ### Fixed
