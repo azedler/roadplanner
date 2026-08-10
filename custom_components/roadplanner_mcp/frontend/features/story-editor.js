@@ -862,6 +862,14 @@ export const storyEditorMixin = {
       Object.entries(found.by_verdict || {})
         .map(([verdict, count]) => `${verdict}=${count}`)
         .join(" · "),
+      // The gap nobody could see. The curation chooses what tells a day;
+      // the film has room for what that day's importance buys, and those
+      // are different numbers. When half the chosen pictures never reach
+      // the screen, that belongs in the first three lines of the report
+      // rather than nowhere.
+      Number.isFinite(Number(found.film_total))
+        ? `Kuratiert ${found.curated_total} Bilder → im Film ${found.film_total}`
+        : "Filmmenge unbekannt (kein Manifest geladen)",
       "",
     ];
     for (const day of found.days || []) {
@@ -872,7 +880,9 @@ export const storyEditorMixin = {
       lines.push(
         `  Medien ${stages.media_total} → akzeptiert ${stages.technically_accepted}` +
           ` → Pool ${stages.pool_size} → analysiert ${stages.analysed}` +
-          ` → kuratiert ${stages.selected} → im Film ${stages.in_film}` +
+          ` → kuratiert ${stages.selected} → im Film ${
+            day.film_photo_budget == null ? "?" : stages.in_film
+          }` +
           ` · Serien ${stages.series_count} · abgelehnt ${stages.rejected}`,
       );
       // What the curation said about its own last look. Without it a day

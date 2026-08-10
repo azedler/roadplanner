@@ -687,6 +687,67 @@ def verify_one_refused_batch_does_not_cost_the_whole_day() -> None:
     assert store.load("trip-1")["day_curations"]["day-1"]["analyses"], "der Tag ist nicht leer"
 
 
+def verify_the_diagnosis_reads_importance_where_it_is_written() -> None:
+    """A roadbook day has no importance, so reading it there invents one.
+
+    The report showed all 23 days of a real trip as "normal" - not
+    because the director said so, but because it asked the roadbook,
+    which has no such field. Every day therefore looked equally weighted
+    and the days the editor had marked as highlights were invisible.
+
+    Worse, "im Film" was the curation's own count. The film does not
+    carry the curation; it carries what `allocate_photos` grants a day,
+    and that depends on exactly the importance being misread. On the real
+    trip the curation chose 273 pictures for a film with room for far
+    fewer, and no number in the report said so.
+    """
+    provider = _Provider(TABLE)
+    service, _store = _service(_media_set(), provider=provider)
+    asyncio.run(service.async_curate_trip("trip-1"))
+
+    # Without a manifest the film numbers are unknown - and say so,
+    # rather than borrowing the curation's count.
+    blind = asyncio.run(service.async_diagnose_trip("trip-1"))
+    assert blind["film_total"] is None, blind["film_total"]
+    assert blind["days"][0]["film_photo_budget"] is None
+    assert blind["days"][0]["stages"]["in_film"] == 0, "keine Behauptung ohne Grundlage"
+
+    # With one, both come from where they are actually decided.
+    curated = blind["days"][0]["stages"]["selected"]
+    manifest = {
+        "chapters": [
+            {
+                "chapter_id": "day-1",
+                "importance": "major_highlight",
+                "media": [{}] * curated,
+            }
+        ]
+    }
+    seeing = asyncio.run(service.async_diagnose_trip("trip-1", manifest=manifest))
+    day = seeing["days"][0]
+    assert day["importance"] == "major_highlight", day["importance"]
+    assert day["film_photo_budget"] == day["stages"]["in_film"]
+    assert seeing["curated_total"] == curated
+    assert seeing["film_total"] == day["film_photo_budget"]
+
+    # A normal day is granted fewer than a major highlight - the whole
+    # point of carrying importance at all.
+    plain = asyncio.run(
+        service.async_diagnose_trip(
+            "trip-1",
+            manifest={
+                "chapters": [
+                    {"chapter_id": "day-1", "importance": "normal",
+                     "media": [{}] * curated}
+                ]
+            },
+        )
+    )
+    assert plain["film_total"] < seeing["film_total"], (
+        plain["film_total"], seeing["film_total"]
+    )
+
+
 def verify_the_panel_summary_leaves_the_analysis_behind() -> None:
     """What a phone downloads is counts and words, not every score."""
     provider = _Provider(TABLE)
@@ -713,6 +774,7 @@ for check in (
     verify_the_daily_limit_is_settable,
     verify_the_batch_size_and_the_provider_limit_agree,
     verify_one_refused_batch_does_not_cost_the_whole_day,
+    verify_the_diagnosis_reads_importance_where_it_is_written,
     verify_a_failed_look_never_erases_the_stored_answer,
     verify_an_empty_stored_analysis_is_asked_again,
     verify_the_panel_summary_leaves_the_analysis_behind,
