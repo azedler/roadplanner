@@ -894,7 +894,18 @@ export const storyEditorMixin = {
     const curation = this._storyCuration(chapter);
     const canEdit = this._canEdit();
     const curateButton = canEdit
-      ? actionButton(this._actionCosts(), "media-curate-days", curation ? "Bildauswahl erneuern" : "Bilder auswählen lassen")
+      ? actionButton(
+          this._actionCosts(),
+          "media-curate-days",
+          curation ? "Bildauswahl erneuern" : "Bilder auswählen lassen",
+          // "erneuern" only means something if it is actually forced: the
+          // dispatcher reads `data-force="1"` off THIS element, and no
+          // button ever set it, so every press ran without force and any
+          // day whose pool had not changed since its last look came back
+          // from the cache with "analysiert 0" - "force" was never true,
+          // no matter how many times it was pressed.
+          { extra: curation ? 'data-force="1"' : "" },
+        )
       : "";
     if (!curation) {
       return `<div class="story-curation"><div class="story-curation-head"><span class="eyebrow">Bildauswahl</span>${curateButton}</div><p class="hint">Für diesen Tag hat noch niemand entschieden, welche Fotos ihn erzählen. Bis dahin nimmt der Film die lokal bestbewerteten.</p></div>`;
