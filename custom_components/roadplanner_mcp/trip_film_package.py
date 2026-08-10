@@ -66,6 +66,30 @@ FILM_CLIP_DIR = "clips"
 # profile, so it is small. The cap is a backstop against a proxy step
 # that went wrong, not a target.
 MAX_FILM_CLIP_BYTES = 24 * 1024 * 1024
+# At most nine clips per chapter, because the path carries one digit.
+MAX_CLIPS_PER_CHAPTER = 9
+
+
+def clip_filename(chapter_index: Any, position: Any) -> str:
+    """The one place a clip path is built, from two integers.
+
+    Same rule as `photo_filename`: `int(1.5)` is 1, so accepting anything
+    `int()` swallows would let a float become a path. The renderer
+    validates this shape with its own expression, and the two have to
+    agree - so it is built here and nowhere else.
+    """
+    if (
+        isinstance(chapter_index, bool)
+        or isinstance(position, bool)
+        or not isinstance(chapter_index, int)
+        or not isinstance(position, int)
+    ):
+        raise RenderPackageError("Clipkennung ist keine Ganzzahl")
+    if not 0 <= chapter_index < MAX_CHAPTERS:
+        raise RenderPackageError("Kapitelindex liegt außerhalb des erlaubten Bereichs")
+    if not 1 <= position <= MAX_CLIPS_PER_CHAPTER:
+        raise RenderPackageError("Clipposition liegt außerhalb des erlaubten Bereichs")
+    return f"{FILM_CLIP_DIR}/c{chapter_index:02d}-{position}.mp4"
 
 # --- limits -------------------------------------------------------------
 

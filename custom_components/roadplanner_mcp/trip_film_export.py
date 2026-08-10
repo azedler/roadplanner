@@ -23,6 +23,11 @@ own limits.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+import shutil
+import tempfile
+
 import logging
 from typing import Any
 
@@ -32,7 +37,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
 from .trip_film_package import (
+    MAX_CLIPS_PER_CHAPTER,
+    MAX_FILM_CLIP_BYTES,
     build_film_package,
+    clip_filename,
     shrink_film_photo,
 )
 from .crew_portraits import portrait_key
@@ -44,10 +52,13 @@ from .trip_film_music import (
     list_tracks,
 )
 from .trip_film_plan import (
+    FILM_FPS,
     FilmPlanError,
     build_scene_plan,
     plan_seconds,
 )
+from .video_orchestration import clips_for_day
+from .video_proxy import VideoProxyError, async_cut_render_proxy
 from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
 
@@ -176,7 +187,17 @@ class TripFilmExporter:
             raise ValidationError("Diese Reise hat noch keine Kapitel")
 
         media_by_id = await self._async_media_records(trip_id)
+        # Movement first, because a clip takes a photograph's place rather
+        # than being added beside it. Deciding this after the photo budget
+        # would inflate every day that has video, which is the failure the
+        # photo allocation was rebuilt to remove.
+        clips_by_chapter, clip_files = await self._async_clips(
+            trip_id, chapters, media_by_id
+        )
         budget = _film_budget(chapters)
+        for chapter_id, entries in clips_by_chapter.items():
+            if chapter_id in budget:
+                budget[chapter_id] = max(0, budget[chapter_id] - len(entries))
         session = async_get_clientsession(self._hass)
 
         photos_by_chapter: dict[str, list[bytes]] = {}
@@ -219,6 +240,7 @@ class TripFilmExporter:
                 job_id="00000000-0000-0000-0000-000000000000",
                 manifest=manifest,
                 photos_by_chapter=photos_by_chapter,
+                clips_by_chapter=clips_by_chapter or None,
                 map_context=map_context,
                 crew=crew,
                 crew_files={**crew_files, **music_files, **character_files},
@@ -228,9 +250,12 @@ class TripFilmExporter:
         except RenderPackageError as err:
             raise ValidationError(str(err)) from err
 
+        # The clip bytes travel beside the images, under the paths the
+        # package already names. The renderer plays what it is given and
+        # never fetches anything.
         submitted = await self._renderer_app.async_submit_trip_film_job(
             package=package,
-            files=files,
+            files={**files, **clip_files},
             title=(manifest.get("trip") or {}).get("title") or "Reisefilm",
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
@@ -378,6 +403,99 @@ class TripFilmExporter:
             return await self._hass.async_add_executor_job(store.read, filename)
         except Exception:  # noqa: BLE001
             return None
+
+    async def _async_clips(
+        self,
+        trip_id: str,
+        chapters: list[dict[str, Any]],
+        media_by_id: dict[str, Any],
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, bytes]]:
+        """The video moments this film plays, cut and ready.
+
+        Reads STORED analyses and calls no model: a render must never be
+        able to produce a bill. A trip whose videos were never analysed
+        simply has no clips here, which is a normal film.
+
+        The cutting itself is local ffmpeg over a copy of the recording,
+        deleted when this returns. Nothing about which moment is good is
+        decided here - that was decided when the analysis was stored, and
+        `clips_for_day` only reads it.
+        """
+        service = getattr(self._experience, "video_curation", None)
+        if service is None:
+            return {}, {}
+        try:
+            stored = await self._hass.async_add_executor_job(
+                service.segments_by_day, trip_id
+            )
+        except RoadplannerError:
+            return {}, {}
+        if not stored:
+            return {}, {}
+
+        work = Path(tempfile.mkdtemp(prefix="roadplanner-film-clips-"))
+        clips: dict[str, list[dict[str, Any]]] = {}
+        files: dict[str, bytes] = {}
+        originals: dict[str, Path] = {}
+        try:
+            for index, chapter in enumerate(chapters):
+                chapter_id = str(chapter.get("chapter_id") or "")
+                chosen = clips_for_day(
+                    stored.get(chapter_id) or [],
+                    importance=str(chapter.get("importance") or "normal"),
+                )
+                entries: list[dict[str, Any]] = []
+                for position, segment in enumerate(chosen[:MAX_CLIPS_PER_CHAPTER], start=1):
+                    media_id = str(segment.get("media_id") or "")
+                    record = media_by_id.get(media_id)
+                    if record is None:
+                        continue
+                    try:
+                        source = originals.get(media_id)
+                        if source is None:
+                            source = work / f"{media_id}.src"
+                            await service._media_source.async_download_to(record, source)
+                            originals[media_id] = source
+                        target = work / f"{chapter_id}-{position}.mp4"
+                        await async_cut_render_proxy(
+                            source,
+                            target,
+                            start=float(segment.get("start_seconds") or 0.0),
+                            end=float(segment.get("end_seconds") or 0.0),
+                        )
+                        raw = target.read_bytes()
+                    except (RoadplannerError, VideoProxyError, OSError) as err:
+                        _LOGGER.warning("Clip konnte nicht geschnitten werden: %s", err)
+                        continue
+                    if len(raw) > MAX_FILM_CLIP_BYTES:
+                        _LOGGER.warning("Clip ist zu groß für das Paket: %s", media_id)
+                        continue
+                    path = clip_filename(index, position)
+                    files[path] = raw
+                    entries.append(
+                        {
+                            "path": path,
+                            # The renderer holds it for exactly this long.
+                            # Derived from the segment rather than measured,
+                            # so the plan and the file cannot disagree.
+                            "frames": max(
+                                1,
+                                round(
+                                    float(segment.get("duration_seconds") or 0.0)
+                                    * FILM_FPS
+                                ),
+                            ),
+                            "sha256": hashlib.sha256(raw).hexdigest(),
+                            "size_bytes": len(raw),
+                            "width": int(record.get("width") or 0),
+                            "height": int(record.get("height") or 0),
+                        }
+                    )
+                if entries:
+                    clips[chapter_id] = entries
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return clips, files
 
     async def _async_media_records(self, trip_id: str) -> dict[str, dict[str, Any]]:
         """The media records for the ids the manifest refers to.
