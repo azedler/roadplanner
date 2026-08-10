@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.94.0] - 2026-08-10
+
 ### Added
 
 - **Echte Videomomente im Reisefilm — der Weg von der Aufnahme bis zum Film ist geschlossen.** Neu: ein Orchestrator, der eine Aufnahme herunterlädt, ein **verkleinertes, tonloses Fenster** ausschneidet, Gemini genau eine Frage stellt („wann ist hier der gute Moment?"), die Antwort **streng prüft**, sie auf die Zeitachse der Aufnahme zurückrechnet und dauerhaft speichert. Der Film liest anschließend nur noch das Gespeicherte: **Ein Render kann niemals Kosten auslösen.** Eine Reise ohne analysierte Videos hat schlicht keine Clips — das ist ein normaler Film, kein Fehler.
