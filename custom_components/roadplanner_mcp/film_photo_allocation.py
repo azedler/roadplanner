@@ -58,13 +58,28 @@ DEFAULT_IMPORTANCE = "normal"
 # The bar a picture clears to be worth a place on its own.
 #
 # `semantic_score` runs 0 to 20: story value (0-5) counts double, image
-# quality (0-5) once, emotion and uniqueness (0-5 each) at half. This
-# value is a PLACEHOLDER pending calibration against the real
-# distribution of an analysed trip - `simulate_allocation` exists to
-# produce exactly that evidence, and choosing a number before reading it
-# is how a film ends up either padded with gravel or missing its own
-# subject.
-GOOD_IMAGE_THRESHOLD = 11.0
+# quality (0-5) once, emotion and uniqueness (0-5 each) at half.
+#
+# Read off a real 23-day trip, 419 analysed pictures:
+#
+#     min 6.0 · p25 12.0 · median 13.0 · p75 15.5 · p90 16.0 · max 20.0
+#
+# Two things follow, and the second is the more important one.
+#
+# The scores are COMPRESSED: nothing scores below 6, and more than a
+# third of everything lands in 12-14. So a bar has far less leverage
+# here than the arithmetic suggests - between 8.0 and 11.0 the whole
+# trip moves by nine pictures (220 to 211), because on 15 of 23 days it
+# is the day's own ceiling that binds, not the quality of its material.
+# A bar below the first quartile is not a filter, it is decoration.
+#
+# 12.0 is the first value that removes anything: the weakest quarter,
+# which is exactly what "not good enough to hold the screen alone"
+# should mean. Above it the bar starts cutting into the middle of the
+# distribution - at 14.0 the film falls to 140 pictures, BELOW what it
+# carries today, and a day appears that only keeps its own subject
+# through a coverage exception. That is the signal for "too high".
+GOOD_IMAGE_THRESHOLD = 12.0
 
 # How many pictures one burst may contribute.
 #

@@ -897,9 +897,21 @@ def _compress(
         # No two singles left. Merge the last two shots of any kind
         # instead - a bigger group is still every picture on screen,
         # while overrunning by half a minute is a day pretending to be
-        # more important than it is. Merging stops at twice the normal
-        # group, beyond which nobody can read it.
-        if len(working) >= 2 and len(working[-2][1]) + len(working[-1][1]) <= GROUP_SIZE * 2:
+        # more important than it is.
+        #
+        # Merging stops at GROUP_SIZE. It used to stop at twice that, and
+        # the cost of those four extra places was invisible until a day's
+        # pictures were counted against its seconds: a transition day ran
+        # exactly 10.5 seconds whether it showed three pictures or eight,
+        # because everything beyond the first collage was absorbed rather
+        # than paid for. Eight photographs in one 4.7-second tile is not
+        # "every picture on screen", it is double the density the floors
+        # were raised to guarantee - MIN_GROUP_FRAMES was chosen so that
+        # FOUR pictures have a moment each.
+        #
+        # So a fuller day now buys time instead of density, which is the
+        # trade this module already claims to make everywhere else.
+        if len(working) >= 2 and len(working[-2][1]) + len(working[-1][1]) <= GROUP_SIZE:
             merged = working[-2][1] + working[-1][1]
             working[-2] = (SCENE_COLLAGE, merged, 1.5)
             working.pop()
