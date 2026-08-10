@@ -266,7 +266,13 @@ class VideoCurationService:
         if self._media_source is None:
             raise ValidationError("Für Videos ist keine Medienquelle verbunden")
         target = work / f"{window.get('id')}.src"
-        await self.hass.async_add_executor_job(target.parent.mkdir, True, True)
+        # The directory is created by whoever writes the file. It used to
+        # be created here with `mkdir(True, True)` - and `Path.mkdir` takes
+        # (mode, parents, exist_ok), so that was mode 0o1: a directory
+        # nobody may write to. It passed locally because the local run was
+        # root, which ignores permission bits, and failed the moment CI ran
+        # it as an ordinary user. Positional arguments to a function whose
+        # first parameter is a mode are worth avoiding entirely.
         await self._media_source.async_download_to(window, target)
         if not target.exists() or target.stat().st_size <= 0:
             raise ValidationError("Das Video konnte nicht geladen werden")
