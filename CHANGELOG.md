@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.82.0] - 2026-08-10
+
 ### Fixed
 
 - **„Bildauswahl erneuern" hat nur die ersten vier Tage wirklich neu abgeleitet.** Das `force` galt nur für die erste Runde der Schleife; jede weitere Runde fragte ohne es an und bekam den Cache zurück — **einschließlich Tagen, deren gespeicherte Analyse leer war**. Auf der echten Reise standen die Tage 2–5 dadurch dauerhaft auf „analysiert 0", und kein noch so häufiges Drücken des Knopfes hätte daran je etwas geändert. Das ist auch die Erklärung für die Wolfsschanze: An Tag 4 hat nie eine Bildanalyse stattgefunden.
