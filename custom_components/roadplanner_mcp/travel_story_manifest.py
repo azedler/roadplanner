@@ -59,6 +59,8 @@ import json
 import re
 from typing import Any
 
+from .film_photo_allocation import PHOTO_CAPS_BY_IMPORTANCE
+
 MANIFEST_VERSION = 2
 SCHEMA_ID = "roadplanner.travel_story"
 
@@ -138,7 +140,12 @@ MAX_TITLE_LENGTH = 120
 MAX_STORY_LENGTH = 1200
 MAX_CAPTION_LENGTH = 200
 MAX_STOPS_PER_CHAPTER = 24
-MAX_MEDIA_PER_CHAPTER = 16
+# The most pictures a chapter may carry. Derived rather than typed: the
+# film's own ceiling for its most important day is 18, and a schema that
+# said 16 would silently drop the last two of a major highlight - one
+# number living in two files with only one of them raised is the mistake
+# this project has now made four times. A test compares them.
+MAX_MEDIA_PER_CHAPTER = max(PHOTO_CAPS_BY_IMPORTANCE.values())
 MAX_CAPTIONS_PER_CHAPTER = 12
 
 _WHITESPACE_RE = re.compile(r"\s+")
