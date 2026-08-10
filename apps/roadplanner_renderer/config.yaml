@@ -7,7 +7,7 @@
 # plain container - a read/write mount of /share - because that shared
 # directory is the entire communication channel.
 name: Roadplanner Renderer (PoC)
-version: "0.20.0"
+version: "0.21.0"
 slug: roadplanner_renderer_poc
 description: >-
   Experimenteller Renderer. Enthaelt Remotion und Chromium und erzeugt auf

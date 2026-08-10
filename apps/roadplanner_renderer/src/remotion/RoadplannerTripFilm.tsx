@@ -660,6 +660,18 @@ const CAMERA_FOLLOW = 0.34;
 // wobble, short enough that a real turn still arrives on time.
 const CAMERA_SMOOTHING_FRAMES = 5;
 const CAMERA_FOLLOW_REACH = 0.16;
+// How far ahead of the vehicle the camera looks, in frames of travel.
+//
+// The camera followed the camper's CURRENT position, which is why a turn
+// arrived as a lurch: the view learned about it at the same moment the
+// vehicle did, and then had to catch up. Aiming a little ahead means the
+// corner is already drifting into frame as the camper reaches it - the
+// difference between being driven and being towed.
+//
+// Half a second, and it is sampled from the same route function as
+// everything else, so it stays a pure function of the frame. No stored
+// previous position, nothing that renders differently in a parallel tab.
+const CAMERA_LOOK_AHEAD_FRAMES = 15;
 
 const MAP_RECAP_SHARE = 0.26;
 const MAP_APPROACH_SHARE = 0.16;
@@ -935,7 +947,13 @@ const MapLegScene: React.FC<{
           ? projection.project(
               driveState(
                 live,
-                Math.max(0, at - recapFrames - approachFrames) / driveFrames,
+                // The look-ahead rides on the same clamped progress the
+                // vehicle uses, so at the end of a leg it simply stops
+                // leading rather than pointing past the destination.
+                Math.max(
+                  0,
+                  at + CAMERA_LOOK_AHEAD_FRAMES - recapFrames - approachFrames,
+                ) / driveFrames,
                 driveFrames,
               ).position,
             )

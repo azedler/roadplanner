@@ -1,5 +1,21 @@
 # Changelog – Roadplanner Renderer (PoC)
 
+## 0.21.0
+
+- **Die Kamera schaut voraus, statt hinterherzuziehen.** Sie folgte der
+  *aktuellen* Position des Campers — deshalb kam eine Kurve als Ruck: Der
+  Blick erfuhr davon im selben Moment wie das Fahrzeug und musste dann
+  aufholen. Jetzt zielt sie eine halbe Sekunde Fahrtweg voraus, sodass die
+  Kurve schon ins Bild driftet, während der Camper sie erreicht — der
+  Unterschied zwischen gefahren werden und geschleppt werden. Der
+  Vorausblick wird aus derselben Routenfunktion gelesen wie alles andere
+  und bleibt damit eine **reine Funktion des Bildindex**: kein
+  gespeicherter Vorframe, nichts, was in parallelen Tabs anders rendert.
+  Am Ende einer Etappe hört er von selbst auf zu führen, weil der
+  Fortschritt ohnehin geklemmt wird.
+- Dämpfung, Serienzittern-Unterdrückung und die Begrenzung der Nachführung
+  bleiben unverändert — sie waren bereits richtig.
+
 ## 0.20.0
 
 - **Die Zeitgrenze eines Films richtet sich jetzt nach dem Film, nicht nach

@@ -703,9 +703,22 @@ def _chapter_scenes(
         )
 
     scenes: list[dict[str, Any]] = []
-    if card_frames:
+    # A day the whole trip was pointing at may open on the thing itself
+    # rather than on its own name. Every chapter used to begin card, map,
+    # text, hero, collage - twenty-three times, which is most of why the
+    # film read as a form being filled in rather than a journey.
+    #
+    # The variation is deliberately one rule and not a grammar: the single
+    # most important kind of day starts with its strongest image, and the
+    # card and map follow it. Everything else keeps the order it had,
+    # because a film where every day is arranged differently is not
+    # varied, it is inconsistent.
+    opens_on_image = (
+        importance == IMPORTANCE_MAJOR and photo_count > 0 and not folded
+    )
+    if card_frames and not opens_on_image:
         scenes.append(scene(SCENE_CHAPTER_CARD, [], card_frames))
-    if map_frames:
+    if map_frames and not opens_on_image:
         scenes.append(scene(SCENE_MAP_LEG, [], map_frames))
 
     if photo_count <= 0:
@@ -773,7 +786,18 @@ def _chapter_scenes(
                 "clip": indices[0],
             }
         )
-    for kind, indices, frames in _fit_to_budget(shots, picture_budget):
+    fitted = _fit_to_budget(shots, picture_budget)
+    if opens_on_image and fitted:
+        # The opening image, then the day says where it is and what it
+        # was. The card and the map are not skipped - they move.
+        kind, indices, frames = fitted[0]
+        scenes.insert(0, scene(kind, indices, frames))
+        if card_frames:
+            scenes.insert(1, scene(SCENE_CHAPTER_CARD, [], card_frames))
+        if map_frames:
+            scenes.insert(2, scene(SCENE_MAP_LEG, [], map_frames))
+        fitted = fitted[1:]
+    for kind, indices, frames in fitted:
         scenes.append(scene(kind, indices, frames))
 
     if not caption and scenes:
