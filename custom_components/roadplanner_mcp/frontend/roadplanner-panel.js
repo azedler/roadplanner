@@ -174,6 +174,28 @@ class RoadplannerPanel extends HTMLElement {
       this._destinationGallerySwipe = null;
     });
     this.shadowRoot.addEventListener("click", (event) => this._handleClick(event));
+    // A click on empty space inside `.content` (not on a button, link,
+    // input or anything else that takes focus itself) leaves focus on
+    // `document.body`, outside this shadow root - which is why Home/End
+    // did nothing: nothing in here ever HAD focus for those keys to act
+    // on, and the keydown never even reached the listener above.
+    // `.content` is a plain scroll container, not a widget, so this is
+    // the one place that decides whether it becomes the focus target -
+    // deliberately not on every pointerdown, or clicking a button inside
+    // it would visibly steal focus back to the container afterwards.
+    this.shadowRoot.addEventListener("pointerdown", (event) => {
+      const content = event.target?.closest?.(".content");
+      if (!content) return;
+      const interactive = event.target?.closest?.(
+        "input, textarea, select, button, a, [contenteditable], [tabindex]",
+      );
+      // `.content` itself carries tabindex="-1" (see below), so the
+      // nearest tabindex match IS `.content` when the click landed on
+      // empty space - only a MORE specific interactive descendant should
+      // keep this from stealing its focus.
+      if (interactive && interactive !== content) return;
+      content.focus({ preventScroll: true });
+    });
     // Dragging the crew crop box: pointer events so the face region can be
     // MOVED, not only resized (live request).
     this.shadowRoot.addEventListener("pointerdown", (event) => {
@@ -210,6 +232,27 @@ class RoadplannerPanel extends HTMLElement {
         event.preventDefault();
         const form = textarea.closest("form[data-form='assistant-chat']");
         void this._submitAssistantComposer(form);
+      }
+      // Home/End/PageUp/PageDown scroll whatever element the BROWSER
+      // considers focused - and a click on empty space inside `.content`
+      // focuses nothing at all, so focus stays on `document.body`
+      // (outside this shadow root, which never sees the keydown at all)
+      // and the keys do nothing. `.content` is made focusable
+      // (tabindex="-1") and the pointerdown handler above focuses it on
+      // exactly that empty-space click, so by the time a key like this
+      // arrives there is something in the shadow root to scroll.
+      if (
+        ["Home", "End", "PageUp", "PageDown"].includes(event.key) &&
+        !event.target?.closest?.("input, textarea, select, [contenteditable]")
+      ) {
+        const scroller = event.target?.closest?.(".content");
+        if (scroller) {
+          event.preventDefault();
+          if (event.key === "Home") scroller.scrollTop = 0;
+          else if (event.key === "End") scroller.scrollTop = scroller.scrollHeight;
+          else if (event.key === "PageUp") scroller.scrollTop -= scroller.clientHeight * 0.9;
+          else scroller.scrollTop += scroller.clientHeight * 0.9;
+        }
       }
     });
     this.shadowRoot.addEventListener("paste", (event) => {
@@ -2463,7 +2506,7 @@ class RoadplannerPanel extends HTMLElement {
           </div>
         </header>
         ${this._renderTabs()}
-        <main class="content">
+        <main class="content" tabindex="-1">
           ${this._renderStaleModuleNotice()}
           ${this._initialLoading ? this._renderLoading() : ""}
           ${this._error ? this._renderError() : ""}

@@ -55,6 +55,12 @@ export const PANEL_STYLES = `<style>
          worked, because that scrollbar belonged to an ancestor. Reported
          from Edge, where other Home Assistant panels scrolled fine. */
       .content { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px max(18px, calc((100vw - 1320px) / 2)); padding-bottom: max(36px, calc(24px + env(safe-area-inset-bottom))); }
+      /* .content carries tabindex="-1" (roadplanner-panel.js) so a click
+         on empty space can focus it and Home/End/PageUp/PageDown have
+         something in this shadow root to scroll - see the pointerdown and
+         keydown handlers there for why. It is a scroll region, not a
+         widget, so it gets no visible focus ring. */
+      .content:focus { outline: none; }
       .hero-card, .panel-card, .toolbar-card, .map-card, .route-flow-card, .handoff-card, .trip-card, .stop-card, .total-day-card { background: var(--card-background-color); border: 1px solid var(--divider-color); box-shadow: var(--ha-card-box-shadow, none); border-radius: 22px; }
       .hero-card { overflow: hidden; display: grid; grid-template-columns: 1fr; min-height: 220px; margin-bottom: 18px; }
       .hero-card.with-image { grid-template-columns: minmax(260px, 42%) 1fr; }
