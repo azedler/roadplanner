@@ -291,6 +291,26 @@ def verify_the_run_refuses_when_the_feature_is_switched_off() -> None:
         raise AssertionError("die Analyse lief trotz ausgeschalteter Funktion")
 
 
+def verify_no_directory_is_created_with_a_boolean_as_its_mode() -> None:
+    """`Path.mkdir` takes (mode, parents, exist_ok), and that order bites.
+
+    `mkdir(True, True)` reads like "parents, exist_ok" and means mode
+    0o1 - a directory nobody may write to. It passed every local run
+    because the local run was root, which ignores permission bits, and
+    failed the instant CI executed it as an ordinary user.
+
+    Checked across the integration rather than in one file: the trap is
+    the signature, not the call site.
+    """
+    offenders = []
+    for path in sorted(INTEGRATION.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        for bad in (".mkdir(True", ".mkdir(False", "mkdir, True", "mkdir, False"):
+            if bad in source:
+                offenders.append(f"{path.name}: {bad}")
+    assert not offenders, offenders
+
+
 def verify_the_service_never_reaches_a_render_path() -> None:
     """Stated in code, so it cannot drift into being untrue."""
     for forbidden in ("build_scene_plan", "build_film_package", "async_submit"):
@@ -306,6 +326,7 @@ for check in (
     verify_a_refused_answer_is_stored_as_no_segment_rather_than_repaired,
     verify_the_original_copy_is_always_deleted,
     verify_the_run_refuses_when_the_feature_is_switched_off,
+    verify_no_directory_is_created_with_a_boolean_as_its_mode,
     verify_the_service_never_reaches_a_render_path,
 ):
     check()
