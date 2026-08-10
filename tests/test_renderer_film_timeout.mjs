@@ -92,3 +92,64 @@ for (const check of [
 }
 
 console.log("Renderer film timeout tests passed.");
+
+/**
+ * The image has to contain every module the renderer imports.
+ *
+ * The Dockerfile names the runtime sources one by one, which makes it a
+ * second place where the source tree is written down - and the first time a
+ * module was added it went wrong in the worst possible way: the image built,
+ * the container started, the heartbeat reported "ready", and the failure
+ * appeared only when a real render asked for the file. A container that
+ * cannot render is not a container that says so at startup.
+ *
+ * So this reads both sides and compares them, rather than trusting the list.
+ */
+function verifyTheImageShipsEveryModuleTheRendererImports() {
+  const dockerfile = readFileSync(
+    new URL("../apps/roadplanner_renderer/Dockerfile", import.meta.url),
+    "utf8",
+  );
+  const copyLine = dockerfile
+    .split("\n")
+    // The builder stage copies the whole tree ("COPY src/ ./src/"); the one
+    // that matters is the runtime stage, which names files.
+    .find((line) => line.startsWith("COPY src/") && line.includes(".mjs"));
+  assert.ok(copyLine, "the Dockerfile no longer names the runtime sources");
+  const shipped = new Set(
+    (copyLine.match(/src\/[\w.-]+\.mjs/g) || []).map((entry) => entry.slice(4)),
+  );
+
+  // Follow the imports from the entry point, so a module that is only
+  // reachable through another one is still checked.
+  const seen = new Set();
+  const queue = ["index.mjs"];
+  while (queue.length) {
+    const name = queue.shift();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    let source;
+    try {
+      source = readFileSync(
+        new URL(`../apps/roadplanner_renderer/src/${name}`, import.meta.url),
+        "utf8",
+      );
+    } catch {
+      continue;
+    }
+    for (const match of source.matchAll(/from\s+"\.\/([\w.-]+\.mjs)"/g)) {
+      queue.push(match[1]);
+    }
+  }
+
+  for (const name of seen) {
+    assert.ok(
+      shipped.has(name),
+      `${name} wird importiert, aber nicht ins Image kopiert - ` +
+        "der Container startet und scheitert erst beim ersten Render",
+    );
+  }
+}
+
+verifyTheImageShipsEveryModuleTheRendererImports();
+console.log("Renderer image source list checked.");

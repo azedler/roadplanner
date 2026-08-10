@@ -19,6 +19,13 @@
   „steckengeblieben" unterscheiden — das hier kann es, weshalb die Grenze
   oben es nicht mehr versuchen muss.
 - Die Fehlermeldung nennt jetzt die Bildzahl, um die es ging.
+- **Das Image enthält jetzt jedes Modul, das der Renderer importiert.** Der
+  Dockerfile zählt die Laufzeitquellen einzeln auf — ein zweiter Ort, an dem
+  der Quellbaum steht. Beim ersten neuen Modul ging das auf die
+  unangenehmste Art schief: Das Image baute, der Container startete, der
+  Heartbeat meldete „bereit" — und erst der erste Render scheiterte an einer
+  fehlenden Datei. Ein Test folgt jetzt den Importen ab dem Einstiegspunkt
+  und vergleicht sie mit der Liste im Dockerfile.
 
 ## 0.1.0-poc.2
 
