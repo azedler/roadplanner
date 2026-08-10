@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.87.0] - 2026-08-10
+
 ### Added
 
 - **Das Tageslimit der Bildauswahl ist jetzt einstellbar** (Integration → Konfigurieren → „Maximale Tages-Bildauswahlen pro Tag (Reisegeschichte)", 0–300, Standard 60). Es war eine Konstante im Code — also war an dem einen Tag, an dem jemand ein paar Blicke mehr braucht (eine Reise, deren frühe Tage nie analysiert wurden), das Warten auf den UTC-Tageswechsel der einzige Weg. Null schaltet die KI-Bildauswahl der Reisegeschichte ganz ab; der Tag bleibt dann nach lokaler Bildqualität geordnet nutzbar.
