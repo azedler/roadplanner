@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Changed
+
+- **Der prominente Platz wird jetzt reserviert, bevor gepackt wird.** Der letzte sichtbare Fehler aus dem Film: Das zentrale Motiv eines Tages war korrekt kuratiert, korrekt bewertet und korrekt nach vorn sortiert — und erschien trotzdem nur als viertelgroße Kachel. Der Grund ist **ein Zweig in der Szenengrammatik**: Ein Tag mit dem visuellen Stil „Collage" hat **gar keinen prominenten Slot**. Es gab also nichts, wohin man hätte sortieren können — reines Umsortieren konnte nie wirken, und deshalb hielt die erste Korrektur nicht. Der Slot wird nun zuerst freigehalten und das reservierte Bild aus der Packliste genommen. Einer pro Tag, medienneutral, gar nichts wenn ohnehin schon ein Clip auf das Motiv öffnet — und ein von Hand gesetzter Hero sticht die automatische Reservierung weiterhin.
+
+- **Kurze Clips bekommen einen filmischen Rand.** 2,2 Sekunden lesen sich als bewegtes Standbild. Ein Clip unter seinem Zielwert wächst um 0,4–0,8 s je Seite — innerhalb der Aufnahme, innerhalb des Fensters, das der Vorfilter als brauchbar beurteilt hat, und innerhalb der Obergrenze für einen Clip. Ein Übergangsclip darf kurz bleiben; nichts wird pauschal auf einen Zielwert aufgeblasen. **Das analysierte Fenster wird nie überschrieben** — darauf ist der Cache aufgebaut, und es ist der Beleg dessen, was das Modell gesagt hat. Das Renderfenster steht daneben, und der Export **schneidet und misst** jetzt daraus; sonst hielte der Film einen Clip für die Analysedauer und schnitte ihn ab.
+
+- **Funktionale Stopps verschwinden aus den filmischen Zeilen.** Zurückhalten reichte nicht: Sie füllten den Platz, den die erzählerischen Namen nicht beansprucht hatten — und eine Routenzeile liest sich als „das war der Tag". Die Ausnahme wurde **nachgerechnet statt angenommen**, und die vorhandene Abstufung passt genau: Ein Versorgungsstopp, der in der Tagesgeschichte nur **erwähnt** wird, kommt auf 0,50 gegen eine Schwelle von 0,55 und bleibt verborgen; einer, über den auch etwas **geschrieben** steht, kommt auf 0,65 und erscheint. Das Roadbook bleibt unangetastet, die Kategorien bleiben, wo sie waren, und es steht kein Markenname in einer Regel.
+
+### Fixed
+
+- **Gedrehte Aufnahmen: der erwartete Fehler war nicht der echte.** Vor jeder Änderung mit echtem Encoder gemessen: Eine 1920×1080-Aufnahme mit `rotation=90` ergab durch den Analysefilter **202×360** — **ffmpeg wertet die Rotationsmatrix selbst aus**, die Proxys waren also immer richtig. Falsch waren die Zahlen daneben: Der Vorfilter beurteilte `height`, was bei einer solchen Datei die **Breite** des Bildes benennt, und das Renderpaket übernahm die Maße aus der Bibliothek in einen Clipeintrag, der eine Datei der entgegengesetzten Form beschrieb. Die Auflösung wird jetzt an der **kürzeren Kante** beurteilt — dafür braucht es überhaupt keine Metadaten — und das Paket nennt, was es an der geschnittenen Datei **gemessen** hat.
+
 ## [4.105.0] - 2026-08-11
 
 ### Fixed
