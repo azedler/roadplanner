@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.105.0] - 2026-08-11
+
 ### Fixed
 
 - **Es lagen alle Aufnahmen gleichzeitig unter `/share`, obwohl immer nur eine gebraucht wird** (Add-on 0.23.0). Sowohl der Analyselauf als auch der Filmexport laden pro Clip eine Aufnahme herunter und löschen das Arbeitsverzeichnis erst **am Ende**. Bei siebzehn Handyvideos sind das mehrere Gigabyte auf einmal — auf einem Gerät, das ein paar davon frei hat. Nötig war das nie: Zu jeder Aufnahme ist bekannt, wie viele Fenster sie noch brauchen, also kann sie gehen, sobald das letzte fertig ist. Der Spitzenwert ist jetzt **eine** Aufnahme statt aller; erneutes Herunterladen wird trotzdem vermieden, weil der Zähler fällt und nicht die Datei nach jedem Fenster. Ein gescheitertes oder abgelehntes Fenster gibt sie ebenfalls frei — sonst läge eine unbrauchbare Aufnahme bis zum Schluss herum.
