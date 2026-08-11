@@ -47,6 +47,14 @@ ANALYSIS_CRF = 32
 RENDER_HEIGHT = 720
 RENDER_CRF = 23
 
+# An effectively unbounded width, because the limit that matters is the
+# height. It has to be stated: `force_original_aspect_ratio` treats w and
+# h as a BOX and recomputes both - so a `-2` width, which is ffmpeg's way
+# of saying "auto, and even", is discarded and the result can land on an
+# odd number. That is not a rounding detail: libx264 refuses an odd
+# dimension outright.
+MAX_PROXY_WIDTH = 4096
+
 # A window longer than this is not a moment. The prefilter already cuts
 # recordings into windows; this is the guard for a caller that did not.
 MAX_ANALYSIS_SECONDS = 45.0
@@ -98,7 +106,16 @@ def analysis_args(
         # muted still travels.
         "-an",
         "-vf",
-        f"scale=-2:{ANALYSIS_HEIGHT}:force_original_aspect_ratio=decrease,fps={ANALYSIS_FPS}",
+        # `force_divisible_by=2` is the whole point of this line. With
+        # `scale=-2:360:force_original_aspect_ratio=decrease` a portrait
+        # phone recording came out 202x359, and libx264 answered "height
+        # not divisible by 2" and wrote nothing - which is exactly what
+        # happened on the live system: eleven windows, every one of them
+        # a portrait recording, every one refused before a single frame
+        # was encoded.
+        f"scale=w={MAX_PROXY_WIDTH}:h={ANALYSIS_HEIGHT}"
+        f":force_original_aspect_ratio=decrease:force_divisible_by=2"
+        f",fps={ANALYSIS_FPS}",
         "-c:v",
         "libx264",
         "-preset",
@@ -138,7 +155,11 @@ def render_args(source: Path, target: Path, *, start: float, end: float) -> list
         # scene interesting.
         "-an",
         "-vf",
-        f"scale=-2:{RENDER_HEIGHT}:force_original_aspect_ratio=decrease",
+        # Same trap, same fix: the film's clips are cut with this call,
+        # so a portrait recording would have been refused here too - one
+        # step later, in the middle of a film export.
+        f"scale=w={MAX_PROXY_WIDTH}:h={RENDER_HEIGHT}"
+        f":force_original_aspect_ratio=decrease:force_divisible_by=2",
         "-c:v",
         "libx264",
         "-preset",
@@ -192,6 +213,7 @@ async def _async_cut(args: list[str], target: Path, *, timeout: float, what: str
 
 
 __all__ = [
+    "MAX_PROXY_WIDTH",
     "ANALYSIS_FPS",
     "ANALYSIS_HEIGHT",
     "MAX_ANALYSIS_SECONDS",
