@@ -34,6 +34,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .render_profiles import DEFAULT_RENDER_PROFILE, RENDER_PROFILES
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
 from .trip_film_package import (
@@ -180,11 +181,22 @@ class TripFilmExporter:
         """What could be played under a film. Names and sizes only."""
         return await self._hass.async_add_executor_job(list_tracks)
 
-    async def async_submit(self, trip_id: str, *, music: str = "") -> dict[str, Any]:
-        """Build the package for the whole trip and queue the render."""
+    async def async_submit(
+        self, trip_id: str, *, music: str = "", profile: str = ""
+    ) -> dict[str, Any]:
+        """Build the package for the whole trip and queue the render.
+
+        `profile` decides pixels and nothing else. Every line below it is
+        the same whatever it says: the same manifest, the same photographs,
+        the same clips, the same seconds. It is passed to the submit and
+        never consulted here, which is what keeps that true.
+        """
         trip_id = str(trip_id or "").strip()
         if not trip_id:
             raise ValidationError("Für den Reisefilm fehlt die Reise-ID")
+        profile_id = str(profile or "").strip() or DEFAULT_RENDER_PROFILE
+        if profile_id not in RENDER_PROFILES:
+            raise ValidationError(f"Unbekanntes Renderprofil: {profile_id}")
 
         manifest = await self._story_context.async_manifest(trip_id)
         chapters = manifest.get("chapters") or []
@@ -273,6 +285,7 @@ class TripFilmExporter:
             package=package,
             files={**files, **clip_files},
             title=(manifest.get("trip") or {}).get("title") or "Reisefilm",
+            profile_id=profile_id,
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
         _LOGGER.debug(

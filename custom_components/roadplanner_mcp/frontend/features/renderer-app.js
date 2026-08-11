@@ -244,6 +244,13 @@ export const rendererAppMixin = {
     if (!adopted?.job_id) return;
     this._rendererAppJob = adopted;
     this._rendererAppKind = adopted.kind || "";
+    // Which finished FILM a review copy could be made from. Remembered
+    // separately from the job on screen, because after a copy has been
+    // made the job on screen is the copy - and copying a copy would
+    // compress something already compressed and answer nothing.
+    if (adopted.kind === "trip_film" && adopted.state === "completed") {
+      this._storyFilmSourceJobId = adopted.job_id;
+    }
     // The package facts were only ever in the browser that submitted the
     // job. Rather than invent them, the card shows the job without them.
     this._rendererAppPackage = null;
@@ -344,6 +351,11 @@ export const rendererAppMixin = {
         },
       );
       this._rendererAppDownloadUrl = result?.renderer_app_download_url || "";
+      // The URL stays an unguessable uuid - that is what makes the
+      // library safe to serve from. The NAME is what the browser saves
+      // the file under, and it is the only thing that later says which
+      // version of the film this was.
+      this._rendererAppDownloadName = result?.renderer_app_download_name || "";
     } finally {
       this._rendererAppDownloading = false;
       this._render({ preserveScroll: true });
@@ -578,7 +590,7 @@ export const rendererAppMixin = {
         </div>
         ${
           this._rendererAppDownloadUrl
-            ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download>Bereit – hier speichern</a>`
+            ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download="${escapeHtml(this._rendererAppDownloadName || "reisefilm.mp4")}">Bereit – hier speichern</a>`
             : "<small>Die Datei liegt im Austauschordner der App. Das Herunterladen legt eine Kopie in der Videobibliothek ab.</small>"
         }
       </div></div>`;

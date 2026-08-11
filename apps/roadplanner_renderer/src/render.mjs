@@ -17,7 +17,7 @@
  *   size and length exists on disk. The file only counts as a result after
  *   its codec, container, resolution and duration have been read back.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { statfsSync } from "node:fs";
 import os from "node:os";
@@ -29,6 +29,17 @@ import { promisify } from "node:util";
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
 import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
+import {
+  DEFAULT_RENDER_PROFILE,
+  pixelFactor,
+  renderProfile,
+} from "./render_profiles.mjs";
+import {
+  DEFAULT_REVIEW_PROFILE,
+  reviewBitrate,
+  reviewCopyArgs,
+  reviewProfile,
+} from "./review_copy.mjs";
 import {
   FILM_MANIFEST_FILENAME,
   MAX_FILM_IMAGE_BYTES,
@@ -69,6 +80,13 @@ export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
 // composition is still caught before it renders for an hour.
 export const TRIP_FILM_MIN_SECONDS = 15;
 export const TRIP_FILM_MAX_SECONDS = 900;
+
+// A re-encode of a finished film, not a render. Fifteen minutes is many
+// times what a twelve-minute film takes on the target box, and short
+// enough that a wedged ffmpeg does not hold the only worker all evening.
+export const REVIEW_COPY_TIMEOUT_MS = Number(
+  process.env.ROADPLANNER_REVIEW_COPY_TIMEOUT_MS || 900_000,
+);
 /**
  * Hard limits.
  *
@@ -134,6 +152,10 @@ export async function probe(file) {
   }
   const [num, den] = String(video.r_frame_rate || "0/1").split("/");
   return {
+    // Whether there IS a soundtrack, asked of the file rather than of
+    // whoever passed it in. A review copy has to reproduce this exactly,
+    // and a film with no music genuinely carries no audio stream.
+    has_audio: (parsed.streams || []).some((s) => s.codec_type === "audio"),
     codec: String(video.codec_name || ""),
     container: String(parsed.format?.format_name || ""),
     width: Number(video.width) || 0,
@@ -287,12 +309,20 @@ export async function renderTripDayVideo({ outputPath, inputsDir, onProgress }) 
  * a copy rather than a shared folder, because two jobs sharing one
  * directory is a way for one trip's pictures to appear in another's film.
  */
-export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress }) {
+export async function renderTripFilmVideo({
+  outputPath,
+  inputsDir,
+  onProgress,
+  profileId = DEFAULT_RENDER_PROFILE,
+}) {
   const started = Date.now();
+  // An unknown id falls back to the default rather than failing: a render
+  // at the wrong size is recoverable, a job refused after the package was
+  // already written is a lost trip's worth of preparation.
+  const profile = renderProfile(profileId);
   const manifestRaw = await readBounded(
     path.join(inputsDir, FILM_MANIFEST_FILENAME),
     MAX_FILM_JSON_BYTES,
-  MAX_MUSIC_BYTES,
   );
   if (manifestRaw === null) {
     throw new RenderError("PACKAGE_MISSING", "Zum Auftrag fehlt das Filmpaket.");
@@ -428,22 +458,38 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
         characters: parsed.characters,
         clips: parsed.clips,
         music: parsed.music,
+        // The only prop that is not content. The composition passes it to
+        // calculateMetadata and nothing else reads it, which is what keeps
+        // the film identical across profiles.
+        renderProfile: profile.id,
       },
       limits: FILM_LIMITS,
+      quality: profile,
       expected: (composition) => {
-        const seconds = composition.durationInFrames / EXPECTED.fps;
+        const seconds = composition.durationInFrames / profile.fps;
         if (seconds < TRIP_FILM_MIN_SECONDS || seconds > TRIP_FILM_MAX_SECONDS) {
           throw new RenderError(
             "OUTPUT_INVALID",
             `Der Film ergibt ${Math.round(seconds)} s - das liegt ausserhalb des erwarteten Rahmens.`,
           );
         }
-        return { ...EXPECTED, durationSeconds: seconds, durationToleranceSeconds: 0.25 };
+        return {
+          ...EXPECTED,
+          width: profile.width,
+          height: profile.height,
+          fps: profile.fps,
+          durationSeconds: seconds,
+          durationToleranceSeconds: 0.25,
+        };
       },
       onProgress,
     });
     result.timings.prepare = prepareSeconds;
     result.timings.total += prepareSeconds;
+    // Which size this is, said by the side that rendered it. A film whose
+    // own result cannot answer "which profile was that?" is a file nobody
+    // can place two weeks later.
+    result.facts.render_profile = profile.id;
     result.facts.chapter_count = parsed.chapters.length;
     result.facts.photo_count = parsed.chapters.reduce(
       (sum, chapter) => sum + chapter.photos.length,
@@ -467,6 +513,167 @@ export async function renderTripFilmVideo({ outputPath, inputsDir, onProgress })
     // render succeeded or not.
     await fs.rm(stage, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * Make a small copy of a film that has already been rendered.
+ *
+ * The one job in this file that never starts a browser. It reads a
+ * finished MP4 and writes a smaller one - which is why it can run in
+ * minutes where the render it copies took an hour, and why it costs
+ * nothing beyond CPU: no package is parsed, no photograph is opened, no
+ * service is called.
+ *
+ * `sourcePath` is resolved by the caller from a job id, never from
+ * anything in the job's own text. This function opens exactly what it is
+ * handed and writes exactly where it is told.
+ */
+export async function createReviewCopy({
+  sourcePath,
+  outputPath,
+  profileId = DEFAULT_REVIEW_PROFILE,
+  // Null means "whatever this profile aims at". Only a caller with a
+  // reason of its own passes a number here.
+  targetBytes = null,
+  onProgress,
+}) {
+  const startedAt = Date.now();
+  const timings = {};
+  const profile = reviewProfile(profileId);
+
+  let stat;
+  try {
+    stat = await fs.lstat(sourcePath);
+  } catch {
+    throw new RenderError("PACKAGE_MISSING", "Zu diesem Auftrag gibt es keinen Film.");
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new RenderError("PACKAGE_INVALID", "Die Quelle ist keine gewöhnliche Datei.");
+  }
+
+  const probeStarted = Date.now();
+  const source = await probe(sourcePath);
+  timings.probe_source = (Date.now() - probeStarted) / 1000;
+  if (source.duration_seconds <= 0) {
+    throw new RenderError("PACKAGE_INVALID", "Die Quelldatei hat keine lesbare Länge.");
+  }
+
+  const bitrate = reviewBitrate({
+    durationSeconds: source.duration_seconds,
+    targetBytes,
+    hasAudio: source.has_audio,
+    profile,
+  });
+
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const partial = `${outputPath.replace(/\.mp4$/i, "")}.part.mp4`;
+  const args = [
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    ...reviewCopyArgs({
+      source: sourcePath,
+      output: partial,
+      profile,
+      bitrateBps: bitrate,
+      hasAudio: source.has_audio,
+    }),
+  ];
+
+  const encodeStarted = Date.now();
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      let rest = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(
+          new RenderError(
+            "RENDER_TIMEOUT",
+            `Die Review-Kopie hat die Zeitgrenze von ${Math.round(
+              REVIEW_COPY_TIMEOUT_MS / 1000,
+            )} s überschritten.`,
+          ),
+        );
+      }, REVIEW_COPY_TIMEOUT_MS);
+      child.stdout.on("data", (chunk) => {
+        // ffmpeg's progress stream is key=value lines. Only one of them
+        // is interesting, and it is in microseconds.
+        rest += chunk.toString();
+        const lines = rest.split("\n");
+        rest = lines.pop() ?? "";
+        for (const line of lines) {
+          const [key, value] = line.split("=");
+          if (key !== "out_time_us") continue;
+          const done = Number(value) / 1_000_000 / source.duration_seconds;
+          if (Number.isFinite(done)) onProgress?.(Math.max(0, Math.min(1, done)));
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-600);
+      });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        reject(new RenderError("RENDER_FAILED", "ffmpeg konnte nicht gestartet werden.", err?.message));
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else reject(new RenderError("RENDER_FAILED", "Die Review-Kopie ist fehlgeschlagen.", stderr));
+      });
+    });
+  } catch (err) {
+    // The half-written file goes with the failure. Nothing else in this
+    // function created a temporary file, so this is the whole cleanup.
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw err instanceof RenderError
+      ? err
+      : new RenderError("RENDER_FAILED", "Die Review-Kopie ist fehlgeschlagen.", String(err));
+  }
+  timings.encode = (Date.now() - encodeStarted) / 1000;
+
+  let facts;
+  try {
+    facts = await probe(partial);
+  } catch (err) {
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw err;
+  }
+  // What must survive a copy, checked rather than assumed. The length is
+  // the one that matters: a copy that is shorter than the film is not a
+  // smaller version of it, it is a different film.
+  const problems = [];
+  if (facts.codec !== "h264") problems.push(`Codec ${facts.codec}`);
+  if (Math.abs(facts.duration_seconds - source.duration_seconds) > 0.5) {
+    problems.push(`Dauer ${facts.duration_seconds} s statt ${source.duration_seconds} s`);
+  }
+  if (facts.width > source.width || facts.height > source.height) {
+    problems.push(`Vergrößerung auf ${facts.width}x${facts.height}`);
+  }
+  if (source.has_audio !== facts.has_audio) problems.push("Tonspur stimmt nicht");
+  if (facts.size_bytes <= 0) problems.push("Dateigröße 0");
+  if (problems.length) {
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw new RenderError(
+      "OUTPUT_INVALID",
+      `Die Review-Kopie entspricht nicht der Erwartung: ${problems.join(", ")}.`,
+    );
+  }
+
+  await fs.rename(partial, outputPath);
+  timings.total = (Date.now() - startedAt) / 1000;
+  return {
+    facts: {
+      ...facts,
+      render_profile: profile.id,
+      video_bitrate_bps: bitrate,
+      source_size_bytes: source.size_bytes,
+      source_width: source.width,
+      source_height: source.height,
+    },
+    timings,
+  };
 }
 
 /** Read a file, refusing an oversized one and never following a symlink. */
@@ -498,6 +705,7 @@ async function renderComposition({
   onProgress,
   serveUrl = BUNDLE_DIR,
   limits = LIMITS,
+  quality = null,
 }) {
   const timings = {};
   const startedAt = Date.now();
@@ -559,7 +767,11 @@ async function renderComposition({
     // single wall clock cannot tell them apart. The ceiling scales with
     // the frames actually being drawn; the watchdog fires when nothing has
     // moved at all, which is what a wedged browser looks like.
-    const ceilingMs = renderCeilingMs(limits, composition.durationInFrames);
+    const ceilingMs = renderCeilingMs(
+      limits,
+      composition.durationInFrames,
+      quality ? pixelFactor(quality) : 1,
+    );
     const stallMs = Number(limits.stallTimeoutMs) || 0;
     let timer;
     let watchdog;
@@ -610,8 +822,12 @@ async function renderComposition({
       outputLocation: partial,
       inputProps,
       puppeteerInstance: browser,
-      x264Preset: "veryfast",
-      crf: 20,
+      // A review copy exists to be small and looked at once; a film to
+      // keep gets the quality it deserves. Both come from the profile
+      // table rather than from a number typed here, so "smaller" is one
+      // decision instead of two that can drift apart.
+      x264Preset: quality?.x264Preset ?? "veryfast",
+      crf: Number.isFinite(quality?.crf) ? quality.crf : 20,
       // One browser tab: a Home Assistant box shares its cores with
       // everything else the user runs on it.
       concurrency: 1,

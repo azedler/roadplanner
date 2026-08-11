@@ -36,11 +36,19 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .render_profiles import (
+    DEFAULT_RENDER_PROFILE,
+    DEFAULT_REVIEW_PROFILE,
+    RENDER_PROFILES,
+    REVIEW_COPY_PROFILES,
+)
 from .renderer_app_protocol import (
+    ACTION_CREATE_REVIEW_COPY,
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_REMOTION_TEST,
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
+    ARTIFACT_REVIEW_COPY,
     ARTIFACT_TRIP_FILM_VIDEO,
     FILM_JOB_TTL_SECONDS,
     artifact_limit,
@@ -100,8 +108,10 @@ _KIND_BY_ACTION = {
     ACTION_RENDER_REMOTION_TEST: "render",
     ACTION_RENDER_TRIP_DAY: "trip_day",
     ACTION_RENDER_TRIP_FILM: "trip_film",
+    ACTION_CREATE_REVIEW_COPY: "review_copy",
 }
 _KIND_BY_ARTIFACT = {
+    ARTIFACT_REVIEW_COPY: "review_copy",
     ARTIFACT_TRIP_FILM_VIDEO: "trip_film",
     ARTIFACT_TRIP_DAY_VIDEO: "trip_day",
     ARTIFACT_VIDEO: "render",
@@ -326,12 +336,55 @@ class RendererAppClient:
         self._write_job(job)
         return total
 
+    async def async_submit_review_copy_job(
+        self,
+        *,
+        source_job_id: str,
+        profile_id: str = DEFAULT_REVIEW_PROFILE,
+        title: str = "Review-Kopie",
+    ) -> dict[str, Any]:
+        """Ask for a small copy of a film that has already been rendered.
+
+        The cheapest job in this protocol: no package is written, nothing
+        is downloaded, no photograph is opened and no service is called.
+        The whole request is one job file naming an earlier job whose
+        result is still in the exchange folder.
+
+        Nothing is checked here about whether that film exists. The app
+        answers ``PACKAGE_MISSING`` if it does not, and a check here would
+        only be a second, older opinion about a folder the app owns.
+        """
+        source = validate_job_id(source_job_id)
+        if profile_id not in REVIEW_COPY_PROFILES:
+            raise RendererProtocolError(f"Unbekanntes Reviewprofil: {profile_id!r}")
+        job_id = new_job_id()
+        job = build_job(
+            job_id=job_id,
+            action=ACTION_CREATE_REVIEW_COPY,
+            message=title or "Review-Kopie",
+            now=utc_now(),
+            # Minutes rather than an hour, but still far past the default
+            # five, and the copy of a long film is not a quick job.
+            ttl_seconds=FILM_JOB_TTL_SECONDS,
+            render_profile=profile_id,
+            source_job_id=source,
+        )
+        await self._hass.async_add_executor_job(self._write_job, job)
+        return {
+            "job_id": job_id,
+            "state": JOB_QUEUED,
+            "submitted_at": job["created_at"],
+            "source_job_id": source,
+            "render_profile": profile_id,
+        }
+
     async def async_submit_trip_film_job(
         self,
         *,
         package: dict[str, Any],
         files: dict[str, bytes],
         title: str,
+        profile_id: str = DEFAULT_RENDER_PROFILE,
     ) -> dict[str, Any]:
         """Hand over a whole trip: its photos first, the job last.
 
@@ -340,6 +393,13 @@ class RendererAppClient:
         job file first would start on half a trip.
         """
         validate_film_package(package)
+        # Matched against the table HERE, at the last point that can still
+        # refuse: the app falls back to its default for an id it does not
+        # know, and a film that came out at another size than the one
+        # somebody picked looks like a working render until the file is
+        # opened.
+        if profile_id not in RENDER_PROFILES:
+            raise RendererProtocolError(f"Unbekanntes Renderprofil: {profile_id!r}")
         job_id = new_job_id()
         package = {**package, "job_id": job_id}
         job = build_job(
@@ -350,6 +410,7 @@ class RendererAppClient:
             # A trip takes minutes. The default five-minute TTL would mark
             # the job stale while it was still being rendered.
             ttl_seconds=FILM_JOB_TTL_SECONDS,
+            render_profile=profile_id,
         )
         written = await self._hass.async_add_executor_job(
             self._write_trip_film_job, job, package, files
@@ -360,6 +421,7 @@ class RendererAppClient:
             "submitted_at": job["created_at"],
             "package_bytes": written,
             "image_count": len(files),
+            "render_profile": profile_id,
         }
 
     def _write_trip_film_job(
@@ -569,7 +631,12 @@ class RendererAppClient:
         # render produce different filenames and the panel shows whichever
         # one this job actually made.
         video_path = ""
-        for candidate in (ARTIFACT_TRIP_FILM_VIDEO, ARTIFACT_TRIP_DAY_VIDEO, ARTIFACT_VIDEO):
+        for candidate in (
+            ARTIFACT_REVIEW_COPY,
+            ARTIFACT_TRIP_FILM_VIDEO,
+            ARTIFACT_TRIP_DAY_VIDEO,
+            ARTIFACT_VIDEO,
+        ):
             if (folder / candidate).is_file():
                 video_path = str(folder / candidate)
                 break
