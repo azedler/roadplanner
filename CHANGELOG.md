@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.101.0] - 2026-08-11
+
 ### Fixed
 
 - **Das Ergebnis eines bezahlten Laufs überlebte die Verbindung nicht.** Gemeldet: 4.100.0 installiert, neu gestartet, Analyse gestartet, zehn Minuten gewartet, Seite neu geladen — und die Karte zeigte „10 Analysen im Cache · 11 neue", ohne ein Wort über die elf, die gerade versucht worden waren. Was gescheitert war und warum, existierte **ausschließlich** in der Antwort auf den Klick. Ein Lauf über elf Fenster dauert lang genug, dass die Verbindung abreißt oder die Seite neu geladen wird — und beides nahm jede Begründung mit. Die einzige Stelle, die es noch wusste, war eine Protokolldatei. Das Ergebnis wird jetzt **gespeichert**, und zwar im `finally`, damit auch ein unterbrochener Lauf festhält, was er geschafft hat; das kostenlose Angebot liefert es mit, damit eine neu geladene Seite es weiterhin kennt; und die Karte nennt **den Grund je Aufnahme** statt nur die Zahl der Fehlschläge. Eine Zahl ohne Ursache schickt einen dazu, das Falsche zu reparieren.
