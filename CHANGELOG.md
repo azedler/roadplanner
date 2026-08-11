@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.100.0] - 2026-08-11
+
 ### Fixed
 
 - **Der ganze Videopfad einmal durchgelesen, statt nur das gemeldete Symptom.** Auslöser war „Die Analyse läuft · 10 von 21" — und drei Minuten später stand dort immer noch genau dasselbe. Es war nichts kaputt: Der erste Schritt eines Fensters ist der Download einer Handyaufnahme von ein paar hundert Megabyte. Nur sagte das niemand, und von außen sahen „arbeitet" und „hängt" gleich aus.
