@@ -592,6 +592,12 @@ export function parseCharacters(value) {
 
 
 export const MAX_FILM_CLIP_BYTES = 24 * 1024 * 1024;
+// The sum, which nothing bounded on either side: one clip was capped at
+// 24 MB - nearly the whole picture budget - and a trip with many moments
+// could hand over an unbounded package. Same number as the integration's
+// MAX_FILM_VIDEO_BYTES, and a test reads both files and compares them,
+// because this project has shipped one-number-two-files four times.
+export const MAX_FILM_VIDEO_BYTES = 256 * 1024 * 1024;
 const CLIP_PATH_RE = /^clips\/c(\d{2})-(\d)\.mp4$/;
 
 /**
@@ -610,6 +616,9 @@ export function parseClips(value) {
     throw new ProtocolError(ERROR_INVALID_JOB, "Clipangaben sind kein Objekt.");
   }
   const parsed = {};
+  // The sum across every chapter, not only each clip on its own. A
+  // per-clip ceiling bounds nothing when a trip has thirty of them.
+  let totalBytes = 0;
   for (const [chapterId, entries] of Object.entries(value)) {
     if (!Array.isArray(entries) || !entries.length) continue;
     parsed[chapterId] = entries.map((clip) => {
@@ -626,6 +635,15 @@ export function parseClips(value) {
       const size = clip.size_bytes;
       if (!Number.isInteger(size) || size <= 0 || size > MAX_FILM_CLIP_BYTES) {
         throw new ProtocolError(ERROR_INVALID_JOB, "Clip mit ungültiger Größe.");
+      }
+      totalBytes += size;
+      if (totalBytes > MAX_FILM_VIDEO_BYTES) {
+        throw new ProtocolError(
+          ERROR_INVALID_JOB,
+          `Die Clips des Films sind zusammen zu groß (über ${Math.round(
+            MAX_FILM_VIDEO_BYTES / 1024 / 1024,
+          )} MB).`,
+        );
       }
       return {
         path,

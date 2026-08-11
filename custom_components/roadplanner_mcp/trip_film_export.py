@@ -447,6 +447,19 @@ class TripFilmExporter:
         clips: dict[str, list[dict[str, Any]]] = {}
         files: dict[str, bytes] = {}
         originals: dict[str, Path] = {}
+        # Every recording a clip comes from is downloaded here. Held to
+        # the end, a trip with a dozen video moments keeps a couple of
+        # gigabytes in the working directory while the film is cut; a
+        # recording is dropped as soon as no later chapter needs it, so
+        # the peak follows the film rather than the camera roll.
+        still_needed: dict[str, int] = {}
+        for chapter in chapters:
+            for segment in clips_for_day(
+                stored.get(str(chapter.get("chapter_id") or "")) or [],
+                importance=str(chapter.get("importance") or "normal"),
+            )[:MAX_CLIPS_PER_CHAPTER]:
+                media_id = str(segment.get("media_id") or "")
+                still_needed[media_id] = still_needed.get(media_id, 0) + 1
         try:
             for index, chapter in enumerate(chapters):
                 chapter_id = str(chapter.get("chapter_id") or "")
@@ -479,6 +492,15 @@ class TripFilmExporter:
                     except (RoadplannerError, VideoProxyError, OSError) as err:
                         _LOGGER.warning("Clip konnte nicht geschnitten werden: %s", err)
                         continue
+                    finally:
+                        left = still_needed.get(media_id, 0) - 1
+                        still_needed[media_id] = max(0, left)
+                        if left <= 0:
+                            done = originals.pop(media_id, None)
+                            if done is not None:
+                                await self._hass.async_add_executor_job(
+                                    lambda path=done: path.unlink(missing_ok=True)
+                                )
                     if len(raw) > MAX_FILM_CLIP_BYTES:
                         _LOGGER.warning("Clip ist zu groß für das Paket: %s", media_id)
                         continue

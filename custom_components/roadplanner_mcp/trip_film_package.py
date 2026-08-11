@@ -119,6 +119,14 @@ FILM_IMAGE_MAX_EDGE = 900
 FILM_JPEG_QUALITY = 76
 MAX_FILM_IMAGE_BYTES = 280 * 1024
 MAX_FILM_PACKAGE_BYTES = 32 * 1024 * 1024
+# The pictures had a budget from the first day; the video that arrived
+# later had none. `MAX_FILM_CLIP_BYTES` bounds ONE clip at 24 MB - which
+# is nearly the whole picture budget - and nothing bounded the sum, so a
+# trip with many moments could write an unbounded package into /share on
+# a box that has a few gigabytes to spare. Generous rather than tight:
+# this is a guard against a runaway, not a judgement about a film. A
+# typical trip's clips come to a few dozen megabytes.
+MAX_FILM_VIDEO_BYTES = 256 * 1024 * 1024
 
 MAX_TITLE_LENGTH = 120
 MAX_STORY_LENGTH = 1200
@@ -449,6 +457,19 @@ def build_film_package(
         for chapter_id, entries in (clips_by_chapter or {}).items()
         if entries
     } or None
+    # Counted where the numbers are, and reported next to the picture
+    # total rather than hidden: a package that is mostly video should say
+    # so on the card that reports its size.
+    total_clip_bytes = sum(
+        int(clip.get("size_bytes") or 0)
+        for entries in (clips_by_chapter or {}).values()
+        for clip in entries
+    )
+    if total_clip_bytes > MAX_FILM_VIDEO_BYTES:
+        raise RenderPackageError(
+            f"Die Filmclips sind mit {total_clip_bytes // 1024 // 1024} MB zu groß"
+        )
+    package["total_clip_bytes"] = total_clip_bytes
     package["scene_plan"] = build_scene_plan(
         trip=package["trip"],
         chapters=chapters,
@@ -549,6 +570,7 @@ __all__ = [
     "MAX_FILM_IMAGES",
     "MAX_FILM_IMAGE_BYTES",
     "MAX_FILM_PACKAGE_BYTES",
+    "MAX_FILM_VIDEO_BYTES",
     "MAX_PHOTOS_PER_CHAPTER",
     "build_film_package",
     "photo_filename",

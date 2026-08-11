@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.105.0] - 2026-08-11
+
+### Fixed
+
+- **Es lagen alle Aufnahmen gleichzeitig unter `/share`, obwohl immer nur eine gebraucht wird** (Add-on 0.23.0). Sowohl der Analyselauf als auch der Filmexport laden pro Clip eine Aufnahme herunter und löschen das Arbeitsverzeichnis erst **am Ende**. Bei siebzehn Handyvideos sind das mehrere Gigabyte auf einmal — auf einem Gerät, das ein paar davon frei hat. Nötig war das nie: Zu jeder Aufnahme ist bekannt, wie viele Fenster sie noch brauchen, also kann sie gehen, sobald das letzte fertig ist. Der Spitzenwert ist jetzt **eine** Aufnahme statt aller; erneutes Herunterladen wird trotzdem vermieden, weil der Zähler fällt und nicht die Datei nach jedem Fenster. Ein gescheitertes oder abgelehntes Fenster gibt sie ebenfalls frei — sonst läge eine unbrauchbare Aufnahme bis zum Schluss herum.
+
+- **Für Video gab es kein Budget.** Die Bilder haben seit dem ersten Tag eines: 32 MB fürs ganze Paket. Das später hinzugekommene Video hatte eine Grenze von 24 MB **pro Clip** — fast das gesamte Bilderbudget für einen einzigen Clip — und **gar keine** für die Summe. Eine Reise mit vielen Momenten hätte ein unbegrenztes Paket nach `/share` schreiben können, und der Renderer hätte es angenommen, weil er jeden Clip einzeln prüfte und nie das Ganze. Beide Seiten tragen jetzt dieselbe Obergrenze und **setzen sie durch**: Das Paket wird nicht gebaut, der Renderer liest es nicht. Großzügig bemessen, denn das ist ein Schutz gegen Ausreißer und kein Urteil über einen Film — die Clips einer üblichen Reise ergeben ein paar Dutzend Megabyte. Das Paket meldet seine Clipgröße außerdem mit, damit ein überwiegend aus Video bestehendes Paket das auch sagt.
+
+  Beides wurde durch Nachrechnen gefunden, nicht durch einen Ausfall — und der Test liest **beide Dateien** und vergleicht die Zahl, weil dieses Projekt „eine Zahl, zwei Dateien" schon viermal ausgeliefert hat.
+
 ## [4.104.0] - 2026-08-11
 
 ### Fixed
