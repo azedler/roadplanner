@@ -38,13 +38,51 @@ if "homeassistant" not in sys.modules:
         """Stand-in for the real class."""
 
     _core.HomeAssistant = HomeAssistant
+    _helpers = types.ModuleType("homeassistant.helpers")
+    # A package, not a module: the client imports a submodule of it, and
+    # a plain module raises "is not a package" - the same trap the test
+    # loader hit once before with a relative import.
+    _helpers.__path__ = []
+    _aiohttp_client = types.ModuleType("homeassistant.helpers.aiohttp_client")
+    _aiohttp_client.async_get_clientsession = lambda *args, **kwargs: None
+    _helpers.aiohttp_client = _aiohttp_client
     sys.modules.update(
         {
             "homeassistant": _ha,
             "homeassistant.core": _core,
-            "homeassistant.helpers": types.ModuleType("homeassistant.helpers"),
+            "homeassistant.helpers": _helpers,
+            "homeassistant.helpers.aiohttp_client": _aiohttp_client,
         }
     )
+
+# The real Gemini client is imported below, on purpose: the service now
+# classifies a refusal by the `code` on the error it catches, and a
+# stand-in exception carrying an invented `code` is exactly the shape
+# that has hidden this class of bug five times here. The client needs
+# aiohttp only for types, so enough of it is stood up to import.
+if "aiohttp" not in sys.modules:
+    _aiohttp = types.ModuleType("aiohttp")
+
+    class ClientError(Exception):
+        """Stand-in for the real class."""
+
+    class ClientResponse:  # noqa: D401 - stand-in
+        """Stand-in for the real class."""
+
+    class ClientSession:  # noqa: D401 - stand-in
+        """Stand-in for the real class."""
+
+    class ClientTimeout:  # noqa: D401 - stand-in
+        """Stand-in for the real class."""
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    _aiohttp.ClientError = ClientError
+    _aiohttp.ClientResponse = ClientResponse
+    _aiohttp.ClientSession = ClientSession
+    _aiohttp.ClientTimeout = ClientTimeout
+    sys.modules["aiohttp"] = _aiohttp
 
 _PACKAGE = "roadplanner_video_service_under_test"
 _root = importlib.util.module_from_spec(
@@ -56,6 +94,7 @@ sys.modules[_PACKAGE] = _root
 service_module = importlib.import_module(f"{_PACKAGE}.video_curation_service")
 store_module = importlib.import_module(f"{_PACKAGE}.experience_store")
 analysis = importlib.import_module(f"{_PACKAGE}.video_analysis")
+gemini = importlib.import_module(f"{_PACKAGE}.gemini_client")
 
 SERVICE_SOURCE = (INTEGRATION / "video_curation_service.py").read_text(encoding="utf-8")
 
@@ -368,6 +407,97 @@ def verify_a_failed_window_is_still_readable_after_the_page_is_reloaded() -> Non
         assert all(entry["media_id"] for entry in failed), failed
 
 
+def verify_a_refusal_to_look_is_stored_like_an_answer() -> None:
+    """A safety block is settled, so it must never be asked twice.
+
+    Live report, on the user's own holiday footage:
+
+        20260719_135620000_iOS.MOV: Gemini hat die Anfrage aus
+        Sicherheitsgründen blockiert (PROHIBITED_CONTENT)
+
+    These filters refuse family recordings routinely and wrongly. Treated
+    as a failure it was never stored, so every future run planned it,
+    downloaded the recording again and asked again - forever, and the
+    card offered "1 neue Analyse" for a window that can only be refused.
+    """
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+
+        class Refusing(FakeProvider):
+            async def async_analyze_video(self, **kwargs):
+                self.calls += 1
+                raise gemini.GeminiApiError(
+                    "Gemini hat die Anfrage aus Sicherheitsgründen blockiert "
+                    "(PROHIBITED_CONTENT).",
+                    code="safety_block",
+                )
+
+        provider = Refusing()
+        store, service, _ = _build(tmp, [_video(1, seconds=25.0)], provider=provider)
+        first = asyncio.run(service.async_analyze("trip-1"))
+        # Answered, not failed - and it found nothing, which is the truth.
+        assert first["analysed"] == 1, first
+        assert first["segments"] == 0, first
+        assert first["failed"] == [], first
+
+        stored = store.video_analyses("trip-1")
+        assert len(stored) == 1, stored
+        record = next(iter(stored.values()))
+        assert record["segments"] == []
+        # The reason is kept, or a refusal is indistinguishable from a
+        # clip the model looked at and found nothing in.
+        assert record["refused"] == "safety", record
+        assert "PROHIBITED_CONTENT" in record["refusal_reason"], record
+
+        # And the whole point: it is never asked again.
+        second = asyncio.run(service.async_analyze("trip-1"))
+        assert second["analysed"] == 0, second
+        assert second["cached"] == 1, second
+        assert provider.calls == 1, "die abgelehnte Aufnahme wurde erneut gefragt"
+        assert service.offer("trip-1")["windows_new"] == 0
+
+
+def verify_any_other_provider_error_is_still_a_failure() -> None:
+    """Only a refusal is settled. A broken connection is not."""
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+
+        class Broken(FakeProvider):
+            async def async_analyze_video(self, **kwargs):
+                self.calls += 1
+                raise gemini.GeminiApiError(
+                    "Gemini hat keinen Antwortkandidaten geliefert",
+                    code="empty_response",
+                )
+
+        provider = Broken()
+        _store, service, _ = _build(tmp, [_video(1, seconds=25.0)], provider=provider)
+        result = asyncio.run(service.async_analyze("trip-1"))
+        assert result["analysed"] == 0, result
+        assert len(result["failed"]) == 1, result
+        # Nothing stored, so a later run may try again - which is right,
+        # because this one might work next time.
+        assert service.offer("trip-1")["windows_new"] >= 1
+
+
+def verify_the_code_the_service_switches_on_exists_on_the_real_error() -> None:
+    """The classification is read off the exception, so look it up.
+
+    `getattr(err, "code", "")` answering the default would turn every
+    refusal back into a retried failure - silently. This project has
+    shipped that shape five times, and the remedy is this: check the name
+    against the real class, not against a fake.
+    """
+    error = gemini.GeminiApiError("x", code="safety_block")
+    assert error.code == "safety_block"
+    # And the producer still raises exactly that string.
+    source = (INTEGRATION / "gemini_client.py").read_text(encoding="utf-8")
+    assert 'code="safety_block"' in source, "der Client meldet Ablehnungen anders"
+    assert isinstance(error, service_module.RoadplannerError), (
+        "die Ablehnung käme gar nicht erst im except des Dienstes an"
+    )
+
+
 def verify_a_second_click_does_not_pay_for_the_same_run_twice() -> None:
     """A run with no sign of life gets clicked again - so it is refused.
 
@@ -454,6 +584,9 @@ for check in (
     verify_a_second_click_does_not_pay_for_the_same_run_twice,
     verify_a_failed_run_releases_the_trip,
     verify_a_failed_window_is_still_readable_after_the_page_is_reloaded,
+    verify_a_refusal_to_look_is_stored_like_an_answer,
+    verify_any_other_provider_error_is_still_a_failure,
+    verify_the_code_the_service_switches_on_exists_on_the_real_error,
 ):
     check()
 

@@ -1142,12 +1142,32 @@ export const storyEditorMixin = {
     // eleven had not worked without reading a log file.
     const report = done || offer?.last_run;
     const failures = (report?.failed || []).filter(Boolean);
+    // Refused is its own outcome. The model looked at the request and
+    // declined - which happens to ordinary family recordings, wrongly and
+    // routinely. Counting it as "analysed" without saying so would make a
+    // clip vanish from the film with nothing to explain it.
+    const refused = (report?.refused || []).filter(Boolean);
     const lastRun = report
       ? `<p class="hint"><strong>Letzter Lauf:</strong> ${escapeHtml(String(report.analysed ?? 0))} von ${escapeHtml(String(report.planned ?? report.analysed ?? 0))} analysiert · ${escapeHtml(String(report.segments ?? 0))} Momente gefunden${
           failures.length
             ? ` · <strong>${escapeHtml(String(failures.length))} fehlgeschlagen</strong>`
             : ""
+        }${
+          refused.length
+            ? ` · <strong>${escapeHtml(String(refused.length))} vom Modell abgelehnt</strong>`
+            : ""
         }</p>${
+          refused.length
+            ? `<p class="hint">Abgelehnt heißt: Die KI hat sich die Aufnahme nicht angesehen - das passiert bei privaten Aufnahmen auch dann, wenn nichts daran ist. Sie wird nicht erneut gefragt (das Ergebnis wäre dasselbe) und erscheint nicht als Clip im Film. Die Fotos dieses Tages sind davon unberührt.</p>
+               <ul class="story-diagnosis-list">${refused
+                 .slice(0, 3)
+                 .map(
+                   (entry) =>
+                     `<li>${escapeHtml(String(entry.name || entry.media_id || "Aufnahme"))}</li>`,
+                 )
+                 .join("")}</ul>`
+            : ""
+        }${
           failures.length
             ? // The reason, not just the count. A number without a cause
               // sends somebody to fix the one thing that is not broken.
