@@ -107,10 +107,37 @@ verschiedene Zwecke:
 | Review schnell · 480p | ~50 MB | Iterationsgeschwindigkeit, überall hochladbar |
 | Review detailliert · 720p | ~90 MB | Schrift, Karten, Cropping, feine Bewegung |
 
+Gemessen an derselben Quelle (12:23, 1440p, 213 MB):
+
+| Kopie | gemessen | Ziel |
+|---|---|---|
+| 480p | **50,2 MB** | 50 MB |
+| 720p | **90,2 MB** | 90 MB |
+
 Ein Test prüft beide Bänder (40–60 MB und 80–100 MB) und verlangt, dass
 der Abstand real ist statt zufällig. Nur die **Review**profile tragen
 eine Zielgröße; die Größe eines Renderprofils ergibt sich aus seiner
 Qualitätseinstellung, nicht aus einem Byte-Budget.
+
+**Nicht bestätigt: dass die kleinere Kopie schneller fertig ist.** Über
+mehrere Läufe lagen die Rechenzeiten zwischen 2,4 und 3,8 Minuten,
+**ohne** verlässlichen Unterschied zwischen den beiden Profilen — in
+einem Lauf war 480p sogar langsamer als 720p. Plausibel, denn das
+Dekodieren der 1440p-Quelle fällt für beide gleich an und dominiert.
+
+Der Geschwindigkeitsvorteil von 480p liegt also beim **Rendern**, nicht
+beim Kopieren. Bei der Kopie ist der Unterschied die **Dateigröße** —
+und die ist jetzt echt.
+
+### Randfälle, gemessen
+
+- **Kurzer Film (2 min):** die Pixel-Obergrenze greift statt der
+  Zielgröße — 23 MB / 51 MB. Beide bleiben unter dem Ziel, richtig so:
+  mehr Bits würden dort nichts sichtbar machen.
+- **Sehr langer Film (30 min):** 480p stößt an die Untergrenze von
+  250 kbit/s und landet bei rund 74 MB statt 50. Die Untergrenze schützt
+  die Ansehbarkeit und wird für die Zielgröße bewusst nicht gebrochen.
+  Die Reihenfolge bleibt richtig — 480p unter 720p.
 
 ---
 
