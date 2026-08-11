@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.102.0] - 2026-08-11
+
+### Fixed
+
+- **Hochkant aufgenommene Videos wurden von ffmpeg abgelehnt, bevor ein einziges Bild entstand.** Aus dem Protokoll des echten Systems, und es nennt seine Ursache selbst: `[libx264] height not divisible by 2 (202x359) · Conversion failed!`. Elf Fenster, jedes einzelne zurückgewiesen — und weil nichts gespeichert wurde, plante jeder neue Lauf dieselben elf erneut. Der Zähler stand deshalb auf „10 von 21", egal wie lange man wartete. Der Filter lautete `scale=-2:360:force_original_aspect_ratio=decrease`. Das `-2` ist ffmpegs Zusage „Breite automatisch, und gerade" — aber `force_original_aspect_ratio` behandelt Breite und Höhe als **Rahmen** und rechnet beide neu aus, womit die Zusage verfällt. Aus einer 1080×1920-Handyaufnahme wurde 202×359. Querformat landete zufällig auf geraden Zahlen; genau deshalb hatten zehn Fenster funktioniert und diese elf konnten es nie. Vor der Änderung hier nachgestellt: derselbe Filter, dasselbe Seitenverhältnis, dieselben 202×359, derselbe Abbruch.
+
+  **Der Renderer wusste das längst.** Er schneidet mit einem schlichten `scale=-2:<gerade Höhe>` und trägt die Begründung als Kommentar darüber. Die Python-Seite hat den Rahmen obendrauf gesetzt und die Zusage damit aufgehoben. Beide Seiten liest jetzt ein gemeinsamer Test.
+
+- **Drei weitere Funde aus demselben Protokoll, alle von Home Assistant selbst gemeldet.** Der Download schrieb hunderte Megabyte megabyteweise **im Event-Loop** (`Detected blocking call to open … video_media_source.py`); Öffnen, Schreiben und Schließen laufen jetzt im Executor. Die kostenlose Abfrage las die komplette Erlebnisdatei der Reise ebenfalls im Loop (`Detected blocking call to read_text … experience.json`) — bei jedem Öffnen der Karte und alle fünfzehn Sekunden während eines Laufs. Und die Zusammenfassung eines Laufs hatte **zwei Formen**: die gespeicherte trug `planned`, die zurückgegebene nicht, weshalb die Karte „0 von 0 analysiert" zeigte für einen Lauf, der elf geplant hatte.
+
+  Der neue Test baut den Aufruf mit den **Produktionsfunktionen** und lässt den **echten Encoder** über sieben Formate laufen, die ein Handy erzeugt. Ein Test, der nur die Argumentzeile liest, kann das nicht finden — der kaputte Filter enthält `-2` und die richtige Höhe und sieht korrekt aus. Genau deshalb waren zwei bestehende Prüfungen zufrieden, während der Encoder jedes Hochkantvideo zurückwies.
+
 ## [4.101.0] - 2026-08-11
 
 ### Fixed
