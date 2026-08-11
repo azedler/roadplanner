@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Der Schalter war an. Er kam nur nie dort an, wo entschieden wird.** In den Roadplanner-Optionen war „KI-Videoanalyse" angehakt — die Karte im Story-Editor meldete für dieselbe Reise „Die KI-Videoanalyse ist ausgeschaltet", der Startknopf wurde deshalb nie gezeichnet, und ein Lauf hätte mit derselben Begründung abgebrochen. **Nichts stand im Log, weil nichts fehlgeschlagen war:** Der Videodienst las die Zustimmung als `getattr(provider, "video_analysis_enabled", False)` vom Assistenz-Client — und der hat dieses Feld nicht und hatte es nie. Das einzige Objekt im ganzen Projekt, das den Namen je trug, war der Fake im zugehörigen Test, weshalb die Verdrahtung geprüft aussah. Der Standardwert antwortete also für **jede** Konfiguration „aus". Die Option reist jetzt denselben Weg wie jede andere (Eintragsoptionen → Erlebnismanager → Videodienst, Standard aus), und das Feld, das das Panel meldet, wird vom Dienst *zurückgelesen* statt die Option ein zweites Mal zu lesen: Panel und Karte können nur noch gemeinsam falsch liegen, nie getrennt.
+
+- **Jede Videoanalyse wurde unter dem Modellnamen „unknown" abgelegt.** Beim Nachziehen derselben Frage — welche Provider-Felder werden mit Standardwert gelesen, und gibt es sie wirklich? — fand der neue Test einen zweiten Fall: `video_model` existiert am Client ebenso wenig. Der Cache-Schlüssel trug damit für alle Zeiten denselben Platzhalter, und ein Modellwechsel, der gespeicherte Antworten ungültig machen muss, hätte sie überlebt. Der Client nennt jetzt das Modell, das tatsächlich antwortet.
+
 ## [4.97.0] - 2026-08-11
 
 ### Fixed
