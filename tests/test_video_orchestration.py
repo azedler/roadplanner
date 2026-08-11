@@ -278,7 +278,14 @@ def verify_the_analysis_proxy_is_small_short_and_silent() -> None:
     args = proxy.analysis_args(Path("/in.mp4"), Path("/out.mp4"), start=10, end=40)
     assert "-an" in args, "der Analyseproxy würde Ton mitschicken"
     assert f"fps={proxy.ANALYSIS_FPS}" in " ".join(args)
-    assert f"scale=-2:{proxy.ANALYSIS_HEIGHT}" in " ".join(args)
+    joined = " ".join(args)
+    assert f"h={proxy.ANALYSIS_HEIGHT}" in joined, joined
+    # The height is a limit, not the whole story: this line asserted the
+    # literal `scale=-2:360` and was perfectly happy with the version
+    # that produced 202x359 and refused to encode. What matters is that
+    # the result is encodable, which is checked against a real ffmpeg in
+    # test_video_proxy_dimensions.py; here, that the flag is present.
+    assert "force_divisible_by=2" in joined, joined
     # The window, not the recording.
     assert "-t" in args and args[args.index("-t") + 1] == "30.000"
 
@@ -293,7 +300,9 @@ def verify_the_render_proxy_is_silent_too() -> None:
     """Original sound is stored as a recommendation and never acted on."""
     args = proxy.render_args(Path("/in.mp4"), Path("/out.mp4"), start=54.5, end=59.0)
     assert "-an" in args, "ein privates Gespräch könnte hörbar werden"
-    assert f"scale=-2:{proxy.RENDER_HEIGHT}" in " ".join(args)
+    rendered = " ".join(args)
+    assert f"h={proxy.RENDER_HEIGHT}" in rendered, rendered
+    assert "force_divisible_by=2" in rendered, rendered
     # Accurate seek: -ss AFTER -i, or the clip starts before the moment.
     assert args.index("-i") < args.index("-ss")
 
