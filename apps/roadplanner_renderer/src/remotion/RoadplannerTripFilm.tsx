@@ -1283,12 +1283,20 @@ const OutroCollageScene: React.FC<{ scene: FilmScene }> = ({ scene }) => {
   const paths = scene.paths.filter(Boolean);
   if (!paths.length) return <AbsoluteFill style={{ ...base, opacity }} />;
   const columns = paths.length >= 4 ? 3 : paths.length;
+  const rows = Math.max(1, Math.ceil(paths.length / columns));
   return (
     <AbsoluteFill style={{ ...base, opacity, padding: 40 }}>
       <div
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          // Rows sized like the columns, rather than left to the pictures.
+          // Automatic rows take their height from what is in them, so one
+          // upright photograph made its whole row taller and pushed the
+          // bottom of the grid past the frame - the same failure the day
+          // collage had, fixed there by giving the tile a box in BOTH
+          // dimensions and never repeated here.
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
           gap: 14,
           width: "100%",
           height: "100%",
@@ -1306,11 +1314,30 @@ const OutroCollageScene: React.FC<{ scene: FilmScene }> = ({ scene }) => {
           return (
             <div
               key={path}
-              style={{ overflow: "hidden", borderRadius: 10, opacity: appear }}
+              style={{
+                opacity: appear,
+                // Grid items refuse to shrink below their content without
+                // this, which is how a tall picture wins against its cell.
+                minWidth: 0,
+                minHeight: 0,
+              }}
             >
               <Img
                 src={`/${path}`}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  // "contain", the same rule the day collage states in its
+                  // own comment: a wall of memories may not crop them. This
+                  // scene had "cover", so an upright photograph lost its sky
+                  // and its subject - on the very last shot of the film, next
+                  // to landscape pictures that looked right, which reads as
+                  // "some of my photos are broken".
+                  objectFit: "contain",
+                  display: "block",
+                  borderRadius: 8,
+                  filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.55))",
+                }}
               />
             </div>
           );
