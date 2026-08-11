@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.99.0] - 2026-08-11
+
 ### Fixed
 
 - **„Nach einem Klick passiert nichts" — es lief.** Ein Analysefenster bedeutet: Original herunterladen, Ausschnitt schneiden, Gemini fragen. Zwanzig davon sind eine gute halbe Stunde, und die Karte sagte in dieser Zeit **gar nichts** — kein Laufzustand, kein Zähler, ein einziger Hinweis ganz am Ende. Eine lange Aktion ohne Lebenszeichen ist von einem kaputten Knopf nicht zu unterscheiden, und die vernünftige Reaktion auf einen kaputten Knopf ist, nochmal zu drücken — was dieselben Analysen ein zweites Mal bezahlt hätte. Der Lauf meldet sich jetzt selbst: Laufzustand auf der Karte, Startknopf verschwindet währenddessen, und der Fortschritt kommt aus der **kostenlosen** Abfrage alle fünfzehn Sekunden. Die Zahl auf dem Bildschirm ist damit die Zahl der tatsächlich gespeicherten Antworten — der Dienst speichert nach jedem Fenster einzeln — und keine, die der Browser hochzählt.
