@@ -164,9 +164,14 @@ def verify_the_allocation_reads_the_curation_and_the_edit() -> None:
         [{"id": "day-1"}], {}, curations, {"day-1": {"importance": "transition"}}
     )
     # Seven earn a place; the transition ceiling of six is what stops it,
-    # and the two weak ones were never in the running.
-    assert len(found["day-1"]) == alloc.PHOTO_CAPS_BY_IMPORTANCE["transition"]
-    assert set(found["day-1"]) <= set(media_ids[:7])
+    # and the two weak ones were never in the running. The entry carries
+    # the order AND what was reserved for a prominent slot, because
+    # reordering alone could not reach a collage-style day.
+    day = found["day-1"]
+    assert len(day["media_ids"]) == alloc.PHOTO_CAPS_BY_IMPORTANCE["transition"]
+    assert set(day["media_ids"]) <= set(media_ids[:7])
+    # Nothing central was asked for, so nothing is reserved.
+    assert day["prominent"] == "", day
 
 
 def verify_the_most_important_day_opens_on_its_own_picture() -> None:

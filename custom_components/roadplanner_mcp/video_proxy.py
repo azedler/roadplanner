@@ -24,6 +24,7 @@ place the caller owns and deletes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,44 @@ async def async_cut_render_proxy(
     )
 
 
+async def async_probe_shape(path: Path) -> tuple[int, int]:
+    """The dimensions of a file as it will actually be played.
+
+    Measured rather than carried over from the library record, because
+    those two disagree exactly where it matters. A phone held upright
+    whose camera writes a rotation matrix stores 1920x1080 and displays
+    1080x1920; ffmpeg applies the matrix when it cuts, so the proxy is
+    genuinely upright while the record still says landscape. Copying the
+    record into the render package therefore described the clip as the
+    opposite shape of the file beside it.
+
+    Zero on failure rather than a guess: a dimension nobody could read is
+    better absent than invented, and the renderer already treats zero as
+    "decide from the file".
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+    except (OSError, TimeoutError):
+        return 0, 0
+    if process.returncode != 0:
+        return 0, 0
+    parts = (stdout or b"").decode("utf-8", errors="replace").strip().split(",")
+    try:
+        return int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return 0, 0
+
+
 async def _async_cut(args: list[str], target: Path, *, timeout: float, what: str) -> int:
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -213,6 +252,7 @@ async def _async_cut(args: list[str], target: Path, *, timeout: float, what: str
 
 
 __all__ = [
+    "async_probe_shape",
     "MAX_PROXY_WIDTH",
     "ANALYSIS_FPS",
     "ANALYSIS_HEIGHT",

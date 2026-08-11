@@ -37,6 +37,8 @@ from .video_analysis import (
     MIN_SEGMENT_SECONDS,
     ROLE_AMBIENT,
     ROLE_HERO,
+    ROLE_MAP_COMPANION,
+    ROLE_TRANSITION,
     TOKENS_PER_VIDEO_SECOND,
     clip_score,
 )
@@ -79,6 +81,28 @@ CLIPS_BY_IMPORTANCE = {
 # photograph with a mediocre clip is how "we added video" makes a film
 # worse.
 MIN_CLIP_SCORE = 6.0
+
+# What a clip should run for, by the part it plays. The model answers
+# "when is the good part", and it answers precisely - which is right for
+# finding a moment and wrong for showing one: a 2.2 second cut reads as a
+# moving still rather than as a scene.
+#
+# So the film adds a handle either side. The analysed window stays the
+# semantic middle and is never rewritten - the cache is keyed on it, and
+# an answer must keep meaning what it meant.
+CLIP_TARGET_SECONDS = {
+    ROLE_HERO: (4.0, 8.0),
+    ROLE_AMBIENT: (3.0, 6.0),
+    ROLE_MAP_COMPANION: (3.0, 6.0),
+    # A transition is allowed to be brief. That is what it is for.
+    ROLE_TRANSITION: (0.0, 4.0),
+}
+CLIP_TARGET_DEFAULT = (3.0, 6.0)
+
+# How much may be added per side. Not more, because past this the handle
+# stops being a handle and becomes material nobody looked at.
+HANDLE_MIN_SECONDS = 0.4
+HANDLE_MAX_SECONDS = 0.8
 
 STATE_CACHED = "cached"
 STATE_NEW = "new"
@@ -255,6 +279,75 @@ def clips_for_day(
     return result
 
 
+def render_window(
+    segment: dict[str, Any], *, max_seconds: float = 12.0
+) -> tuple[float, float]:
+    """The seconds the FILM plays, derived from the seconds the model judged.
+
+    Two windows, deliberately distinct:
+
+        analysis   5.2 - 7.4   what Gemini was asked about, stored, cached
+        render     4.6 - 8.0   what the viewer sees, computed here
+
+    The analysis window is never rewritten. It is the cache key's subject
+    and the record of what the model actually said; widening it in place
+    would quietly change the meaning of a stored answer and make a new
+    paid call look unnecessary.
+
+    Purely arithmetic - no provider, no file, no clock. It only ever
+    grows a clip that is short for its role, and only within three
+    limits: the recording's own length, the window the prefilter judged
+    technically usable, and the film's ceiling for one clip.
+    """
+    start = _seconds(segment.get("start_seconds"))
+    end = _seconds(segment.get("end_seconds"))
+    if end <= start:
+        return start, end
+    role = str(segment.get("role") or "")
+    low, high = CLIP_TARGET_SECONDS.get(role, CLIP_TARGET_DEFAULT)
+    length = end - start
+    if length >= low:
+        # Long enough for what it is. Nothing is inflated to a target.
+        return start, end
+
+    # The room there is: inside the analysed window, inside the file.
+    floor = max(0.0, _seconds(segment.get("window_start")))
+    duration = _seconds(segment.get("source_duration_seconds"))
+    ceiling = _seconds(segment.get("window_end")) or duration or end
+    if duration > 0:
+        ceiling = min(ceiling, duration)
+    ceiling = max(ceiling, end)
+
+    want = min(low, high, max_seconds) - length
+    per_side = min(HANDLE_MAX_SECONDS, max(HANDLE_MIN_SECONDS, want / 2.0))
+    new_start = max(floor, start - per_side)
+    new_end = min(ceiling, end + per_side)
+    # One side blocked does not forfeit the other, but neither side may
+    # ever take more than a handle's worth.
+    if new_start >= start and new_end <= end:
+        return start, end
+    if new_end - new_start > max_seconds:
+        new_end = new_start + max_seconds
+    return round(new_start, 3), round(new_end, 3)
+
+
+def with_render_windows(
+    clips: list[dict[str, Any]], *, max_seconds: float = 12.0
+) -> list[dict[str, Any]]:
+    """Every clip, carrying both windows. The analysis fields are untouched."""
+    result: list[dict[str, Any]] = []
+    for segment in clips or []:
+        if not isinstance(segment, dict):
+            continue
+        start, end = render_window(segment, max_seconds=max_seconds)
+        entry = dict(segment)
+        entry["render_start_seconds"] = start
+        entry["render_end_seconds"] = end
+        entry["render_duration_seconds"] = round(max(0.0, end - start), 3)
+        result.append(entry)
+    return result
+
+
 def photo_places_taken(clips: list[dict[str, Any]]) -> int:
     """How many photographs the clips displace. One each, and no more.
 
@@ -270,7 +363,12 @@ def photo_places_taken(clips: list[dict[str, Any]]) -> int:
 __all__ = [
     "CLIPS_BY_IMPORTANCE",
     "EUR_PER_MILLION_TOKENS",
+    "CLIP_TARGET_SECONDS",
+    "HANDLE_MAX_SECONDS",
+    "HANDLE_MIN_SECONDS",
     "MAX_ANALYSES_PER_RUN",
+    "render_window",
+    "with_render_windows",
     "MIN_CLIP_SCORE",
     "TOKENS_PER_SECOND_LOW",
     "analysis_plan",

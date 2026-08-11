@@ -51,6 +51,13 @@ WINDOW_SECONDS = 30.0
 WINDOW_OVERLAP_SECONDS = 4.0
 # A film frame is 1280x720. Something much smaller than that was either
 # a thumbnail or a screen recording of a chat.
+#
+# Judged on the SHORTER side, which is the same number for a landscape
+# recording and the correct one for every other shape. A phone held
+# upright reports 1080x1920, and a phone held upright by a camera that
+# writes a rotation matrix reports 1920x1080 for the same picture - so
+# "height" names a different edge depending on how the file was written,
+# and a rule about resolution must not depend on that.
 MIN_HEIGHT = 480
 # More than this from one trip is not a selection any more, it is an
 # upload. The cap is on what gets *analysed*, not on what exists.
@@ -76,6 +83,27 @@ def _seconds(value: Any) -> float | None:
     return number if number > 0 else None
 
 
+def short_side(asset: dict[str, Any]) -> int | None:
+    """The smaller of the two edges, whichever way round they are written.
+
+    A rotated recording states the edges of the STORED picture, not of
+    the one anybody sees: an upright phone video whose camera wrote a
+    rotation matrix says 1920x1080 while the picture is 1080x1920. Both
+    describe the same rectangle, so a resolution rule reads the shorter
+    edge and stops caring which field it came from.
+
+    ffmpeg applies the rotation itself when it cuts, which is why the
+    proxies were right all along - it is only the numbers stored beside
+    them that were reading one particular field.
+    """
+    edges = [
+        value
+        for value in (asset.get("width"), asset.get("height"))
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0
+    ]
+    return min(edges) if edges else None
+
+
 def technical_verdict(asset: dict[str, Any]) -> dict[str, Any]:
     """Judge one video on what its container already says.
 
@@ -84,7 +112,7 @@ def technical_verdict(asset: dict[str, Any]) -> dict[str, Any]:
     accumulates.
     """
     duration = _seconds(asset.get("duration_seconds"))
-    height = asset.get("height")
+    height = short_side(asset)
     if duration is None:
         # Unknown length is not a rejection. Some containers simply do not
         # say, and refusing them would quietly drop whole cameras.
