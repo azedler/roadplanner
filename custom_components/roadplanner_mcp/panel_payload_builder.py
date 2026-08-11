@@ -21,6 +21,7 @@ from .experience_store import ExperienceStore, resolve_decision_media_references
 from .geocoding import GeocodingProvider
 from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
+from .render_profiles import profile_choices, review_choices
 from .media_curation_manager import MediaCurationManager
 from .media_intelligence import TRANSIT_ONLY_STOP_TYPES, build_media_presentation
 from .media_library_manager import MediaLibraryManager
@@ -198,6 +199,14 @@ class PanelPayloadBuilder:
             "by_day": by_day,
             "by_stop": by_stop,
             "destination_enrichment": deepcopy(self._destination_gallery.status),
+            # In WHICH SIZES a film can be rendered, and which of them a
+            # copy may be made in. Sent with the ordinary payload rather
+            # than in answer to some action, because a choice that only
+            # appears after pressing an unrelated button is a choice
+            # nobody knows they have - and the film would quietly come
+            # out in the default size forever.
+            "render_profiles": profile_choices(),
+            "review_profiles": review_choices(),
             "place_providers": self._place_provider_status(),
             "vision": {
                 **deepcopy(self._media_curation.vision_status),

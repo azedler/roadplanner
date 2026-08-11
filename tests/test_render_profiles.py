@@ -282,6 +282,50 @@ def verify_the_choices_name_their_own_default() -> None:
     )
 
 
+def verify_the_size_choice_does_not_hide_behind_another_button() -> None:
+    """A choice nobody can see is a choice nobody has.
+
+    The tables first arrived ONLY in the answer to "Was käme in den
+    Film?". The picker and the entire review-copy offer therefore stayed
+    invisible until somebody pressed an unrelated button - and a film
+    that quietly renders in the default size forever is exactly what a
+    hidden choice produces. Found on a screenshot of the live panel, not
+    by any test, which is why there is one now.
+
+    So they travel with the ordinary panel payload, and the editor reads
+    them from there rather than only from an action's answer.
+    """
+    builder = (
+        ROOT / "custom_components" / "roadplanner_mcp" / "panel_payload_builder.py"
+    ).read_text(encoding="utf-8")
+    for key in ('"render_profiles"', '"review_profiles"'):
+        assert key in builder, (
+            f"{key} fehlt in der Panel-Nutzlast - dann erscheint die Auswahl "
+            "erst, nachdem jemand einen anderen Knopf gedrückt hat"
+        )
+
+    editor = (
+        ROOT
+        / "custom_components"
+        / "roadplanner_mcp"
+        / "frontend"
+        / "features"
+        / "story-editor.js"
+    ).read_text(encoding="utf-8")
+    # The one helper both pickers go through, and it falls back to the
+    # payload. Reading the field directly would reintroduce the bug in
+    # whichever place forgot.
+    assert "_storyFilmProfileTable(kind)" in editor
+    assert "data?.render_profiles" in editor and "data?.review_profiles" in editor
+    for render in ("_renderStoryFilmProfile()", "_renderStoryFilmReviewCopy()"):
+        body = editor.split(f"  {render} {{", 1)
+        assert len(body) == 2, f"{render} gibt es nicht mehr"
+        body = body[1].split("\n  },", 1)[0]
+        assert "_storyFilmProfileTable(" in body, (
+            f"{render} liest die Tabelle nicht über den gemeinsamen Weg"
+        )
+
+
 def verify_the_composition_scales_the_design_surface() -> None:
     """Read the film component: no layout may know the real size.
 
