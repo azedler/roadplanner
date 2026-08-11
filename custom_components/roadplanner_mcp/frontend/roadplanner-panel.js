@@ -77,6 +77,7 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "story_director_run",
   "story_film_music_generate",
   "story_film_render",
+  "story_film_review_copy",
 ]);
 
 class RoadplannerPanel extends HTMLElement {
@@ -920,6 +921,13 @@ class RoadplannerPanel extends HTMLElement {
       // A name, not a path. The backend matches it against the folder
       // listing before anything is opened.
       this._storyFilmTrack = select.value;
+    } else if (select.dataset.action === "story-film-profile") {
+      // An id from the table the backend sent. It decides pixels and
+      // nothing else - the film itself is the same at every size.
+      this._storyFilmProfile = select.value;
+      this._render({ preserveScroll: true });
+    } else if (select.dataset.action === "story-film-review-profile") {
+      this._storyFilmReviewProfile = select.value;
     } else if (select.dataset.action === "select-video-style") {
       this._videoStyle = select.value;
     } else if (select.dataset.action === "pitch-select-day") {
@@ -1854,6 +1862,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmPreview();
     } else if (action === "story-film-render" && this._canEdit()) {
       void this._storyFilmRender();
+    } else if (action === "story-film-review-copy" && this._canEdit()) {
+      void this._storyFilmReviewCopy();
     } else if (action === "story-chapter-image" && this._canEdit()) {
       void this._storySetChapterImage(cleanText(target.dataset.mediaId));
     } else if (action === "renderer-app-load-days") {

@@ -195,6 +195,12 @@ def verify_only_two_fields_are_editable() -> None:
         "media_update_assignment",
         "story_film_preview",
         "story_film_render",
+        # A small copy of a film that has already been rendered. It names
+        # a JOB, never a file: the source is a job id, matched against
+        # the job-id pattern before either side builds a path from it.
+        # Reads one local MP4, calls nothing, costs nothing, and cannot
+        # touch the roadbook.
+        "story_film_review_copy",
         # The editorial pass: read its state, run it, throw it away. None
         # of the three can carry a roadbook change.
         "story_director_status",
@@ -251,7 +257,15 @@ def verify_only_two_fields_are_editable() -> None:
     film_calls = re.findall(r'"(story_film_\w+)",\s*\{([^}]*)\}', feature)
     assert film_calls, "die Filmaufrufe wurden nicht gefunden"
     for action, payload in film_calls:
-        if action != "story_film_music":
+        if action == "story_film_review_copy":
+            # A copy is about a FILM, not about a trip - and the film is
+            # named by the job that produced it. A job id is checked
+            # against a fixed pattern before either side builds a path
+            # from it, which is why this call can carry no location at
+            # all rather than a sanitised one.
+            assert "job_id" in payload, payload
+            assert "trip_id" not in payload, payload
+        elif action != "story_film_music":
             # Listing what could be played is not about one trip.
             assert "trip_id" in payload
         for forbidden in ("changes", "day_id", "patch", "path", "/"):

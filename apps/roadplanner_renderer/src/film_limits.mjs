@@ -35,9 +35,20 @@ export const FILM_LIMITS = {
   maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 512 * 1024 * 1024),
 };
 
-/** The wall-clock ceiling for a composition of this many frames. */
-export function renderCeilingMs(limits, durationInFrames) {
+/**
+ * The wall-clock ceiling for a composition of this many frames.
+ *
+ * `pixels` is how much work one frame is against the 720p baseline. It is
+ * a parameter for the same reason the frame count is: the ceiling was
+ * derived once from one film at one size, and both of those grew. A 4K
+ * frame is nine times the pixels of a 720p one, so a ceiling measured at
+ * 720p would kill a 4K render halfway through - which is exactly the
+ * failure the per-frame budget was introduced to end, one variable
+ * further along.
+ */
+export function renderCeilingMs(limits, durationInFrames, pixels = 1) {
   const frames = Number(durationInFrames) || 0;
   const perFrame = Number(limits?.msPerFrame) || 0;
-  return Math.max(Number(limits?.renderTimeoutMs) || 0, Math.round(frames * perFrame));
+  const factor = Number(pixels) > 0 ? Number(pixels) : 1;
+  return Math.max(Number(limits?.renderTimeoutMs) || 0, Math.round(frames * perFrame * factor));
 }

@@ -13,6 +13,8 @@
 import React from "react";
 import { Composition } from "remotion";
 
+import { DESIGN_HEIGHT, DESIGN_WIDTH, FILM_FPS, renderProfile } from "../render_profiles.mjs";
+
 import { RoadplannerTest } from "./RoadplannerTest";
 import {
   RoadplannerTripDay,
@@ -74,15 +76,27 @@ export const RemotionRoot: React.FC = () => (
       id={TRIP_FILM_COMPOSITION_ID}
       component={RoadplannerTripFilm}
       durationInFrames={filmDurationInFrames([{ frames: 90 }])}
-      fps={30}
-      width={1280}
-      height={720}
-      calculateMetadata={({ props }: { props: RoadplannerTripFilmProps }) => ({
-        // The plan carries the length. The renderer reads it back from
-        // the selected composition rather than recomputing it, so there
-        // is exactly one place a frame count comes from.
-        durationInFrames: Math.max(1, filmDurationInFrames(props.scenes ?? [])),
-      })}
+      // The design surface. Every real render replaces these through
+      // calculateMetadata below; they are the profile-less defaults, and
+      // they are the size the film is authored at.
+      fps={FILM_FPS}
+      width={DESIGN_WIDTH}
+      height={DESIGN_HEIGHT}
+      calculateMetadata={({ props }: { props: RoadplannerTripFilmProps }) => {
+        // The size is the profile's; the content is the plan's. Both are
+        // resolved here so the renderer reads one answer back from the
+        // selected composition instead of computing either again.
+        const profile = renderProfile(props.renderProfile);
+        return {
+          // The plan carries the length. The renderer reads it back from
+          // the selected composition rather than recomputing it, so there
+          // is exactly one place a frame count comes from.
+          durationInFrames: Math.max(1, filmDurationInFrames(props.scenes ?? [])),
+          width: profile.width,
+          height: profile.height,
+          fps: profile.fps,
+        };
+      }}
       defaultProps={
         {
           trip: {

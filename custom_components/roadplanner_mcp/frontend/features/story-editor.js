@@ -408,6 +408,16 @@ export const storyEditorMixin = {
     ).catch(() => null);
     if (result?.story_film_preview) {
       this._storyFilm = result.story_film_preview;
+      // The tables come from the backend rather than being written here
+      // too. A profile list that exists in the panel as well is the same
+      // one-number-in-two-places bug that has cost this project four
+      // releases, only in a third deployable.
+      if (Array.isArray(result.render_profiles)) {
+        this._storyFilmProfiles = result.render_profiles;
+      }
+      if (Array.isArray(result.review_profiles)) {
+        this._storyFilmReviewProfiles = result.review_profiles;
+      }
       this._render({ preserveScroll: true });
     }
   },
@@ -424,7 +434,14 @@ export const storyEditorMixin = {
     this._render({ preserveScroll: true });
     const result = await this._runAction(
       "story_film_render",
-      { trip_id: this._selectedTripId, music: this._storyFilmTrack || "" },
+      {
+        trip_id: this._selectedTripId,
+        music: this._storyFilmTrack || "",
+        // The id that is on screen, resolved the same way the picker
+        // resolved it - never the raw field, which is empty until
+        // somebody touches the select.
+        profile: this._storyFilmChosen(this._storyFilmProfiles || [], this._storyFilmProfile),
+      },
       "Reisefilm wird gerendert",
       { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
     );
@@ -445,6 +462,9 @@ export const storyEditorMixin = {
       return;
     }
     this._rendererAppKind = "trip_film";
+    // The film this render will produce, and therefore the only thing a
+    // review copy may later be made from.
+    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
     this._rendererAppPackage = {
       package_bytes: result.renderer_app_job.package_bytes,
       image_count: result.renderer_app_job.image_count,
@@ -505,6 +525,7 @@ export const storyEditorMixin = {
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
         ${this._renderStoryFilmMusic()}
+        ${this._renderStoryFilmProfile()}
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
       </div>
       ${this._renderStoryFilmMusicPlan()}
@@ -560,6 +581,93 @@ export const storyEditorMixin = {
         )
         .join("")}
     </select></label>`;
+  },
+
+  /**
+   * How large the film is rendered.
+   *
+   * Pixels only. Whichever size is chosen, the film is the same film:
+   * the same scenes in the same order, the same photographs, the same
+   * clips, the same seconds. The small ones exist because a full-size
+   * render takes about an hour, and looking at a cut twelve times means
+   * twelve hours of waiting that answer no question.
+   */
+  /**
+   * Which id a picker is actually showing.
+   *
+   * Not `|| ""`: with nothing chosen the browser selects the FIRST
+   * option, while an empty value makes the backend use its default. Those
+   * are different profiles, and the film would come out at a size the
+   * panel had never shown. So the default travels with the list and is
+   * resolved here, in one place, for both pickers.
+   */
+  _storyFilmChosen(profiles, chosen) {
+    if (chosen && profiles.some((entry) => entry.id === chosen)) return chosen;
+    const fallback = profiles.find((entry) => entry.default) || profiles[0];
+    return fallback ? fallback.id : "";
+  },
+
+  _renderStoryFilmProfile() {
+    const profiles = this._storyFilmProfiles;
+    if (!Array.isArray(profiles) || !profiles.length) return "";
+    const chosen = this._storyFilmChosen(profiles, this._storyFilmProfile);
+    const note = profiles.find((entry) => entry.id === chosen);
+    return `<label class="inline-select"><span>Größe</span><select data-action="story-film-profile">
+      ${profiles
+        .map(
+          (entry) =>
+            `<option value="${escapeHtml(String(entry.id))}"${chosen === entry.id ? " selected" : ""}>${escapeHtml(String(entry.label))}${entry.recommended ? " ★" : ""}</option>`,
+        )
+        .join("")}
+    </select></label>${
+      note
+        ? `<small class="hint">${escapeHtml(String(note.description))}${note.experimental ? " Experimentell." : ""}</small>`
+        : ""
+    }`;
+  },
+
+  /**
+   * A small copy of the film that is already there.
+   *
+   * Not a second render. The finished MP4 is re-encoded smaller, which
+   * takes minutes instead of an hour and costs nothing: no photograph is
+   * fetched, no model is asked, nothing leaves the box. It exists because
+   * a twelve-minute film is over two hundred megabytes and the question
+   * asked of it afterwards - does this cut work? - does not need them.
+   */
+  async _storyFilmReviewCopy() {
+    const sourceId = this._storyFilmSourceJobId || "";
+    if (!sourceId) return;
+    const result = await this._runAction(
+      "story_film_review_copy",
+      {
+        job_id: sourceId,
+        profile: this._storyFilmChosen(
+          this._storyFilmReviewProfiles || [],
+          this._storyFilmReviewProfile,
+        ),
+      },
+      "Review-Kopie wird erstellt",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Review-Kopie konnte nicht gestartet werden",
+      },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    // The card watches the copy now, but `_storyFilmSourceJobId` keeps
+    // pointing at the film: a second copy, in the other size, is a
+    // reasonable next thing to want.
+    this._rendererAppKind = "review_copy";
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    // The link points at the film this copy was made from. Leaving it
+    // would offer the two-hundred-megabyte version under the label of
+    // the small one.
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
 
   async _storyFilmMusicLoad() {
@@ -672,12 +780,46 @@ export const storyEditorMixin = {
     </div>`;
   },
 
+  /**
+   * The offer to make a small copy, beside the film it would copy.
+   *
+   * Only for a film, never for a copy: copying a copy would compress
+   * something already compressed and answer nothing. Which is why this
+   * reads the artefact the job produced rather than assuming.
+   */
+  _renderStoryFilmReviewCopy() {
+    const profiles = this._storyFilmReviewProfiles;
+    if (!this._canEdit() || !Array.isArray(profiles) || !profiles.length) return "";
+    // Only beside a film, never beside a copy. Without this the button
+    // would offer to copy the copy: the source is read from
+    // `results/<job>/roadplanner-trip-film.mp4`, which a review-copy job
+    // never produced, so it would fail with a missing file - a confusing
+    // way to say "that made no sense".
+    if (!this._storyFilmSourceJobId) return "";
+    const chosen = this._storyFilmChosen(profiles, this._storyFilmReviewProfile);
+    return `<label class="inline-select"><span>Kopie</span><select data-action="story-film-review-profile">
+      ${profiles
+        .map(
+          (entry) =>
+            `<option value="${escapeHtml(String(entry.id))}"${chosen === entry.id ? " selected" : ""}>${escapeHtml(String(entry.label))}</option>`,
+        )
+        .join("")}
+    </select></label>
+    <button class="secondary-button" type="button" data-action="story-film-review-copy"><ha-icon icon="mdi:content-duplicate"></ha-icon> Review-Kopie erstellen</button>`;
+  },
+
   _renderStoryFilmJobLine() {
     const job = this._rendererAppJob;
-    if (!job || this._rendererAppKind !== "trip_film") return "";
+    const kind = this._rendererAppKind;
+    if (!job || (kind !== "trip_film" && kind !== "review_copy")) return "";
+    // A copy is minutes, a film is close to an hour. Saying "viele
+    // Minuten" over a copy would make a normal wait look like a hang.
+    const isCopy = kind === "review_copy";
     if (!job.terminal) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
-      return `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
+      return isCopy
+        ? `<small class="story-film-job">Eine kleine Kopie des Films wird erstellt (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.</small>`
+        : `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
     }
     if (job.state === "completed") {
       // "It is in the other card" is a signpost, not an answer - and on a
@@ -688,13 +830,14 @@ export const storyEditorMixin = {
       // yesterday - which is exactly what happened when the map arrived
       // and an older film was downloaded to look for it.
       const made = job.updated_at ? this._formatTimestamp(job.updated_at) : "";
-      return `<small class="story-film-job">Der zuletzt erzeugte Reisefilm ist fertig${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
+      return `<small class="story-film-job">${isCopy ? "Die kleine Kopie ist fertig" : "Der zuletzt erzeugte Reisefilm ist fertig"}${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
       <div class="button-row">
-        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : "Film herunterladen"}</button>
+        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : isCopy ? "Kopie herunterladen" : "Film herunterladen"}</button>
+        ${this._renderStoryFilmReviewCopy()}
       </div>
       ${
         this._rendererAppDownloadUrl
-          ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download>Bereit – hier speichern</a>`
+          ? `<a class="renderer-app-download" href="${escapeHtml(this._rendererAppDownloadUrl)}" download="${escapeHtml(this._rendererAppDownloadName || "reisefilm.mp4")}">Bereit – hier speichern</a>`
           : ""
       }`;
     }
@@ -702,7 +845,7 @@ export const storyEditorMixin = {
     // that away. A package the installed add-on is too old to read looks
     // exactly like a crash until the reason is printed.
     const why = cleanText(job.reason || job.detail || "");
-    return `<small class="story-film-job">Der zuletzt gestartete Reisefilm ist nicht fertig geworden (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
+    return `<small class="story-film-job">${isCopy ? "Die Review-Kopie ist nicht fertig geworden" : "Der zuletzt gestartete Reisefilm ist nicht fertig geworden"} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
   },
 
   // --- rendering -------------------------------------------------------

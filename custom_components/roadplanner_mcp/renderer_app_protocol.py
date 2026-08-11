@@ -112,12 +112,22 @@ ACTION_RENDER_TRIP_DAY = "render_trip_day"
 # A whole trip. Minutes of video rather than seconds, which is why it has
 # its own limits further down rather than borrowing the day video's.
 ACTION_RENDER_TRIP_FILM = "render_trip_film"
+# A small copy of a film that has already been rendered. Not a render: the
+# app reads one finished MP4 out of an earlier job's result folder and
+# re-encodes it. It carries no package, opens no photograph and calls
+# nothing - which is why it costs minutes where the film cost an hour.
+#
+# The source travels as a JOB ID, never as a path or a filename. Both
+# sides build ``results/<job_id>/<fixed name>`` from a value that has been
+# matched against the job-id pattern, so there is nothing to traverse.
+ACTION_CREATE_REVIEW_COPY = "create_review_copy"
 ALLOWED_ACTIONS = (
     ACTION_PING,
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_REMOTION_TEST,
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
+    ACTION_CREATE_REVIEW_COPY,
 )
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
@@ -125,12 +135,14 @@ ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg"
 ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
 ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4"
 ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4"
+ARTIFACT_REVIEW_COPY = "roadplanner-review-copy.mp4"
 ALLOWED_ARTIFACTS = {
     ARTIFACT_TEXT: "text",
     ARTIFACT_IMAGE: "image",
     ARTIFACT_VIDEO: "video",
     ARTIFACT_TRIP_DAY_VIDEO: "video",
     ARTIFACT_TRIP_FILM_VIDEO: "video",
+    ARTIFACT_REVIEW_COPY: "video",
 }
 # Where a job's input package lives. Named after the job, never after
 # anything a user typed.
@@ -175,6 +187,9 @@ JOB_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# A render profile id as it may appear in a job file. Lowercase, short,
+# and nothing that could be read as a path or a flag.
+_PROFILE_ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
 class RendererProtocolError(ValueError):
@@ -315,6 +330,8 @@ def build_job(
     message: str = "Hallo Renderer",
     now: datetime,
     ttl_seconds: int = JOB_TTL_SECONDS,
+    render_profile: str = "",
+    source_job_id: str = "",
 ) -> dict[str, Any]:
     """Build a job. Everything in it is either fixed or server-generated."""
     validate_job_id(job_id)
@@ -325,6 +342,22 @@ def build_job(
         raise RendererProtocolError("message darf nicht leer sein")
     if not 1 <= int(ttl_seconds) <= 3600:
         raise RendererProtocolError("ttl_seconds liegt außerhalb des erlaubten Bereichs")
+    payload_input: dict[str, Any] = {"message": text}
+    if render_profile:
+        # Only the SHAPE is checked here. Which ids exist is the profile
+        # table's business, and this module deliberately knows nothing
+        # except what two processes may say to each other - the caller has
+        # already matched the id against the table, because an id the app
+        # does not recognise would quietly become the default there and
+        # produce a film at a size nobody chose.
+        if not _PROFILE_ID_RE.match(render_profile):
+            raise RendererProtocolError(f"Unbekanntes Renderprofil: {render_profile!r}")
+        payload_input["render_profile"] = render_profile
+    if action == ACTION_CREATE_REVIEW_COPY:
+        # The only id in this protocol that names something that already
+        # exists. Validated with the same pattern as every other job id,
+        # which is what makes the path built from it unsteerable.
+        payload_input["source_job_id"] = validate_job_id(source_job_id)
     return {
         "schema_version": SCHEMA_VERSION,
         "protocol_version": PROTOCOL_VERSION,
@@ -332,7 +365,7 @@ def build_job(
         "action": action,
         "created_at": format_time(now),
         "expires_at": format_time(now + timedelta(seconds=int(ttl_seconds))),
-        "input": {"message": text},
+        "input": payload_input,
     }
 
 
@@ -480,7 +513,7 @@ def artifact_limit(filename: str) -> int:
     kind = ALLOWED_ARTIFACTS.get(filename)
     if kind in TEXT_ARTIFACT_KINDS:
         return MAX_ARTIFACT_BYTES
-    if filename == ARTIFACT_TRIP_FILM_VIDEO:
+    if filename in (ARTIFACT_TRIP_FILM_VIDEO, ARTIFACT_REVIEW_COPY):
         return MAX_FILM_ARTIFACT_BYTES
     return MAX_VIDEO_ARTIFACT_BYTES
 
@@ -510,6 +543,16 @@ def _video_facts(raw: Any) -> dict[str, Any] | None:
         # finding the film exists to surface, so it is carried, not dropped.
         "chapter_count": number("chapter_count"),
         "chapters_without_photos": number("chapters_without_photos"),
+        # Which size this file is. Carried for both a film and a review
+        # copy, because "which version of the film is this?" is the one
+        # question a folder full of MP4s cannot answer by itself.
+        "render_profile": clean_text(raw.get("render_profile"), limit=40),
+        # Only a review copy reports these: what it was made from, so the
+        # saving is visible rather than claimed.
+        "source_size_bytes": number("source_size_bytes"),
+        "source_width": number("source_width"),
+        "source_height": number("source_height"),
+        "video_bitrate_bps": number("video_bitrate_bps"),
     }
 
 
@@ -517,7 +560,18 @@ def _timings(raw: Any) -> dict[str, float]:
     """Measured durations, in seconds. Unknown keys are dropped."""
     if not isinstance(raw, dict):
         return {}
-    allowed = ("package", "browser_start", "render", "probe", "total", "prepare")
+    allowed = (
+        "package",
+        "browser_start",
+        "render",
+        "probe",
+        "total",
+        "prepare",
+        # A review copy has no browser and no render; it probes its source
+        # and then encodes.
+        "probe_source",
+        "encode",
+    )
     out: dict[str, float] = {}
     for key in allowed:
         value = raw.get(key)

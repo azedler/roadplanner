@@ -34,12 +34,17 @@ export const ACTIONS = [
   "render_remotion_test",
   "render_trip_day",
   "render_trip_film",
+  // A small copy of a film that already exists. Not a render: it reads
+  // one finished MP4 from a previous job's result and re-encodes it. No
+  // package, no browser, no photograph, no service.
+  "create_review_copy",
 ];
 export const ARTIFACT_TEXT = "roadplanner-renderer-poc.txt";
 export const ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg";
 export const ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4";
 export const ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4";
 export const ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4";
+export const ARTIFACT_REVIEW_COPY = "roadplanner-review-copy.mp4";
 
 export const MAX_JSON_BYTES = 64 * 1024;
 export const MAX_MESSAGE_LENGTH = 120;
@@ -235,7 +240,27 @@ export function parseJob(raw, { now }) {
   if (expires <= now) {
     throw new ProtocolError(ERROR_EXPIRED, "Der Auftrag ist abgelaufen.");
   }
-  return { jobId: payload.job_id, action: payload.action, message, expires };
+  // How large to render. An unknown id is not a reason to refuse a job
+  // whose package has already been written; `renderProfile` answers with
+  // the default and the result says which profile it actually used.
+  const profileId = String(payload?.input?.render_profile ?? "").trim();
+  // Which finished film a review copy is made from. A JOB ID, checked
+  // against the same pattern every other id here is checked against, and
+  // the only thing either side ever builds a path from. There is no
+  // filename and no path anywhere in this protocol, which is what makes
+  // traversal impossible rather than merely guarded against.
+  const sourceRaw = String(payload?.input?.source_job_id ?? "").trim();
+  if (payload.action === "create_review_copy" && !isJobId(sourceRaw)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "input.source_job_id fehlt oder ist ungültig.");
+  }
+  return {
+    jobId: payload.job_id,
+    action: payload.action,
+    message,
+    expires,
+    renderProfile: profileId,
+    sourceJobId: isJobId(sourceRaw) ? sourceRaw : "",
+  };
 }
 
 export const envelope = (extra) => ({
