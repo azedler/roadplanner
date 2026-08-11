@@ -151,6 +151,59 @@ def prominence_for_day(
     }
 
 
+def reserve_for_prominence(
+    media_ids: list[str],
+    *,
+    must_cover: list[str] | None,
+    alternatives: dict[str, list[str]] | None = None,
+    analyses: dict[str, Any] | None = None,
+    clips: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The order, and which medium was RESERVED for a prominent slot.
+
+    Reordering alone was not enough, and the reason is one line in the
+    scene grammar: a day whose visual style is "collage" has no prominent
+    slot at all - every picture goes into a tile, including the one moved
+    to the front. So on exactly the kind of day that has a lot of
+    material, the day's own subject stayed small however it was sorted.
+    A live film showed it twice.
+
+    So the caller is told WHICH medium was chosen, not only where it
+    ended up, and the planner reserves a slot for it before packing the
+    rest. The choice itself is unchanged: one per day, medium-neutral,
+    and nothing at all when the day has no central motif or when a clip
+    already opens on it.
+    """
+    ordered = list(media_ids or [])
+    found = prominence_for_day(
+        must_cover=must_cover,
+        alternatives=alternatives,
+        media_ids=ordered,
+        analyses=analyses,
+        clips=clips,
+    )
+    wanted = found["unmet_prominence"]
+    if not wanted or len(ordered) < 2:
+        return {"order": ordered, "reserved": "", "state": found}
+
+    candidates = [
+        found["best"][motif]
+        for motif in wanted
+        if motif in found["best"] and found["best"][motif]["media_type"] == "image"
+    ]
+    if not candidates:
+        # The best evidence is a video that is not leading, or there is
+        # none at all. Neither is fixed by moving photographs about.
+        return {"order": ordered, "reserved": "", "state": found}
+
+    chosen = max(candidates, key=lambda entry: entry["score"])["media_id"]
+    if chosen not in ordered:
+        return {"order": ordered, "reserved": "", "state": found}
+    if ordered[0] != chosen:
+        ordered = [chosen] + [media_id for media_id in ordered if media_id != chosen]
+    return {"order": ordered, "reserved": chosen, "state": found}
+
+
 def promote_for_prominence(
     media_ids: list[str],
     *,
@@ -172,39 +225,24 @@ def promote_for_prominence(
     of any of them - because a day has one opening, and promoting a
     second would only demote the first.
     """
-    ordered = list(media_ids or [])
-    if len(ordered) < 2:
-        return ordered
+    """The same decision, order only.
 
-    found = prominence_for_day(
+    Kept because a caller that just wants the sequence should not have to
+    know about reservation. The reservation IS the same choice - one
+    function makes it, so the two can never disagree.
+    """
+    return reserve_for_prominence(
+        media_ids,
         must_cover=must_cover,
         alternatives=alternatives,
-        media_ids=ordered,
         analyses=analyses,
         clips=clips,
-    )
-    wanted = found["unmet_prominence"]
-    if not wanted:
-        return ordered
-
-    candidates = [
-        found["best"][motif]
-        for motif in wanted
-        if motif in found["best"] and found["best"][motif]["media_type"] == "image"
-    ]
-    if not candidates:
-        # The best evidence is a video that is not leading, or there is
-        # none at all. Neither is fixed by shuffling photographs.
-        return ordered
-
-    chosen = max(candidates, key=lambda entry: entry["score"])["media_id"]
-    if chosen not in ordered or ordered[0] == chosen:
-        return ordered
-    return [chosen] + [media_id for media_id in ordered if media_id != chosen]
+    )["order"]
 
 
 __all__ = [
     "PROMINENT_SLOTS",
+    "reserve_for_prominence",
     "STATE_NONE",
     "STATE_PROMINENT",
     "STATE_SUPPORTING",

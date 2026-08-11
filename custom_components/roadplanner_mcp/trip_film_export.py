@@ -57,8 +57,13 @@ from .trip_film_plan import (
     build_scene_plan,
     plan_seconds,
 )
-from .video_orchestration import clips_for_day
-from .video_proxy import VideoProxyError, async_cut_render_proxy
+from .video_orchestration import clips_for_day, with_render_windows
+from .video_proxy import (
+    MAX_RENDER_SECONDS,
+    VideoProxyError,
+    async_cut_render_proxy,
+    async_probe_shape,
+)
 from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
 
@@ -201,6 +206,12 @@ class TripFilmExporter:
         session = async_get_clientsession(self._hass)
 
         photos_by_chapter: dict[str, list[bytes]] = {}
+        # Which prepared picture is the day's hero, by position. Computed
+        # here because this is the only place that knows both the order
+        # the manifest asked for AND which of those fetches actually
+        # produced bytes - a failed fetch shifts every position after it,
+        # so the manifest's index would name the wrong picture.
+        prominent_by_chapter: dict[str, int] = {}
         missing_media = 0
         for chapter in chapters:
             prepared: list[bytes] = []
@@ -225,6 +236,10 @@ class TripFilmExporter:
                     continue
                 shrunk = await self._hass.async_add_executor_job(shrink_film_photo, raw)
                 if shrunk:
+                    if str(entry.get("role") or "") == "hero":
+                        prominent_by_chapter.setdefault(
+                            str(chapter.get("chapter_id") or ""), len(prepared)
+                        )
                     prepared.append(shrunk)
                 else:
                     missing_media += 1
@@ -240,6 +255,7 @@ class TripFilmExporter:
                 job_id="00000000-0000-0000-0000-000000000000",
                 manifest=manifest,
                 photos_by_chapter=photos_by_chapter,
+                prominent_by_chapter=prominent_by_chapter or None,
                 clips_by_chapter=clips_by_chapter or None,
                 map_context=map_context,
                 crew=crew,
@@ -463,9 +479,17 @@ class TripFilmExporter:
         try:
             for index, chapter in enumerate(chapters):
                 chapter_id = str(chapter.get("chapter_id") or "")
-                chosen = clips_for_day(
-                    stored.get(chapter_id) or [],
-                    importance=str(chapter.get("importance") or "normal"),
+                # Two windows from here on: the analysed one, which is
+                # what the model judged and what the cache is keyed on,
+                # and the render one, which is what the viewer sees. The
+                # second is derived from the first, locally and without
+                # touching it.
+                chosen = with_render_windows(
+                    clips_for_day(
+                        stored.get(chapter_id) or [],
+                        importance=str(chapter.get("importance") or "normal"),
+                    ),
+                    max_seconds=MAX_RENDER_SECONDS,
                 )
                 entries: list[dict[str, Any]] = []
                 for position, segment in enumerate(chosen[:MAX_CLIPS_PER_CHAPTER], start=1):
@@ -483,8 +507,8 @@ class TripFilmExporter:
                         await async_cut_render_proxy(
                             source,
                             target,
-                            start=float(segment.get("start_seconds") or 0.0),
-                            end=float(segment.get("end_seconds") or 0.0),
+                            start=float(segment.get("render_start_seconds") or 0.0),
+                            end=float(segment.get("render_end_seconds") or 0.0),
                         )
                         raw = await self._hass.async_add_executor_job(
                             target.read_bytes
@@ -501,6 +525,7 @@ class TripFilmExporter:
                                 await self._hass.async_add_executor_job(
                                     lambda path=done: path.unlink(missing_ok=True)
                                 )
+                    clip_width, clip_height = await async_probe_shape(target)
                     if len(raw) > MAX_FILM_CLIP_BYTES:
                         _LOGGER.warning("Clip ist zu groß für das Paket: %s", media_id)
                         continue
@@ -512,17 +537,31 @@ class TripFilmExporter:
                             # The renderer holds it for exactly this long.
                             # Derived from the segment rather than measured,
                             # so the plan and the file cannot disagree.
+                            # The film holds it for as long as the piece
+                            # that was cut, which is the RENDER window -
+                            # the analysis duration would now be short by
+                            # the handle and the clip would be cut off.
                             "frames": max(
                                 1,
                                 round(
-                                    float(segment.get("duration_seconds") or 0.0)
+                                    float(
+                                        segment.get("render_duration_seconds")
+                                        or segment.get("duration_seconds")
+                                        or 0.0
+                                    )
                                     * FILM_FPS
                                 ),
                             ),
                             "sha256": hashlib.sha256(raw).hexdigest(),
                             "size_bytes": len(raw),
-                            "width": int(record.get("width") or 0),
-                            "height": int(record.get("height") or 0),
+                            # Measured on the cut file, not copied from
+                            # the library record. A recording whose camera
+                            # wrote a rotation matrix is stored landscape
+                            # and displayed upright; ffmpeg applies the
+                            # matrix when cutting, so the record and the
+                            # clip beside it described opposite shapes.
+                            "width": clip_width,
+                            "height": clip_height,
                         }
                     )
                 if entries:
