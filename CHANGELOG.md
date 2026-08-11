@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.108.0] - 2026-08-11
+
 ### Added
 
 - **Ein Film kann jetzt in verschiedenen Größen gerendert werden** (Add-on 0.24.0). Fünf Profile — 480p, 720p, 1080p, 1440p und 4K als Experiment — mit **einer** Bildrate für alle. Ein Profil entscheidet **Pixel und sonst nichts**: dieselbe Geschichte, derselbe Szenenplan, dieselben Fotos, dieselben Clips, dieselben Sekunden. Das ist keine Absichtserklärung, sondern die Bedingung dafür, dass ein kleiner Render überhaupt etwas über den großen aussagt. Durchgesetzt wird es an einer Stelle: Die Komposition bleibt auf einer logischen Fläche von **1280×720 gebaut**, und ein Profil skaliert diese Fläche als *ein* Bild — keine Komponente weiß, in welcher Größe gerendert wird. Die Alternative, jede Komponente die echte Breite lesen zu lassen, ist genau der Weg, auf dem eine Überschrift bei 480p anders umbricht als bei 1440p. Die Bildrate ist absichtlich keine Einstellung: Ein Profil, das sie ändern könnte, könnte die Zeitrechnung eines Plans ändern, und derselbe Szenenplan würde zu zwei verschiedenen Filmen.
