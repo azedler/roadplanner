@@ -66,6 +66,7 @@ class RoadplannerExperienceManager:
         media_vision_max_highlights: int = 5,
         media_vision_daily_limit: int = 5,
         day_curation_daily_limit: int = DEFAULT_DAY_CURATION_DAILY_LIMIT,
+        video_analysis_enabled: bool = False,
         folder_path: str,
         sync_interval_minutes: int,
         auto_sync: bool,
@@ -121,6 +122,7 @@ class RoadplannerExperienceManager:
             provider,
             share_root=default_exchange_dir().parent,
             media_source=VideoMediaSource(hass, onedrive),
+            video_analysis_enabled=video_analysis_enabled,
         )
         self._google_photo_tokens = (
             GooglePhotoTokenService(image_provider.google_places)

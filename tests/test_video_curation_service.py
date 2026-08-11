@@ -79,9 +79,15 @@ class FakeResult:
 
 
 class FakeProvider:
-    """Counts every call, because that is the claim under test."""
+    """Counts every call, because that is the claim under test.
 
-    video_analysis_enabled = True
+    It deliberately carries NO `video_analysis_enabled`. The service used
+    to read the opt-in off the provider with `getattr(..., False)`, and
+    this fake - the only object in the repository that ever had that
+    attribute - made the arrangement look correct while the real
+    assistant client answered "off" for every configuration.
+    """
+
     video_model = "fake-video-model"
 
     def __init__(self, answer=None, fail=False):
@@ -141,7 +147,7 @@ def _video(index=1, *, seconds=120.0):
     }
 
 
-def _build(tmp: Path, videos, *, provider=None, media=None, cut_ok=True):
+def _build(tmp: Path, videos, *, provider=None, media=None, cut_ok=True, enabled=True):
     store = store_module.ExperienceStore(tmp / "store")
     state = store.load("trip-1")
     state["media"] = list(videos)
@@ -153,6 +159,7 @@ def _build(tmp: Path, videos, *, provider=None, media=None, cut_ok=True):
         provider,
         share_root=tmp / "share",
         media_source=media or FakeMediaSource(),
+        video_analysis_enabled=enabled,
     )
 
     # ffmpeg is not run here. The proxy arguments have their own test; what
@@ -280,8 +287,7 @@ def verify_the_run_refuses_when_the_feature_is_switched_off() -> None:
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         provider = FakeProvider()
-        provider.video_analysis_enabled = False
-        _store, service, _ = _build(tmp, [_video(1)], provider=provider)
+        _store, service, _ = _build(tmp, [_video(1)], provider=provider, enabled=False)
         try:
             asyncio.run(service.async_analyze("trip-1"))
         except Exception as err:  # noqa: BLE001 - the type is the module's own
