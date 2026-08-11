@@ -181,6 +181,18 @@ class GeminiClient:
         return self._fallback_model or None
 
     @property
+    def video_model(self) -> str:
+        """The model a stored video analysis is keyed on.
+
+        The cache key carries this name, so it has to be the model that
+        actually answers. It was read off the client with a default and
+        the client had no such attribute, so every analysis was filed
+        under "unknown" - and would have survived a model change that
+        should have invalidated it.
+        """
+        return self._model
+
+    @property
     def configured(self) -> bool:
         return bool(self._api_key)
 

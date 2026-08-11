@@ -637,6 +637,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 DEFAULT_DAY_CURATION_DAILY_LIMIT,
             )
         ),
+        video_analysis_enabled=bool(
+            options.get(CONF_VIDEO_ANALYSIS_ENABLED, DEFAULT_VIDEO_ANALYSIS_ENABLED)
+        ),
         folder_path=str(
             options.get(CONF_ONEDRIVE_PHOTO_FOLDER, DEFAULT_ONEDRIVE_PHOTO_FOLDER)
         ),
@@ -847,9 +850,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         story_director=story_director,
         story_overrides=story_overrides,
         trip_film=trip_film,
-        video_analysis_enabled=bool(
-            options.get(CONF_VIDEO_ANALYSIS_ENABLED, DEFAULT_VIDEO_ANALYSIS_ENABLED)
-        ),
+        # Read back from the service that acts on it, not from the options
+        # a second time: the panel and the analysis have to be able to
+        # disagree only by being wrong together, never separately.
+        video_analysis_enabled=experience.video_curation.enabled,
         ai_music_enabled=bool(
             options.get(CONF_AI_MUSIC_ENABLED, DEFAULT_AI_MUSIC_ENABLED)
         ),
