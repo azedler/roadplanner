@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.99.0] - 2026-08-11
+
+### Fixed
+
+- **„Nach einem Klick passiert nichts" — es lief.** Ein Analysefenster bedeutet: Original herunterladen, Ausschnitt schneiden, Gemini fragen. Zwanzig davon sind eine gute halbe Stunde, und die Karte sagte in dieser Zeit **gar nichts** — kein Laufzustand, kein Zähler, ein einziger Hinweis ganz am Ende. Eine lange Aktion ohne Lebenszeichen ist von einem kaputten Knopf nicht zu unterscheiden, und die vernünftige Reaktion auf einen kaputten Knopf ist, nochmal zu drücken — was dieselben Analysen ein zweites Mal bezahlt hätte. Der Lauf meldet sich jetzt selbst: Laufzustand auf der Karte, Startknopf verschwindet währenddessen, und der Fortschritt kommt aus der **kostenlosen** Abfrage alle fünfzehn Sekunden. Die Zahl auf dem Bildschirm ist damit die Zahl der tatsächlich gespeicherten Antworten — der Dienst speichert nach jedem Fenster einzeln — und keine, die der Browser hochzählt.
+
+- **„Die Videoanalyse ist fehlgeschlagen · Connection lost" — sie lief weiter und wurde fertig.** Die Liste der Aktionen, die serverseitig abgeschirmt sind, stand zweimal da; die Kopie im Panel trug den Kommentar „Mirror of panel.py's `_PROVIDER_CALL_ACTIONS`" und war um **sieben Einträge** auseinandergelaufen — ausgerechnet die längsten Vorgänge des Produkts: Videoanalyse, Redaktionslauf, Filmrender, Musikerzeugung. Jede unterbrochene Handyverbindung während dieser Vorgänge wurde deshalb als Fehler gemeldet, obwohl der Server weiterarbeitete. Beide Listen stimmen jetzt überein, und ein Test liest **beide Dateien** und vergleicht sie in beide Richtungen: abgeschirmt-aber-unbekannt macht aus einem überlebten Abbruch einen Fehler, versprochen-aber-nicht-abgeschirmt ist eine falsche Beruhigung — und die ist schlimmer als der Dialog, den sie ersetzt.
+
+- **Ein zweiter Lauf wird abgelehnt statt verdoppelt.** Welche Reise gerade analysiert wird, weiß jetzt der Server — also die Seite, auf der der Lauf stattfindet. Ein Neuladen, ein gesperrtes Handy oder eine abgerissene Verbindung verlieren nur, was der Browser wusste; die Karte fragt danach wieder nach und zeigt den laufenden Vorgang weiter an, statt einen Startknopf anzubieten, der dieselben Aufnahmen erneut herunterlädt und dieselben Antworten erneut bezahlt.
+
 ## [4.98.0] - 2026-08-11
 
 ### Fixed
