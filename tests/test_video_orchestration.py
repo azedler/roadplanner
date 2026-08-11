@@ -341,6 +341,42 @@ def verify_the_library_rescans_once_for_videos() -> None:
     assert version >= 4, version
 
 
+def verify_the_daily_budget_is_actually_daily() -> None:
+    """It was the whole trip's, because it read a field nobody writes.
+
+    `select_candidates` grouped by `chapter_id`; the media library stores
+    `linked_day_id`. So every recording answered "" and shared ONE day's
+    allowance - on a real trip, twenty videos in, six out, eighteen
+    rejected as "Tagesbudget erreicht" for a budget that was never per
+    day.
+    """
+    videos = [
+        {
+            **_library_video(index),
+            "linked_day_id": f"day-{index % 8}",
+            "duration_seconds": 31.0,
+        }
+        for index in range(20)
+    ]
+    chosen, rejected = importlib.import_module(
+        f"{_PACKAGE}.video_prefilter"
+    ).select_candidates(videos)
+    assert len(chosen) == 20, (len(chosen), len(rejected))
+    assert not [
+        entry for entry in rejected if "Tagesbudget" in str(entry.get("skipped_reason"))
+    ], rejected
+
+    # And a day that really is over its allowance is still capped.
+    crowded = [
+        {**_library_video(100 + index), "linked_day_id": "day-1", "duration_seconds": 31.0}
+        for index in range(12)
+    ]
+    kept, dropped = importlib.import_module(
+        f"{_PACKAGE}.video_prefilter"
+    ).select_candidates(crowded)
+    assert len(kept) < len(crowded), (len(kept), len(dropped))
+
+
 for check in (
     verify_two_videos_never_share_a_cache_key,
     verify_the_key_moves_with_model_and_schema,
@@ -364,6 +400,7 @@ for check in (
     verify_the_analysis_proxy_seeks_fast_and_the_render_proxy_accurately,
     verify_a_video_keeps_its_length_through_the_store,
     verify_the_library_rescans_once_for_videos,
+    verify_the_daily_budget_is_actually_daily,
 ):
     check()
 
