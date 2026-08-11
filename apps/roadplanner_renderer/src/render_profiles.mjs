@@ -34,8 +34,12 @@ export const RENDER_PROFILES = {
     // judged, not kept.
     crf: 30,
     x264Preset: "veryfast",
+    // 50 MB for a twelve-minute film. The purpose is iteration speed and
+    // a file that uploads anywhere without thinking about it.
+    reviewTargetBytes: 50 * 1024 * 1024,
     label: "Review schnell · 480p",
-    description: "Schnellste Abnahmeversion für Entwicklung und Filmabnahme.",
+    description:
+      "Kleinste Datei, schnellster Render. Für schnelle Runden und zum Verschicken.",
     suffix: "review-480p",
     experimental: false,
     recommended: false,
@@ -49,8 +53,15 @@ export const RENDER_PROFILES = {
     // is the version that has to survive an upload.
     crf: 28,
     x264Preset: "veryfast",
+    // 90 MB for the same film - close to twice the small one, and that
+    // difference is the entire reason both exist. Two profiles that
+    // produced the same number of bytes would be one profile with two
+    // names: the smaller picture would only be compressed less, which is
+    // not what anybody picking "schnell" is asking for.
+    reviewTargetBytes: 90 * 1024 * 1024,
     label: "Review detailliert · 720p",
-    description: "Kleine Datei mit guter Lesbarkeit für die feinere Abnahme.",
+    description:
+      "Mehr Bilddetail für Schrift, Karten und Bewegung. Deutlich größere Datei.",
     suffix: "review-720p",
     experimental: false,
     recommended: false,

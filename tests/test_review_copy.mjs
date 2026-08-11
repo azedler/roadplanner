@@ -19,8 +19,8 @@ import {
   MIN_VIDEO_BPS,
   maxVideoBps,
   REVIEW_COPY_PROFILES,
-  REVIEW_TARGET_BYTES,
   reviewBitrate,
+  reviewTargetBytes,
   reviewCopyArgs,
   reviewProfile,
   reviewScaleFilter,
@@ -57,12 +57,49 @@ test("die Bitrate folgt der Länge, nicht einer festen Zahl", () => {
   assert.ok(short > long, `${short} muss über ${long} liegen`);
 });
 
-test("eine abgeleitete Bitrate trifft die Zielgröße", () => {
+test("eine abgeleitete Bitrate trifft die Zielgröße des Profils", () => {
   const seconds = 743; // the real film: 12:23
-  const bitrate = reviewBitrate({ durationSeconds: seconds, hasAudio: false });
-  const predicted = (bitrate * seconds) / 8;
-  const ratio = predicted / REVIEW_TARGET_BYTES;
-  assert.ok(ratio > 0.9 && ratio < 1.1, `Vorhersage ${ratio.toFixed(2)}x der Zielgröße`);
+  for (const id of REVIEW_COPY_PROFILES) {
+    const profile = RENDER_PROFILES[id];
+    const bitrate = reviewBitrate({ durationSeconds: seconds, hasAudio: false, profile });
+    const predicted = (bitrate * seconds) / 8;
+    const ratio = predicted / reviewTargetBytes(profile);
+    assert.ok(ratio > 0.9 && ratio < 1.1, `${id}: ${ratio.toFixed(2)}x der Zielgröße`);
+  }
+});
+
+test("die beiden Reviewprofile haben verschiedene Zwecke, nicht nur Auflösungen", () => {
+  // The finding that produced this rule: with ONE shared target, a
+  // twelve-minute film came out at the same number of bytes in both
+  // sizes. The smaller picture was only compressed less - which is not
+  // what anybody choosing "schnell" is asking for, and it made the two
+  // profiles one profile with two names.
+  const seconds = 743;
+  const megabytes = (id) => {
+    const profile = RENDER_PROFILES[id];
+    const rate = reviewBitrate({ durationSeconds: seconds, hasAudio: true, profile });
+    // The audio was subtracted from the budget, so the FILE is the video
+    // plus the soundtrack - which is the number a person sees.
+    return ((rate + AUDIO_BITRATE_BPS) * seconds) / 8 / 1024 / 1024;
+  };
+  const small = megabytes("review_480");
+  const large = megabytes("review_720");
+  // The bands the product promises, for a film of about twelve minutes.
+  assert.ok(small > 40 && small < 60, `480p landet bei ${small.toFixed(1)} MB`);
+  assert.ok(large > 80 && large < 100, `720p landet bei ${large.toFixed(1)} MB`);
+  // And the gap is real rather than incidental.
+  assert.ok(large > small * 1.4, `${large.toFixed(1)} MB ist kaum mehr als ${small.toFixed(1)} MB`);
+});
+
+test("die Zielgröße gehört zum Profil, nicht zum Feature", () => {
+  const small = reviewTargetBytes(RENDER_PROFILES.review_480);
+  const large = reviewTargetBytes(RENDER_PROFILES.review_720);
+  assert.ok(large > small, `${large} muss über ${small} liegen`);
+  // A profile without a target of its own aims low: a file that is
+  // smaller than intended can still be watched and still be sent; one
+  // that is larger than intended may not upload at all.
+  assert.equal(reviewTargetBytes(null), small);
+  assert.equal(reviewTargetBytes({ width: 1, height: 1 }), small);
 });
 
 test("die Tonspur wird vom Budget abgezogen, nicht vergessen", () => {
@@ -95,11 +132,13 @@ test("die Obergrenze folgt der Größe, nicht einer festen Zahl", () => {
   const small = reviewBitrate({ durationSeconds: 120, profile: RENDER_PROFILES.review_480 });
   const large = reviewBitrate({ durationSeconds: 120, profile: RENDER_PROFILES.review_720 });
   assert.ok(small < large, `480p ${small} muss unter 720p ${large} liegen`);
-  // And on a film of real length the target size still governs both, so
-  // the ceiling only ever bites where it should.
+  // And on a film of real length the ceiling stops binding - there the
+  // profile's own target size decides, and the two stay apart for a
+  // different reason.
   const longSmall = reviewBitrate({ durationSeconds: 743, profile: RENDER_PROFILES.review_480 });
   const longLarge = reviewBitrate({ durationSeconds: 743, profile: RENDER_PROFILES.review_720 });
-  assert.equal(longSmall, longLarge);
+  assert.ok(longSmall < maxVideoBps(RENDER_PROFILES.review_480), "die Grenze greift noch");
+  assert.ok(longSmall < longLarge, `${longSmall} muss unter ${longLarge} liegen`);
 });
 
 test("ohne Profil wird die kleinste Obergrenze angenommen", () => {

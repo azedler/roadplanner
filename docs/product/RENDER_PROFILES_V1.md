@@ -13,8 +13,8 @@ Fünf Größen, **eine** Bildrate.
 
 | Profil | Auflösung | gedacht für |
 |---|---|---|
-| Review schnell | 854 × 480 | Entwicklungsrunden |
-| Review detailliert | 1280 × 720 | feinere Abnahme · **Standard** |
+| Review schnell | 854 × 480 | schnelle Runden, sicher hochladbar |
+| Review detailliert | 1280 × 720 | Schrift, Karten, feine Bewegung · **Standard** |
 | Full HD | 1920 × 1080 | normale Ausgabe |
 | Hohe Qualität | 2560 × 1440 | Archiv, Tablet, Fernseher · **empfohlen** |
 | 4K | 3840 × 2160 | **experimentell** |
@@ -89,16 +89,28 @@ gerenderten Films.
 | Kopie 720p | 96,2 MB | 3,8 min |
 | Kopie 480p | 96,2 MB | 2,4 min |
 
-**Ein Befund, der eine Entscheidung braucht.** Bei echter Filmlänge
-bestimmt die *Zielgröße* die Bitrate und nicht die Obergrenze — beide
-Reviewprofile landen deshalb auf demselben Byte. 480p ist also **nicht
-kleiner**, nur schneller zu rechnen und bei gleicher Dateigröße sauberer
-im Bild, weil dieselben Bytes auf weniger Pixel entfallen.
+### Zwei Profile, die dasselbe taten
 
-Das ist verteidigbar, aber es ist nicht das, was „Review schnell" bei
-einer *Kopie* verspricht. Der Gewinn von 480p liegt beim **Rendern**,
-nicht beim Kopieren. Soll eine 480p-Kopie auch wirklich kleiner werden,
-ist das ein zweiter Regler — bewusst nicht still eingebaut.
+Diese Messung deckte einen zweiten Entwurfsfehler auf: mit **einer**
+gemeinsamen Zielgröße bestimmt bei echter Filmlänge die Zielgröße die
+Bitrate und nicht die Obergrenze — beide Reviewprofile landeten deshalb
+auf **demselben Byte** (96,2 MB). 480p war nicht kleiner, nur weniger
+stark komprimiert. Damit waren es nicht zwei Profile, sondern **ein
+Profil mit zwei Namen**, und „Review schnell" versprach etwas, das es
+nicht lieferte.
+
+Die Zielgröße gehört deshalb ans **Profil**, und die beiden haben jetzt
+verschiedene Zwecke:
+
+| Profil | Zielgröße (~12 min) | wofür |
+|---|---|---|
+| Review schnell · 480p | ~50 MB | Iterationsgeschwindigkeit, überall hochladbar |
+| Review detailliert · 720p | ~90 MB | Schrift, Karten, Cropping, feine Bewegung |
+
+Ein Test prüft beide Bänder (40–60 MB und 80–100 MB) und verlangt, dass
+der Abstand real ist statt zufällig. Nur die **Review**profile tragen
+eine Zielgröße; die Größe eines Renderprofils ergibt sich aus seiner
+Qualitätseinstellung, nicht aus einem Byte-Budget.
 
 ---
 

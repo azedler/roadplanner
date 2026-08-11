@@ -36,7 +36,6 @@ import {
 } from "./render_profiles.mjs";
 import {
   DEFAULT_REVIEW_PROFILE,
-  REVIEW_TARGET_BYTES,
   reviewBitrate,
   reviewCopyArgs,
   reviewProfile,
@@ -533,7 +532,9 @@ export async function createReviewCopy({
   sourcePath,
   outputPath,
   profileId = DEFAULT_REVIEW_PROFILE,
-  targetBytes = REVIEW_TARGET_BYTES,
+  // Null means "whatever this profile aims at". Only a caller with a
+  // reason of its own passes a number here.
+  targetBytes = null,
   onProgress,
 }) {
   const startedAt = Date.now();

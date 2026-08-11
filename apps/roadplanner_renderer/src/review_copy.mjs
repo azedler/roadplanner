@@ -27,13 +27,33 @@ export const REVIEW_COPY_PROFILES = ["review_480", "review_720"];
 export const DEFAULT_REVIEW_PROFILE = "review_720";
 
 /**
- * How big a review copy is aimed to be.
+ * How big a review copy is aimed to be - and it belongs to the PROFILE.
  *
- * Not a hard limit - it is the number the bitrate is derived from, and a
- * single-pass encode lands near it rather than on it. Chosen so a whole
- * film fits comfortably into the places these get carried to.
+ * One shared target was the first attempt, and it made the two profiles
+ * indistinguishable where it mattered: at real film length the target
+ * decides the bitrate, so a twelve-minute film came out at the same
+ * number of bytes in both sizes. The smaller picture was only compressed
+ * less, which is not what anybody choosing "schnell" is asking for.
+ *
+ * So each review profile aims at its own size, and the two purposes are
+ * different on purpose:
+ *
+ * - **480p** exists for iteration speed and a file that uploads
+ *   anywhere. Around 50 MB for twelve minutes.
+ * - **720p** exists to judge type, maps, cropping and fine movement.
+ *   Around 90 MB for the same film.
+ *
+ * Not a hard limit either way - it is the number the bitrate is derived
+ * from, and a single-pass encode lands near it rather than on it.
  */
-export const REVIEW_TARGET_BYTES = 96 * 1024 * 1024;
+export function reviewTargetBytes(profile) {
+  const declared = Number(profile?.reviewTargetBytes);
+  if (Number.isFinite(declared) && declared > 0) return declared;
+  // A profile with no target of its own gets the small one. Aiming too
+  // low produces a file somebody can still watch and still send; aiming
+  // too high produces one that will not upload.
+  return RENDER_PROFILES[REVIEW_COPY_PROFILES[0]].reviewTargetBytes;
+}
 
 /** Enough for speech and music under it, and small enough to ignore. */
 export const AUDIO_BITRATE_BPS = 96_000;
@@ -91,17 +111,18 @@ export function reviewProfile(id) {
  */
 export function reviewBitrate({
   durationSeconds,
-  targetBytes = REVIEW_TARGET_BYTES,
+  targetBytes = null,
   hasAudio = false,
   profile = null,
 }) {
-  // The ceiling belongs to the size being encoded. Without a profile the
-  // smallest one is assumed, which can only ever make a copy smaller than
-  // intended - never larger than the profile could use.
-  const ceiling = maxVideoBps(profile ?? RENDER_PROFILES[REVIEW_COPY_PROFILES[0]]);
+  // Both the target and the ceiling belong to the size being encoded.
+  // Without a profile the smallest one is assumed, which can only ever
+  // make a copy smaller than intended - never larger than it could use.
+  const chosen = profile ?? RENDER_PROFILES[REVIEW_COPY_PROFILES[0]];
+  const ceiling = maxVideoBps(chosen);
   const seconds = Number(durationSeconds);
   if (!Number.isFinite(seconds) || seconds <= 0) return MIN_VIDEO_BPS;
-  const budget = Number(targetBytes);
+  const budget = Number(targetBytes ?? reviewTargetBytes(chosen));
   if (!Number.isFinite(budget) || budget <= 0) return MIN_VIDEO_BPS;
   const total = (budget * 8) / seconds;
   const forVideo = total - (hasAudio ? AUDIO_BITRATE_BPS : 0);
@@ -205,8 +226,8 @@ export default {
   DEFAULT_REVIEW_PROFILE,
   maxVideoBps,
   REVIEW_COPY_PROFILES,
-  REVIEW_TARGET_BYTES,
   reviewBitrate,
+  reviewTargetBytes,
   reviewCopyArgs,
   reviewProfile,
   reviewScaleFilter,

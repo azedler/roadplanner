@@ -33,8 +33,14 @@ RENDER_PROFILES: dict[str, dict[str, Any]] = {
         "width": 854,
         "height": 480,
         "fps": FILM_FPS,
+        # 50 MB for a twelve-minute film: iteration speed and a file that
+        # uploads anywhere without thinking about it.
+        "review_target_bytes": 50 * 1024 * 1024,
         "label": "Review schnell · 480p",
-        "description": "Schnellste Abnahmeversion für Entwicklung und Filmabnahme.",
+        "description": (
+            "Kleinste Datei, schnellster Render. Für schnelle Runden und "
+            "zum Verschicken."
+        ),
         "suffix": "review-480p",
         "experimental": False,
         "recommended": False,
@@ -44,8 +50,15 @@ RENDER_PROFILES: dict[str, dict[str, Any]] = {
         "width": 1280,
         "height": 720,
         "fps": FILM_FPS,
+        # 90 MB for the same film. The gap to the small one is the entire
+        # reason both exist - two profiles that produced the same number
+        # of bytes would be one profile with two names.
+        "review_target_bytes": 90 * 1024 * 1024,
         "label": "Review detailliert · 720p",
-        "description": "Kleine Datei mit guter Lesbarkeit für die feinere Abnahme.",
+        "description": (
+            "Mehr Bilddetail für Schrift, Karten und Bewegung. Deutlich "
+            "größere Datei."
+        ),
         "suffix": "review-720p",
         "experimental": False,
         "recommended": False,

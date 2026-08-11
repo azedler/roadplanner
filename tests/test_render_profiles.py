@@ -110,6 +110,20 @@ def verify_every_profile_means_the_same_size() -> None:
         assert _js_string(block, "suffix") == entry["suffix"], name
         for key in ("experimental", "recommended"):
             assert _js_bool(block, key) == entry[key], f"{name}.{key}"
+        # The size a review copy aims at. Written as `50 * 1024 * 1024` in
+        # both files, so the product is compared rather than the digits -
+        # and a profile that aimed at 50 MB in one deployable and 90 in
+        # the other would produce a file nobody could explain.
+        target = re.search(r"\breviewTargetBytes:\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)", block)
+        if "review_target_bytes" in entry:
+            assert target, f"{name}: der Renderer nennt keine Zielgröße"
+            product = int(target.group(1)) * int(target.group(2)) * int(target.group(3))
+            assert product == entry["review_target_bytes"], (
+                f"{name}: Renderer {product} != Integration "
+                f"{entry['review_target_bytes']}"
+            )
+        else:
+            assert not target, f"{name}: nur der Renderer kennt eine Zielgröße"
 
 
 def verify_the_design_surface_is_one_size() -> None:
@@ -185,6 +199,40 @@ def verify_a_review_copy_is_only_ever_smaller() -> None:
         assert entry["width"] <= profiles.DESIGN_WIDTH, name
         assert not entry["experimental"], name
     assert profiles.DEFAULT_REVIEW_PROFILE in profiles.REVIEW_COPY_PROFILES
+
+
+def verify_each_review_profile_has_a_purpose_of_its_own() -> None:
+    """Two profiles that produce the same file are one profile twice.
+
+    They shared a target size at first, and at real film length the
+    target is what decides the bitrate - so a twelve-minute film came out
+    at the same number of bytes in both. The smaller one was merely
+    compressed less, which nobody choosing "schnell" is asking for.
+
+    Each review profile now aims at its own size, and only the review
+    profiles have one: a render profile's size comes from its quality
+    setting, not from a byte budget.
+    """
+    targets = {
+        name: profiles.RENDER_PROFILES[name]["review_target_bytes"]
+        for name in profiles.REVIEW_COPY_PROFILES
+    }
+    assert len(set(targets.values())) == len(targets), (
+        f"Zwei Reviewprofile zielen auf dieselbe Größe: {targets}"
+    )
+    # Ordered by resolution: more pixels may cost more bytes, never fewer.
+    ordered = sorted(
+        profiles.REVIEW_COPY_PROFILES,
+        key=lambda name: profiles.RENDER_PROFILES[name]["width"],
+    )
+    sizes = [targets[name] for name in ordered]
+    assert sizes == sorted(sizes), f"kleinere Auflösung mit größerem Ziel: {targets}"
+    for name, entry in profiles.RENDER_PROFILES.items():
+        if name in profiles.REVIEW_COPY_PROFILES:
+            continue
+        assert "review_target_bytes" not in entry, (
+            f"{name} ist kein Reviewprofil und braucht keine Zielgröße"
+        )
 
 
 def verify_the_review_table_matches_the_renderers() -> None:
