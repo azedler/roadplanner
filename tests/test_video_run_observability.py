@@ -151,6 +151,26 @@ def verify_the_video_budget_is_the_same_number_on_both_sides() -> None:
     assert "totalBytes > MAX_FILM_VIDEO_BYTES" in protocol
 
 
+def verify_a_film_that_cannot_start_says_so_on_the_card() -> None:
+    """Live report: "Aktuell passiert nichts beim Drücken von Film erzeugen."
+
+    It was one line: `if (!result?.renderer_app_job?.job_id) return;`.
+    `_runAction` returns null for EVERY failure and shows a toast that is
+    gone in seconds, so a render that could not start looked exactly like
+    a button that does nothing - and the reasonable reaction to a button
+    that does nothing is to press it again.
+
+    Third time in this project that a failure was reported by saying
+    nothing, so it gets a check rather than a comment.
+    """
+    assert "_storyFilmStartError" in CARD, "der stumme Rückweg ist wieder da"
+    # Shown on the card, not only in a toast that expires.
+    assert "startError" in CARD
+    # And cleared once a render is actually running, or it would linger
+    # over a film that is working.
+    assert "running ? \"\" : String(this._storyFilmStartError" in CARD
+
+
 def verify_a_recording_is_dropped_as_soon_as_nothing_needs_it() -> None:
     """Peak disk, not total: /share holds one recording, not all of them."""
     assert "def _async_release" in SERVICE, "die Aufnahmen bleiben bis zum Schluss liegen"

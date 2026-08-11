@@ -413,13 +413,28 @@ export const storyEditorMixin = {
   },
 
   async _storyFilmRender() {
+    this._storyFilmStartError = "";
     const result = await this._runAction(
       "story_film_render",
       { trip_id: this._selectedTripId, music: this._storyFilmTrack || "" },
       "Reisefilm wird gerendert",
       { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
     );
-    if (!result?.renderer_app_job?.job_id) return;
+    if (!result?.renderer_app_job?.job_id) {
+      // Live report: "Aktuell passiert nichts beim Drücken von Film
+      // erzeugen." It was this line. `_runAction` returns null for every
+      // failure and shows a toast that is gone in seconds, so a render
+      // that could not start looked exactly like a button that does
+      // nothing - and the reasonable reaction to that is to press it
+      // again. The card says it now, and keeps saying it.
+      this._storyFilmStartError =
+        "Der Film konnte nicht gestartet werden. Häufigster Grund: Die "
+        + "Renderer-App läuft nicht oder ist noch nicht bereit. Der "
+        + "genaue Grund steht im Home-Assistant-Protokoll unter "
+        + "„roadplanner\u201c.";
+      this._render({ preserveScroll: true });
+      return;
+    }
     this._rendererAppKind = "trip_film";
     this._rendererAppPackage = {
       package_bytes: result.renderer_app_job.package_bytes,
@@ -446,9 +461,11 @@ export const storyEditorMixin = {
     const online = Boolean(status?.online);
     const job = this._rendererAppJob;
     const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
+    const startError = running ? "" : String(this._storyFilmStartError || "");
     return `<div class="notice neutral"><div>
       <strong>Reisefilm aus dieser Geschichte</strong>
       <small>Ein Film über die ganze Reise, ein Kapitel je Tag, aus genau diesen Titeln, Texten und Bildern. Tage ohne Fotos werden als solche gezeigt und nicht übersprungen.</small>
+      ${startError ? `<small class="hint"><strong>${escapeHtml(startError)}</strong></small>` : ""}
       ${
         film
           ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder ausgewählt (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>
