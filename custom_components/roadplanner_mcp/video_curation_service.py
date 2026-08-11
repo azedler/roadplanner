@@ -285,6 +285,11 @@ class VideoCurationService:
         work = self._share_root / WORK_DIRNAME
         analysed = 0
         failed: list[dict[str, Any]] = []
+        # Refused is not failed and not empty-handed: the model declined
+        # to look. Counted apart so the card can say so - a clip that
+        # silently never appears in the film is the absent answer this
+        # project keeps rendering as a state.
+        refused: list[dict[str, Any]] = []
         segments_found = 0
         # One download per RECORDING, not per window: a four-minute clip
         # offered as three windows is fetched once and cut three times.
@@ -353,6 +358,14 @@ class VideoCurationService:
                     continue
                 analysed += 1
                 segments_found += len(record.get("segments") or [])
+                if record.get("refused"):
+                    refused.append(
+                        {
+                            "media_id": media_id,
+                            "name": str(window.get("name") or ""),
+                            "reason": str(record.get("refusal_reason") or ""),
+                        }
+                    )
         finally:
             # The originals go, always. They were only ever here to be cut.
             # In the executor: this deletes hundreds of megabytes, and a
@@ -379,6 +392,7 @@ class VideoCurationService:
                 {
                     "analysed": analysed,
                     "failed": failed,
+                    "refused": refused,
                     "segments": segments_found,
                     "planned": len(plan["new"]),
                     "finished_at": utc_now_iso(),
@@ -390,6 +404,7 @@ class VideoCurationService:
             "cached": plan["cached_count"],
             "skipped": plan["over_limit"],
             "failed": failed,
+            "refused": refused,
             "segments": segments_found,
             # The same field the stored summary carries. It was missing
             # here, and the card - which reads whichever of the two it
@@ -433,18 +448,53 @@ class VideoCurationService:
         await async_cut_analysis_proxy(source, proxy, start=start, end=end)
 
         request = build_request(window, start, end)
-        result = await self._provider.async_analyze_video(
-            system_instruction=SYSTEM_PROMPT,
-            prompt=request["prompt"],
-            video=AssistantVideoInput(
-                video_id=str(window.get("id") or ""),
-                data=await self.hass.async_add_executor_job(proxy.read_bytes),
-                mime_type="video/mp4",
-                start_offset=0.0,
-                end_offset=max(0.0, end - start),
-            ),
-            schema=RESPONSE_SCHEMA,
-        )
+        try:
+            result = await self._provider.async_analyze_video(
+                system_instruction=SYSTEM_PROMPT,
+                prompt=request["prompt"],
+                video=AssistantVideoInput(
+                    video_id=str(window.get("id") or ""),
+                    data=await self.hass.async_add_executor_job(proxy.read_bytes),
+                    mime_type="video/mp4",
+                    start_offset=0.0,
+                    end_offset=max(0.0, end - start),
+                ),
+                schema=RESPONSE_SCHEMA,
+            )
+        except RoadplannerError as err:
+            # A safety refusal is a settled answer about this clip, not a
+            # transient failure: the same seconds of the same recording,
+            # judged by the same model against the same policy, will be
+            # refused again. Treated as a failure it was never stored, so
+            # every future run planned it, downloaded the recording again
+            # and asked again - for a family's own holiday footage, which
+            # these filters refuse routinely and wrongly.
+            #
+            # Stored as "no moment here, and here is why", which is
+            # exactly how an unreadable answer is already handled one
+            # block down. `code` is read off the error and the class is
+            # checked by a test, because a default that can lie is how
+            # this project has shipped the same bug five times.
+            if str(getattr(err, "code", "")) != "safety_block":
+                raise
+            _LOGGER.info(
+                "Videoanalyse: %s wurde vom Modell abgelehnt (%s)", key[:12], err
+            )
+            record = {
+                "media_id": str(window.get("id") or ""),
+                "window_start": round(start, 3),
+                "window_end": round(end, 3),
+                "segments": [],
+                "refused": "safety",
+                "refusal_reason": str(err)[:200],
+                "analysis_version": ANALYSIS_VERSION,
+                "model": self._model_name(),
+                "analysed_at": utc_now_iso(),
+            }
+            await self.hass.async_add_executor_job(
+                self.store.save_video_analysis, trip_id, key, record
+            )
+            return record
 
         # Refused rather than repaired, twice: the contract first, then
         # the recording's own bounds.
