@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.107.0] - 2026-08-11
+
 ### Fixed
 
 - **„Film erzeugen" schwieg minutenlang, obwohl es lief.** Zwischen dem Klick und der ersten Fortschrittszahl liegt der komplette Paketbau: ein paar hundert Fotos holen und verkleinern, jede Aufnahme, aus der ein Clip kommt, herunterladen und schneiden, das Paket schreiben und übergeben. Erst danach gibt es eine Job-ID, und erst dann erschien überhaupt etwas. In der Stille ist das von einem toten Knopf nicht zu unterscheiden — deshalb wurde nochmal gedrückt. Die Karte sagt es jetzt **sofort**, bevor ein einziges Byte geholt wird, und benennt, was gerade dauert. Der Knopf ist währenddessen außer Reichweite, denn ein zweiter Druck hätte das ganze Paket ein zweites Mal gebaut.
