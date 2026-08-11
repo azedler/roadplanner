@@ -46,6 +46,15 @@ import { pitchesMixin } from "./features/pitches.js";
 
 // Mirror of panel.py's _PROVIDER_CALL_ACTIONS: these run shielded
 // server-side and finish even when the client connection dies.
+//
+// It said "mirror" and had drifted by seven entries, all of them in the
+// same direction: the longest actions in the product - the video
+// analysis, the editing run, the film render - were shielded on the
+// server and unknown here, so a dropped phone connection produced "Die
+// Videoanalyse ist fehlgeschlagen · Connection lost" (live report) for a
+// run that was still going and would still finish. A test reads both
+// files and compares them now, because a comment saying "mirror" is not
+// one.
 const SERVER_CONTINUING_ACTIONS = new Set([
   "assistant_chat",
   "assistant_prepare",
@@ -58,9 +67,16 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "renderer_app_environment",
   "renderer_app_run",
   "renderer_app_render",
+  "renderer_app_download",
+  "renderer_app_trip_day",
+  "run_system_check",
   "park4night_lookup",
   "place_link_lookup",
   "media_curate_days",
+  "media_video_analyze",
+  "story_director_run",
+  "story_film_music_generate",
+  "story_film_render",
 ]);
 
 class RoadplannerPanel extends HTMLElement {

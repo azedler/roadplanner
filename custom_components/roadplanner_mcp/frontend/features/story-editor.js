@@ -1002,31 +1002,135 @@ export const storyEditorMixin = {
     );
     if (!result?.video_offer) return;
     this._storyVideoOfferData = result.video_offer;
+    // A run that is still going on the server survives a reload, a locked
+    // phone and a closed tab. Whoever opens the card next should see it,
+    // and should not be offered a button that would start a second one.
+    if (result.video_offer.running) {
+      this._storyVideoRunning = true;
+      void this._storyVideoWatch();
+    }
     this._render({ preserveScroll: true });
   },
 
+  /**
+   * The paid run - and, just as important, a card that says it is running.
+   *
+   * Live report: "Nach einem Klick passiert ich denke nichts." It was
+   * running. One window can take a minute - the recording is downloaded,
+   * a proxy is cut, Gemini is asked - and twenty of them take the better
+   * part of half an hour, during which this card said nothing at all: no
+   * busy state, no counter, one toast at the very end. A long action with
+   * no sign of life is indistinguishable from a button that does nothing,
+   * and the reasonable reaction to a button that does nothing is to press
+   * it again, which would have paid for the same analyses twice.
+   *
+   * So the run reports itself. The progress is not invented: the free,
+   * read-only offer is asked again every fifteen seconds and its
+   * "Analysen im Cache" is the actual number of stored answers, because
+   * the service saves each window as it finishes.
+   */
   async _storyVideoAnalyze() {
-    const result = await this._runAction(
-      "media_video_analyze",
-      { trip_id: this._selectedTripId },
-      "KI-Videoanalyse abgeschlossen",
-      {
-        refresh: false,
-        blockUi: false,
-        errorMode: "dialog",
-        errorTitle: "Die Videoanalyse ist fehlgeschlagen",
-      },
+    if (this._storyVideoRunning) return;
+    this._storyVideoRunning = true;
+    this._storyVideoStartedAt = Date.now();
+    this._storyVideoResult = null;
+    this._render({ preserveScroll: true });
+    void this._storyVideoWatch();
+    try {
+      const result = await this._runAction(
+        "media_video_analyze",
+        { trip_id: this._selectedTripId },
+        "KI-Videoanalyse abgeschlossen",
+        {
+          refresh: false,
+          blockUi: false,
+          errorMode: "dialog",
+          errorTitle: "Die Videoanalyse ist fehlgeschlagen",
+        },
+      );
+      if (result?.video_analysis) this._storyVideoResult = result.video_analysis;
+    } finally {
+      // Not decided here. `_runAction` returns null for every failure,
+      // including the dropped WebSocket that leaves the run going on the
+      // server - so the browser cannot tell "finished" from "no longer
+      // watching". The offer knows, and it is free.
+      await this._storyVideoOffer();
+      this._storyVideoRunning = Boolean(this._storyVideoOfferData?.running);
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  /**
+   * Ask the free offer for the count while the paid run is going.
+   *
+   * Deliberately the read-only endpoint: it costs nothing, and its
+   * numbers come from the same store the run writes into, so the card
+   * cannot show a progress that never happened.
+   */
+  async _storyVideoWatch() {
+    if (this._storyVideoWatching) return;
+    this._storyVideoWatching = true;
+    // Long, because the run is: twenty windows on a Home Assistant box
+    // with a phone-video download each. The loop ends when the server
+    // says the run ended, not when a guessed duration is up.
+    const deadline = Date.now() + 90 * 60 * 1000;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 15000));
+        if (!this.isConnected) return;
+        const result = await this._runAction(
+          "media_video_offer",
+          { trip_id: this._selectedTripId },
+          "",
+          { refresh: false, blockUi: false, errorTitle: "" },
+        ).catch(() => null);
+        if (!result?.video_offer) continue;
+        const before = this._storyVideoOfferData || {};
+        this._storyVideoOfferData = result.video_offer;
+        // The server decides whether a run is going. A dropped WebSocket
+        // ends the call here while the run continues over there, so the
+        // browser's own flag is the wrong thing to loop on.
+        const stillRunning = Boolean(result.video_offer.running);
+        if (!stillRunning) {
+          this._storyVideoRunning = false;
+          this._render({ preserveScroll: true });
+          return;
+        }
+        // A counter that ticked up is not a reason to rebuild the page -
+        // the whole shadow DOM is replaced on render and the scroll jumps.
+        if (Boolean(before.running) !== stillRunning) {
+          this._storyVideoRunning = true;
+          this._render({ preserveScroll: true });
+        } else {
+          this._storyVideoPatchProgress();
+        }
+      }
+    } finally {
+      this._storyVideoWatching = false;
+    }
+  },
+
+  _storyVideoPatchProgress() {
+    const nodes = this.shadowRoot?.querySelectorAll("[data-story-video-progress]");
+    if (!nodes?.length) return false;
+    const offer = this._storyVideoOfferData || {};
+    const done = Number(offer.windows_cached || 0);
+    const total = done + Number(offer.windows_new || 0);
+    const minutes = Math.max(
+      1,
+      Math.round((Date.now() - (this._storyVideoStartedAt || Date.now())) / 60000),
     );
-    if (!result?.video_analysis) return;
-    this._storyVideoResult = result.video_analysis;
-    // The offer is stale the moment anything was analysed.
-    void this._storyVideoOffer();
+    nodes.forEach((node) => {
+      node.textContent = `${done} von ${total} Analysen fertig · seit ${minutes} min`;
+    });
+    return true;
   },
 
   _renderStoryVideoAnalysis() {
     const offer = this._storyVideoOfferData;
     const done = this._storyVideoResult;
     const canEdit = this._canEdit();
+    const running = Boolean(this._storyVideoRunning || offer?.running);
     if (!offer) {
       return canEdit
         ? `<button class="text-button" type="button" data-action="story-video-offer"><ha-icon icon="mdi:movie-search-outline"></ha-icon>Videos prüfen: was würde eine KI-Analyse kosten?</button>`
@@ -1053,13 +1157,18 @@ export const storyEditorMixin = {
           : ""
       }
       ${
+        running
+          ? `<p class="hint"><strong>Die Analyse läuft.</strong> <span data-story-video-progress>${escapeHtml(String(offer.windows_cached || 0))} von ${escapeHtml(String(Number(offer.windows_cached || 0) + Number(offer.windows_new || 0)))} Analysen fertig</span>. Pro Aufnahme wird das Original geladen, ein kleiner Ausschnitt geschnitten und gefragt - das dauert Minuten, nicht Sekunden. Jede fertige Analyse ist sofort gespeichert: Die Seite darf verlassen werden, und ein Abbruch verliert nur den Rest.</p>`
+          : ""
+      }
+      ${
         done
           ? `<p class="hint"><strong>Letzter Lauf:</strong> ${escapeHtml(String(done.analysed))} analysiert · ${escapeHtml(String(done.cached))} aus dem Cache · ${escapeHtml(String(done.segments))} Momente gefunden${(done.failed || []).length ? ` · ${escapeHtml(String(done.failed.length))} fehlgeschlagen` : ""}</p>`
           : ""
       }
       <div class="button-row">
         ${
-          canEdit && offer.enabled && offer.windows_new > 0
+          canEdit && offer.enabled && offer.windows_new > 0 && !running
             ? `<button class="secondary-button" type="button" data-action="story-video-analyze"><ha-icon icon="mdi:movie-open-play-outline"></ha-icon>KI-Videoanalyse starten (${price})</button>`
             : ""
         }
