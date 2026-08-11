@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.104.0] - 2026-08-11
+
 ### Fixed
 
 - **Eine Ablehnung ist eine Antwort und darf nicht zweimal bezahlt werden.** Von der Karte des echten Systems, an eigenen Urlaubsaufnahmen: *„20260719_135620000_iOS.MOV: Gemini hat die Anfrage aus Sicherheitsgründen blockiert (PROHIBITED_CONTENT)"*. Eine solche Ablehnung ist **endgültig**: dieselben Sekunden derselben Aufnahme, beurteilt vom selben Modell nach derselben Richtlinie, werden wieder abgelehnt. Sie galt aber als Fehlschlag, wurde deshalb nie gespeichert — und jeder künftige Lauf plante sie erneut, lud die Aufnahme erneut herunter, schnitt erneut einen Ausschnitt und fragte erneut. Die Karte bot „1 neue Analyse" für ein Fenster an, das nur abgelehnt werden kann. Diese Filter weisen ganz gewöhnliche Familienaufnahmen regelmäßig und zu Unrecht zurück; das ist also kein seltener Sonderfall. Sie wird jetzt so abgelegt, wie eine unlesbare Antwort schon immer abgelegt wurde: kein Moment hier, samt Begründung. Jeder **andere** Providerfehler bleibt ein Fehlschlag — eine abgerissene Verbindung kann beim nächsten Mal klappen.
