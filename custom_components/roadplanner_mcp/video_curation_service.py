@@ -302,6 +302,16 @@ class VideoCurationService:
         # times over for one unusable file, and a run that looks stuck
         # while it is patiently repeating itself.
         unreachable: dict[str, str] = {}
+        # How many windows still need each recording. A recording is
+        # deleted the moment its last window is done, instead of every
+        # original piling up until the run ends: seventeen phone videos
+        # at a couple of hundred megabytes each is several gigabytes of
+        # /share held at once, on a box that has a few to spare. The peak
+        # is now one recording, not all of them.
+        pending: dict[str, int] = {}
+        for entry in plan["new"]:
+            key_id = str(entry.get("id") or "")
+            pending[key_id] = pending.get(key_id, 0) + 1
         try:
             total = len(plan["new"])
             # Logged per window, at info, because the alternative is what
@@ -324,6 +334,7 @@ class VideoCurationService:
                             "reason": unreachable[media_id],
                         }
                     )
+                    await self._async_release(media_id, pending, originals)
                     continue
                 try:
                     source = originals.get(media_id)
@@ -355,9 +366,11 @@ class VideoCurationService:
                             "reason": str(err)[:200],
                         }
                     )
+                    await self._async_release(media_id, pending, originals)
                     continue
                 analysed += 1
                 segments_found += len(record.get("segments") or [])
+                await self._async_release(media_id, pending, originals)
                 if record.get("refused"):
                     refused.append(
                         {
@@ -415,6 +428,31 @@ class VideoCurationService:
         }
 
     # --- the parts that touch the world ---------------------------------
+
+    async def _async_release(
+        self,
+        media_id: str,
+        pending: dict[str, int],
+        originals: dict[str, Path],
+    ) -> None:
+        """Delete a recording's copy once no window still needs it.
+
+        Counted down rather than deleted after each window, because one
+        recording is usually several windows and re-downloading it would
+        trade disk for bandwidth and time. The `finally` still removes the
+        whole directory - this only lowers the peak, which is the number
+        that decides whether /share runs out halfway through a run.
+        """
+        left = pending.get(media_id, 0) - 1
+        pending[media_id] = max(0, left)
+        if left > 0:
+            return
+        source = originals.pop(media_id, None)
+        if source is None:
+            return
+        await self.hass.async_add_executor_job(
+            lambda: source.unlink(missing_ok=True)
+        )
 
     async def _async_fetch_original(self, window: dict[str, Any], work: Path) -> Path:
         """A copy of the recording, on disk, for as long as it takes to cut."""
