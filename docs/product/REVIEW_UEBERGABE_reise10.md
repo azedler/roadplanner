@@ -68,9 +68,16 @@ zurückgeben.
 | Höhepunkt | 3 |
 | großer Höhepunkt | 3 |
 
-Höchstens **ein Hero-Clip** je Tag. Clips werden **vom Bildbudget abgezogen**,
-nicht addiert: Ein Tag mit zwei Clips zeigt zwei Fotos weniger. Die Länge
-eines Tages im Film ändert sich durch Video also nicht.
+Höchstens **ein Hero-Clip** je Tag. Die Sekunden eines Clips gehen **vom
+Zeitbudget des Tages ab**, und die Fotos teilen sich, was übrig bleibt
+(`trip_film_plan.py:759-770`). Ein Clip lässt sich nicht kürzen — er wurde auf
+einen Moment geschnitten, und ihn zu trimmen hieße, ihn nochmal zu schneiden.
+
+**Präzisierung**, weil eine frühere Fassung dieses Dokuments hier zu absolut
+war: Ein Tag, der sein Zeitbudget ohnehin füllt, wird durch Clips **nicht
+länger** — die Fotos weichen. Ein Tag mit wenigen Bildern, der sein Budget gar
+nicht ausschöpfte, **wird länger**. Über den ganzen Film summiert sich das:
+Dieser läuft **12:23**, der letzte ohne Video lag bei rund zehn Minuten.
 
 Renderproxy: 720p, **kein Ton**, höchstens 12 s je Clip.
 
@@ -149,6 +156,15 @@ einzige Beleg** — deshalb dieser Review.
 
 **C) Der Film wurde auf dem Live-System gerendert**, Integration 4.104.0 mit
 Renderer-Add-on 0.22.0.
+
+**Die Zahlen dieses Renders:** h264, 1280×720, **743,0 s** (12:23), **221 MB**.
+Renderdauer **3586,5 s** (59,8 min) — rund 161 ms je Frame bei 22.290 Frames.
+
+Für die Bewertung unwichtig, für die Geschichte des Projekts nicht: Der
+Renderer hatte bis vor kurzem eine **feste** Grenze von 40 Minuten, bemessen
+an einem Film halber Länge. Dieser Film hätte sie um zwanzig Minuten gerissen
+— und genau daran sind zwei frühere Renderversuche gestorben. Die Grenze
+wächst jetzt mit der Bildzahl (hier rund 148 Minuten); gebraucht wurden 40 %.
 
 ---
 
