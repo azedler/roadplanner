@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hochkante Fotos wurden in der letzten Einstellung des Films beschnitten** (Add-on 0.22.0). Gefunden beim gezielten Nachfassen dort, wo der Hochkant-Fehler herkam — statt zu warten, bis es der nächste Achtzehn-Minuten-Render zeigt. Die Tageskollage schreibt die Regel in ihrem eigenen Kommentar auf, zweimal, weil sie sie zweimal gelernt hat: „eine Wand aus Erinnerungen darf sie nicht beschneiden" und „eine Box in beiden Dimensionen, damit nichts aus dem Bild laufen kann". Die **Schlusskollage** tat beides, was dort verboten ist: `objectFit: "cover"` und Rasterzeilen, deren Höhe sich die Bilder selbst nahmen. Es ist das Bild, mit dem der Film endet, und die Querformate daneben sehen richtig aus — was es als „manche meiner Fotos sind kaputt" lesen lässt statt als Gestaltung. Die Auswahl macht es wahrscheinlicher, nicht seltener: Das Outro nimmt das **erste** Bild jedes Kapitels, auf einer Handyreise oft das hochkant gehaltene. Behoben innerhalb der Szene, ohne Änderung am Plan: `contain`, feste Rasterzeilen, und Kacheln, die unter ihren Inhalt schrumpfen dürfen. Ein Orientierungsmerkmal braucht es dafür nicht — eine Box in beiden Dimensionen passt für jedes Seitenverhältnis.
+
+  Die Regel stand als Kommentar in einer einzigen Komponente, und ein Kommentar ist nichts, woran sich eine zweite halten muss. Jetzt ist es ein Test über **alle** Szenen, die mehrere Bilder gleichzeitig zeigen — samt der Gegenprüfung für die Vollbildszene, damit das nicht als „überall contain" missverstanden wird: Ein Querformat, das das ganze 16:9-Bild für sich hat, soll es weiterhin ausfüllen.
+
 ## [4.102.0] - 2026-08-11
 
 ### Fixed
