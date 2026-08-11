@@ -6,6 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Die Größenauswahl war unsichtbar, und mit ihr die halbe neue Funktion.** Auf dem echten Panel gefunden, von keinem Test: In der Filmkarte gab es weder einen Größenwähler noch „Review-Kopie erstellen". Die Profiltabellen kamen **ausschließlich** in der Antwort auf „Was käme in den Film?" — einen Knopf, den niemand vor jedem Render drückt. Wer ihn nicht drückte, sah keine Wahl, renderte also für immer in der Standardgröße und bekam die Review-Kopie überhaupt nie zu Gesicht.
+
+  Wieder dieselbe Form: **eine fehlende Antwort wird als Zustand dargestellt.** Eine leere Tabelle erzeugte schweigend gar kein Bedienelement — nicht von einem Panel zu unterscheiden, das die Funktion schlicht nicht hat. Die Tabellen liegen jetzt in der normalen Panel-Nutzlast und sind damit immer da; beide Auswahlfelder lesen sie über **einen** gemeinsamen Weg, damit der Fehler nicht zur Hälfte zurückkommen kann, wenn eine Stelle es wieder direkt tut.
+
+
 ## [4.108.0] - 2026-08-11
 
 ### Added
