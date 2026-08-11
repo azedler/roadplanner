@@ -440,7 +440,10 @@ export const storyEditorMixin = {
         // The id that is on screen, resolved the same way the picker
         // resolved it - never the raw field, which is empty until
         // somebody touches the select.
-        profile: this._storyFilmChosen(this._storyFilmProfiles || [], this._storyFilmProfile),
+        profile: this._storyFilmChosen(
+          this._storyFilmProfileTable("render"),
+          this._storyFilmProfile,
+        ),
       },
       "Reisefilm wird gerendert",
       { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
@@ -607,9 +610,27 @@ export const storyEditorMixin = {
     return fallback ? fallback.id : "";
   },
 
+  /**
+   * The size tables, from the ordinary panel payload.
+   *
+   * They used to arrive ONLY in the answer to "Was käme in den Film?",
+   * which meant the size picker and the whole review-copy offer were
+   * invisible until somebody pressed an unrelated button - and a film
+   * that renders in the default size forever is exactly what a hidden
+   * choice produces. They travel with the payload now; the preview
+   * answer still refreshes them, which costs nothing.
+   */
+  _storyFilmProfileTable(kind) {
+    const local = kind === "review" ? this._storyFilmReviewProfiles : this._storyFilmProfiles;
+    if (Array.isArray(local) && local.length) return local;
+    const data = this._experienceData();
+    const carried = kind === "review" ? data?.review_profiles : data?.render_profiles;
+    return Array.isArray(carried) ? carried : [];
+  },
+
   _renderStoryFilmProfile() {
-    const profiles = this._storyFilmProfiles;
-    if (!Array.isArray(profiles) || !profiles.length) return "";
+    const profiles = this._storyFilmProfileTable("render");
+    if (!profiles.length) return "";
     const chosen = this._storyFilmChosen(profiles, this._storyFilmProfile);
     const note = profiles.find((entry) => entry.id === chosen);
     return `<label class="inline-select"><span>Größe</span><select data-action="story-film-profile">
@@ -643,7 +664,7 @@ export const storyEditorMixin = {
       {
         job_id: sourceId,
         profile: this._storyFilmChosen(
-          this._storyFilmReviewProfiles || [],
+          this._storyFilmProfileTable("review"),
           this._storyFilmReviewProfile,
         ),
       },
@@ -788,8 +809,8 @@ export const storyEditorMixin = {
    * reads the artefact the job produced rather than assuming.
    */
   _renderStoryFilmReviewCopy() {
-    const profiles = this._storyFilmReviewProfiles;
-    if (!this._canEdit() || !Array.isArray(profiles) || !profiles.length) return "";
+    const profiles = this._storyFilmProfileTable("review");
+    if (!this._canEdit() || !profiles.length) return "";
     // Only beside a film, never beside a copy. Without this the button
     // would offer to copy the copy: the source is read from
     // `results/<job>/roadplanner-trip-film.mp4`, which a review-copy job
