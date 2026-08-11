@@ -6,6 +6,20 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Ein Film kann jetzt in verschiedenen Größen gerendert werden** (Add-on 0.24.0). Fünf Profile — 480p, 720p, 1080p, 1440p und 4K als Experiment — mit **einer** Bildrate für alle. Ein Profil entscheidet **Pixel und sonst nichts**: dieselbe Geschichte, derselbe Szenenplan, dieselben Fotos, dieselben Clips, dieselben Sekunden. Das ist keine Absichtserklärung, sondern die Bedingung dafür, dass ein kleiner Render überhaupt etwas über den großen aussagt. Durchgesetzt wird es an einer Stelle: Die Komposition bleibt auf einer logischen Fläche von **1280×720 gebaut**, und ein Profil skaliert diese Fläche als *ein* Bild — keine Komponente weiß, in welcher Größe gerendert wird. Die Alternative, jede Komponente die echte Breite lesen zu lassen, ist genau der Weg, auf dem eine Überschrift bei 480p anders umbricht als bei 1440p. Die Bildrate ist absichtlich keine Einstellung: Ein Profil, das sie ändern könnte, könnte die Zeitrechnung eines Plans ändern, und derselbe Szenenplan würde zu zwei verschiedenen Filmen.
+
+- **Eine kleine Kopie eines fertigen Films, ohne ihn neu zu rendern.** Ein Zwölf-Minuten-Film braucht knapp eine Stunde und ist über zweihundert Megabyte groß — beides sind keine Probleme *mit* dem Film, sondern damit, ihn anzusehen und weiterzugeben. Die Review-Kopie ist deshalb **kein Render**: Sie liest die fertige MP4 und rechnet sie kleiner. Kein Paket, kein Browser, kein Foto geöffnet, kein Dienst gerufen, **keine Kosten**. Länge, Seitenverhältnis, Bildrate und Tonspur samt ihrer Synchronität bleiben erhalten; verändert werden nur Pixelzahl und Bitrate — mehr wäre wertlos, denn der ganze Zweck ist, den Film **an der Kopie** zu beurteilen. Die Quelle reist als **Job-ID**, nie als Pfad: Beide Seiten bauen den Ordnernamen aus einem Wert, der vorher gegen das Job-ID-Muster geprüft wurde, es gibt also nichts zu traversieren statt eines Sanitizers, der jedes Mal richtig sein muss.
+
+  Gemessen an einem Film von 12:23 (1440p, 213 MB): **50,2 MB** in 480p und **90,2 MB** in 720p. Die Zielgröße gehört dabei zum **Profil**, und das ist die Korrektur einer ersten Fassung: Mit einer gemeinsamen Zielgröße bestimmt bei echter Filmlänge die Zielgröße die Bitrate — beide Profile landeten auf demselben Byte, 480p war nicht kleiner, sondern nur weniger stark komprimiert. Das waren nicht zwei Profile, sondern eines mit zwei Namen. Jetzt haben sie verschiedene Zwecke: 480p für schnelle Runden und eine Datei, die überall hochlädt; 720p, um Schrift, Karten, Cropping und feine Bewegung zu beurteilen.
+
+### Fixed
+
+- **Die Bildrate stand als dritte eigene Zahl in der Filmkomponente**, neben dem Filmplan und der Profiltabelle. Drei Dateien sagten „dreißig", und keine hätte gemerkt, wenn eine andere sich ändert — eine Abweichung dort hätte **fehlerfrei gerendert**, nur jede Szene im Film um einen festen Bruchteil zu lang oder zu kurz. Kommt jetzt aus einer Tabelle, und ein Test vergleicht die Zahl des Plans dagegen.
+
+- **Neue Laufzeitmodule fehlten im Add-on-Image.** Das Image kopiert Module namentlich statt den ganzen Baum; alles sah gesund aus — Image gebaut, Container gestartet, Lebenszeichen „bereit" — und der **erste Render** starb mit `Cannot find module`. Über dieser Zeile stand seit dem letzten Mal, als dasselbe passiert war, der Hinweis, ein Test lese die Zeile und die Importe und schlage bei Abweichung an. **Diesen Test gab es nicht.** Er existiert jetzt: vom Einstiegspunkt aus jedem Import folgen und verlangen, dass jede erreichte Datei kopiert wird — und jede kopierte erreicht, damit auch kein toter Name in der Liste stehen bleibt. Absichtlich kaputt gemacht zur Probe, was sich gelohnt hat: Die erste Fassung erkannte nur die statische Importform und wäre grün geblieben, während das Image genau so kaputt war, wie sie es hätte fangen sollen.
+
 ## [4.107.0] - 2026-08-11
 
 ### Fixed
