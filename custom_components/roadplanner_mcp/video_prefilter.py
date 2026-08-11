@@ -240,7 +240,21 @@ def select_candidates(
     per_chapter_count: dict[str, int] = {}
     chosen: list[dict[str, Any]] = []
     for candidate in candidates:
-        chapter = str(candidate.get("chapter_id") or "")
+        # The DAY, read from the field the library actually stores.
+        #
+        # This asked for `chapter_id`, which nothing in the media library
+        # writes: every recording answered "" and the whole trip shared
+        # one day's allowance. On a real trip that meant twenty videos in,
+        # six out, and eighteen rejected as "Tagesbudget erreicht" - a
+        # budget that had never been per day at all. Same shape as the
+        # cache key that read `content_hash`: a field name from a
+        # neighbouring structure, and a silently wrong answer.
+        chapter = str(
+            candidate.get("linked_day_id")
+            or candidate.get("day_id")
+            or candidate.get("chapter_id")
+            or ""
+        )
         if per_chapter_count.get(chapter, 0) >= per_chapter:
             rejected.append({**candidate, "skipped_reason": "Tagesbudget erreicht"})
             continue

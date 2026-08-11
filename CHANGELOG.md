@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.97.0] - 2026-08-11
+
+### Fixed
+
+- **Das „Tagesbudget" für Videos war das Budget der ganzen Reise.** Auf dem echten System, Minuten nachdem die Aufnahmen endlich ankamen: *20 Videos gefunden · 6 technisch brauchbar · 18 übersprungen: Tagesbudget erreicht* — bei Aufnahmen, die über ein Dutzend Tage verteilt sind. Der Vorfilter gruppierte nach `chapter_id`; die Medienbibliothek speichert `linked_day_id` und schreibt gar kein `chapter_id`. Also antwortete **jede** Aufnahme mit einem leeren Tag, alle landeten im selben Topf, und das Kontingent von sechs pro Tag galt für die gesamte Reise. Die Meldung log nicht einmal über ihre eigene Regel — die Regel war nur nie eine Tagesregel. Gemessen: 20 Videos über 8 Tage ergeben jetzt **20 Kandidaten statt 6**; ein Tag, der wirklich über seinem Kontingent liegt, wird weiterhin gedeckelt. Dieselbe Form wie beim Cache-Schlüssel (`content_hash`) und bei der verworfenen Videolänge: ein Feldname aus einer benachbarten Struktur — und eine Antwort, die still falsch ist, statt zu fehlen.
+
 ## [4.96.0] - 2026-08-10
 
 ### Fixed
