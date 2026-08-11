@@ -414,12 +414,21 @@ export const storyEditorMixin = {
 
   async _storyFilmRender() {
     this._storyFilmStartError = "";
+    // Said before anything is fetched, because between this click and
+    // the first progress number lies the whole package build: a couple
+    // of hundred photographs downloaded and shrunk, every recording a
+    // clip comes from fetched and cut, the package written. That is
+    // minutes, and it used to happen in complete silence - so the button
+    // read as broken until it suddenly was not (live report).
+    this._storyFilmPreparing = true;
+    this._render({ preserveScroll: true });
     const result = await this._runAction(
       "story_film_render",
       { trip_id: this._selectedTripId, music: this._storyFilmTrack || "" },
       "Reisefilm wird gerendert",
       { refresh: false, blockUi: false, errorTitle: "Der Reisefilm konnte nicht gestartet werden" },
     );
+    this._storyFilmPreparing = false;
     if (!result?.renderer_app_job?.job_id) {
       // Live report: "Aktuell passiert nichts beim Drücken von Film
       // erzeugen." It was this line. `_runAction` returns null for every
@@ -462,10 +471,16 @@ export const storyEditorMixin = {
     const job = this._rendererAppJob;
     const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
     const startError = running ? "" : String(this._storyFilmStartError || "");
+    const preparing = Boolean(this._storyFilmPreparing) && !running;
     return `<div class="notice neutral"><div>
       <strong>Reisefilm aus dieser Geschichte</strong>
       <small>Ein Film über die ganze Reise, ein Kapitel je Tag, aus genau diesen Titeln, Texten und Bildern. Tage ohne Fotos werden als solche gezeigt und nicht übersprungen.</small>
       ${startError ? `<small class="hint"><strong>${escapeHtml(startError)}</strong></small>` : ""}
+      ${
+        preparing
+          ? `<small class="hint"><strong>Der Film wird vorbereitet.</strong> Alle Bilder werden geholt und verkleinert, die Aufnahmen der Videomomente geladen und geschnitten, dann das Paket geschrieben. Das dauert einige Minuten, <em>bevor</em> die erste Fortschrittszahl erscheint - der Knopf ist so lange still, aber nicht untätig. Die Seite darf verlassen werden.</small>`
+          : ""
+      }
       ${
         film
           ? `<small>${escapeHtml(String(film.chapter_count))} Kapitel · ${escapeHtml(String(film.planned_photo_count))} Bilder ausgewählt (bis ${escapeHtml(String(film.photos_per_chapter))} je Tag) · ${escapeHtml(String(film.chapters_without_photos))} Tage ohne Fotos</small>
@@ -490,7 +505,7 @@ export const storyEditorMixin = {
       <div class="button-row">
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
         ${this._renderStoryFilmMusic()}
-        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon> Reisefilm erzeugen</button>` : ""}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
       </div>
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
