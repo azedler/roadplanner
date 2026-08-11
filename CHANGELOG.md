@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.102.0] - 2026-08-11
+
 ### Fixed
 
 - **Hochkant aufgenommene Videos wurden von ffmpeg abgelehnt, bevor ein einziges Bild entstand.** Aus dem Protokoll des echten Systems, und es nennt seine Ursache selbst: `[libx264] height not divisible by 2 (202x359) · Conversion failed!`. Elf Fenster, jedes einzelne zurückgewiesen — und weil nichts gespeichert wurde, plante jeder neue Lauf dieselben elf erneut. Der Zähler stand deshalb auf „10 von 21", egal wie lange man wartete. Der Filter lautete `scale=-2:360:force_original_aspect_ratio=decrease`. Das `-2` ist ffmpegs Zusage „Breite automatisch, und gerade" — aber `force_original_aspect_ratio` behandelt Breite und Höhe als **Rahmen** und rechnet beide neu aus, womit die Zusage verfällt. Aus einer 1080×1920-Handyaufnahme wurde 202×359. Querformat landete zufällig auf geraden Zahlen; genau deshalb hatten zehn Fenster funktioniert und diese elf konnten es nie. Vor der Änderung hier nachgestellt: derselbe Filter, dasselbe Seitenverhältnis, dieselben 202×359, derselbe Abbruch.
