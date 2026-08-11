@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.106.0] - 2026-08-11
+
 ### Changed
 
 - **Der prominente Platz wird jetzt reserviert, bevor gepackt wird.** Der letzte sichtbare Fehler aus dem Film: Das zentrale Motiv eines Tages war korrekt kuratiert, korrekt bewertet und korrekt nach vorn sortiert — und erschien trotzdem nur als viertelgroße Kachel. Der Grund ist **ein Zweig in der Szenengrammatik**: Ein Tag mit dem visuellen Stil „Collage" hat **gar keinen prominenten Slot**. Es gab also nichts, wohin man hätte sortieren können — reines Umsortieren konnte nie wirken, und deshalb hielt die erste Korrektur nicht. Der Slot wird nun zuerst freigehalten und das reservierte Bild aus der Packliste genommen. Einer pro Tag, medienneutral, gar nichts wenn ohnehin schon ein Clip auf das Motiv öffnet — und ein von Hand gesetzter Hero sticht die automatische Reservierung weiterhin.
