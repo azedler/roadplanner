@@ -87,10 +87,19 @@ class VideoCurationService:
         *,
         share_root: Path,
         media_source: Any = None,
+        video_analysis_enabled: bool = False,
     ) -> None:
         self.hass = hass
         self.store = store
         self._provider = provider
+        # The opt-in, passed in rather than read off the provider. It was
+        # read off the provider once: the assistant client has no such
+        # attribute and never had one, so `getattr(provider, ..., False)`
+        # answered "off" for every configuration, including the one where
+        # the user had ticked the box. An absent answer rendered as a
+        # state - and the option screen and the panel disagreed with no
+        # error anywhere to explain it.
+        self._video_analysis_enabled = bool(video_analysis_enabled)
         self._share_root = Path(share_root)
         # Whatever can turn a stored media record into a download URL.
         # Injected rather than imported so a test can hand over a local
@@ -99,7 +108,7 @@ class VideoCurationService:
 
     @property
     def enabled(self) -> bool:
-        return bool(getattr(self._provider, "video_analysis_enabled", False))
+        return self._video_analysis_enabled
 
     # --- free, read-only -------------------------------------------------
 

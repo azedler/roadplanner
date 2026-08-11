@@ -117,6 +117,14 @@ Worth asking, on every finding, whether it is one of these:
    plus `__path__`).
 7. **`str.casefold()` turns "ß" into "ss".** Patterns with ß never match folded
    names.
+8. **An attribute read with a default off an object that never had it.**
+   `getattr(provider, "video_analysis_enabled", False)` answered "off" for every
+   configuration, because the only object that ever carried that name was the
+   test's own fake. Five occurrences so far (`data` vs `value`, `content_hash`
+   vs `file_hash`, `chapter_id` vs `linked_day_id`, `zeigt` vs `motifs`, this
+   one). Two remedies, both cheap: a default that can lie is worth a test that
+   looks the name up in the real class; and a fake must never carry a field the
+   production object does not.
 
 ## Tests
 
