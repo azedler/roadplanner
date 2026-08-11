@@ -50,6 +50,10 @@ class VideoMediaSource:
         self._hass = hass
         self._onedrive = onedrive
 
+    @staticmethod
+    def _write(handle: Any, chunk: bytes) -> None:
+        handle.write(chunk)
+
     async def async_download_to(self, record: dict[str, Any], target: Path) -> int:
         """Fetch the recording behind this record. Returns bytes written."""
         item_id = str((record or {}).get("provider_item_id") or "").strip()
@@ -58,7 +62,9 @@ class VideoMediaSource:
 
         url = await self._onedrive.async_download_url(item_id)
         session = async_get_clientsession(self._hass)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        await self._hass.async_add_executor_job(
+            lambda: target.parent.mkdir(parents=True, exist_ok=True)
+        )
         written = 0
         timeout = aiohttp.ClientTimeout(
             total=None,
@@ -76,18 +82,28 @@ class VideoMediaSource:
                     raise ValidationError(
                         f"Das Video konnte nicht geladen werden (HTTP {response.status})"
                     )
-                with target.open("wb") as handle:
+                # Opened and written through the executor. Home Assistant
+                # reported this one itself: "Detected blocking call to open
+                # ... inside the event loop". A few hundred megabytes
+                # arriving a megabyte at a time is a few hundred blocking
+                # writes on the loop that also runs the rest of the house.
+                handle = await self._hass.async_add_executor_job(
+                    target.open, "wb"
+                )
+                try:
                     async for chunk in response.content.iter_chunked(CHUNK_BYTES):
                         written += len(chunk)
                         if written > MAX_DOWNLOAD_BYTES:
                             # Stop mid-stream rather than after: the point
                             # of a ceiling is to not have written the thing.
-                            handle.close()
-                            target.unlink(missing_ok=True)
                             raise ValidationError(
                                 "Das Video ist zu groß zum Verarbeiten"
                             )
-                        handle.write(chunk)
+                        await self._hass.async_add_executor_job(
+                            self._write, handle, chunk
+                        )
+                finally:
+                    await self._hass.async_add_executor_job(handle.close)
         except TimeoutError as err:
             target.unlink(missing_ok=True)
             raise ValidationError(
@@ -99,6 +115,12 @@ class VideoMediaSource:
             raise ValidationError(
                 f"Das Video konnte nicht geladen werden: {str(err)[:120]}"
             ) from err
+        except ValidationError:
+            # Includes the size ceiling, whose whole point is to NOT have
+            # written the thing - the partial file goes either way, and
+            # saying so once here beats remembering it at each raise.
+            target.unlink(missing_ok=True)
+            raise
         if written <= 0:
             target.unlink(missing_ok=True)
             raise ValidationError("Das Video kam leer an")

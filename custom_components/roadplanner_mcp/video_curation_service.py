@@ -391,6 +391,12 @@ class VideoCurationService:
             "skipped": plan["over_limit"],
             "failed": failed,
             "segments": segments_found,
+            # The same field the stored summary carries. It was missing
+            # here, and the card - which reads whichever of the two it
+            # has - rendered "0 von 0 analysiert" for a run that had
+            # planned eleven. One shape, or the reader has to know which
+            # source it got.
+            "planned": len(plan["new"]),
         }
 
     # --- the parts that touch the world ---------------------------------

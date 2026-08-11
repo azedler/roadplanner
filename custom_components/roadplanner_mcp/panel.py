@@ -1673,9 +1673,15 @@ async def _execute_action(
         # Free and read-only: what an analysis run WOULD do and what it
         # would cost. Separate from the run itself because nobody should
         # find out the price after paying it.
+        # In the executor: it reads the trip's whole experience file, and
+        # Home Assistant reported it as a blocking call on the event loop
+        # (`Detected blocking call to read_text ... experience.json`). The
+        # card asks for it on every open and every fifteen seconds while a
+        # run is going, so it is not a rare one either.
         return {
-            "video_offer": runtime.experience.video_curation.offer(
-                str(data.get("trip_id") or "")
+            "video_offer": await hass.async_add_executor_job(
+                runtime.experience.video_curation.offer,
+                str(data.get("trip_id") or ""),
             )
         }
 
