@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.98.0] - 2026-08-11
+
 ### Fixed
 
 - **Der Schalter war an. Er kam nur nie dort an, wo entschieden wird.** In den Roadplanner-Optionen war „KI-Videoanalyse" angehakt — die Karte im Story-Editor meldete für dieselbe Reise „Die KI-Videoanalyse ist ausgeschaltet", der Startknopf wurde deshalb nie gezeichnet, und ein Lauf hätte mit derselben Begründung abgebrochen. **Nichts stand im Log, weil nichts fehlgeschlagen war:** Der Videodienst las die Zustimmung als `getattr(provider, "video_analysis_enabled", False)` vom Assistenz-Client — und der hat dieses Feld nicht und hatte es nie. Das einzige Objekt im ganzen Projekt, das den Namen je trug, war der Fake im zugehörigen Test, weshalb die Verdrahtung geprüft aussah. Der Standardwert antwortete also für **jede** Konfiguration „aus". Die Option reist jetzt denselben Weg wie jede andere (Eintragsoptionen → Erlebnismanager → Videodienst, Standard aus), und das Feld, das das Panel meldet, wird vom Dienst *zurückgelesen* statt die Option ein zweites Mal zu lesen: Panel und Karte können nur noch gemeinsam falsch liegen, nie getrennt.
