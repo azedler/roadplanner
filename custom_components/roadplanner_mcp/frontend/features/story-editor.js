@@ -1121,7 +1121,10 @@ export const storyEditorMixin = {
       Math.round((Date.now() - (this._storyVideoStartedAt || Date.now())) / 60000),
     );
     nodes.forEach((node) => {
-      node.textContent = `${done} von ${total} Analysen fertig · seit ${minutes} min`;
+      // "10 von 21 fertig" read as "this run did ten in a second" when
+      // ten of them were answered by an earlier run. The number is the
+      // trip's, so it says so.
+      node.textContent = `insgesamt ${done} von ${total} Analysen beantwortet · dieser Lauf seit ${minutes} min`;
     });
     return true;
   },
@@ -1158,7 +1161,7 @@ export const storyEditorMixin = {
       }
       ${
         running
-          ? `<p class="hint"><strong>Die Analyse läuft.</strong> <span data-story-video-progress>${escapeHtml(String(offer.windows_cached || 0))} von ${escapeHtml(String(Number(offer.windows_cached || 0) + Number(offer.windows_new || 0)))} Analysen fertig</span>. Pro Aufnahme wird das Original geladen, ein kleiner Ausschnitt geschnitten und gefragt - das dauert Minuten, nicht Sekunden. Jede fertige Analyse ist sofort gespeichert: Die Seite darf verlassen werden, und ein Abbruch verliert nur den Rest.</p>`
+          ? `<p class="hint"><strong>Die Analyse läuft.</strong> <span data-story-video-progress>insgesamt ${escapeHtml(String(offer.windows_cached || 0))} von ${escapeHtml(String(Number(offer.windows_cached || 0) + Number(offer.windows_new || 0)))} Analysen beantwortet</span>. Pro Aufnahme wird zuerst das Original geladen - bei einem Handyvideo sind das schnell ein paar hundert Megabyte, und die erste Zahl bewegt sich deshalb minutenlang nicht. Jede fertige Analyse ist sofort gespeichert: Die Seite darf verlassen werden, und ein Abbruch verliert nur den Rest. Wo der Lauf gerade steht, steht im Home-Assistant-Protokoll.</p>`
           : ""
       }
       ${

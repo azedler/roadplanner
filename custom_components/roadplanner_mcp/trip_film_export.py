@@ -432,6 +432,16 @@ class TripFilmExporter:
             return {}, {}
         if not stored:
             return {}, {}
+        source_of = getattr(service, "media_source", None)
+        if source_of is None:
+            # Analyses without a way to fetch the recordings they describe.
+            # Said once, here, rather than raised from inside the loop as
+            # an AttributeError the `except` below does not list - which
+            # would have ended the whole film export over missing clips.
+            _LOGGER.warning(
+                "Es gibt Videomomente, aber keine Medienquelle - der Film läuft ohne Clips"
+            )
+            return {}, {}
 
         work = Path(tempfile.mkdtemp(prefix="roadplanner-film-clips-"))
         clips: dict[str, list[dict[str, Any]]] = {}
@@ -454,7 +464,7 @@ class TripFilmExporter:
                         source = originals.get(media_id)
                         if source is None:
                             source = work / f"{media_id}.src"
-                            await service._media_source.async_download_to(record, source)
+                            await source_of.async_download_to(record, source)
                             originals[media_id] = source
                         target = work / f"{chapter_id}-{position}.mp4"
                         await async_cut_render_proxy(
@@ -463,7 +473,9 @@ class TripFilmExporter:
                             start=float(segment.get("start_seconds") or 0.0),
                             end=float(segment.get("end_seconds") or 0.0),
                         )
-                        raw = target.read_bytes()
+                        raw = await self._hass.async_add_executor_job(
+                            target.read_bytes
+                        )
                     except (RoadplannerError, VideoProxyError, OSError) as err:
                         _LOGGER.warning("Clip konnte nicht geschnitten werden: %s", err)
                         continue
@@ -494,7 +506,12 @@ class TripFilmExporter:
                 if entries:
                     clips[chapter_id] = entries
         finally:
-            shutil.rmtree(work, ignore_errors=True)
+            # Hundreds of megabytes of downloaded originals. Deleting them
+            # on the event loop freezes everything else on the box for as
+            # long as it takes.
+            await self._hass.async_add_executor_job(
+                lambda: shutil.rmtree(work, ignore_errors=True)
+            )
         return clips, files
 
     async def _async_media_records(self, trip_id: str) -> dict[str, dict[str, Any]]:
