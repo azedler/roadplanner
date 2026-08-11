@@ -76,6 +76,14 @@ WORK_DIRNAME = "roadplanner-video-work"
 SCHEMA_VERSION = ANALYSIS_VERSION
 
 
+def _size_of(path: Path) -> int:
+    """Bytes on disk, or zero when there is nothing there."""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 class VideoCurationService:
     """Analyse a trip's videos once, deliberately, and remember the answer."""
 
@@ -116,6 +124,18 @@ class VideoCurationService:
 
     def is_running(self, trip_id: str) -> bool:
         return str(trip_id or "").strip() in self._running
+
+    @property
+    def media_source(self) -> Any:
+        """Whatever can fetch a recording, or None when nothing can.
+
+        Public because the film export needs it too, and it was reaching
+        into `_media_source` to get it - which returns None on a
+        configuration with no source and then raises AttributeError from
+        inside a loop whose `except` lists three other types. One missing
+        media source would have taken the whole film export down with it.
+        """
+        return self._media_source
 
     @property
     def enabled(self) -> bool:
@@ -268,13 +288,33 @@ class VideoCurationService:
         # offered as three windows is fetched once and cut three times.
         originals: dict[str, Path] = {}
         try:
-            for window in plan["new"]:
+            total = len(plan["new"])
+            # Logged per window, at info, because the alternative is what
+            # this run actually looked like from outside: three minutes,
+            # no counter moving, and nothing in the log - a run that is
+            # working and a run that is wedged were the same picture. Only
+            # failures were logged, so success was silence.
+            _LOGGER.info(
+                "Videoanalyse gestartet: %s Fenster, %s bereits beantwortet",
+                total,
+                plan["cached_count"],
+            )
+            for index, window in enumerate(plan["new"], start=1):
                 media_id = str(window.get("id") or "")
                 try:
                     source = originals.get(media_id)
                     if source is None:
+                        _LOGGER.info(
+                            "Videoanalyse %s/%s: lade Aufnahme %s", index, total, media_id
+                        )
                         source = await self._async_fetch_original(window, work)
                         originals[media_id] = source
+                    _LOGGER.info(
+                        "Videoanalyse %s/%s: schneide und frage (%s)",
+                        index,
+                        total,
+                        media_id,
+                    )
                     record = await self._async_analyze_window(
                             trip_id, window, source, work
                         )
@@ -286,7 +326,18 @@ class VideoCurationService:
                 segments_found += len(record.get("segments") or [])
         finally:
             # The originals go, always. They were only ever here to be cut.
-            shutil.rmtree(work, ignore_errors=True)
+            # In the executor: this deletes hundreds of megabytes, and a
+            # blocking unlink loop on the event loop stalls every other
+            # thing Home Assistant is doing at that moment.
+            await self.hass.async_add_executor_job(
+                lambda: shutil.rmtree(work, ignore_errors=True)
+            )
+            _LOGGER.info(
+                "Videoanalyse beendet: %s analysiert, %s fehlgeschlagen, %s Momente",
+                analysed,
+                len(failed),
+                segments_found,
+            )
 
         return {
             "analysed": analysed,
@@ -311,8 +362,12 @@ class VideoCurationService:
         # it as an ordinary user. Positional arguments to a function whose
         # first parameter is a mode are worth avoiding entirely.
         await self._media_source.async_download_to(window, target)
-        if not target.exists() or target.stat().st_size <= 0:
+        written = await self.hass.async_add_executor_job(_size_of, target)
+        if written <= 0:
             raise ValidationError("Das Video konnte nicht geladen werden")
+        _LOGGER.info(
+            "Aufnahme geladen: %s MB", round(written / (1024 * 1024), 1)
+        )
         return target
 
     async def _async_analyze_window(
@@ -331,7 +386,7 @@ class VideoCurationService:
             prompt=request["prompt"],
             video=AssistantVideoInput(
                 video_id=str(window.get("id") or ""),
-                data=proxy.read_bytes(),
+                data=await self.hass.async_add_executor_job(proxy.read_bytes),
                 mime_type="video/mp4",
                 start_offset=0.0,
                 end_offset=max(0.0, end - start),

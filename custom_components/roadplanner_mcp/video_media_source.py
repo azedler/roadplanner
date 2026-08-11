@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .roadplanner import ValidationError
@@ -28,6 +29,18 @@ CHUNK_BYTES = 1024 * 1024
 # What one recording may weigh before it is refused. Not a judgement
 # about the film - a guard so a single misfiled file cannot fill /share.
 MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+# Every other slow step in the video path states its own limit: ffmpeg
+# has one, the provider call has one. This one did not, and it is the
+# step most likely to stop moving - a phone video over a domestic uplink
+# from a cloud drive. Without it, a stalled stream is indistinguishable
+# from a slow one for as long as the box stays up, the run never returns,
+# and the "a run is already going" guard then locks the trip out for
+# good. Stated per stage rather than as one total, because a large file
+# on a slow line is legitimate and a socket that went quiet is not.
+CONNECT_TIMEOUT_SECONDS = 60
+# Longest gap between two chunks before the stream counts as stalled.
+STALL_TIMEOUT_SECONDS = 120
 
 
 class VideoMediaSource:
@@ -47,21 +60,45 @@ class VideoMediaSource:
         session = async_get_clientsession(self._hass)
         target.parent.mkdir(parents=True, exist_ok=True)
         written = 0
-        async with session.get(url) as response:
-            if response.status != 200:
-                raise ValidationError(
-                    f"Das Video konnte nicht geladen werden (HTTP {response.status})"
-                )
-            with target.open("wb") as handle:
-                async for chunk in response.content.iter_chunked(CHUNK_BYTES):
-                    written += len(chunk)
-                    if written > MAX_DOWNLOAD_BYTES:
-                        # Stop mid-stream rather than after: the point of a
-                        # ceiling is to not have written the thing.
-                        handle.close()
-                        target.unlink(missing_ok=True)
-                        raise ValidationError("Das Video ist zu groß zum Verarbeiten")
-                    handle.write(chunk)
+        timeout = aiohttp.ClientTimeout(
+            total=None,
+            connect=CONNECT_TIMEOUT_SECONDS,
+            sock_read=STALL_TIMEOUT_SECONDS,
+        )
+        # Raised as this module's own error rather than let out as an
+        # asyncio.TimeoutError: the caller catches RoadplannerError and
+        # loses ONE recording to it, which is the whole point. An
+        # unfamiliar exception type would have ended the run instead, so
+        # one stalled download would cost every recording after it.
+        try:
+            async with session.get(url, timeout=timeout) as response:
+                if response.status != 200:
+                    raise ValidationError(
+                        f"Das Video konnte nicht geladen werden (HTTP {response.status})"
+                    )
+                with target.open("wb") as handle:
+                    async for chunk in response.content.iter_chunked(CHUNK_BYTES):
+                        written += len(chunk)
+                        if written > MAX_DOWNLOAD_BYTES:
+                            # Stop mid-stream rather than after: the point
+                            # of a ceiling is to not have written the thing.
+                            handle.close()
+                            target.unlink(missing_ok=True)
+                            raise ValidationError(
+                                "Das Video ist zu groß zum Verarbeiten"
+                            )
+                        handle.write(chunk)
+        except TimeoutError as err:
+            target.unlink(missing_ok=True)
+            raise ValidationError(
+                f"Der Download blieb stehen (nach {written // (1024 * 1024)} MB) - "
+                "die Aufnahme wird übersprungen"
+            ) from err
+        except aiohttp.ClientError as err:
+            target.unlink(missing_ok=True)
+            raise ValidationError(
+                f"Das Video konnte nicht geladen werden: {str(err)[:120]}"
+            ) from err
         if written <= 0:
             target.unlink(missing_ok=True)
             raise ValidationError("Das Video kam leer an")
