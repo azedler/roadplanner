@@ -286,6 +286,7 @@ def build_film_package(
     job_id: str,
     manifest: dict[str, Any],
     photos_by_chapter: dict[str, list[bytes]],
+    prominent_by_chapter: dict[str, int] | None = None,
     map_context: dict[str, Any] | None = None,
     crew: dict[str, Any] | None = None,
     crew_files: dict[str, bytes] | None = None,
@@ -340,9 +341,21 @@ def build_film_package(
                 }
             )
         facts = source.get("facts") or {}
+        # Which of this chapter's pictures holds the day's central motif,
+        # if one was reserved. A position rather than an id, because from
+        # here on the film addresses pictures by position and nothing
+        # downstream knows a media id.
+        reserved = (prominent_by_chapter or {}).get(
+            str(source.get("chapter_id") or "")
+        )
         chapters.append(
             {
                 "chapter_id": source.get("chapter_id") or "",
+                "prominent_index": (
+                    reserved
+                    if isinstance(reserved, int) and 0 <= reserved < len(images)
+                    else None
+                ),
                 "index": index,
                 "date": source.get("date") or "",
                 # Straight from the manifest, including the override if one

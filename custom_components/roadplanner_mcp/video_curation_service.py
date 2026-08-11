@@ -224,7 +224,20 @@ class VideoCurationService:
             for segment in entry.get("segments") or []:
                 if isinstance(segment, dict):
                     found.setdefault(day_id, []).append(
-                        {**segment, "media_id": media_id}
+                        {
+                            **segment,
+                            "media_id": media_id,
+                            # The bounds a film handle may grow into: the
+                            # window the prefilter judged usable and the
+                            # model actually looked at, and the recording's
+                            # own length. Carried with the moment because
+                            # the film has no other way back to them, and
+                            # extending past either would show material
+                            # nothing has vouched for.
+                            "window_start": entry.get("window_start"),
+                            "window_end": entry.get("window_end"),
+                            "source_duration_seconds": record.get("duration_seconds"),
+                        }
                     )
         return {
             day_id: merge_overlapping(segments) for day_id, segments in found.items()

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .stop_relevance import has_no_real_name, may_lead_day
+from .stop_relevance import has_no_real_name, is_functional, may_lead_day
 
 FILM_FPS = 30
 PLAN_VERSION = 1
@@ -447,7 +447,11 @@ def readable_place(stop: dict[str, Any]) -> str:
 
 
 def readable_places(
-    stops: list[dict[str, Any]], *, limit: int = 3, story_text: str = ""
+    stops: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+    story_text: str = "",
+    include_functional: bool = False,
 ) -> list[str]:
     """The day's route, as few readable names, in order and without repeats.
 
@@ -456,13 +460,29 @@ def readable_places(
     was a real stop and it stays in the roadbook - it simply does not get
     to introduce a day when there is anything else to say.
 
-    "Held back" and not "removed": a day that genuinely consisted of a
-    supply run still has to be able to say where it went, so the
-    functional names are appended after the narrative ones and only fill
-    the space nothing else claimed.
+    Held back was not enough. The next film still showed supply stops in
+    the small route lines - correctly, by the old rule: they filled the
+    space the narrative names had not claimed. But a line is read as
+    "this is what the day was", not as "this is what was left over", so
+    a fuel stop in it says the wrong thing however it got there.
+
+    So a functional stop is now OMITTED from the film's own lines by
+    default, and a day whose stops are all functional simply has no route
+    line - which is the same judgement as `has_no_real_name`: nothing
+    beats something misleading. The exception is unchanged and is the
+    only one: a stop the story itself talks about is not functional to
+    that day, `may_lead_day` says so, and it appears.
+
+    None of this touches the roadbook. Every stop stays exactly where the
+    traveller put it; this decides what the FILM says out loud.
+
+    `include_functional` exists for a caller that wants the old, complete
+    list - a diagnosis, a panel, anything that is reporting rather than
+    narrating.
     """
     leading: list[str] = []
     trailing: list[str] = []
+    functional: list[str] = []
     for stop in stops:
         entry = stop if isinstance(stop, dict) else {}
         name = readable_place(entry)
@@ -473,9 +493,14 @@ def readable_places(
             continue
         if may_lead_day(entry, story_text=story_text):
             leading.append(name)
+        elif is_functional(entry):
+            # Kept aside rather than dropped, so the reporting caller can
+            # still have the complete list.
+            functional.append(name)
         else:
             trailing.append(name)
-    return (leading + trailing)[:limit]
+    ordered = leading + trailing + (functional if include_functional else [])
+    return ordered[:limit]
 
 
 # --- photo budget --------------------------------------------------------
@@ -615,6 +640,7 @@ def _chapter_scenes(
     index: int,
     has_map: bool = False,
     clips: list[dict[str, Any]] | None = None,
+    prominent_index: int | None = None,
 ) -> list[dict[str, Any]]:
     """The shots for one day, priced from one budget rather than summed up.
 
@@ -696,7 +722,10 @@ def _chapter_scenes(
         reserved = (
             MIN_GROUP_FRAMES
             if photo_count <= 0
-            else sum(_minimum_for(kind) for kind, _, _ in _shot_list(style, photo_count))
+            else sum(
+                _minimum_for(kind)
+                for kind, _, _ in _shot_list(style, photo_count, prominent_index)
+            )
         )
         map_frames = max(
             MAP_FRAMES_MIN, min(map_frames, total - card_frames - reserved)
@@ -743,7 +772,10 @@ def _chapter_scenes(
     # The threshold depends on where the caption would land. Over a
     # collage the usable room is a quarter of a frame, so the same
     # sentence that reads over one photograph is too small over four.
-    shows_collage = any(kind == SCENE_COLLAGE for kind, _, _ in _shot_list(style, photo_count))
+    shows_collage = any(
+        kind == SCENE_COLLAGE
+        for kind, _, _ in _shot_list(style, photo_count, prominent_index)
+    )
     caption_limit = (
         min(CAPTION_OVER_PHOTO_CHARS, CAPTION_OVER_COLLAGE_CHARS)
         if shows_collage
@@ -761,7 +793,7 @@ def _chapter_scenes(
         max(MIN_PHOTO_FRAMES, round(float(chosen_clips[indices[0]].get("frames") or 0)))
         for _, indices, _ in clip_shots
     )
-    shots = _shot_list(style, photo_count)
+    shots = _shot_list(style, photo_count, prominent_index)
     # The smaller of what the day is worth and what it can honestly fill.
     natural = sum(_NATURAL_FRAMES.get(kind, MIN_PHOTO_FRAMES) for kind, _, _ in shots)
     picture_budget = max(
@@ -829,7 +861,9 @@ def _clip_shots(clips: list[dict[str, Any]], importance: str) -> list[tuple[str,
     ]
 
 
-def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float]]:
+def _shot_list(
+    style: str, photo_count: int, reserved: int | None = None
+) -> list[tuple[str, list[int], float]]:
     """Which shots a day is made of, and their relative weights.
 
     Shape only - no durations. That separation is the point of this
@@ -846,6 +880,33 @@ def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float
     the same minute.
     """
     indices = list(range(photo_count))
+    shots: list[tuple[str, list[int], float]] = []
+    if not indices:
+        return shots
+
+    # A slot held open before anything is packed.
+    #
+    # This is the fix for the one visible fault left in the last film: the
+    # day's central motif was curated correctly, moved to the front
+    # correctly, and still appeared only as a quarter tile. The reason is
+    # four lines below - a day whose style is "collage" has no prominent
+    # slot at all, so there was nothing to move INTO. Reordering could
+    # never have solved it.
+    #
+    # One picture, and only when the caller reserved one: a day with no
+    # central motif, or one whose motif a clip already opens on, arrives
+    # here with `reserved=None` and is packed exactly as before.
+    if reserved is not None and 0 <= reserved < photo_count:
+        rest = [position for position in indices if position != reserved]
+        shots.append((SCENE_HERO, [reserved], 1.7))
+        shots.extend(_pack(style, rest))
+        return shots
+
+    return _pack(style, indices)
+
+
+def _pack(style: str, indices: list[int]) -> list[tuple[str, list[int], float]]:
+    """The ordinary packing, unchanged, for whatever is not reserved."""
     shots: list[tuple[str, list[int], float]] = []
     if not indices:
         return shots
@@ -871,7 +932,7 @@ def _shot_list(style: str, photo_count: int) -> list[tuple[str, list[int], float
                 shots.append((SCENE_COLLAGE, rest[position : position + GROUP_SIZE], 1.3))
         return shots
 
-    rest = indices
+    rest = list(indices)
     if style in ("hero", "compact") or len(indices) >= 3:
         # A day with real material opens on one picture rather than
         # starting straight into a sequence.
@@ -1046,6 +1107,11 @@ def build_scene_plan(
                 index=index,
                 has_map=str(chapter.get("chapter_id") or "") in mapped,
                 clips=(clips_by_chapter or {}).get(str(chapter.get("chapter_id") or "")),
+                prominent_index=(
+                    chapter.get("prominent_index")
+                    if isinstance(chapter.get("prominent_index"), int)
+                    else None
+                ),
             )
         )
     if mapped:

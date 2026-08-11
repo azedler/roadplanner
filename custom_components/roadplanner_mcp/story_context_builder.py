@@ -79,7 +79,7 @@ from .film_photo_allocation import (
     spread_series,
 )
 from .media_curation import group_series
-from .visual_prominence import promote_for_prominence
+from .visual_prominence import reserve_for_prominence
 from .trip_summaries import SUMMARY_DETAIL_KEY
 
 _LOGGER = logging.getLogger(__name__)
@@ -346,13 +346,22 @@ def _film_allocation(
         media_ids = spread_series(
             list(found["media_ids"]), entry.get("series_by_media")
         )
-        ordered[day_id] = promote_for_prominence(
+        # Reserved rather than only reordered. A day whose visual style is
+        # "collage" has no prominent slot in the grammar at all, so moving
+        # the day's own subject to the front changed nothing there - it
+        # simply became the first tile. The planner now holds a slot open
+        # for whatever is named here.
+        decided = reserve_for_prominence(
             media_ids,
             must_cover=entry.get("must_cover"),
             alternatives=entry.get("alternatives"),
             analyses=entry.get("analyses"),
             clips=(clips_by_day or {}).get(day_id),
         )
+        ordered[day_id] = {
+            "media_ids": decided["order"],
+            "prominent": decided["reserved"],
+        }
     return ordered
 
 
@@ -430,7 +439,8 @@ def _build(context: dict[str, Any]) -> dict[str, Any]:
                 curation=day_curations.get(day_id)
                 if isinstance(day_curations, dict)
                 else None,
-                film_media_ids=allocation.get(day_id),
+                film_media_ids=(allocation.get(day_id) or {}).get("media_ids"),
+                prominent_media_id=(allocation.get(day_id) or {}).get("prominent"),
                 claimed=claimed,
                 # An edit for a day that no longer exists simply never
                 # finds a chapter to attach to.
@@ -463,6 +473,7 @@ def _chapter(
     media_by_stop: dict[str, list[dict[str, Any]]],
     curation: dict[str, Any] | None = None,
     film_media_ids: list[str] | None = None,
+    prominent_media_id: str | None = None,
     claimed: set[str] | None = None,
     direction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -509,13 +520,21 @@ def _chapter(
     if claimed is not None:
         claimed.update(str(item.get("id") or "") for item in chosen)
     hero_id = str((curation or {}).get("hero_media_id") or "")
+    shown = chosen[:MEDIA_PER_CHAPTER]
+    shown_ids = {str(item.get("id") or "") for item in shown}
+    if not hero_id or hero_id not in shown_ids:
+        # The day's central motif takes the hero place only when nobody
+        # has chosen one by hand. A pinned hero is a person's decision
+        # about their own holiday and outranks any score.
+        reserved = str(prominent_media_id or "")
+        hero_id = reserved if reserved in shown_ids else hero_id
     media = [
         {
             "media_id": str(item.get("id") or ""),
             "role": "hero" if str(item.get("id") or "") == hero_id else _role(item),
             "stop_id": str(item.get("linked_stop_id") or "") or None,
         }
-        for item in chosen[:MEDIA_PER_CHAPTER]
+        for item in shown
     ]
 
     details = day.get("details") if isinstance(day.get("details"), dict) else {}
