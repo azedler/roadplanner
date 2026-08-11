@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "custom_components" / "roadplanner_mcp"
@@ -121,6 +122,41 @@ def verify_the_outcome_of_a_paid_run_outlives_the_connection() -> None:
     assert "offer?.last_run" in CARD
     # And it names the reason rather than only counting failures.
     assert "kein Grund angegeben" in CARD, "eine Zahl ohne Ursache"
+
+
+def verify_the_video_budget_is_the_same_number_on_both_sides() -> None:
+    """Read both files and compare - the only form of this test that works.
+
+    The pictures had a budget from the first day. The video that arrived
+    later had none: one clip was capped at 24 MB, which is nearly the
+    whole picture budget, and nothing bounded the sum at all. A trip with
+    many moments could write an unbounded package into /share on a box
+    that has a few gigabytes to spare.
+    """
+    package = (INTEGRATION / "trip_film_package.py").read_text(encoding="utf-8")
+    protocol = (
+        ROOT / "apps" / "roadplanner_renderer" / "src" / "protocol.mjs"
+    ).read_text(encoding="utf-8")
+
+    def megabytes(body: str, name: str) -> int:
+        match = re.search(rf"{name} = (\d+) \* 1024 \* 1024", body)
+        assert match, f"{name} fehlt oder ist anders geschrieben"
+        return int(match.group(1))
+
+    assert megabytes(package, "MAX_FILM_VIDEO_BYTES") == megabytes(
+        protocol, "MAX_FILM_VIDEO_BYTES"
+    ), "die beiden Deployables rechnen mit verschiedenen Videobudgets"
+    # And each side enforces it, rather than only declaring it.
+    assert "total_clip_bytes > MAX_FILM_VIDEO_BYTES" in package
+    assert "totalBytes > MAX_FILM_VIDEO_BYTES" in protocol
+
+
+def verify_a_recording_is_dropped_as_soon_as_nothing_needs_it() -> None:
+    """Peak disk, not total: /share holds one recording, not all of them."""
+    assert "def _async_release" in SERVICE, "die Aufnahmen bleiben bis zum Schluss liegen"
+    assert "pending" in SERVICE
+    # The film export downloads the same recordings again for cutting.
+    assert "still_needed" in EXPORT, "der Filmexport hält alle Originale bis zum Ende"
 
 
 def verify_the_counter_does_not_credit_this_run_with_older_answers() -> None:
