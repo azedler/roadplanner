@@ -33,7 +33,11 @@ import {
   captionBox,
   fitText,
 } from "../textfit.mjs";
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from "../render_profiles.mjs";
+import {
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  FILM_FPS as PROFILE_FPS,
+} from "../render_profiles.mjs";
 import {
   AbsoluteFill,
   Audio,
@@ -68,7 +72,10 @@ import {
   type CharacterAsset,
 } from "./CharacterAssets";
 
-export const FILM_FPS = 30;
+// Re-exported, not redefined. It used to be a second `30` in this file,
+// which is the shape of bug this project has paid for four times: one
+// number in two places, raised on one side. The profile table owns it.
+export const FILM_FPS = PROFILE_FPS;
 
 export type FilmPhoto = {
   path: string;

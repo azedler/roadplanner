@@ -122,6 +122,43 @@ def verify_the_design_surface_is_one_size() -> None:
     assert fps == profiles.FILM_FPS, f"{fps} != {profiles.FILM_FPS}"
 
 
+def verify_the_frame_rate_is_one_number_in_three_places() -> None:
+    """Three files say "thirty", and none of them may say it alone.
+
+    The film PLAN turns seconds into frames, the profile table declares
+    the rate, and the composition refuses anything else. If the plan and
+    the renderer ever disagreed, every scene would be a fixed fraction too
+    long or too short and the film would still render perfectly - only
+    the timing of everything in it would be wrong.
+
+    The plan is deliberately not allowed to import the profile table (see
+    test_render_profile_isolation), so the numbers are compared here
+    instead of being shared.
+    """
+    plan = (
+        ROOT / "custom_components" / "roadplanner_mcp" / "trip_film_plan.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(r"^FILM_FPS = (\d+)$", plan, re.M)
+    assert match, "trip_film_plan.py hat kein FILM_FPS mehr"
+    assert int(match.group(1)) == profiles.FILM_FPS, (
+        f"Der Filmplan rechnet mit {match.group(1)} fps, "
+        f"die Profiltabelle mit {profiles.FILM_FPS}"
+    )
+    film = (
+        ROOT
+        / "apps"
+        / "roadplanner_renderer"
+        / "src"
+        / "remotion"
+        / "RoadplannerTripFilm.tsx"
+    ).read_text(encoding="utf-8")
+    # The composition must not carry its own literal. It had one.
+    assert not re.search(r"export const FILM_FPS = \d+", film), (
+        "die Filmkomponente definiert die Bildrate wieder selbst"
+    )
+    assert "export const FILM_FPS = PROFILE_FPS;" in film
+
+
 def verify_the_default_is_the_same_on_both_sides() -> None:
     """A job that says nothing must mean the same thing in both places."""
     match = re.search(r'export const DEFAULT_RENDER_PROFILE = "([a-z0-9_]+)"', JS)
