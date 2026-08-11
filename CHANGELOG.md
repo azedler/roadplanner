@@ -6,6 +6,36 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.100.0] - 2026-08-11
+
+### Fixed
+
+- **Der ganze Videopfad einmal durchgelesen, statt nur das gemeldete Symptom.** Auslöser war „Die Analyse läuft · 10 von 21" — und drei Minuten später stand dort immer noch genau dasselbe. Es war nichts kaputt: Der erste Schritt eines Fensters ist der Download einer Handyaufnahme von ein paar hundert Megabyte. Nur sagte das niemand, und von außen sahen „arbeitet" und „hängt" gleich aus.
+
+- **Der Lauf protokollierte ausschließlich Fehler.** Erfolg war Stille — also war ein Lauf, der lief, im Protokoll nicht von einem zu unterscheiden, der stehengeblieben war. Jetzt meldet er jeden Schritt: Start mit der Fensterzahl, der Download, das Schneiden-und-Fragen, und am Ende eine Zeile mit analysiert / fehlgeschlagen / gefundene Momente.
+
+- **Der Download war der einzige langsame Schritt ohne eigene Zeitgrenze.** ffmpeg hat eine, der Modellaufruf hat eine. Ein Stream, der verstummt, hätte bis zum Neustart der Box gehangen — und weil ein laufender Lauf jetzt einen zweiten ablehnt, hätte dieses Hängen die Reise dauerhaft von der Analyse ausgesperrt. Verbindungsaufbau und Stillstand haben jetzt getrennte Grenzen: Eine große Datei auf einer langsamen Leitung ist zulässig, ein Socket, der nicht mehr spricht, nicht.
+
+- **Ein hängender Download hätte den ganzen Lauf beendet, nicht die eine Aufnahme.** Ein `asyncio.TimeoutError` ist keiner der drei Fehlertypen, die pro Fenster gefangen werden — eine schlechte Aufnahme hätte also jede weitere danach gekostet. Zeitüberschreitung und Verbindungsfehler kommen jetzt als eigener Fehlertyp zurück, und das bestehende „eine Aufnahme, nicht der Lauf" gilt unverändert.
+
+- **Vier blockierende Aufrufe in asynchronen Funktionen** — den Proxy in den Speicher lesen, die Downloadgröße prüfen und in zwei verschiedenen Dateien hunderte Megabyte Arbeitsverzeichnis löschen. Auf einer Box, die nebenbei das ganze Haus steuert, ist das ein Einfrieren, das niemand mit einer Videoanalyse in Verbindung bringt.
+
+- **Der Filmexport wäre an einer fehlenden Medienquelle gestorben.** Er griff auf ein privates Feld zu und rief darauf `async_download_to`; ohne konfigurierte Quelle ist das `None`, der Aufruf wirft `AttributeError`, und den fängt die Schleife nicht. Das Ergebnis wäre nicht „der Film hat keine Clips" gewesen, sondern **kein Film**. Es gibt jetzt einen öffentlichen Zugriff, einmal geprüft, und die Lücke wird im Protokoll benannt.
+
+- **Der Fortschrittszähler schrieb diesem Lauf ältere Antworten gut.** „10 von 21 fertig", während zehn davon aus einem früheren Lauf stammten — ein frisch gestarteter Lauf sah aus, als hätte er zehn in einer Sekunde geschafft.
+
+Ein Befund wurde geprüft und **verworfen** statt behoben: Der Export sucht gespeicherte Momente über `chapter_id`, gruppiert sind sie nach `linked_day_id` — genau die Form eines Fehlers, den dieses Projekt zweimal ausgeliefert hat. Hier stimmt es, `chapter_id` **ist** die Tages-ID; das steht jetzt dabei, damit es niemand ein drittes Mal nachschlagen muss.
+
+## [4.99.0] - 2026-08-11
+
+### Fixed
+
+- **„Nach einem Klick passiert nichts" — es lief.** Ein Analysefenster bedeutet: Original herunterladen, Ausschnitt schneiden, Gemini fragen. Zwanzig davon sind eine gute halbe Stunde, und die Karte sagte in dieser Zeit **gar nichts** — kein Laufzustand, kein Zähler, ein einziger Hinweis ganz am Ende. Eine lange Aktion ohne Lebenszeichen ist von einem kaputten Knopf nicht zu unterscheiden, und die vernünftige Reaktion auf einen kaputten Knopf ist, nochmal zu drücken — was dieselben Analysen ein zweites Mal bezahlt hätte. Der Lauf meldet sich jetzt selbst: Laufzustand auf der Karte, Startknopf verschwindet währenddessen, und der Fortschritt kommt aus der **kostenlosen** Abfrage alle fünfzehn Sekunden. Die Zahl auf dem Bildschirm ist damit die Zahl der tatsächlich gespeicherten Antworten — der Dienst speichert nach jedem Fenster einzeln — und keine, die der Browser hochzählt.
+
+- **„Die Videoanalyse ist fehlgeschlagen · Connection lost" — sie lief weiter und wurde fertig.** Die Liste der Aktionen, die serverseitig abgeschirmt sind, stand zweimal da; die Kopie im Panel trug den Kommentar „Mirror of panel.py's `_PROVIDER_CALL_ACTIONS`" und war um **sieben Einträge** auseinandergelaufen — ausgerechnet die längsten Vorgänge des Produkts: Videoanalyse, Redaktionslauf, Filmrender, Musikerzeugung. Jede unterbrochene Handyverbindung während dieser Vorgänge wurde deshalb als Fehler gemeldet, obwohl der Server weiterarbeitete. Beide Listen stimmen jetzt überein, und ein Test liest **beide Dateien** und vergleicht sie in beide Richtungen: abgeschirmt-aber-unbekannt macht aus einem überlebten Abbruch einen Fehler, versprochen-aber-nicht-abgeschirmt ist eine falsche Beruhigung — und die ist schlimmer als der Dialog, den sie ersetzt.
+
+- **Ein zweiter Lauf wird abgelehnt statt verdoppelt.** Welche Reise gerade analysiert wird, weiß jetzt der Server — also die Seite, auf der der Lauf stattfindet. Ein Neuladen, ein gesperrtes Handy oder eine abgerissene Verbindung verlieren nur, was der Browser wusste; die Karte fragt danach wieder nach und zeigt den laufenden Vorgang weiter an, statt einen Startknopf anzubieten, der dieselben Aufnahmen erneut herunterlädt und dieselben Antworten erneut bezahlt.
+
 ## [4.98.0] - 2026-08-11
 
 ### Fixed
