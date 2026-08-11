@@ -33,6 +33,7 @@ CARD = (
     INTEGRATION / "frontend" / "features" / "story-editor.js"
 ).read_text(encoding="utf-8")
 EXPORT = (INTEGRATION / "trip_film_export.py").read_text(encoding="utf-8")
+STORE = (INTEGRATION / "experience_store.py").read_text(encoding="utf-8")
 
 
 def verify_every_slow_step_states_its_own_limit() -> None:
@@ -99,6 +100,29 @@ def verify_nothing_slow_blocks_the_event_loop() -> None:
     assert not offenders, offenders
 
 
+def verify_the_outcome_of_a_paid_run_outlives_the_connection() -> None:
+    """Eleven windows failed and the reasons went with the WebSocket.
+
+    Live report: a run was started, ten minutes passed, the page was
+    reloaded - and the card showed "10 im Cache · 11 neu" with nothing
+    about the eleven that had just been attempted. The summary existed
+    only in the response to the click, so a dropped connection or a
+    reload took every failure reason with it, and the person who had
+    paid for the run was left to ask a log file.
+    """
+    assert "def save_video_run" in STORE, "das Ergebnis wird nicht gespeichert"
+    # Written in the `finally`, so an interrupted run still leaves a record.
+    tail = SERVICE.split("finally:")[-1]
+    assert "save_video_run" in tail, "nur ein sauber beendeter Lauf wird berichtet"
+    # Named in BOTH places, or `load` returns a key set that silently
+    # drops it - which this project has already shipped once.
+    assert STORE.count('"video_run"') >= 3, "geschrieben, aber nicht zurückgelesen"
+    # The card reads the store, not only the response it may never get.
+    assert "offer?.last_run" in CARD
+    # And it names the reason rather than only counting failures.
+    assert "kein Grund angegeben" in CARD, "eine Zahl ohne Ursache"
+
+
 def verify_the_counter_does_not_credit_this_run_with_older_answers() -> None:
     """"10 von 21 fertig" read as "ten done in a second". Ten were older."""
     assert "insgesamt" in CARD, "der Zähler behauptet weiter, es sei dieser Lauf"
@@ -141,6 +165,7 @@ for check in (
     verify_the_run_says_where_it_is,
     verify_nothing_slow_blocks_the_event_loop,
     verify_the_counter_does_not_credit_this_run_with_older_answers,
+    verify_the_outcome_of_a_paid_run_outlives_the_connection,
 ):
     check()
 

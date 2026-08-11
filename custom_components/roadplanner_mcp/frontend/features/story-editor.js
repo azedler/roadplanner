@@ -1134,6 +1134,33 @@ export const storyEditorMixin = {
     const done = this._storyVideoResult;
     const canEdit = this._canEdit();
     const running = Boolean(this._storyVideoRunning || offer?.running);
+    // The last run's outcome comes from the STORE, not from the response
+    // to the click. A run of eleven windows takes long enough that the
+    // WebSocket drops or the page gets reloaded, and with the summary
+    // living only in that response, every failure reason went with it -
+    // leaving "10 im Cache · 11 neu" and no way to find out why the
+    // eleven had not worked without reading a log file.
+    const report = done || offer?.last_run;
+    const failures = (report?.failed || []).filter(Boolean);
+    const lastRun = report
+      ? `<p class="hint"><strong>Letzter Lauf:</strong> ${escapeHtml(String(report.analysed ?? 0))} von ${escapeHtml(String(report.planned ?? report.analysed ?? 0))} analysiert · ${escapeHtml(String(report.segments ?? 0))} Momente gefunden${
+          failures.length
+            ? ` · <strong>${escapeHtml(String(failures.length))} fehlgeschlagen</strong>`
+            : ""
+        }</p>${
+          failures.length
+            ? // The reason, not just the count. A number without a cause
+              // sends somebody to fix the one thing that is not broken.
+              `<ul class="story-diagnosis-list">${failures
+                .slice(0, 5)
+                .map(
+                  (entry) =>
+                    `<li>${escapeHtml(String(entry.name || entry.media_id || "Aufnahme"))}: ${escapeHtml(String(entry.reason || "kein Grund angegeben"))}</li>`,
+                )
+                .join("")}${failures.length > 5 ? `<li>… und ${escapeHtml(String(failures.length - 5))} weitere mit denselben oder ähnlichen Gründen</li>` : ""}</ul>`
+            : ""
+        }`
+      : "";
     if (!offer) {
       return canEdit
         ? `<button class="text-button" type="button" data-action="story-video-offer"><ha-icon icon="mdi:movie-search-outline"></ha-icon>Videos prüfen: was würde eine KI-Analyse kosten?</button>`
@@ -1164,11 +1191,7 @@ export const storyEditorMixin = {
           ? `<p class="hint"><strong>Die Analyse läuft.</strong> <span data-story-video-progress>insgesamt ${escapeHtml(String(offer.windows_cached || 0))} von ${escapeHtml(String(Number(offer.windows_cached || 0) + Number(offer.windows_new || 0)))} Analysen beantwortet</span>. Pro Aufnahme wird zuerst das Original geladen - bei einem Handyvideo sind das schnell ein paar hundert Megabyte, und die erste Zahl bewegt sich deshalb minutenlang nicht. Jede fertige Analyse ist sofort gespeichert: Die Seite darf verlassen werden, und ein Abbruch verliert nur den Rest. Wo der Lauf gerade steht, steht im Home-Assistant-Protokoll.</p>`
           : ""
       }
-      ${
-        done
-          ? `<p class="hint"><strong>Letzter Lauf:</strong> ${escapeHtml(String(done.analysed))} analysiert · ${escapeHtml(String(done.cached))} aus dem Cache · ${escapeHtml(String(done.segments))} Momente gefunden${(done.failed || []).length ? ` · ${escapeHtml(String(done.failed.length))} fehlgeschlagen` : ""}</p>`
-          : ""
-      }
+      ${lastRun}
       <div class="button-row">
         ${
           canEdit && offer.enabled && offer.windows_new > 0 && !running

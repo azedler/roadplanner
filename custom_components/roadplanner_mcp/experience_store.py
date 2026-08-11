@@ -517,6 +517,13 @@ class ExperienceStore:
             # it, a lost one costs a paid call rather than a decision, and
             # the key already carries the model and schema it belongs to.
             "video_analyses": {},
+            # What the LAST analysis run did, including what failed and
+            # why. Stored rather than only returned: the summary used to
+            # live in the WebSocket response alone, so a dropped
+            # connection or a reloaded page took every failure reason with
+            # it - and the person who had just paid for the run was left
+            # asking a log file which recordings had not worked.
+            "video_run": {},
             "destination_galleries": {},
         }
 
@@ -601,6 +608,9 @@ class ExperienceStore:
             # silently does not exist.
             "video_analyses": _json_safe(
                 raw.get("video_analyses") if isinstance(raw.get("video_analyses"), dict) else {}
+            ),
+            "video_run": _json_safe(
+                raw.get("video_run") if isinstance(raw.get("video_run"), dict) else {}
             ),
             "destination_galleries": galleries,
         }
@@ -926,6 +936,20 @@ class ExperienceStore:
             state.setdefault("video_analyses", {})[key] = stored
             self.write(state)
             return deepcopy(stored)
+
+    def save_video_run(self, trip_id: str, summary: dict[str, Any]) -> dict[str, Any]:
+        """What the last run did, so the answer outlives the connection."""
+        with self._lock:
+            state = self.load(trip_id)
+            stored = _json_safe(dict(summary or {}))
+            state["video_run"] = stored
+            self.write(state)
+            return deepcopy(stored)
+
+    def video_run(self, trip_id: str) -> dict[str, Any]:
+        """The last run's summary, or an empty dict when there was none."""
+        found = self.load(trip_id).get("video_run")
+        return deepcopy(found) if isinstance(found, dict) else {}
 
     def video_analyses(self, trip_id: str) -> dict[str, Any]:
         """Every stored video answer for this trip, by cache key."""
