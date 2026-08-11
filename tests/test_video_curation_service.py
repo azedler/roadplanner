@@ -323,6 +323,80 @@ def verify_the_service_never_reaches_a_render_path() -> None:
         assert forbidden not in SERVICE_SOURCE, forbidden
 
 
+
+
+def verify_a_second_click_does_not_pay_for_the_same_run_twice() -> None:
+    """A run with no sign of life gets clicked again - so it is refused.
+
+    The panel showed nothing at all while a run of twenty windows was
+    going ("Nach einem Klick passiert ich denke nichts"), and the
+    reasonable reaction to a button that appears dead is to press it
+    again. Two runs would have downloaded every recording a second time
+    and paid Gemini a second time for the same answers.
+    """
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        _store, service, provider = _build(tmp, [_video(1), _video(2)])
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        original = service._async_analyze_window
+
+        async def _slow(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return await original(*args, **kwargs)
+
+        service._async_analyze_window = _slow
+
+        async def _drive():
+            first = asyncio.create_task(service.async_analyze("trip-1"))
+            await started.wait()
+            # While that one is in flight, the trip reports itself as busy
+            # - to the free offer, which is what the card reads.
+            assert service.is_running("trip-1") is True
+            assert service.offer("trip-1")["running"] is True
+            try:
+                # With a timeout, because without the guard the second run
+                # would queue behind the first and this check would HANG
+                # rather than fail - and a test that hangs reports nothing.
+                await asyncio.wait_for(service.async_analyze("trip-1"), timeout=2)
+            except asyncio.TimeoutError:
+                release.set()
+                raise AssertionError(
+                    "ein zweiter Lauf wurde zugelassen und lief mit"
+                ) from None
+            except Exception as err:  # noqa: BLE001 - the module's own type
+                assert "läuft bereits" in str(err), err
+            else:
+                raise AssertionError("ein zweiter Lauf wurde zugelassen")
+            release.set()
+            await first
+            # And afterwards it is free again, or one failed run would
+            # lock the trip out forever.
+            assert service.is_running("trip-1") is False
+            assert service.offer("trip-1")["running"] is False
+
+        asyncio.run(_drive())
+
+
+def verify_a_failed_run_releases_the_trip() -> None:
+    """The guard is a lock, and a lock that is never released is a bug."""
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        _store, service, _provider = _build(tmp, [_video(1)])
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("etwas ganz anderes")
+
+        service._async_analyze = _boom
+        try:
+            asyncio.run(service.async_analyze("trip-1"))
+        except RuntimeError:
+            pass
+        assert service.is_running("trip-1") is False
+
+
 for check in (
     verify_the_offer_is_free_and_prices_the_run_first,
     verify_a_run_analyses_and_stores_and_a_second_run_pays_nothing,
@@ -334,6 +408,8 @@ for check in (
     verify_the_run_refuses_when_the_feature_is_switched_off,
     verify_no_directory_is_created_with_a_boolean_as_its_mode,
     verify_the_service_never_reaches_a_render_path,
+    verify_a_second_click_does_not_pay_for_the_same_run_twice,
+    verify_a_failed_run_releases_the_trip,
 ):
     check()
 

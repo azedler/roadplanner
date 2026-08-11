@@ -105,6 +105,17 @@ class VideoCurationService:
         # Injected rather than imported so a test can hand over a local
         # file and never touch a network.
         self._media_source = media_source
+        # Which trips have a run in flight. On the server, because that is
+        # where the run is: a browser reload, a locked phone or a dropped
+        # WebSocket all lose whatever the panel remembered, and the run
+        # carries on regardless. A card that asks the server therefore
+        # keeps telling the truth, and a second click is refused instead
+        # of downloading every recording again and paying for the same
+        # answers twice.
+        self._running: set[str] = set()
+
+    def is_running(self, trip_id: str) -> bool:
+        return str(trip_id or "").strip() in self._running
 
     @property
     def enabled(self) -> bool:
@@ -153,6 +164,8 @@ class VideoCurationService:
             "estimated_tokens": plan["estimated_tokens"],
             "estimated_eur": plan["estimated_eur"],
             "enabled": self.enabled,
+            # Read from the server, so a reloaded page still knows.
+            "running": self.is_running(trip_id),
             "segments_stored": sum(
                 len((entry or {}).get("segments") or [])
                 for entry in stored.values()
@@ -215,7 +228,22 @@ class VideoCurationService:
                 "Die KI-Videoanalyse ist ausgeschaltet - sie überträgt Ausschnitte "
                 "an Google und wird deshalb bewusst eingeschaltet"
             )
+        if trip_id in self._running:
+            raise ValidationError(
+                "Für diese Reise läuft bereits eine Videoanalyse - "
+                "ein zweiter Lauf würde dieselben Aufnahmen erneut laden "
+                "und dieselben Antworten ein zweites Mal bezahlen"
+            )
+        self._running.add(trip_id)
+        try:
+            return await self._async_analyze(trip_id, force=force, limit=limit)
+        finally:
+            self._running.discard(trip_id)
 
+    async def _async_analyze(
+        self, trip_id: str, *, force: bool, limit: int
+    ) -> dict[str, Any]:
+        """The run itself, once it is allowed to happen."""
         state = await self.hass.async_add_executor_job(self.store.load, trip_id)
         videos = [
             item

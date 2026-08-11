@@ -301,6 +301,14 @@ _PROVIDER_CALL_ACTIONS = {
     # but a dropped connection must not orphan the probe.
     "remotion_diagnose",
     "remotion_test_render",
+    # Probe and job submission for the renderer app. Short, but the panel
+    # tells the user these continue on the server when a connection drops
+    # - and that promise is only true if they are shielded here. A claim
+    # in one deployable that the other one has to keep is worth the two
+    # lines it costs to make it keep it.
+    "renderer_app_environment",
+    "renderer_app_run",
+    "renderer_app_render",
     # Downloads up to five photos and re-encodes them. That is tens of
     # seconds on a phone connection, and being cancelled halfway would
     # leave a half-written package in the shared directory.
