@@ -151,6 +151,48 @@ def verify_the_video_budget_is_the_same_number_on_both_sides() -> None:
     assert "totalBytes > MAX_FILM_VIDEO_BYTES" in protocol
 
 
+def verify_a_film_that_cannot_start_says_so_on_the_card() -> None:
+    """Live report: "Aktuell passiert nichts beim Drücken von Film erzeugen."
+
+    It was one line: `if (!result?.renderer_app_job?.job_id) return;`.
+    `_runAction` returns null for EVERY failure and shows a toast that is
+    gone in seconds, so a render that could not start looked exactly like
+    a button that does nothing - and the reasonable reaction to a button
+    that does nothing is to press it again.
+
+    Third time in this project that a failure was reported by saying
+    nothing, so it gets a check rather than a comment.
+    """
+    assert "_storyFilmStartError" in CARD, "der stumme Rückweg ist wieder da"
+    # Shown on the card, not only in a toast that expires.
+    assert "startError" in CARD
+    # And cleared once a render is actually running, or it would linger
+    # over a film that is working.
+    assert "running ? \"\" : String(this._storyFilmStartError" in CARD
+
+
+def verify_the_film_says_it_is_being_prepared_before_any_progress() -> None:
+    """Minutes pass between the click and the first progress number.
+
+    Live report: "Es hatte nur sehr lange gedauert bis er das Rendering
+    angefangen hat." Nothing was broken - between the click and the first
+    number lies the whole package build: a couple of hundred photographs
+    fetched and shrunk, every recording a clip comes from downloaded and
+    cut, the package written. In silence, that is indistinguishable from
+    a dead button.
+
+    Same shape as the analysis run and the failed start: the fix is not
+    to make it faster, it is to say what is happening.
+    """
+    assert "_storyFilmPreparing" in CARD, "der Klick bleibt bis zum Job stumm"
+    assert "Der Film wird vorbereitet" in CARD
+    # Cleared once the job exists, or it would sit over a running render.
+    assert "this._storyFilmPreparing = false;" in CARD
+    # And a second press during the preparation would build the whole
+    # package twice, so the button is out of reach while it runs.
+    assert "!running && !preparing" in CARD
+
+
 def verify_a_recording_is_dropped_as_soon_as_nothing_needs_it() -> None:
     """Peak disk, not total: /share holds one recording, not all of them."""
     assert "def _async_release" in SERVICE, "die Aufnahmen bleiben bis zum Schluss liegen"
