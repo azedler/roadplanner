@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.107.0] - 2026-08-11
+
+### Fixed
+
+- **„Film erzeugen" schwieg minutenlang, obwohl es lief.** Zwischen dem Klick und der ersten Fortschrittszahl liegt der komplette Paketbau: ein paar hundert Fotos holen und verkleinern, jede Aufnahme, aus der ein Clip kommt, herunterladen und schneiden, das Paket schreiben und übergeben. Erst danach gibt es eine Job-ID, und erst dann erschien überhaupt etwas. In der Stille ist das von einem toten Knopf nicht zu unterscheiden — deshalb wurde nochmal gedrückt. Die Karte sagt es jetzt **sofort**, bevor ein einziges Byte geholt wird, und benennt, was gerade dauert. Der Knopf ist währenddessen außer Reichweite, denn ein zweiter Druck hätte das ganze Paket ein zweites Mal gebaut.
+
+- **Ein Start, der scheiterte, meldete gar nichts.** Eine einzige Zeile: `if (!result?.renderer_app_job?.job_id) return;`. Die Panelaktion gibt bei **jedem** Fehler `null` zurück und zeigt einen Hinweis, der nach Sekunden verschwunden ist — ein Film, der nicht starten konnte, sah also exakt aus wie ein Knopf, der nichts tut. Steht jetzt auf der Karte, mit dem häufigsten Grund dabei, und bleibt stehen, bis wirklich ein Render läuft.
+
+  Dieselbe Form zum dritten Mal an einem Tag — der Analyselauf ohne Lebenszeichen, der bezahlte Lauf, dessen Ergebnis nur in einer verlorenen Antwort existierte, und jetzt ein Knopf, der weder Erfolg noch Fehlschlag meldet, bevor er fertig ist. Die Lösung ist nie, es schneller zu machen. Sie ist, zu sagen, was passiert.
+
 ## [4.106.0] - 2026-08-11
 
 ### Changed
