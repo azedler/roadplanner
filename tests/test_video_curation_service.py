@@ -325,6 +325,49 @@ def verify_the_service_never_reaches_a_render_path() -> None:
 
 
 
+def verify_a_failed_window_is_still_readable_after_the_page_is_reloaded() -> None:
+    """The whole point: the reason survives the connection that asked.
+
+    Driven through the real store and read back through the free offer,
+    because the bug was that the summary existed only in the return value
+    of the click - and a reload has no return value.
+    """
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        # A media source that cannot deliver: one recording, one failure,
+        # one reason.
+        class Broken:
+            def __init__(self):
+                self.attempts = 0
+
+            async def async_download_to(self, record, target):
+                self.attempts += 1
+                raise service_module.ValidationError("Der Download blieb stehen")
+
+        broken = Broken()
+        _store, service, provider = _build(tmp, [_video(1)], media=broken)
+        result = asyncio.run(service.async_analyze("trip-1"))
+        assert result["analysed"] == 0, result
+        assert provider.calls == 0
+
+        # Nothing of the above is passed on: the offer reads the store.
+        offer = service.offer("trip-1")
+        report = offer["last_run"]
+        assert report["analysed"] == 0, report
+        assert report["planned"] >= 1, report
+        failed = report["failed"]
+        # A two-minute recording is three windows, so three windows are
+        # lost - but the recording is fetched ONCE. Only successes used to
+        # be remembered, so an unreachable file was fetched again for each
+        # of its windows: with a download that stalls rather than refuses,
+        # that is the stall timeout three times over for one bad file, and
+        # a run that looks stuck while it patiently repeats itself.
+        assert broken.attempts == 1, broken.attempts
+        assert len(failed) >= 1, failed
+        assert all("stehen" in entry["reason"] for entry in failed), failed
+        assert all(entry["media_id"] for entry in failed), failed
+
+
 def verify_a_second_click_does_not_pay_for_the_same_run_twice() -> None:
     """A run with no sign of life gets clicked again - so it is refused.
 
@@ -410,6 +453,7 @@ for check in (
     verify_the_service_never_reaches_a_render_path,
     verify_a_second_click_does_not_pay_for_the_same_run_twice,
     verify_a_failed_run_releases_the_trip,
+    verify_a_failed_window_is_still_readable_after_the_page_is_reloaded,
 ):
     check()
 

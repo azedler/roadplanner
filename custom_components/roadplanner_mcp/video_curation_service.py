@@ -186,6 +186,8 @@ class VideoCurationService:
             "enabled": self.enabled,
             # Read from the server, so a reloaded page still knows.
             "running": self.is_running(trip_id),
+            # And so does the last run's outcome, failures included.
+            "last_run": state.get("video_run") or {},
             "segments_stored": sum(
                 len((entry or {}).get("segments") or [])
                 for entry in stored.values()
@@ -287,6 +289,14 @@ class VideoCurationService:
         # One download per RECORDING, not per window: a four-minute clip
         # offered as three windows is fetched once and cut three times.
         originals: dict[str, Path] = {}
+        # Recordings whose download already failed once. A two-minute
+        # recording is offered as three windows, and only SUCCESSES were
+        # remembered - so a recording that could not be fetched was
+        # fetched again for every one of its windows. With a download that
+        # stalls rather than refuses, that is the stall timeout three
+        # times over for one unusable file, and a run that looks stuck
+        # while it is patiently repeating itself.
+        unreachable: dict[str, str] = {}
         try:
             total = len(plan["new"])
             # Logged per window, at info, because the alternative is what
@@ -301,13 +311,26 @@ class VideoCurationService:
             )
             for index, window in enumerate(plan["new"], start=1):
                 media_id = str(window.get("id") or "")
+                if media_id in unreachable:
+                    failed.append(
+                        {
+                            "media_id": media_id,
+                            "name": str(window.get("name") or ""),
+                            "reason": unreachable[media_id],
+                        }
+                    )
+                    continue
                 try:
                     source = originals.get(media_id)
                     if source is None:
                         _LOGGER.info(
                             "Videoanalyse %s/%s: lade Aufnahme %s", index, total, media_id
                         )
-                        source = await self._async_fetch_original(window, work)
+                        try:
+                            source = await self._async_fetch_original(window, work)
+                        except (RoadplannerError, VideoAssetError, OSError) as err:
+                            unreachable[media_id] = str(err)[:200]
+                            raise
                         originals[media_id] = source
                     _LOGGER.info(
                         "Videoanalyse %s/%s: schneide und frage (%s)",
@@ -320,7 +343,13 @@ class VideoCurationService:
                         )
                 except (RoadplannerError, VideoProxyError, VideoAssetError, OSError) as err:
                     _LOGGER.warning("Videoanalyse fehlgeschlagen für %s: %s", media_id, err)
-                    failed.append({"media_id": media_id, "reason": str(err)[:200]})
+                    failed.append(
+                        {
+                            "media_id": media_id,
+                            "name": str(window.get("name") or ""),
+                            "reason": str(err)[:200],
+                        }
+                    )
                     continue
                 analysed += 1
                 segments_found += len(record.get("segments") or [])
@@ -337,6 +366,23 @@ class VideoCurationService:
                 analysed,
                 len(failed),
                 segments_found,
+            )
+            # Written in the `finally`, so a run that was interrupted still
+            # leaves a record of what it managed and what it did not. The
+            # summary used to exist only in the response to the click: a
+            # dropped WebSocket or a reloaded page took every failure
+            # reason with it, and the person who had just paid for the run
+            # was left to ask a log file which recordings had not worked.
+            await self.hass.async_add_executor_job(
+                self.store.save_video_run,
+                trip_id,
+                {
+                    "analysed": analysed,
+                    "failed": failed,
+                    "segments": segments_found,
+                    "planned": len(plan["new"]),
+                    "finished_at": utc_now_iso(),
+                },
             )
 
         return {
