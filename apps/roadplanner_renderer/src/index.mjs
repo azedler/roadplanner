@@ -35,6 +35,7 @@ import {
   ARTIFACT_IMAGE,
   ARTIFACT_TEXT,
   ARTIFACT_TRIP_DAY_VIDEO,
+  ARTIFACT_REVIEW_COPY,
   ARTIFACT_TRIP_FILM_VIDEO,
   ARTIFACT_VIDEO,
   ERROR_INTERNAL,
@@ -345,7 +346,7 @@ async function discardIncompleteResult(jobId) {
  * run for ten minutes and read seventy photos, so the job deadline it runs
  * under is the film's, not the clip's.
  */
-async function produceTripFilm(jobId, onProgress) {
+async function produceTripFilm(jobId, profileId, onProgress) {
   const { renderTripFilmVideo } = await import("./render.mjs");
   const folder = path.join(DIRS.results, jobId);
   await fs.mkdir(folder, { recursive: true });
@@ -354,6 +355,7 @@ async function produceTripFilm(jobId, onProgress) {
   const { facts, timings } = await renderTripFilmVideo({
     outputPath: target,
     inputsDir: path.join(DIRS.inputs, jobId),
+    profileId,
     onProgress,
   });
 
@@ -362,6 +364,55 @@ async function produceTripFilm(jobId, onProgress) {
     {
       kind: "video",
       filename: ARTIFACT_TRIP_FILM_VIDEO,
+      size_bytes: bytes.length,
+      sha256: sha256(bytes),
+    },
+  ];
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(
+      buildResult({ jobId, completedAt: new Date(), artifacts, video: facts, timings }),
+      null,
+      2,
+    )}\n`,
+  );
+  return { facts, timings };
+}
+
+/**
+ * Make a small copy of a film an earlier job produced.
+ *
+ * The source is found from a job id, never from a name in the job file:
+ * `results/<source_job_id>/roadplanner-trip-film.mp4` is built from a
+ * value that has already been matched against the job-id pattern, and the
+ * filename is a constant. There is nothing here for a crafted job to
+ * steer, which is a stronger guarantee than sanitising a path would be.
+ *
+ * The copy gets its own results folder, like every other job. A review
+ * copy is an artefact somebody asked for, not a second file smuggled into
+ * a finished job's result.
+ */
+async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress) {
+  if (!isJobId(sourceJobId)) {
+    throw new ProtocolError(ERROR_INTERNAL, "Ungültige Quell-Job-ID.");
+  }
+  const { createReviewCopy } = await import("./render.mjs");
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const target = path.join(folder, ARTIFACT_REVIEW_COPY);
+
+  const { facts, timings } = await createReviewCopy({
+    sourcePath: path.join(DIRS.results, sourceJobId, ARTIFACT_TRIP_FILM_VIDEO),
+    outputPath: target,
+    profileId,
+    onProgress,
+  });
+
+  const bytes = await fs.readFile(target);
+  const artifacts = [
+    {
+      kind: "video",
+      filename: ARTIFACT_REVIEW_COPY,
       size_bytes: bytes.length,
       sha256: sha256(bytes),
     },
@@ -411,7 +462,11 @@ async function handleJob(name) {
   try {
     await writeStatus(jobId, "claimed", { progress: 0 });
     const job = parseJob(await readJobFile(claimed), { now: Date.now() });
-    if (job.action === "render_trip_film") {
+    // Both jobs work on a whole film rather than a clip: one draws twelve
+    // minutes of video, the other re-encodes twelve minutes of it. The
+    // copy is far quicker, but "quicker than an hour" is still minutes,
+    // and the clip's ceiling was never meant for either.
+    if (job.action === "render_trip_film" || job.action === "create_review_copy") {
       clearTimeout(jobDeadline);
       jobLimitMs = MAX_FILM_JOB_DURATION_MS;
       jobDeadline = setTimeout(() => {
@@ -454,9 +509,32 @@ async function handleJob(name) {
         size_bytes: facts.size_bytes,
         photos: facts.photo_count,
       });
+    } else if (job.action === "create_review_copy") {
+      let lastReported = 0;
+      const { facts, timings } = await produceReviewCopy(
+        jobId,
+        job.sourceJobId,
+        job.renderProfile,
+        (progress) => {
+          const rounded = Math.floor(progress * 100) / 100;
+          if (rounded > lastReported) {
+            lastReported = rounded;
+            void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+          }
+        },
+      );
+      await writeStatus(jobId, "completed", { progress: 1 });
+      log("info", "Review-Kopie abgeschlossen", {
+        job_id: jobId,
+        source_job_id: job.sourceJobId,
+        profile: facts.render_profile,
+        seconds: timings.total,
+        size_bytes: facts.size_bytes,
+        source_size_bytes: facts.source_size_bytes,
+      });
     } else if (job.action === "render_trip_film") {
       let lastReported = 0;
-      const { facts, timings } = await produceTripFilm(jobId, (progress) => {
+      const { facts, timings } = await produceTripFilm(jobId, job.renderProfile, (progress) => {
         // Finer steps than the clip: ten minutes at 5 % granularity would
         // look frozen for half a minute at a time.
         const rounded = Math.floor(progress * 100) / 100;

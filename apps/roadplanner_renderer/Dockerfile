@@ -173,7 +173,8 @@ COPY package.json ./
 # added: the image built, the container started, the heartbeat said "ready",
 # and the FIRST RENDER died with "Cannot find module film_limits.mjs". A test
 # now reads this line and the imports in src/, and fails if they disagree.
-COPY src/index.mjs src/protocol.mjs src/render.mjs src/film_limits.mjs ./src/
+COPY src/index.mjs src/protocol.mjs src/render.mjs src/film_limits.mjs \
+     src/render_profiles.mjs src/review_copy.mjs ./src/
 
 # One shell, one expansion, no guessing. ENV supports ${var:-default}, but
 # a nested ${...} inside that default is not something to bet the reported

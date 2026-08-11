@@ -34,6 +34,11 @@ import {
   fitText,
 } from "../textfit.mjs";
 import {
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  FILM_FPS as PROFILE_FPS,
+} from "../render_profiles.mjs";
+import {
   AbsoluteFill,
   Audio,
   Img,
@@ -67,7 +72,10 @@ import {
   type CharacterAsset,
 } from "./CharacterAssets";
 
-export const FILM_FPS = 30;
+// Re-exported, not redefined. It used to be a second `30` in this file,
+// which is the shape of bug this project has paid for four times: one
+// number in two places, raised on one side. The profile table owns it.
+export const FILM_FPS = PROFILE_FPS;
 
 export type FilmPhoto = {
   path: string;
@@ -155,6 +163,12 @@ export type RoadplannerTripFilmProps = {
   music?: FilmMusic | null;
   characters?: { assets: CharacterAsset[] } | null;
   clips?: Record<string, FilmClip[]> | null;
+  /**
+   * How large this film is rendered. Read by `calculateMetadata`, never
+   * by a layout: the component below draws the same picture whatever this
+   * says, and the profile only decides how many pixels that picture is.
+   */
+  renderProfile?: string | null;
 };
 
 export const filmDurationInFrames = (scenes: { frames: number }[]): number =>
@@ -647,8 +661,12 @@ const TextScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
 
 // --- the map ------------------------------------------------------------
 
-const MAP_WIDTH = 1280;
-const MAP_HEIGHT = 720;
+// The map is drawn on the design surface like everything else. Named
+// separately because the projection reads them, not because they are
+// allowed to differ - a second pair of numbers here is exactly how the
+// map would stop lining up with the frame at another profile.
+const MAP_WIDTH = DESIGN_WIDTH;
+const MAP_HEIGHT = DESIGN_HEIGHT;
 // How a map leg divides: recap, glide, drive. Shares rather than fixed
 // lengths, so a three-second day and an eight-second day have the same
 // shape. Mirrors the constants in the Python plan.
@@ -1475,10 +1493,23 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
   crew = null,
   music = null,
 }) => {
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
   if (fps !== FILM_FPS) {
     throw new Error(`Der Film erwartet ${FILM_FPS} fps, bekommen hat er ${fps}.`);
   }
+  // Every layout in this file is authored against one surface, and only
+  // this line knows how large the render actually is.
+  //
+  // The alternative - letting each component read the real width - is how
+  // a film ends up looking different at 480p than at 1440p: a heading
+  // wraps somewhere else, a safe area stops being safe, a map label falls
+  // off. Here the whole film is laid out at 1280x720 in CSS pixels and
+  // then scaled as one picture, so a profile can only change how many
+  // pixels the same picture is drawn with.
+  //
+  // `min` rather than a stretch: an odd target size letterboxes by a hair
+  // against the backdrop instead of distorting the film.
+  const designScale = Math.min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT);
   let cursor = 0;
   const rendered: React.ReactNode[] = [];
   scenes.forEach((scene, position) => {
@@ -1584,7 +1615,30 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
     // of any scene, and threading it through the map would make every
     // scene know about an asset pipeline it has no business knowing.
     <CharacterAssetContext.Provider value={characters?.assets ?? EMPTY_ASSETS}>
-      <AbsoluteFill style={{ backgroundColor: BACKDROP }}>
+      <AbsoluteFill
+        style={{
+          backgroundColor: BACKDROP,
+          // The scaled surface is centred, so a target whose aspect ratio
+          // is not exactly 16:9 gets an even sliver of backdrop on both
+          // sides rather than all of it on one.
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            width: DESIGN_WIDTH,
+            height: DESIGN_HEIGHT,
+            left: "50%",
+            top: "50%",
+            transform: `translate(-50%, -50%) scale(${designScale})`,
+            transformOrigin: "center center",
+            backgroundColor: BACKDROP,
+          }}
+        >
         {rendered}
         {music ? (
           // A generated score plays as its sections; a file somebody
@@ -1595,6 +1649,7 @@ export const RoadplannerTripFilm: React.FC<RoadplannerTripFilmProps> = ({
             <Soundtrack music={music} totalFrames={durationInFrames} />
           )
         ) : null}
+        </div>
       </AbsoluteFill>
     </CharacterAssetContext.Provider>
   );

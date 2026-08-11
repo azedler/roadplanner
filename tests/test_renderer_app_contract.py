@@ -373,6 +373,72 @@ def verify_every_dependency_is_pinned_exactly() -> None:
     assert (APP / "package-lock.json").is_file(), "die Sperrdatei macht den Build reproduzierbar"
 
 
+def verify_every_runtime_module_is_in_the_image() -> None:
+    """The Dockerfile names each module by hand. Follow the imports instead.
+
+    The runtime layer copies a list of files rather than the whole `src/`
+    tree, so the image stays small and so nothing lands in it that nobody
+    meant to ship. The price is a second place where the source tree is
+    written down, and that place is only ever edited by somebody who
+    remembers to.
+
+    It has now gone wrong twice, identically. The image builds, the
+    container starts, the heartbeat says "ready" - and the FIRST RENDER
+    dies with `Cannot find module`, because the module that was added
+    last week is not in the list. The first time it was `film_limits.mjs`;
+    this time it was `render_profiles.mjs`, and the comment above that
+    COPY line already claimed a test like this one existed. It did not.
+
+    So: start at the entry point, follow every relative import as far as
+    it goes, and require that each file reached is copied. Nothing here
+    is a list that has to be maintained.
+    """
+    dockerfile = (APP / "Dockerfile").read_text(encoding="utf-8")
+    # The runtime COPY, not the builder's `COPY src/ ./src/`. It may be
+    # wrapped over several lines with a backslash.
+    joined = dockerfile.replace("\\\n", " ")
+    copied: set[str] = set()
+    for line in joined.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("COPY src/"):
+            continue
+        copied.update(re.findall(r"src/([A-Za-z0-9_.-]+\.mjs)", stripped))
+    assert copied, "im Image wird kein einziges Laufzeitmodul einzeln kopiert"
+
+    src = APP / "src"
+    seen: set[str] = set()
+    pending = ["index.mjs"]
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        path = src / name
+        assert path.is_file(), f"{name} wird importiert, existiert aber nicht"
+        text = path.read_text(encoding="utf-8")
+        # Both forms, and the second one is the whole point: the entry
+        # point reaches the renderer with `await import("./render.mjs")`,
+        # so a check that only understood `from "./x.mjs"` would walk one
+        # file, find nothing missing, and pass while the image was
+        # broken. It did exactly that when this test was first written.
+        for pattern in (
+            r'from\s+"\./([A-Za-z0-9_.-]+\.mjs)"',
+            r'import\(\s*"\./([A-Za-z0-9_.-]+\.mjs)"\s*\)',
+        ):
+            pending.extend(re.findall(pattern, text))
+
+    missing = sorted(seen - copied)
+    assert not missing, (
+        "Diese Module werden zur Laufzeit importiert, aber nicht ins Image "
+        f"kopiert: {missing}. Der erste Render stirbt mit "
+        "'Cannot find module', nachdem alles andere gesund ausgesehen hat."
+    )
+    # And nothing is copied that nothing imports - a stale name in the
+    # list is how the list stops being readable as the truth.
+    stale = sorted(copied - seen)
+    assert not stale, f"Diese Dateien werden kopiert, aber nie importiert: {stale}"
+
+
 def verify_the_image_brings_its_own_runtime_and_browser() -> None:
     """Nothing may be fetched while a job runs, or at container start."""
     dockerfile = (APP / "Dockerfile").read_text(encoding="utf-8")
@@ -724,6 +790,7 @@ verify_the_reported_version_survives_a_local_build()
 verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have()
 verify_every_dependency_is_pinned_exactly()
 verify_the_image_brings_its_own_runtime_and_browser()
+verify_every_runtime_module_is_in_the_image()
 verify_the_render_is_validated_before_it_counts()
 verify_the_render_can_actually_be_triggered()
 verify_every_planned_scene_type_has_a_component()

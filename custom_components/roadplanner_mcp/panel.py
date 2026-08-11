@@ -37,6 +37,12 @@ from .page_images import async_fetch_page_place
 from .system_check import async_run_system_check
 from .frontend_static_http import async_register_frontend_static_view
 from .pitch_routing import PitchRouteService
+from .render_profiles import (
+    DEFAULT_REVIEW_PROFILE,
+    film_filename,
+    profile_choices,
+    review_choices,
+)
 from .renderer_app_protocol import ACTION_RENDER_REMOTION_TEST, RendererProtocolError
 from .roadplanner import RevisionConflictError, RoadplannerError, ValidationError
 from .travel_integrity import build_travel_integrity
@@ -94,6 +100,10 @@ _ACTIONS = {
     "story_film_music_offer",
     "story_film_music_generate",
     "story_film_render",
+    # A small copy of a film that already exists. Reads one file in the
+    # exchange folder and writes a smaller one beside it: no photograph,
+    # no provider, no cost.
+    "story_film_review_copy",
     # The camper's picture: look, upload, confirm, throw away. No model
     # is called by any of them - the picture comes from the user.
     "media_diagnose_day",
@@ -202,6 +212,9 @@ _EDIT_ACTIONS = {
     "story_set_override",
     # Writes a package of real photos into the shared directory.
     "story_film_render",
+    # Writes a video into the shared directory. Nothing about the trip
+    # changes, but it does produce a file.
+    "story_film_review_copy",
     "update_trip",
     "add_day",
     "update_day",
@@ -316,6 +329,9 @@ _PROVIDER_CALL_ACTIONS = {
     # The same, for a whole trip: up to ninety photos and minutes of work
     # that must survive a phone locking its screen.
     "story_film_render",
+    # Re-encodes a whole film. Minutes rather than an hour, and still far
+    # longer than a websocket call should be allowed to hang on.
+    "story_film_review_copy",
     # Five Gemini calls over a whole trip. A connection that drops halfway
     # must not orphan calls that were already paid for.
     "story_director_run",
@@ -1560,7 +1576,14 @@ async def _execute_action(
         return {
             "story_film_preview": await runtime.trip_film.async_preview(
                 str(data.get("trip_id") or "")
-            )
+            ),
+            # The sizes a film can be rendered in, and the smaller ones a
+            # copy can be made in. Sent with the preview rather than
+            # hard-coded in the panel: a table that exists in the
+            # frontend too is the same one-number-in-two-places bug this
+            # project keeps paying for.
+            "render_profiles": profile_choices(),
+            "review_profiles": review_choices(),
         }
 
     if action == "story_film_render":
@@ -1573,7 +1596,29 @@ async def _execute_action(
                 # value is matched against the folder listing before
                 # anything is opened, so no path is ever built from it.
                 music=str(data.get("music") or ""),
+                # An ID from the profile table, matched against it before
+                # a job is written. It decides pixels and nothing else.
+                profile=str(data.get("profile") or ""),
             )}
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+
+    if action == "story_film_review_copy":
+        # A small copy of a film that already exists, for looking at and
+        # sending on. It reads one finished file out of the exchange
+        # folder and writes a smaller one: no photograph is downloaded,
+        # no provider is called, nothing costs anything.
+        #
+        # The source is a JOB ID, not a path. It is checked against the
+        # job-id pattern before either side builds a path from it, which
+        # is why there is nothing here to point somewhere else.
+        try:
+            return {
+                "renderer_app_job": await runtime.renderer_app.async_submit_review_copy_job(
+                    source_job_id=str(data.get("job_id") or ""),
+                    profile_id=str(data.get("profile") or "") or DEFAULT_REVIEW_PROFILE,
+                )
+            }
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
 
@@ -1765,7 +1810,20 @@ async def _execute_action(
         if not video_path:
             raise ValidationError("Dieser Auftrag hat kein Video erzeugt")
         url = await runtime.trip_video.async_adopt_video(Path(video_path))
-        return {"renderer_app_download_url": url}
+        # The URL stays an unguessable uuid - that is what makes the
+        # library safe to serve from. The NAME is separate, and it is what
+        # the browser saves the file under: a folder of films that are all
+        # called the same hex string cannot answer "which version is
+        # this?", which is the question render profiles exist to make
+        # answerable.
+        facts = (result or {}).get("video") or {}
+        return {
+            "renderer_app_download_url": url,
+            "renderer_app_download_name": film_filename(
+                str(data.get("trip_title") or "reise"),
+                str(facts.get("render_profile") or ""),
+            ),
+        }
 
     if action == "renderer_app_recent_jobs":
         # Read-only, and the answer to "what is this box doing right now?"
