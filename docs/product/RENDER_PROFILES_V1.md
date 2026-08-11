@@ -102,6 +102,35 @@ ist das ein zweiter Regler — bewusst nicht still eingebaut.
 
 ---
 
+## 3a. Der Render selbst — ein gemessener Punkt
+
+CI baut das Image und rendert einen **echten** Reisefilm: 10 Kapitel, 58
+Szenen, 65 Bilder, Crew, Karte, Musik. Nach dem Umbau:
+
+```
+render_profile   review_720
+Auflösung        1280 × 720
+Filmlänge        271,5 s   (geplant 271,43 s)
+Dateigröße       17,0 MB
+Renderzeit       1217,2 s  = 20,3 min
+```
+
+Zwei Dinge stehen damit fest, die vorher offen waren: **die
+Designflächen-Skalierung rendert** — der Film kommt in der erwarteten
+Auflösung und exakt in der geplanten Länge heraus — und das Ergebnis
+**nennt sein eigenes Profil**.
+
+Die Renderzeit entspricht rund **4,5× Echtzeit** auf einem
+GitHub-Runner mit einem Browser-Tab.
+
+**Auf andere Profile ist das nicht übertragbar**, und ich rechne es
+nicht hoch. Renderzeit ist nicht proportional zur Pixelzahl: ein
+erheblicher Teil je Bild ist Layout und JavaScript, was bei 480p genauso
+anfällt wie bei 1440p. Was 480p wirklich spart, ist erst am ersten
+480p-Render zu sehen.
+
+---
+
 ## 4. Eine Zahl an zwei Stellen
 
 Die Profiltabelle existiert in beiden Deployables, und ein Test liest
@@ -153,10 +182,20 @@ Ziel, Hochformat, krumme Maße) mit gemessener Länge, Form, Tonspur und
 Dateigröße; die Bitratenarithmetik; und die Bildratenkette über drei
 Dateien.
 
-**B) Nicht belegt: Renderzeiten pro Profil.** In dieser Umgebung gibt es
-kein `node_modules`, also kann Remotion hier nicht laufen. Jede Zahl dazu
-wäre geraten. Auch **wie der skalierte Film aussieht**, ist hier nicht zu
-sehen — der Film ist der einzige Beleg dafür.
+Dazu **ein** echter Render aus CI (Abschnitt 3a): dass ein vollständiger
+Reisefilm nach dem Umbau in der richtigen Auflösung und exakt in der
+geplanten Länge herauskommt.
+
+**B) Nicht belegt: Renderzeiten der anderen Profile.** Es gibt genau
+einen gemessenen Punkt, und der ist review_720. Was 480p oder 1440p
+kosten, weiß ich nicht — und ich rechne es nicht aus der Pixelzahl hoch,
+weil Layout und JavaScript je Bild gleich viel kosten, egal wie groß das
+Bild ist.
+
+**Ebenfalls nicht belegt: wie der skalierte Film aussieht.** Dass er in
+der richtigen Größe herauskommt, sagt nichts darüber, ob er bei 1440p
+gut aussieht. In dieser Umgebung gibt es keinen Browser und kein
+`node_modules`. **Der Film ist der einzige Beleg dafür.**
 
 **C) Auf dem Live-System:** Integration aktualisieren, dann das
 Renderer-Add-on auf **0.24.0**. Ohne das Add-on-Update kennt der Renderer
