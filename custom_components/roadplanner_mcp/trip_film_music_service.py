@@ -32,7 +32,9 @@ from .trip_film_music_plan import (
 )
 from .google_service_account import ServiceAccountError
 from .trip_film_lyria import (
+    GEMINI_MODELS_ENDPOINT,
     LYRIA_REGION,
+    lyria_models_in,
     LYRIA_ESTIMATED_COST_USD,
     LYRIA_MODEL,
     LYRIA_PRICE_NOTE,
@@ -129,6 +131,61 @@ class TripFilmMusicService:
         except ValidationError as err:
             return False, str(err)
         return True, ""
+
+    async def async_probe_models(self) -> dict[str, Any]:
+        """Which Lyria models this installation can actually reach.
+
+        Read-only and free: it lists the models the configured key may
+        use. Deliberately NOT a small generation - a system check that
+        quietly spends eight cents is one nobody runs twice, and the
+        question here is reachability, not sound.
+
+        It exists because the answer has been genuinely unclear. One
+        account says the Gemini Developer API does not serve Lyria at
+        all; another that Lyria 3 is reachable from AI Studio with an
+        ordinary key. This asks the installation instead of arguing.
+        """
+        key = str(self._api_key_provider() or "") if callable(self._api_key_provider) else ""
+        if not key:
+            return {"state": "skipped", "detail": "kein Google-Schlüssel konfiguriert"}
+        session = self._session_factory()
+        try:
+            async with session.get(
+                GEMINI_MODELS_ENDPOINT,
+                headers={"x-goog-api-key": key},
+                params={"pageSize": "200"},
+            ) as response:
+                if response.status >= 400:
+                    detail = (await response.text())[:160]
+                    return {
+                        "state": "fail",
+                        "detail": f"Modell-Liste nicht lesbar ({response.status}): {detail}",
+                    }
+                payload = await response.json(content_type=None)
+        except Exception as err:  # noqa: BLE001 - a probe is never an exception
+            _LOGGER.debug("Lyria-Sonde fehlgeschlagen: %s", type(err).__name__)
+            return {"state": "fail", "detail": f"nicht erreichbar: {type(err).__name__}"}
+        found = lyria_models_in(payload)
+        if found:
+            return {
+                "state": "ok",
+                "models": found,
+                "detail": (
+                    "über AI Studio erreichbar: "
+                    + ", ".join(found[:3])
+                    + " - kein Google-Cloud-Projekt nötig"
+                ),
+            }
+        return {
+            "state": "warn",
+            "models": [],
+            "detail": (
+                "Dieser Schlüssel sieht kein Lyria-Modell. Für KI-Musik braucht es "
+                "dann ein Google-Cloud-Projekt mit Vertex AI und ein Dienstkonto "
+                "(Rolle „Vertex AI User\u201c). Alles andere am Film ist davon "
+                "nicht betroffen."
+            ),
+        }
 
     async def _async_access_token(self, tokens: Any) -> str:
         """A bearer token, minted only when the cached one has gone stale."""

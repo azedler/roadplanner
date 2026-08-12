@@ -110,8 +110,22 @@ class _Session:
     def __init__(self):
         self.calls = 0
         self.token_calls = 0
+        self.get_calls = 0
         self.prompts: list[str] = []
         self.urls: list[str] = []
+
+    def get(self, url, *, headers=None, params=None, timeout=None):
+        """Reading the model list. Never billed, so never counted."""
+        self.urls.append(str(url))
+        self.get_calls += 1
+        return _Response(
+            {
+                "models": [
+                    {"name": "models/gemini-2.5-flash"},
+                    {"name": "models/lyria-3-pro-preview"},
+                ]
+            }
+        )
 
     def post(self, url, *, json=None, data=None, headers=None, timeout=None):
         self.urls.append(str(url))
@@ -324,6 +338,54 @@ def verify_either_route_is_enough_on_its_own() -> None:
             f"{session.token_calls} Token für einen Soundtrack - eines reicht"
         )
         assert any("aiplatform" in url for url in session.urls), session.urls
+
+
+def verify_the_model_probe_costs_nothing() -> None:
+    """The system check may ask what is reachable. It may not buy music.
+
+    This exists because the endpoint question was genuinely open - one
+    account said the Gemini Developer API does not serve Lyria at all,
+    another that AI Studio reaches it with an ordinary key. Asking the
+    installation settles it, but only if asking is free: a check that
+    quietly spends eight cents is one nobody runs twice.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        found = asyncio.run(_service(root, session).async_probe_models())
+        assert found["state"] == "ok", found
+        assert "lyria-3-pro-preview" in found["models"], found
+        assert session.calls == 0, "eine Sonde darf nichts erzeugen"
+        assert session.token_calls == 0
+        assert session.get_calls == 1
+        assert not any(Path(root).iterdir()), "eine Sonde schreibt nichts"
+
+
+def verify_the_probe_says_what_to_do_when_lyria_is_absent() -> None:
+    """"Nicht verfügbar" alone would send somebody checking the wrong thing."""
+
+    class _NoLyria(_Session):
+        def get(self, url, *, headers=None, params=None, timeout=None):
+            self.get_calls += 1
+            return _Response({"models": [{"name": "models/gemini-2.5-flash"}]})
+
+    with tempfile.TemporaryDirectory() as root:
+        found = asyncio.run(_service(root, _NoLyria()).async_probe_models())
+        assert found["state"] == "warn", found
+        # The next step, named: this is the whole reason to ask.
+        assert "Dienstkonto" in found["detail"], found
+        assert "Vertex" in found["detail"], found
+        # And it says what is NOT affected, so nobody reads it as "the
+        # film is broken".
+        assert "nicht betroffen" in found["detail"], found
+
+
+def verify_without_a_key_the_probe_is_skipped_not_failed() -> None:
+    """Nothing configured is not a fault."""
+    with tempfile.TemporaryDirectory() as root:
+        found = asyncio.run(
+            _service(root, _Session(), api_key="", vertex=False).async_probe_models()
+        )
+        assert found["state"] == "skipped", found
 
 
 def verify_a_film_without_length_orders_nothing() -> None:

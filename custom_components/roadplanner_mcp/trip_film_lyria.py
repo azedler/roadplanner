@@ -220,6 +220,32 @@ def track_filename(key: str, extension: str = "mp3") -> str:
 LYRIA_INTERACTIONS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 
+# Where the Gemini Developer API lists what a key may use. A GET, so it
+# reads and never generates - which is the whole point of asking this
+# way instead of trying a small piece of music.
+GEMINI_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def lyria_models_in(payload: Any) -> list[str]:
+    """Which Lyria models a model listing contains.
+
+    The listing names each model as `models/<id>`. Searching for "lyria"
+    rather than for the exact id on purpose: the point of asking is to
+    find out what this key can reach, and a preview id that has moved on
+    by one suffix is still an answer worth reporting.
+    """
+    found: list[str] = []
+    models = (payload or {}).get("models") if isinstance(payload, dict) else None
+    for entry in models or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "")
+        short = name.split("/")[-1]
+        if "lyria" in short.lower() and short not in found:
+            found.append(short)
+    return found
+
+
 def build_gemini_request(prompt: str, *, model: str = LYRIA_MODEL) -> tuple[str, dict[str, Any]]:
     """The AI Studio form: one key, one endpoint, no project."""
     clean = str(prompt or "").strip()
@@ -370,7 +396,9 @@ def cost_notice(brief: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "LYRIA_ENDPOINT",
     "LYRIA_ESTIMATED_COST_EUR",
+    "GEMINI_MODELS_ENDPOINT",
     "LYRIA_MODEL",
+    "lyria_models_in",
     "LYRIA_TRACK_SECONDS",
     "LyriaError",
     "audio_from_response",
