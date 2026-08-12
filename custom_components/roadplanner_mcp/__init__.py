@@ -15,6 +15,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .assistant import RoadplannerAssistant
+from .google_service_account import ServiceAccountError, ServiceAccountTokens
 from .const import (
     CONFIG_ENTRY_VERSION,
     CONF_ARCHIVE_PATH,
@@ -39,6 +40,10 @@ from .const import (
     CONF_HANDOFF_PATH,
     CONF_AI_MUSIC_ENABLED,
     CONF_GEMINI_API_KEY,
+    DEFAULT_VERTEX_REGION,
+    CONF_VERTEX_SERVICE_ACCOUNT,
+    CONF_VERTEX_REGION,
+    CONF_VERTEX_PROJECT,
     CONF_VIDEO_ANALYSIS_ENABLED,
     DEFAULT_AI_MUSIC_ENABLED,
     DEFAULT_VIDEO_ANALYSIS_ENABLED,
@@ -787,11 +792,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Its own service, and deliberately not a method on the exporter: the
     # exporter must have no way to reach a paid call, however convenient
     # a "generate if missing" would look in a future edit.
+    # Built once, outside the lambda: a new holder per call would mint a
+    # fresh token for every generation, which is three round trips of
+    # nothing and makes the cache pointless.
+    _vertex_tokens: dict[str, Any] = {}
+
+    def _vertex_provider(entry_options: Any) -> Any:
+        def read() -> dict[str, Any] | None:
+            project = str(entry_options.get(CONF_VERTEX_PROJECT, "") or "").strip()
+            raw = str(entry_options.get(CONF_VERTEX_SERVICE_ACCOUNT, "") or "").strip()
+            if not project or not raw:
+                return None
+            holder = _vertex_tokens.get(raw)
+            if holder is None:
+                try:
+                    holder = ServiceAccountTokens(raw)
+                except ServiceAccountError as err:
+                    _LOGGER.warning("Vertex-Dienstkonto unbrauchbar: %s", err)
+                    return None
+                # Keyed by the key itself, so replacing it in the options
+                # replaces the holder rather than reusing a token minted
+                # for the old account.
+                _vertex_tokens.clear()
+                _vertex_tokens[raw] = holder
+            return {
+                "project": project,
+                "region": str(
+                    entry_options.get(CONF_VERTEX_REGION, "") or DEFAULT_VERTEX_REGION
+                ),
+                "tokens": holder,
+            }
+
+        return read
+
     film_music = TripFilmMusicService(
         hass,
         story_context,
         lambda: async_get_clientsession(hass),
         api_key_provider=lambda: str(options.get(CONF_GEMINI_API_KEY, "") or ""),
+        # Lyria is a Vertex model and takes a bearer token from a service
+        # account, not the API key above. A callable, so a key added
+        # after startup takes effect without a restart - and the token
+        # holder is built once so its hour-long token is reused across
+        # the handful of calls one soundtrack costs.
+        vertex_provider=_vertex_provider(options),
     )
     trip_film = TripFilmExporter(
         hass,

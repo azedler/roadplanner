@@ -51,6 +51,19 @@ CONF_ASSISTANT_ENABLE_RESEARCH = "assistant_enable_research"
 CONF_ASSISTANT_MAX_HISTORY = "assistant_max_history"
 CONF_GEOCODING_ENABLED = "geocoding_enabled"
 CONF_GEOCODING_URL = "geocoding_url"
+# Vertex AI, for Lyria and nothing else.
+#
+# Deliberately separate from the Gemini key: they are different products
+# with different credentials, and Lyria refuses the API key outright.
+# Keeping them apart means "music does not work" can never be diagnosed
+# by checking the key that has nothing to do with it.
+CONF_VERTEX_PROJECT = "vertex_project"
+CONF_VERTEX_REGION = "vertex_region"
+# The service-account JSON. A credential: it is never logged, never
+# returned to the panel, and never written anywhere by this integration.
+CONF_VERTEX_SERVICE_ACCOUNT = "vertex_service_account"
+DEFAULT_VERTEX_REGION = "us-central1"
+
 CONF_GOOGLE_PLACES_ENABLED = "google_places_enabled"
 CONF_GOOGLE_PLACES_API_KEY = "google_places_api_key"
 CONF_GOOGLE_PLACES_MODE = "google_places_mode"

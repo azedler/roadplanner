@@ -40,6 +40,10 @@ BASE_STYLE = (
     "Kein Gesang, keine dominante Trailer-Musik - die Bilder bleiben vorn."
 )
 
+class MusicPlanError(ValueError):
+    """A film this plan cannot score, said rather than approximated."""
+
+
 # The sections a journey can have, in order, each with what it is for.
 # Deliberately a fixed vocabulary rather than something a model invents:
 # four names that a person recognises, and that map onto the story roles
@@ -92,16 +96,51 @@ def plan_sections(
     if total <= 0:
         return []
     per_track = max(30.0, float(track_seconds))
-    # How many generations it takes to cover the film once, allowing for
-    # the overlaps, and never more sections than the film has room for.
+    # How many generations it takes to COVER the film, allowing for the
+    # overlaps. This is a floor, not a preference.
+    #
+    # It used to be capped at four - the number of names in the table
+    # below - and nothing then checked whether four sections of a
+    # twelve-minute film would fit in four generations. They did not: the
+    # planner asked for 186-second sections while one call yielded 118,
+    # so each section played its track and then went quiet. Four and a
+    # half minutes of silence in a twelve-minute film, and it would have
+    # appeared on the first real generation, after it was paid for.
+    #
+    # Fewer sections is still better - §32's "large coherent sections",
+    # and each one is a charge - but "fewer" may never win against
+    # "covers the film".
     needed = max(1, int(-(-total // max(1.0, per_track - CROSSFADE_SECONDS))))
-    room = max(1, int(total // MIN_SECTION_SECONDS))
-    count = max(1, min(needed, room, len(_ORDER_FOR)))
+    # `MIN_SECTION_SECONDS` used to clamp this DOWNWARD, which is the
+    # same bug one step further along: on a film where the two disagree,
+    # a shorter list of longer sections is exactly a list of sections
+    # that no single generation can fill. Coverage is a requirement;
+    # "not too many small pieces" is a preference, and a preference does
+    # not get to win.
+    if needed > MAX_SECTIONS:
+        # Said, not silently truncated. Clamping here would produce
+        # sections longer than one generation can fill - the same silence
+        # again, one guard further along. This is the third place in this
+        # function where "keep the list short" could have quietly beaten
+        # "cover the film"; it is a real condition and it gets a sentence.
+        raise MusicPlanError(
+            f"Ein Film von {round(total / 60)} Minuten braucht {needed} "
+            f"Generierungen à {round(per_track)} s - mehr als die "
+            f"{MAX_SECTIONS}, die ein Soundtrack haben soll. Mit diesem "
+            "Modell ist er nicht vertonbar."
+        )
+    count = max(needed, 1)
 
-    names = _ORDER_FOR[count]
+    names = _order_for(count)
     share = total / count
+    # A film long enough to need three journey sections would otherwise
+    # show "Norden und große Reise" three times in the panel, and nobody
+    # could tell which one had already been generated.
+    repeats = {name: names.count(name) for name in set(names)}
+    seen: dict[str, int] = {}
     sections: list[dict[str, Any]] = []
     for index, name in enumerate(names):
+        seen[name] = seen.get(name, 0) + 1
         start = index * share
         # Every section but the first starts a crossfade early, so the
         # one before it is still sounding when it arrives.
@@ -110,7 +149,11 @@ def plan_sections(
         sections.append(
             {
                 "section": name,
-                "label": _SECTION_LABEL[name],
+                "label": (
+                    _SECTION_LABEL[name]
+                    if repeats[name] == 1
+                    else f"{_SECTION_LABEL[name]} {seen[name]}"
+                ),
                 "start_seconds": round(start, 2),
                 "end_seconds": round(end, 2),
                 "seconds": round(end - start, 2),
@@ -126,12 +169,33 @@ def plan_sections(
 
 # Which sections a film of N pieces uses. A short film does not get a
 # "Rückweg" it never had time to feel.
+#
+# Past four the middle stretches rather than the vocabulary growing: a
+# long journey is more journey, not a new kind of thing. A twelve-minute
+# film needs five generations to be covered at three minutes each, so
+# five and six are ordinary cases rather than exotic ones.
 _ORDER_FOR = {
     1: (SECTION_JOURNEY,),
     2: (SECTION_OPENING, SECTION_FINALE),
     3: (SECTION_OPENING, SECTION_JOURNEY, SECTION_FINALE),
     4: (SECTION_OPENING, SECTION_JOURNEY, SECTION_RETURN, SECTION_FINALE),
 }
+# The most a film may be cut into. Eight three-minute pieces is
+# twenty-four minutes of music; a film longer than that is a different
+# problem from the one this table solves.
+MAX_SECTIONS = 8
+
+
+def _order_for(count: int) -> tuple[str, ...]:
+    """The section names for a film of this many pieces."""
+    if count in _ORDER_FOR:
+        return _ORDER_FOR[count]
+    middle = count - 3
+    return (
+        (SECTION_OPENING,)
+        + tuple(SECTION_JOURNEY for _ in range(max(1, middle)))
+        + (SECTION_RETURN, SECTION_FINALE)
+    )[:count]
 
 
 def build_plan(
@@ -278,6 +342,8 @@ __all__ = [
     "build_plan",
     "cost_notice",
     "plan_cache_key",
+    "MusicPlanError",
+    "MAX_SECTIONS",
     "plan_sections",
     "section_cache_key",
 ]

@@ -30,7 +30,9 @@ from .trip_film_music_plan import (
     cost_notice as plan_cost_notice,
     section_cache_key,
 )
+from .google_service_account import ServiceAccountError
 from .trip_film_lyria import (
+    LYRIA_REGION,
     LYRIA_ESTIMATED_COST_USD,
     LYRIA_MODEL,
     LYRIA_PRICE_NOTE,
@@ -72,14 +74,76 @@ class TripFilmMusicService:
         story_context: Any,
         session_factory: Any,
         *,
-        api_key_provider: Any,
+        api_key_provider: Any = None,
         music_root: str | Path = DEFAULT_MUSIC_ROOT,
+        vertex_provider: Any = None,
     ) -> None:
         self._hass = hass
         self._story_context = story_context
         self._session_factory = session_factory
+        # Kept for the shape of the call, and unused: Lyria is a Vertex
+        # model and refuses the Gemini API key outright. Removing the
+        # argument would break every caller for no gain, so it stays and
+        # says why it does nothing.
         self._api_key_provider = api_key_provider
+        # Where the money is spent, and the only thing here that can
+        # authenticate: a project, a region and a service account. A
+        # callable rather than the values, so a key that is reconfigured
+        # takes effect without rebuilding the service.
+        self._vertex_provider = vertex_provider
         self._root = Path(music_root)
+
+    def _vertex(self) -> dict[str, Any]:
+        """The Vertex settings, or a sentence saying which one is missing."""
+        found = self._vertex_provider() if callable(self._vertex_provider) else None
+        if not isinstance(found, dict):
+            raise ValidationError(
+                "Für die Musikgenerierung fehlen die Vertex-AI-Zugangsdaten. "
+                "Lyria läuft nicht über den Gemini-Schlüssel, sondern braucht "
+                "ein Google-Cloud-Projekt und ein Dienstkonto."
+            )
+        project = str(found.get("project") or "").strip()
+        if not project:
+            raise ValidationError("Für Vertex AI fehlt die Google-Cloud-Projekt-ID")
+        if not found.get("tokens"):
+            raise ValidationError("Für Vertex AI fehlt der Dienstkonto-Schlüssel")
+        return found
+
+    def _vertex_state(self) -> tuple[bool, str]:
+        """Can music be generated, and if not, which part is missing?
+
+        The same question `_vertex` answers by raising, in the form an
+        offer needs: a read-only dialog must not fail just because
+        nothing is configured yet.
+        """
+        try:
+            self._vertex()
+        except ValidationError as err:
+            return False, str(err)
+        return True, ""
+
+    async def _async_access_token(self, tokens: Any) -> str:
+        """A bearer token, minted only when the cached one has gone stale."""
+        cached = tokens.cached()
+        if cached:
+            return cached
+        url, form = tokens.request()
+        session = self._session_factory()
+        try:
+            async with session.post(url, data=form, timeout=LYRIA_TIMEOUT_SECONDS) as response:
+                payload = await response.json(content_type=None)
+        except Exception as err:  # noqa: BLE001 - transport failures read the same
+            _LOGGER.warning("Vertex-Token nicht erhalten: %s", type(err).__name__)
+            raise ValidationError(
+                "Google hat kein Zugriffstoken ausgestellt. Der Film läuft ohne Musik."
+            ) from err
+        try:
+            return tokens.store(payload)
+        except ServiceAccountError as err:
+            # The reason Google gave is the difference between "it does
+            # not work" and "the Vertex AI API is not enabled for this
+            # project", so it is carried through rather than flattened.
+            raise ValidationError(str(err)) from err
 
     async def _async_plan(self, trip_id: str, film_seconds: float) -> dict[str, Any]:
         """The soundtrack this film would get, without ordering any of it."""
@@ -113,12 +177,22 @@ class TripFilmMusicService:
             price_per_generation=LYRIA_ESTIMATED_COST_USD,
             cached=cached,
         )
+        ready, reason = self._vertex_state()
         notice.update(
             {
                 "plan": plan,
                 "section_state": sections,
                 "price_note": LYRIA_PRICE_NOTE,
-                "available": bool(self._api_key_provider()),
+                # Whether the button can work, asked of what the button
+                # actually needs. It used to read the Gemini API key -
+                # which Lyria refuses - so the dialog promised a
+                # generation that could not happen, and the failure only
+                # appeared after somebody agreed to pay for it.
+                "available": ready,
+                # And WHY not, when not. "Nicht verfügbar" without a
+                # reason is an absent answer dressed as a state: it sends
+                # somebody checking the one thing that is fine.
+                "unavailable_reason": reason,
             }
         )
         return notice
@@ -190,7 +264,13 @@ class TripFilmMusicService:
         for section, entry in zip(plan.get("sections") or [], state):
             if entry["cached_name"]:
                 continue
-            blob, mime_type = await self._async_order(str(section.get("prompt") or ""))
+            blob, mime_type = await self._async_order(
+                str(section.get("prompt") or ""),
+                # Asked for explicitly: a section that comes back shorter
+                # than planned is silence at its end, and that is the
+                # failure this whole area just had.
+                seconds=float(section.get("seconds") or 0) or None,
+            )
             name = track_filename(entry["key"], extension_for(mime_type))
             written = await self._hass.async_add_executor_job(self._store, name, blob)
             if not written:
@@ -219,16 +299,25 @@ class TripFilmMusicService:
             ],
         }
 
-    async def _async_order(self, prompt: str) -> tuple[bytes, str]:
+    async def _async_order(self, prompt: str, *, seconds: float | None = None) -> tuple[bytes, str]:
         """One generation. Everything that can cost money passes here."""
-        api_key = self._api_key_provider()
-        url, body = build_request(prompt)
+        settings = self._vertex()
+        token = await self._async_access_token(settings["tokens"])
+        url, body = build_request(
+            prompt,
+            project=str(settings["project"]),
+            region=str(settings.get("region") or LYRIA_REGION),
+            seconds=seconds,
+        )
         try:
             session = self._session_factory()
             async with session.post(
                 url,
                 json=body,
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
                 timeout=LYRIA_TIMEOUT_SECONDS,
             ) as response:
                 if response.status >= 400:

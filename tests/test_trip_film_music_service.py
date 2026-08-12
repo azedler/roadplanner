@@ -56,6 +56,9 @@ _root.__path__ = [str(ROOT / "custom_components" / "roadplanner_mcp")]
 sys.modules[_PACKAGE] = _root
 
 service_module = importlib.import_module(f"{_PACKAGE}.trip_film_music_service")
+# Read from the real client rather than repeated here: the number this
+# test checks against is exactly the one that was wrong before.
+lyria_module = importlib.import_module(f"{_PACKAGE}.trip_film_lyria")
 
 MANIFEST = {
     "trip": {"title": "Ostsee-Runde 2026"},
@@ -97,38 +100,72 @@ class _Response:
 
 
 class _Session:
-    """Counts every request that would have cost eight cents."""
+    """Counts every request that would have cost eight cents.
+
+    A token exchange is not a generation and must not be counted as one -
+    otherwise the cheapest possible mistake, minting a token per call,
+    would look exactly like the most expensive one.
+    """
 
     def __init__(self):
         self.calls = 0
+        self.token_calls = 0
         self.prompts: list[str] = []
+        self.urls: list[str] = []
 
-    def post(self, url, *, json=None, headers=None, timeout=None):
+    def post(self, url, *, json=None, data=None, headers=None, timeout=None):
+        self.urls.append(str(url))
+        if data is not None:
+            self.token_calls += 1
+            return _Response({"access_token": "ya29.fake", "expires_in": 3600})
         self.calls += 1
         self.prompts.append(str(json))
         blob = base64.b64encode(b"ID3fake-audio-bytes").decode("ascii")
+        # The shape Vertex actually answers `:predict` with. The fake used
+        # to return the Gemini `candidates` shape, which is what the code
+        # used to read - so both sides agreed with each other and neither
+        # agreed with the API.
         return _Response(
-            {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [
-                                {"inlineData": {"mimeType": "audio/mpeg", "data": blob}}
-                            ]
-                        }
-                    }
-                ]
-            }
+            {"predictions": [{"bytesBase64Encoded": blob, "mimeType": "audio/mpeg"}]}
         )
 
 
-def _service(root, session, *, api_key="k"):
+class _Tokens:
+    """Stands in for ServiceAccountTokens, with its real interface.
+
+    Deliberately no field the production object does not have: a fake
+    that carries an extra name is how this project has answered "off" for
+    every configuration five separate times.
+    """
+
+    def __init__(self):
+        self._token = ""
+
+    def cached(self, *, now=None):
+        return self._token
+
+    def request(self, *, now=None):
+        return ("https://oauth2.googleapis.com/token", {"grant_type": "x", "assertion": "y"})
+
+    def store(self, payload, *, now=None):
+        self._token = str(payload.get("access_token") or "")
+        if not self._token:
+            raise service_module.ServiceAccountError("kein Token")
+        return self._token
+
+
+def _service(root, session, *, api_key="k", vertex=True):
     return service_module.TripFilmMusicService(
         _Hass(),
         _StoryContext(),
         lambda: session,
         api_key_provider=lambda: api_key,
         music_root=root,
+        vertex_provider=(
+            (lambda: {"project": "reise-film-2026", "region": "us-central1", "tokens": _Tokens()})
+            if vertex
+            else (lambda: None)
+        ),
     )
 
 
@@ -141,9 +178,31 @@ def verify_the_offer_costs_nothing_and_orders_nothing() -> None:
         session = _Session()
         offer = asyncio.run(_service(root, session).async_offer("t1", film_seconds=FILM))
         assert session.calls == 0, "ein Angebot darf nichts erzeugen"
-        assert offer["sections"] == 4, offer
-        assert offer["new_generations"] == 4
-        assert abs(offer["estimated_cost"] - 0.32) < 0.001, offer
+        # The COUNT is not written down here. It used to be, as a 4, and
+        # that 4 came from a track length of 118 s that the API never
+        # had - so the test agreed with the bug instead of catching it.
+        # What matters is the property: enough sections to cover the
+        # film, each one short enough for a single generation, and a
+        # price that is exactly one charge per section.
+        sections = offer["plan"]["sections"]
+        assert offer["sections"] == len(sections), offer
+        assert offer["new_generations"] == len(sections)
+        assert abs(offer["estimated_cost"] - len(sections) * 0.08) < 0.001, offer
+        assert sections[0]["start_seconds"] == 0.0, sections[0]
+        # Against the length the plan was made FOR, not the raw film: the
+        # planned length is rounded up to half-minutes on purpose, so a
+        # re-render that shifts by a second does not buy a second
+        # soundtrack. The film's own length is imposed later, by the mux,
+        # which trims to what ffprobe measured.
+        planned = offer["plan"]["film_seconds"]
+        assert planned >= FILM, (planned, FILM)
+        assert abs(sections[-1]["end_seconds"] - planned) < 0.01, sections[-1]
+        for entry in sections:
+            assert entry["seconds"] <= lyria_module.LYRIA_TRACK_SECONDS, (
+                f"{entry['label']} fordert {entry['seconds']} s Musik, eine "
+                f"Generierung liefert höchstens {lyria_module.LYRIA_TRACK_SECONDS} s "
+                "- der Rest des Abschnitts wäre still"
+            )
         assert offer["available"] is True
         assert not any(Path(root).iterdir()), "ein Angebot schreibt nichts"
 
@@ -154,17 +213,18 @@ def verify_generating_pays_once_and_a_second_render_is_free() -> None:
         session = _Session()
         service = _service(root, session)
         first = asyncio.run(service.async_generate("t1", film_seconds=FILM))
-        assert first["generated"] == 4, first
-        assert session.calls == 4
-        assert len(first["timeline"]) == 4
+        wanted = len(first["sections"])
+        assert first["generated"] == wanted, first
+        assert session.calls == wanted
+        assert len(first["timeline"]) == wanted
         assert [entry["name"] for entry in first["timeline"]] == [
             entry["cached_name"] for entry in first["sections"]
         ]
 
         again = asyncio.run(service.async_generate("t1", film_seconds=FILM))
         assert again["generated"] == 0, again
-        assert again["reused"] == 4
-        assert session.calls == 4, "ein zweiter Lauf darf nichts kosten"
+        assert again["reused"] == wanted
+        assert session.calls == wanted, "ein zweiter Lauf darf nichts kosten"
 
         offer = asyncio.run(service.async_offer("t1", film_seconds=FILM))
         assert offer["new_generations"] == 0
@@ -182,8 +242,8 @@ def verify_a_film_that_lost_a_photo_does_not_buy_a_new_soundtrack() -> None:
     with tempfile.TemporaryDirectory() as root:
         session = _Session()
         service = _service(root, session)
-        asyncio.run(service.async_generate("t1", film_seconds=FILM))
-        assert session.calls == 4
+        first = asyncio.run(service.async_generate("t1", film_seconds=FILM))
+        assert session.calls == len(first["sections"])
         for drift in (-6.0, -2.0, +3.0, +11.0):
             offer = asyncio.run(
                 service.async_offer("t1", film_seconds=FILM + drift)
@@ -205,16 +265,24 @@ def verify_the_music_is_never_shorter_than_the_film() -> None:
 
 
 def verify_without_a_key_nothing_is_promised() -> None:
-    """The offer still works - it just says the button will not."""
+    """The offer still works - it just says the button will not.
+
+    And it is asked of the credential the generation actually uses. It
+    used to read the Gemini API key, which Lyria refuses: the dialog
+    reported "verfügbar", somebody agreed to a price, and only then did
+    the call fail.
+    """
     with tempfile.TemporaryDirectory() as root:
         session = _Session()
-        service = _service(root, session, api_key="")
+        service = _service(root, session, vertex=False)
         offer = asyncio.run(service.async_offer("t1", film_seconds=FILM))
         assert offer["available"] is False
+        # Not just "no": which part is missing.
+        assert "Vertex" in offer["unavailable_reason"], offer
         try:
             asyncio.run(service.async_generate("t1", film_seconds=FILM))
         except Exception as err:  # noqa: BLE001 - the message is the assertion
-            assert "Schlüssel" in str(err), err
+            assert "Vertex" in str(err), err
         else:  # pragma: no cover - a failure path that must not vanish
             raise AssertionError("ohne Schlüssel darf nicht erzeugt werden")
         assert session.calls == 0
