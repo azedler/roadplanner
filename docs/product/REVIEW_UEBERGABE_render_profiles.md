@@ -125,15 +125,8 @@ heraus.
 kein Remotion. Jede Aussage über die Wirkung ist eine Erwartung, kein
 Befund. **Der Film ist der einzige Beleg.**
 
-**C) Nicht belegt: Renderzeiten pro Profil.** Gemessen ist genau ein
-Punkt, und der stammt aus CI: 271,5 s Film bei 720p in 1217 s Render.
-Was 480p auf echter Hardware kostet, weiß ich nicht — und ich rechne es
-nicht aus der Pixelzahl hoch, weil Layout und JavaScript je Bild gleich
-viel kosten, unabhängig von der Bildgröße.
-
-**Die Zahl existiert**, sie steht in der Renderer-App-Karte als
-„Zeiten: gesamt … s" und in `result.json` des Auftrags — sie ist nur
-nicht dort, wo der Film gestartet wurde.
+**C) Jetzt gemessen — und das Ergebnis widerspricht einem Ziel des
+Blocks.** Siehe Abschnitt 7.
 
 ---
 
@@ -148,3 +141,56 @@ Ebenfalls offen: **ein Render lässt sich nicht abbrechen.** Er läuft im
 Add-on, nicht in Home Assistant — ein Neustart von Home Assistant ist für
 ihn kein Ereignis. Stoppen lässt er sich heute nur durch einen Neustart
 des Add-ons, der ihn sauber als unterbrochen ablegt und aufräumt.
+
+---
+
+## 7. Der wichtigste Befund: 480p löst das Zeitproblem nicht
+
+Auf dem Live-System gemessen, derselbe Film, dieselbe Maschine:
+
+| | 720p (Add-on 0.23) | 480p (Add-on 0.24) |
+|---|---|---|
+| Filmlänge | 743 s | 734 s |
+| **Dateigröße** | **221 MB** | **47 MB** |
+| **Renderzeit** | **59,8 min** | **51,2 min** |
+| je Bild | 161 ms | 139 ms |
+
+**2,25-mal weniger Pixel haben 14 % Zeit gespart.** Höchstens ein Achtel
+der Kosten eines Bildes sind die Pixel; der Rest ist Layout und
+JavaScript, und das ist dieselbe Arbeit, egal wie groß gezeichnet wird.
+Remotion rechnet die Bilder hier nacheinander in **einem** Browsertab —
+bewusst, weil eine Home-Assistant-Box ihre Kerne mit dem Haushalt teilt.
+
+Der Block hatte zwei Ziele. Das Ergebnis ist unterschiedlich:
+
+- **Dateigröße: erreicht.** 221 MB → 47 MB, ein Faktor von fast fünf.
+  Dazu die Review-Kopie, die aus einem fertigen Film in Minuten 50 MB
+  macht, ohne neu zu rendern.
+- **Iterationsgeschwindigkeit: nicht erreicht.** 51 Minuten sind keine
+  schnelle Runde. Die Auflösung war der falsche Hebel.
+
+Das ist kein Fehler in der Umsetzung, sondern eine widerlegte Annahme —
+meine. Ich hatte es vermutet und deshalb ausdrücklich nicht
+hochgerechnet; jetzt ist es gemessen.
+
+**Was wirklich helfen würde**, in der Reihenfolge ihrer Nebenwirkungen:
+
+1. **Mehr als ein Browsertab.** Der einzige große Hebel, denn die Bilder
+   werden derzeit streng nacheinander gezeichnet. Kostet Kerne und
+   Arbeitsspeicher auf einem Gerät, das nebenbei ein Haus steuert — und
+   genau deshalb steht die Zahl heute auf eins.
+2. **Weniger Bilder je Sekunde für Reviewfassungen.** Halb so viele
+   Bilder ist grob halb so viel Zeit. Die Filmlänge bliebe gleich, die
+   Bewegung würde ruckeliger. Das greift allerdings in den Szenenplan
+   ein, denn dessen Bildzahlen sind bei 30 gerechnet — also genau die
+   Grenze, die dieser Block bewusst nicht überschritten hat.
+3. **Kürzere Abnahmefilme.** Nicht die ganze Reise, sondern ein paar
+   Kapitel. Ändert nichts am Renderer und beantwortet die meisten Fragen
+   zum Schnitt genauso gut.
+
+Nebenbefund aus derselben Messung, bereits behoben: Die Zeitgrenze für
+einen Render wurde mit der Pixelzahl **verkleinert**. Da die Renderzeit
+aber kaum an den Pixeln hängt, war die Reserve bei 480p auf das 1,28-fache
+der echten Dauer geschrumpft — gegen das 2,49-fache bei 720p. Am dünnsten
+also ausgerechnet beim Profil für schnelle Runden. Die Grenze wird jetzt
+nur noch vergrößert, nie verkleinert.

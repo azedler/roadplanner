@@ -326,6 +326,33 @@ def verify_the_size_choice_does_not_hide_behind_another_button() -> None:
         )
 
 
+def verify_a_small_profile_never_gets_a_smaller_deadline() -> None:
+    """Render time is not proportional to pixels, so the budget must not be.
+
+    Measured on the same trip, same machine: 720p cost 161 ms per frame,
+    480p cost 139 ms - 2.25 times fewer pixels bought 14% less time. At
+    most an eighth of a frame's cost is the pixels; the rest is layout
+    and JavaScript, which is the same work at any size.
+
+    Scaling the deadline DOWN by pixel count therefore budgets a small
+    render as if it were quick when it is not. It had shrunk the guard to
+    1.28x the real duration at 480p against 2.49x at 720p - thinnest on
+    the profile meant for fast rounds, which is backwards.
+    """
+    js = (
+        ROOT / "apps" / "roadplanner_renderer" / "src" / "render_profiles.mjs"
+    ).read_text(encoding="utf-8")
+    body = js.split("export function pixelFactor(", 1)
+    assert len(body) == 2, "pixelFactor gibt es nicht mehr"
+    body = body[1].split("\n}", 1)[0]
+    floor = re.search(r"Math\.max\(([0-9.]+),", body)
+    assert floor, f"pixelFactor hat keinen Boden mehr: {body}"
+    assert float(floor.group(1)) >= 1, (
+        f"pixelFactor darf die Frist nie verkleinern, Boden ist {floor.group(1)} - "
+        "ein kleiner Render dauert fast genauso lange wie ein grosser"
+    )
+
+
 def verify_the_composition_scales_the_design_surface() -> None:
     """Read the film component: no layout may know the real size.
 
