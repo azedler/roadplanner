@@ -305,7 +305,7 @@ class TripFilmExporter:
         # would inflate every day that has video, which is the failure the
         # photo allocation was rebuilt to remove.
         clips_by_chapter, clip_files = await self._async_clips(
-            trip_id, chapters, media_by_id
+            trip_id, chapters, media_by_id, profile_id
         )
         budget = _film_budget(chapters)
         for chapter_id, entries in clips_by_chapter.items():
@@ -596,6 +596,7 @@ class TripFilmExporter:
         trip_id: str,
         chapters: list[dict[str, Any]],
         media_by_id: dict[str, Any],
+        profile_id: str = DEFAULT_RENDER_PROFILE,
     ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, bytes]]:
         """The video moments this film plays, cut and ready.
 

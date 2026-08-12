@@ -127,6 +127,10 @@ MAX_CHAPTERS = 45
 # that was visible while the small collage tiles looked fine.
 FILM_IMAGE_MAX_EDGE = 900
 FILM_JPEG_QUALITY = 76
+# NOT a ceiling any more - the ANCHOR the byte budget curve is measured
+# from, at the size that used to be the only one. The ceiling a package
+# is validated against is MAX_PREPARED_IMAGE_BYTES below, and it is the
+# number the renderer enforces too.
 # Quality and byte budget have to grow with the picture, or the pixels
 # won a battle the encoder then loses: 280 kB is generous at 900 px and
 # tight at 2790, and a bigger picture squeezed into the same envelope
@@ -660,8 +664,22 @@ def validate_film_package(payload: Any) -> dict[str, Any]:
                     f"Bildpfad {image.get('path')!r} entspricht nicht der Kapitelposition"
                 )
             size = image.get("size_bytes")
-            if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_FILM_IMAGE_BYTES:
-                raise RenderPackageError("Bildeintrag mit ungültiger Größe")
+            # Against the ceiling the RENDERER enforces, not against the
+            # 900-pixel anchor the byte budget is measured from. Those
+            # were the same number until pictures started being sized for
+            # their slot, and this line kept the old one - so a 1440p
+            # hero at 760 kB failed here, in the integration, before the
+            # renderer ever saw it. The comparison test passed the whole
+            # time because it read the OTHER constant.
+            if (
+                not isinstance(size, int)
+                or isinstance(size, bool)
+                or not 0 < size <= MAX_PREPARED_IMAGE_BYTES
+            ):
+                raise RenderPackageError(
+                    f"Bildeintrag mit ungültiger Größe ({size} Byte, erlaubt sind "
+                    f"bis {MAX_PREPARED_IMAGE_BYTES})"
+                )
             if len(str(image.get("sha256") or "")) != 64:
                 raise RenderPackageError("Bildeintrag ohne gültigen SHA-256")
             images += 1
