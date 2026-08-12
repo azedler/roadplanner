@@ -224,8 +224,87 @@ def build_music_timeline_package(
     )
 
 
+def build_music_variant_package(
+    variant: dict[str, Any],
+    root: str | Path = DEFAULT_MUSIC_ROOT,
+    *,
+    volume: float = DEFAULT_VOLUME,
+    target_lufs: float | None = None,
+    true_peak_dbtp: float | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+    """One fassung of the architecture comparison, as a mux package.
+
+    The difference to a soundtrack is that these layers PLAY AT ONCE
+    rather than one after another, so each carries its own level: an
+    atmosphere under a piece of music is not the same thing as the two
+    of them at one volume. The mux sums them and knows nothing about
+    architectures.
+
+    A layer whose file has gone missing is fatal here, unlike in a
+    soundtrack. A soundtrack with a gap still plays; a layered fassung
+    missing its bed IS the single-score fassung, and it would be
+    compared against itself while looking like a result.
+    """
+    layers = list((variant or {}).get("layers") or [])
+    if not layers:
+        return None, {}
+    if len(layers) > MAX_MUSIC_SECTIONS:
+        raise MusicPackageError(
+            f"{len(layers)} Ebenen - der Renderer nimmt höchstens "
+            f"{MAX_MUSIC_SECTIONS} entgegen"
+        )
+    entries: list[dict[str, Any]] = []
+    files: dict[str, bytes] = {}
+    for index, layer in enumerate(layers):
+        name = str((layer or {}).get("cached_name") or "")
+        found = read_track(name, root)
+        if not found:
+            raise MusicPackageError(
+                f"Die Ebene „{(layer or {}).get('role') or index + 1}“ fehlt - "
+                "diese Fassung wäre eine andere als die geplante"
+            )
+        extension, blob = found
+        path = f"{MUSIC_DIR}/layer-{index + 1:02d}{extension}"
+        files[path] = blob
+        base = max(0.0, min(1.0, float(volume)))
+        entries.append(
+            {
+                "path": path,
+                "size_bytes": len(blob),
+                "sha256": hashlib.sha256(blob).hexdigest(),
+                "role": str((layer or {}).get("role") or ""),
+                # The layer's share of the mix, already multiplied out -
+                # the renderer places what it is told and decides
+                # nothing, which is the same rule the soundtrack
+                # timeline follows.
+                "volume": round(
+                    max(0.0, min(1.0, base * float((layer or {}).get("gain") or 1.0))), 4
+                ),
+                "start_seconds": round(max(0.0, float(layer.get("start_seconds") or 0)), 2),
+                "seconds": round(max(0.0, float(layer.get("seconds") or 0)), 2),
+                "fade_in_seconds": round(max(0.0, float(layer.get("fade_in_seconds") or 0)), 2),
+                "fade_out_seconds": round(max(0.0, float(layer.get("fade_out_seconds") or 0)), 2),
+            }
+        )
+    package: dict[str, Any] = {
+        "path": entries[0]["path"],
+        "size_bytes": entries[0]["size_bytes"],
+        "sha256": entries[0]["sha256"],
+        "volume": max(0.0, min(1.0, float(volume))),
+        "title": str((variant or {}).get("label") or "Musikvergleich")[:80],
+        "sections": entries,
+        "variant": str((variant or {}).get("variant") or ""),
+    }
+    if target_lufs is not None:
+        package["target_lufs"] = float(target_lufs)
+    if true_peak_dbtp is not None:
+        package["true_peak_dbtp"] = float(true_peak_dbtp)
+    return package, files
+
+
 __all__ = [
     "ALLOWED_EXTENSIONS",
+    "build_music_variant_package",
     "DEFAULT_MUSIC_ROOT",
     "DEFAULT_VOLUME",
     "MAX_MUSIC_SECTIONS",

@@ -82,6 +82,10 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   // Writes the whole score into the shared directory before the job
   // file. Interrupted halfway it would leave a partial package.
   "story_film_add_music",
+  // Up to three Lyria generations for the architecture comparison, and
+  // the mux that writes one fassung's layers into the shared directory.
+  "story_music_prototype_generate",
+  "story_music_prototype_mix",
 ]);
 
 class RoadplannerPanel extends HTMLElement {
@@ -1872,6 +1876,12 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmReviewCopy();
     } else if (action === "story-film-add-music" && this._canEdit()) {
       void this._storyFilmAddMusic();
+    } else if (action === "story-music-prototype-offer") {
+      void this._storyMusicPrototypeOffer();
+    } else if (action === "story-music-prototype-generate" && this._canEdit()) {
+      void this._storyMusicPrototypeGenerate();
+    } else if (action === "story-music-prototype-mix" && this._canEdit()) {
+      void this._storyMusicPrototypeMix(cleanText(target.dataset.variant));
     } else if (action === "renderer-app-cancel" && this._canEdit()) {
       void this._rendererAppCancel();
     } else if (action === "story-chapter-image" && this._canEdit()) {

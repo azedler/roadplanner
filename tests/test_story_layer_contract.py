@@ -232,6 +232,16 @@ def verify_only_two_fields_are_editable() -> None:
         # trip - never a prompt, never a file name.
         "story_film_music_offer",
         "story_film_music_generate",
+        # The architecture comparison, in the same three steps and for
+        # the same reason. The offer counts and prices; the generate
+        # call is the only one that spends and carries nothing but a
+        # trip; the mix names a JOB, a trip and one letter, and reads
+        # the music folder to put layers onto a film that exists. None
+        # of the three can reach the roadbook, and none of them can
+        # order the film's full soundtrack.
+        "story_music_prototype_offer",
+        "story_music_prototype_generate",
+        "story_music_prototype_mix",
         # Which photographs tell each day, and the person's power to
         # overrule that. Both write a derivation or a pin - neither can
         # touch a roadbook fact, a stop or a photograph itself.
