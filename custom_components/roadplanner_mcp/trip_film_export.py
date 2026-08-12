@@ -35,7 +35,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .media_targets import photo_slots, required_edge
+from .media_targets import photo_slots, required_edge, slot_upper_edge
 from .qa_excerpt import QaExcerptError, excerpt_range
 from .render_profiles import DEFAULT_RENDER_PROFILE, RENDER_PROFILES
 from .roadplanner import RoadplannerError, ValidationError
@@ -339,6 +339,14 @@ class TripFilmExporter:
                 if record is None:
                     missing_media += 1
                     continue
+                # Which rendition to ask for. Decided from the slot
+                # alone, because nothing has been downloaded yet and the
+                # orientation is therefore unknown - so this asks the
+                # landscape question, which is the larger of the two.
+                chapter_id = str(chapter.get("chapter_id") or "")
+                scene_type, in_scene = slots.get(
+                    (chapter_id, len(prepared)), (SCENE_PHOTO, 1)
+                )
                 raw = await async_fetch_media_photo(
                     session,
                     self._experience,
@@ -346,6 +354,7 @@ class TripFilmExporter:
                     record,
                     cache=self._media_cache,
                     hass=self._hass,
+                    wanted_edge=slot_upper_edge(scene_type, in_scene, profile_id),
                 )
                 if not raw:
                     missing_media += 1
@@ -359,10 +368,6 @@ class TripFilmExporter:
                 # frame. Generous on purpose: pictures go missing, and a
                 # chapter that ends up with fewer of them moves the rest
                 # into BIGGER slots, never smaller.
-                chapter_id = str(chapter.get("chapter_id") or "")
-                scene_type, in_scene = slots.get(
-                    (chapter_id, len(prepared)), (SCENE_PHOTO, 1)
-                )
                 report: dict[str, Any] = {}
                 shrunk = await self._hass.async_add_executor_job(
                     _prepare_photo, raw, scene_type, in_scene, profile_id, report

@@ -157,6 +157,24 @@ def required_edge(
     return int(min(MAX_TARGET_EDGE, max(MIN_TARGET_EDGE, round(longest))))
 
 
+def slot_upper_edge(scene_type: str, photo_count: int, profile_id: str) -> int:
+    """The most this slot could ever need, before the picture is seen.
+
+    Used to decide which rendition to ASK the provider for, which has to
+    happen before anything has been downloaded and therefore before the
+    orientation is known. Landscape is the larger of the two cases, so
+    this is the safe side: it can ask for more than a given picture turns
+    out to need, and never for less.
+
+    The resize itself still uses the real shape. This is only the
+    question "is the ordinary preview big enough for this slot at all?".
+    """
+    box_w, box_h = slot_box(scene_type, photo_count, profile_id)
+    # A landscape picture under `cover` binds on the width, which is the
+    # largest requirement any orientation produces for this box.
+    return int(min(MAX_TARGET_EDGE, round(max(box_w, box_h) * slot_zoom(scene_type))))
+
+
 def photo_slots(scene_plan: dict[str, Any]) -> dict[tuple[str, int], tuple[str, int]]:
     """For every picture the film uses: which scene shows it, and with how many.
 
@@ -212,6 +230,7 @@ __all__ = [
     "photo_slots",
     "required_edge",
     "slot_box",
+    "slot_upper_edge",
     "slot_fit",
     "slot_zoom",
 ]

@@ -172,6 +172,38 @@ async def async_fetch_personal_stop_photo(
     return None
 
 
+# The rendered preview the film asked for until a profile could want
+# more. It is a real ceiling and not an incidental one: a landscape
+# picture drawn into a full 1440p frame needs 2790 pixels, and no amount
+# of care in the resize can put back what was never downloaded.
+DEFAULT_PREVIEW_SIZE = "c1920x1440"
+# Asked for FIRST when the slot needs more than the default carries.
+# Whether Graph renders one this large for a given item is its decision,
+# not ours - it is a candidate, the old ones still follow it, and the
+# diagnostics report the size that actually arrived. Guessing either way
+# would have been a claim about somebody else's service.
+LARGE_PREVIEW_SIZE = "c3200x3200"
+LARGE_PREVIEW_THRESHOLD = 1600
+
+
+def preview_candidates(wanted_edge: int = 0) -> tuple[tuple[str, str], ...]:
+    """Which renditions to try, in order, for a picture of this size.
+
+    The list only ever GROWS at the front. Everything that worked before
+    is still tried in the same order afterwards, so a service that does
+    not render the large one loses a round trip and nothing else.
+    """
+    ordered: list[tuple[str, str]] = []
+    if int(wanted_edge or 0) > LARGE_PREVIEW_THRESHOLD:
+        ordered.append(("thumbnail", LARGE_PREVIEW_SIZE))
+    ordered += [
+        ("thumbnail", DEFAULT_PREVIEW_SIZE),
+        ("thumbnail", "large"),
+        ("original", "large"),
+    ]
+    return tuple(ordered)
+
+
 async def async_fetch_media_photo(
     session: Any,
     experience: Any,
@@ -180,6 +212,7 @@ async def async_fetch_media_photo(
     *,
     cache: Any = None,
     hass: Any = None,
+    wanted_edge: int = 0,
 ) -> bytes | None:
     """Download ONE personal media item, rendered preview first.
 
@@ -187,6 +220,11 @@ async def async_fetch_media_photo(
     same photos are needed by every PDF, every video and every crew
     portrait (live question: "da ist ein permanentes Runterladen
     eigentlich übertrieben").
+
+    `wanted_edge` says how large the picture will be drawn. It changes
+    only which rendition is asked for first, and it is part of the cache
+    key by way of the size name - so a 720p run and a 1440p run keep
+    their own copies instead of one serving the other at the wrong size.
     """
     media_id = str(media_item.get("id") or "")
     if not media_id:
@@ -197,11 +235,7 @@ async def async_fetch_media_photo(
     # cannot decode - the original downloaded fine and was then silently
     # discarded, which is why PDF and video stayed empty (live report).
     # Graph renders every thumbnail size as JPEG, whatever the source is.
-    for kind, size in (
-        ("thumbnail", "c1920x1440"),
-        ("thumbnail", "large"),
-        ("original", "large"),
-    ):
+    for kind, size in preview_candidates(wanted_edge):
         key = (
             cache_key(media_id, provider_item_id, size, kind) if cache_usable else ""
         )

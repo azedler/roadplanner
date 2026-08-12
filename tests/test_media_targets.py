@@ -32,6 +32,24 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "custom_components" / "roadplanner_mcp"
 APP = ROOT / "apps" / "roadplanner_renderer" / "src"
 
+# Home Assistant and aiohttp are not installed here, and the modules
+# under test import them at module level. Stubbed to the names they
+# actually use - deliberately nothing more, because a fake that carries
+# a field the real object does not is how this project has answered
+# "off" for every configuration five separate times.
+for _name, _attrs in (
+    ("aiohttp", {"ClientError": type("ClientError", (Exception,), {}), "ClientTimeout": lambda *a, **k: None}),
+    ("homeassistant", {}),
+    ("homeassistant.core", {"HomeAssistant": object, "callback": lambda fn: fn}),
+    ("homeassistant.exceptions", {"HomeAssistantError": type("E", (Exception,), {})}),
+):
+    _stub = types.ModuleType(_name)
+    for _key, _value in _attrs.items():
+        setattr(_stub, _key, _value)
+    if _name == "homeassistant":
+        _stub.__path__ = []
+    sys.modules.setdefault(_name, _stub)
+
 _pkg = types.ModuleType("roadplanner_targets_pkg")
 _pkg.__path__ = [str(PACKAGE_ROOT)]
 sys.modules["roadplanner_targets_pkg"] = _pkg
@@ -276,6 +294,37 @@ def verify_the_video_render_proxy_follows_the_profile_but_not_the_analysis() -> 
     clips = EXPORT_SOURCE.split("async_cut_render_proxy(", 1)[0][-2000:]
     for provider in ("async_generate", "gemini", "Gemini", "analyze"):
         assert provider not in clips, provider
+
+
+def verify_a_bigger_rendition_is_asked_for_only_when_needed() -> None:
+    """§14, and the ceiling that no resize can undo.
+
+    The download asked for `c1920x1440` first - deliberately, because
+    iPhone photographs are HEIC and Pillow cannot decode them, so the
+    provider's rendered JPEG is the only thing that works. But 1920 is
+    short of the 2790 a landscape hero needs at 1440p, and no amount of
+    care in the resize puts back what was never downloaded.
+
+    A larger rendition is now asked for FIRST when the slot needs one.
+    Whether the provider renders it is its decision, not ours - so the
+    old candidates still follow, and a service that refuses loses a round
+    trip and nothing else.
+    """
+    photos = load("trip_export_photos")
+    small = photos.preview_candidates(900)
+    large = photos.preview_candidates(2790)
+    assert small == photos.preview_candidates(0), "ohne Bedarf ändert sich nichts"
+    assert large[0] == ("thumbnail", photos.LARGE_PREVIEW_SIZE), large
+    # Everything that worked before still follows, in the same order.
+    assert large[1:] == small, (large, small)
+    assert small[0] == ("thumbnail", photos.DEFAULT_PREVIEW_SIZE)
+    # And the size name is part of the cache key, so a 720p run and a
+    # 1440p run keep their own copies instead of one serving the other.
+    cache = load("media_cache")
+    keys = {
+        cache.cache_key("m", "p", size, kind) for kind, size in large
+    }
+    assert len(keys) == len(large), "zwei Renditionen teilen sich einen Cache-Eintrag"
 
 
 def verify_one_lossy_step_and_no_chroma_thrown_away() -> None:
