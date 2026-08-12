@@ -887,6 +887,11 @@ export const storyEditorMixin = {
           ? "vorhanden"
           : "noch nicht erzeugt";
         const mixable = entry.ready && this._storyFilmSourceJobId;
+        // The job that produced THIS fassung, remembered per variant.
+        // A review copy has to be made from it and not from the excerpt
+        // the three were mixed onto - that one is the silent cut, and
+        // three silent clips is exactly the review that answers nothing.
+        const mixed = (this._storyMusicPrototypeJobs || {})[String(entry.variant)];
         return `<li>
           <strong>${escapeHtml(String(entry.label || entry.variant))}</strong>
           <small>${escapeHtml(String(entry.question || ""))}</small>
@@ -894,6 +899,11 @@ export const storyEditorMixin = {
           ${
             mixable && canEdit
               ? `<button class="text-button" type="button" data-action="story-music-prototype-mix" data-variant="${escapeHtml(String(entry.variant))}"><ha-icon icon="mdi:music-note-plus"></ha-icon> Fassung ${escapeHtml(String(entry.variant))} auflegen</button>`
+              : ""
+          }
+          ${
+            mixed && canEdit
+              ? `<button class="text-button" type="button" data-action="story-music-prototype-review" data-variant="${escapeHtml(String(entry.variant))}"><ha-icon icon="mdi:content-duplicate"></ha-icon> Kleine Kopie von ${escapeHtml(String(entry.variant))}</button>`
               : ""
           }
         </li>`;
@@ -1030,10 +1040,51 @@ export const storyEditorMixin = {
         errorTitle: "Die Fassung konnte nicht aufgelegt werden",
       },
     );
-    if (!result?.renderer_app_job) return;
+    if (!result?.renderer_app_job?.job_id) return;
+    // Remembered per variant rather than replacing the source job. The
+    // excerpt stays the source, because the next fassung is mixed onto
+    // the SAME silent film - muxing onto a film that already has audio
+    // is refused, and rightly so.
+    this._storyMusicPrototypeJobs = {
+      ...(this._storyMusicPrototypeJobs || {}),
+      [String(variant)]: result.renderer_app_job.job_id,
+    };
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppKind = "film_music";
+    this._rendererAppResult = null;
+    this._rendererAppDownloadUrl = "";
     this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
+  /** A small copy of ONE fassung, made from that fassung's own job. */
+  async _storyMusicPrototypeReview(variant) {
+    const jobId = (this._storyMusicPrototypeJobs || {})[String(variant)];
+    if (!jobId) return;
+    const result = await this._runAction(
+      "story_film_review_copy",
+      {
+        job_id: jobId,
+        profile: this._storyFilmChosen(
+          this._storyFilmProfileTable("review"),
+          this._storyFilmReviewProfile,
+        ),
+      },
+      "Review-Kopie wird erstellt",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Review-Kopie konnte nicht gestartet werden",
+      },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    this._rendererAppKind = "review_copy";
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
 
   /**
