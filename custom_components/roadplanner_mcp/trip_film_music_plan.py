@@ -34,11 +34,40 @@ MUSIC_PLAN_VERSION = 1
 # What the whole soundtrack should sound like. One sentence, reused by
 # every section, because a film whose music changes character between
 # sections sounds like a playlist rather than a score.
+# The whole style, in prose, because prose is the only channel there is.
+#
+# The provider has no `negative_prompt`: everything a piece must NOT be
+# has to be said in the same free text as everything it must be. Half of
+# this list used to live in a brief and never reached a request.
 BASE_STYLE = (
-    "Instrumental, warm, nordisch, leicht verspielt, atmosphärisch. "
-    "Ruhig genug für einen Familien-Reisefilm. "
-    "Kein Gesang, keine dominante Trailer-Musik - die Bilder bleiben vorn."
+    "Instrumental, warm, nordisch, atmosphärisch, leicht verspielt. "
+    "Modern akustisch-filmisch, zurückhaltend, persönlich - die liebevolle "
+    "Begleitung einer echten Familienreise, mit einem leisen Gefühl von "
+    "Unterwegssein. "
+    "Ausdrücklich nicht: Gesang, gesprochene Stimme, Trailer-Pathos, "
+    "bombastische Filmmusik, Melodram, Comedy-Untermalung, dominante "
+    "elektronische Beats, aggressives Schlagzeug, Werbemusik, "
+    "Stockmusik-Beliebigkeit. "
+    "Die Bilder bleiben vorn."
 )
+
+# The arrangement vocabulary the provider understands, and the only
+# handle there is on length - there is no duration parameter, so how many
+# sections are named is what decides whether a piece runs a minute or
+# three. Sparse for a short piece, fuller for a long one.
+#
+# Deliberately the instrumental subset: `[Verse]` and `[Chorus]` are
+# words about singing, and this music has none.
+TAGS_SHORT = ("[Intro]", "[Main Theme]", "[Outro]")
+TAGS_LONG = ("[Intro]", "[A-Section]", "[B-Section]", "[Bridge]", "[Main Theme]", "[Outro]")
+# Past this a piece is long enough to want a middle. Under it, naming
+# more parts than the music has time for makes it hurry.
+TAG_DENSITY_THRESHOLD_SECONDS = 90.0
+
+
+def structure_tags(seconds: float) -> tuple[str, ...]:
+    """Which arrangement to ask for, from how long the piece must be."""
+    return TAGS_LONG if float(seconds) >= TAG_DENSITY_THRESHOLD_SECONDS else TAGS_SHORT
 
 class MusicPlanError(ValueError):
     """A film this plan cannot score, said rather than approximated."""
@@ -247,22 +276,38 @@ def _motifs(
     return words[:6]
 
 
-def section_prompt(section: dict[str, Any], *, motifs: list[str], seconds: float) -> str:
+def section_prompt(
+    section: dict[str, Any],
+    *,
+    motifs: list[str],
+    seconds: float,
+    headroom: float = 1.12,
+) -> str:
     """What one section is asked for.
 
-    The length is stated in words because that is how the long-form
-    model is steered, and the style sentence is repeated in every
-    section so the four pieces belong to one score.
+    Length is stated in SECONDS and reinforced by how many arrangement
+    parts are named, because those are the only two handles there are -
+    the provider has no duration parameter and decides musically where a
+    piece ends. Asking in minutes was worse than imprecise: "etwa
+    1-minütig" for a seventy-five-second section rounds down and biases
+    the result short, and short means the film goes quiet at the end of
+    that section.
+
+    A little more is asked for than the film needs. What comes back is
+    measured and trimmed; what cannot be trimmed is the silence after a
+    piece that ended early.
     """
-    minutes = max(1, round(seconds / 60))
+    wanted = max(1.0, float(seconds) * max(1.0, float(headroom)))
+    tags = " ".join(structure_tags(wanted))
     parts = [
-        f"Erzeuge ein etwa {minutes}-minütiges Instrumentalstück.",
+        f"{tags}",
+        f"Erzeuge ein durchgehendes Instrumentalstück von etwa {round(wanted)} Sekunden.",
         BASE_STYLE,
         section["mood"],
     ]
     if motifs:
         parts.append("Stimmungsbilder: " + ", ".join(motifs) + ".")
-    return " ".join(parts)
+    return " ".join(part for part in parts if part)
 
 
 def plan_cache_key(plan: dict[str, Any], *, model: str) -> str:
@@ -344,6 +389,9 @@ def cost_notice(
 
 __all__ = [
     "BASE_STYLE",
+    "TAGS_LONG",
+    "TAGS_SHORT",
+    "structure_tags",
     "CROSSFADE_SECONDS",
     "FADE_IN_SECONDS",
     "FADE_OUT_SECONDS",

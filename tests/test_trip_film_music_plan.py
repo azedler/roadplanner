@@ -104,8 +104,16 @@ def verify_every_section_belongs_to_one_score() -> None:
     plan = _plan(7 * 60)
     for section in plan["sections"]:
         assert plan_module.BASE_STYLE in section["prompt"], section["section"]
-        assert "Kein Gesang" in section["prompt"]
         assert section["mood"].split(",")[0] in section["prompt"]
+    # And the style itself carries every exclusion, because the provider
+    # has no `negative_prompt` - everything a piece must NOT be has to
+    # travel in the same free text as everything it must be. Checked
+    # against the style constant rather than against a phrase copied
+    # into this file: the wording changed once and this test failed on
+    # its own copy while the requirement was met.
+    style = plan_module.BASE_STYLE.lower()
+    for unwanted in ("gesang", "stimme", "trailer", "melodram", "comedy", "werbe"):
+        assert unwanted in style, f"{unwanted!r} wird nicht ausgeschlossen"
     moods = {section["mood"] for section in plan["sections"]}
     assert len(moods) == 4, "jede Sektion hat ihre eigene Stimmung"
 
