@@ -120,10 +120,61 @@ MAX_PHOTOS_PER_CHAPTER = 14
 MAX_CHAPTERS = 45
 # A film frame shows a photo for well under two seconds at 720p. 900 px on
 # the long edge is already more than the frame can display.
+# The ceiling a picture gets when nobody says which slot it lands in.
+# Everything that knows the slot asks `media_targets.required_edge`
+# instead - at 1440p a landscape hero needs 2790 px, and preparing it at
+# 900 was a 3.1x upscale in the renderer, which is exactly the softness
+# that was visible while the small collage tiles looked fine.
 FILM_IMAGE_MAX_EDGE = 900
 FILM_JPEG_QUALITY = 76
+# Quality and byte budget have to grow with the picture, or the pixels
+# won a battle the encoder then loses: 280 kB is generous at 900 px and
+# tight at 2790, and a bigger picture squeezed into the same envelope
+# just trades one kind of softness for another.
+JPEG_SUBSAMPLING = 0  # 4:4:4 - no chroma thrown away before the renderer
 MAX_FILM_IMAGE_BYTES = 280 * 1024
-MAX_FILM_PACKAGE_BYTES = 32 * 1024 * 1024
+
+
+def image_quality(max_edge: int) -> int:
+    """A little more care for a picture that will be seen larger."""
+    edge = max(1, int(max_edge))
+    if edge <= 1000:
+        return FILM_JPEG_QUALITY
+    if edge <= 1800:
+        return 80
+    return 82
+
+
+def image_byte_budget(max_edge: int) -> int:
+    """What one prepared picture may weigh, scaled by its area.
+
+    Anchored on the old pair - 900 px at 280 kB - and grown with the
+    pixel count rather than with the edge, because that is what a JPEG
+    costs. A 2790 px hero lands near 2.6 MB, which is why the package
+    total is what actually bounds a film.
+    """
+    edge = max(1, int(max_edge))
+    scaled = MAX_FILM_IMAGE_BYTES * (edge / FILM_IMAGE_MAX_EDGE) ** 2
+    return int(min(MAX_PREPARED_IMAGE_BYTES, max(MAX_FILM_IMAGE_BYTES, scaled)))
+
+
+# The hard ceiling for one prepared picture, whatever the arithmetic
+# says. A single photograph past this is a sign something went wrong,
+# not a sharper film.
+MAX_PREPARED_IMAGE_BYTES = 4 * 1024 * 1024
+# Measured over a real plan shape - 23 days, 11 pictures a day, 253
+# prepared images - with each picture sized for the slot it lands in:
+#
+#     480p     8.0 MB      (the old fixed 900 px came to about 20)
+#     720p    13.1 MB
+#     1440p   45.5 MB      46 of the 253 are large
+#
+# So the small profiles got CHEAPER and only 1440p grew, which is the
+# whole point of sizing per slot rather than per film. The ceiling is
+# set well above the largest of those: the estimate follows the content,
+# and a trip of fine-grained photographs weighs more per pixel than the
+# one this was measured on.
+MAX_FILM_PACKAGE_BYTES = 128 * 1024 * 1024
 # The pictures had a budget from the first day; the video that arrived
 # later had none. `MAX_FILM_CLIP_BYTES` bounds ONE clip at 24 MB - which
 # is nearly the whole picture budget - and nothing bounded the sum, so a
@@ -169,7 +220,13 @@ def photo_filename(chapter_index: Any, position: Any) -> str:
     return f"{FILM_PHOTO_DIR}/c{chapter:02d}-{slot}.jpg"
 
 
-def shrink_film_photo(data: bytes) -> bytes | None:
+def shrink_film_photo(
+    data: bytes,
+    *,
+    max_edge: int = FILM_IMAGE_MAX_EDGE,
+    max_bytes: int | None = None,
+    report: dict[str, Any] | None = None,
+) -> bytes | None:
     """Downscale and strip a photo for the film.
 
     Same rules as the mini export - re-encode from pixels, apply the
@@ -177,36 +234,74 @@ def shrink_film_photo(data: bytes) -> bytes | None:
     size the film can actually show. Kept as its own function rather than a
     parameter on the other one so the two can drift apart deliberately
     later without either changing by accident.
+
+    `max_edge` is what the slot and the render profile ask for, and it is
+    a ceiling rather than a target: a picture is never scaled UP here. A
+    small original stays small and says so, because inventing pixels
+    before the renderer only spends bytes on detail that does not exist.
+    Which of the two happened is the difference between "our preparation
+    threw quality away" and "this photograph never had it", and `report`
+    carries that out for the diagnostics.
     """
     try:
         from PIL import Image, ImageOps
     except ImportError:  # pragma: no cover - Pillow ships with Home Assistant
         _LOGGER.warning("Pillow fehlt - für den Reisefilm können keine Bilder vorbereitet werden")
         return None
+    ceiling = max(1, int(max_edge))
+    limit = int(max_bytes) if max_bytes else image_byte_budget(ceiling)
     try:
         image = Image.open(io.BytesIO(data))
         image.load()
         image = ImageOps.exif_transpose(image)
         image = image.convert("RGB")
-        image.thumbnail((FILM_IMAGE_MAX_EDGE, FILM_IMAGE_MAX_EDGE), Image.LANCZOS)
+        if report is not None:
+            report["source_width"], report["source_height"] = image.size
+            report["required_edge"] = ceiling
+        # Only ever down. `thumbnail` already refuses to enlarge, and the
+        # explicit note is what the diagnostics need: a picture that
+        # arrives smaller than its slot is limited by the source, and no
+        # change to the preparation can fix that.
+        image.thumbnail((ceiling, ceiling), Image.LANCZOS)
         buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=FILM_JPEG_QUALITY, optimize=True)
+        image.save(
+            buffer,
+            format="JPEG",
+            quality=image_quality(ceiling),
+            optimize=True,
+            subsampling=JPEG_SUBSAMPLING,
+        )
     except Exception as err:  # noqa: BLE001 - a broken photo is skipped, never fatal
         _LOGGER.debug("Foto für den Reisefilm nicht verwendbar: %s", type(err).__name__)
         return None
     shrunk = buffer.getvalue()
-    if len(shrunk) > MAX_FILM_IMAGE_BYTES:
+    if len(shrunk) > limit:
         buffer = io.BytesIO()
         try:
-            image.save(buffer, format="JPEG", quality=62, optimize=True)
+            image.save(
+                buffer,
+                format="JPEG",
+                quality=max(58, image_quality(ceiling) - 14),
+                optimize=True,
+                subsampling=JPEG_SUBSAMPLING,
+            )
         except Exception:  # noqa: BLE001
             return None
         shrunk = buffer.getvalue()
-        if len(shrunk) > MAX_FILM_IMAGE_BYTES:
+        if len(shrunk) > limit:
             return None
     if metadata_markers(shrunk):
         _LOGGER.warning("Foto trägt nach dem Neucodieren noch Metadaten und wird ausgelassen")
         return None
+    if report is not None:
+        report["prepared_width"], report["prepared_height"] = image.size
+        report["bytes"] = len(shrunk)
+        longest = max(image.size)
+        # Two different findings, and telling them apart is the whole
+        # point of measuring: one is ours to fix, the other is not.
+        report["resolution_status"] = (
+            "sufficient" if longest >= ceiling - 1 else "source_limited"
+        )
     return shrunk
 
 
