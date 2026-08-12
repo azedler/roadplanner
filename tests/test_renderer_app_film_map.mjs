@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   FILM_SCENE_TYPES,
   MAP_CONTEXT_VERSION,
+  MAX_MUSIC_SECTIONS,
   parseCrew,
   parseFilmPackage,
   parseMapContext,
@@ -309,9 +310,27 @@ assert.throws(
   () => parseMusic({ ...crewlessMusic(), sections: [section({ size_bytes: 0 })] }),
   /Größe/,
 );
+// One past whatever the cap is, read from the module rather than
+// written out. The literal used to be five, against a cap of four that
+// was itself too low: the planner produced five sections for a
+// twelve-minute film and the fifth was dropped, so this line asserted
+// the truncation instead of catching it.
 assert.throws(
-  () => parseMusic({ ...crewlessMusic(), sections: [section(), section(), section(), section(), section()] }),
+  () =>
+    parseMusic({
+      ...crewlessMusic(),
+      sections: Array.from({ length: MAX_MUSIC_SECTIONS + 1 }, () => section()),
+    }),
   /Zu viele/,
+);
+// And exactly the cap is accepted, so raising the planner's ceiling
+// without raising this one is a failure rather than a silent gap.
+assert.equal(
+  parseMusic({
+    ...crewlessMusic(),
+    sections: Array.from({ length: MAX_MUSIC_SECTIONS }, () => section()),
+  }).sections.length,
+  MAX_MUSIC_SECTIONS,
 );
 // Nonsense timing degrades to zero rather than reaching an audio node.
 const oddTiming = parseMusic({

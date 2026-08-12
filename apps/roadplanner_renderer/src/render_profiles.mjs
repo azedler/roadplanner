@@ -120,12 +120,25 @@ export function renderProfile(id) {
  * How much work one frame of this profile is, against the 720p baseline.
  *
  * Used to scale the render deadline. A 4K frame is nine times the pixels
- * of a 720p one and takes correspondingly longer, so a ceiling measured
- * at 720p would kill it - which is exactly the failure the fixed ceiling
- * caused before, one variable further along.
+ * of a 720p one, so a ceiling measured at 720p would kill it - which is
+ * the fixed-ceiling failure again, one variable further along.
+ *
+ * It only ever grows the budget, never shrinks it, and that floor is a
+ * measurement rather than caution. The same trip rendered on the same
+ * machine:
+ *
+ *     720p   161 ms per frame
+ *     480p   139 ms per frame     - 2.25x fewer pixels, 14% less time
+ *
+ * At most 13% of a frame's cost is the pixels. The rest is layout and
+ * JavaScript, and that is the same work whatever size it is drawn at. So
+ * scaling the deadline DOWN by pixel count budgets a small render as if
+ * it were quick when it is not: at 480p the guard had shrunk to 1.28x
+ * the real duration, against 2.49x at 720p - thinnest exactly on the
+ * profile meant for fast rounds, which is the wrong way round.
  */
 export function pixelFactor(profile) {
   const entry = profile ?? RENDER_PROFILES[DEFAULT_RENDER_PROFILE];
   const base = DESIGN_WIDTH * DESIGN_HEIGHT;
-  return Math.max(0.25, (entry.width * entry.height) / base);
+  return Math.max(1, (entry.width * entry.height) / base);
 }

@@ -361,6 +361,33 @@ async def async_run_system_check(
 
         await recorder.run("gemini", "Reisebegleiter (Gemini)", _gemini)
 
+    # --- Filmmusik (Lyria) ---------------------------------------------
+    #
+    # Asked by READING the model listing, never by generating: a system
+    # check that quietly spends eight cents is a system check nobody can
+    # run twice. The listing is a GET with the key that is already
+    # configured, and it answers the one question that has been open -
+    # whether Lyria is reachable from AI Studio at all, or whether this
+    # needs a Google-Cloud project and a service account.
+    async def _lyria() -> tuple[str, str]:
+        service = getattr(runtime, "film_music", None)
+        if service is None:
+            return SKIPPED, "Filmmusik ist nicht eingerichtet"
+        found = await service.async_probe_models()
+        state = str(found.get("state") or FAIL)
+        detail = str(found.get("detail") or "")
+        return {"ok": OK, "warn": WARN, "skipped": SKIPPED}.get(state, FAIL), detail
+
+    await recorder.run(
+        "lyria",
+        "Filmmusik (Lyria)",
+        _lyria,
+        hint=(
+            "Liest nur die Modell-Liste. Es wird keine Musik erzeugt und "
+            "nichts abgerechnet."
+        ),
+    )
+
     results = [item.as_dict() for item in recorder.results]
     return {
         "checks": results,

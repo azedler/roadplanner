@@ -89,15 +89,22 @@ JOB_RUNNING = "running"
 JOB_COMPLETED = "completed"
 JOB_FAILED = "failed"
 JOB_EXPIRED = "expired"
+# Asked for, and deliberately NOT a failure: somebody pressing stop is a
+# different event from a render breaking, and reporting it as a failure
+# sends them looking for a cause that does not exist.
+JOB_CANCELLED = "cancelled"
 JOB_STATES = (
     JOB_QUEUED,
     JOB_CLAIMED,
     JOB_RUNNING,
     JOB_COMPLETED,
     JOB_FAILED,
+    JOB_CANCELLED,
     JOB_EXPIRED,
 )
-TERMINAL_JOB_STATES = frozenset({JOB_COMPLETED, JOB_FAILED, JOB_EXPIRED})
+TERMINAL_JOB_STATES = frozenset(
+    {JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED, JOB_EXPIRED}
+)
 
 # --- what may be asked for ----------------------------------------------
 
@@ -121,6 +128,16 @@ ACTION_RENDER_TRIP_FILM = "render_trip_film"
 # sides build ``results/<job_id>/<fixed name>`` from a value that has been
 # matched against the job-id pattern, so there is nothing to traverse.
 ACTION_CREATE_REVIEW_COPY = "create_review_copy"
+# The soundtrack onto a film that has already been rendered. Also not a
+# render, and cheaper still: the video stream is COPIED, so a whole score
+# goes onto a twelve-minute film in seconds.
+#
+# That is what lets the music come last. A film rendered first has a
+# MEASURED length rather than the estimate the plan was priced against,
+# so the score is fitted to the film that exists - and a soundtrack
+# somebody does not like costs another few seconds instead of another
+# ninety-minute render.
+ACTION_ADD_MUSIC = "add_music"
 ALLOWED_ACTIONS = (
     ACTION_PING,
     ACTION_CREATE_TEST_ARTIFACT,
@@ -128,6 +145,7 @@ ALLOWED_ACTIONS = (
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
     ACTION_CREATE_REVIEW_COPY,
+    ACTION_ADD_MUSIC,
 )
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
@@ -136,6 +154,10 @@ ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
 ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4"
 ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4"
 ARTIFACT_REVIEW_COPY = "roadplanner-review-copy.mp4"
+# The same film with its soundtrack on it, under its own name. The silent
+# film stays where it is: it is what a SECOND soundtrack is muxed onto,
+# and overwriting it would make trying another one a re-render again.
+ARTIFACT_FILM_WITH_MUSIC = "roadplanner-trip-film-music.mp4"
 ALLOWED_ARTIFACTS = {
     ARTIFACT_TEXT: "text",
     ARTIFACT_IMAGE: "image",
@@ -143,10 +165,15 @@ ALLOWED_ARTIFACTS = {
     ARTIFACT_TRIP_DAY_VIDEO: "video",
     ARTIFACT_TRIP_FILM_VIDEO: "video",
     ARTIFACT_REVIEW_COPY: "video",
+    ARTIFACT_FILM_WITH_MUSIC: "video",
 }
 # Where a job's input package lives. Named after the job, never after
 # anything a user typed.
 INPUTS_DIR = "inputs"
+# Where a stop is asked for. One file per job, named after it: the request
+# carries no data at all, so the only thing in it that could be wrong is
+# the name - and the name is a job id, checked like every other.
+CANCEL_DIR = "cancel"
 # Text artefacts are read into the panel; a video never is. Keeping the
 # limits apart means the small ones stay small - a 64 MiB text file would
 # be nonsense, and a 256 KiB cap would reject every real video.
@@ -167,10 +194,17 @@ JOB_TTL_SECONDS = 300
 MAX_JSON_BYTES = 64 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024
 MAX_VIDEO_ARTIFACT_BYTES = 64 * 1024 * 1024
-# Three minutes of 720p is several times a fifteen-second clip. Kept as its
-# own number so raising it for the film cannot silently raise it for the
-# day video, which has no business being this large.
-MAX_FILM_ARTIFACT_BYTES = 512 * 1024 * 1024
+# A whole film is several times a fifteen-second clip. Kept as its own
+# number so raising it for the film cannot silently raise it for the day
+# video, which has no business being this large.
+#
+# The renderer holds the same ceiling in `film_limits.mjs` and a test
+# compares both files. It was 512 MB on both sides, measured against
+# 720p, where a twelve-minute film lands at 221 MB. Render profiles made
+# that number a trap: the same film at 1440p is projected at 670-880 MB,
+# so it would render for an hour and a half and then be refused for
+# being exactly the size it was asked to be.
+MAX_FILM_ARTIFACT_BYTES = 2048 * 1024 * 1024
 # A whole trip takes minutes to render on a home box, not seconds. This is
 # the job TTL the film is submitted with; the app has its own matching
 # ceilings.
@@ -332,6 +366,7 @@ def build_job(
     ttl_seconds: int = JOB_TTL_SECONDS,
     render_profile: str = "",
     source_job_id: str = "",
+    frame_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Build a job. Everything in it is either fixed or server-generated."""
     validate_job_id(job_id)
@@ -353,7 +388,17 @@ def build_job(
         if not _PROFILE_ID_RE.match(render_profile):
             raise RendererProtocolError(f"Unbekanntes Renderprofil: {render_profile!r}")
         payload_input["render_profile"] = render_profile
-    if action == ACTION_CREATE_REVIEW_COPY:
+    if frame_range is not None:
+        # Which frames of the film to draw. A quality check at full size
+        # is a PIECE of the same film - same plan, same scenes, same
+        # media - so it travels as two numbers rather than as a second
+        # kind of job. Absent means the whole film.
+        start, end = int(frame_range[0]), int(frame_range[1])
+        if start < 0 or end < start:
+            raise RendererProtocolError("Ungültiger Bildbereich")
+        payload_input["frame_start"] = start
+        payload_input["frame_end"] = end
+    if action in (ACTION_CREATE_REVIEW_COPY, ACTION_ADD_MUSIC):
         # The only id in this protocol that names something that already
         # exists. Validated with the same pattern as every other job id,
         # which is what makes the path built from it unsteerable.
@@ -513,7 +558,11 @@ def artifact_limit(filename: str) -> int:
     kind = ALLOWED_ARTIFACTS.get(filename)
     if kind in TEXT_ARTIFACT_KINDS:
         return MAX_ARTIFACT_BYTES
-    if filename in (ARTIFACT_TRIP_FILM_VIDEO, ARTIFACT_REVIEW_COPY):
+    if filename in (
+        ARTIFACT_TRIP_FILM_VIDEO,
+        ARTIFACT_REVIEW_COPY,
+        ARTIFACT_FILM_WITH_MUSIC,
+    ):
         return MAX_FILM_ARTIFACT_BYTES
     return MAX_VIDEO_ARTIFACT_BYTES
 

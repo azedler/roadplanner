@@ -50,6 +50,10 @@ MAX_TRACKS_LISTED = 60
 DEFAULT_VOLUME = 0.42
 
 
+class MusicPackageError(ValueError):
+    """A soundtrack that cannot be handed over as it stands."""
+
+
 def list_tracks(root: str | Path = DEFAULT_MUSIC_ROOT) -> list[dict[str, Any]]:
     """The audio files in the music folder - names and sizes, blocking.
 
@@ -136,7 +140,20 @@ def build_music_package(
     )
 
 
-MAX_MUSIC_SECTIONS = 4
+# As many sections as the planner can ever produce, and not one fewer.
+#
+# This was 4 while the planner had already been raised to 8, and the two
+# numbers never had to meet: the builder below simply SLICED the list.
+# A twelve-minute film plans five sections, the fifth was dropped here,
+# and the film went quiet for its last two and a half minutes - after
+# somebody had paid for that fifth generation. A fifteen-minute one lost
+# five minutes.
+#
+# The same number lives in the renderer's protocol. A test reads all
+# three - here, there, and the planner's own ceiling - because two copies
+# that agree with each other while disagreeing with the planner is
+# exactly the shape this bug had.
+MAX_MUSIC_SECTIONS = 8
 
 
 def build_music_timeline_package(
@@ -156,9 +173,19 @@ def build_music_timeline_package(
     the rest of the score still plays, and a gap in the music is a much
     smaller failure than a film that will not render.
     """
+    wanted = list(timeline or [])
+    if len(wanted) > MAX_MUSIC_SECTIONS:
+        # Refused rather than sliced. Dropping the tail of a soundtrack
+        # produces a film that is silent at the end and says nothing
+        # about why - and the sections that were dropped had already
+        # been generated and paid for.
+        raise MusicPackageError(
+            f"{len(wanted)} Musikabschnitte - der Renderer nimmt höchstens "
+            f"{MAX_MUSIC_SECTIONS} entgegen"
+        )
     entries: list[dict[str, Any]] = []
     files: dict[str, bytes] = {}
-    for index, section in enumerate(list(timeline or [])[:MAX_MUSIC_SECTIONS]):
+    for index, section in enumerate(wanted):
         found = read_track(str((section or {}).get("name") or ""), root)
         if not found:
             _LOGGER.info("Musikabschnitt %s ist nicht verfügbar - er entfällt", index + 1)
@@ -204,6 +231,7 @@ __all__ = [
     "MAX_MUSIC_SECTIONS",
     "MAX_TRACK_BYTES",
     "MUSIC_DIR",
+    "MusicPackageError",
     "build_music_package",
     "build_music_timeline_package",
     "list_tracks",

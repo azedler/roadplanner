@@ -6,6 +6,30 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.110.0] - 2026-08-12
+
+### Added
+
+- **Ein Prüfausschnitt in der Größe, in der geurteilt wird.** Ein voller 1440p-Render dauert etwa anderthalb Stunden — niemand beurteilt einen Schnitt, der so viel kostet. Der Film lässt sich jetzt in **60 bis 90 Sekunden** prüfen, und zwar als **derselbe Film**: dasselbe Renderpaket, derselbe Szenenplan, dieselben Fotos, dieselben Sekunden. Nur die gezeichneten Bilder sind weniger. Genau das macht die Prüfung zu einem Beleg über den Film, den man am Ende ausgibt, statt über einen zweiten, kleineren. Das Fenster wird bewertet statt geraten — der Ausschnitt soll enthalten, was der Film kann, und die Eröffnung tut das selten. Ein bestimmter Tag oder eine bestimmte Minute lassen sich auch von Hand verlangen. Was nicht gewichtet werden konnte, wird benannt statt verschwiegen: Der Szenenplan führt keine Ausrichtung, also kann Hoch- und Querformat nicht ausgewogen werden.
+
+- **Ein laufender Render lässt sich abbrechen.** Vorher überlebte er einen Neustart von Home Assistant und sogar eine Neuinstallation. Der Abbruch ist ein Marker im Austauschordner, den die App zwischen zwei Bildern liest — er überlebt also beide Prozesse. Ein Abbruch ist ein eigener Zustand und wird auch so gemeldet: Wer ihn selbst ausgelöst hat, soll nicht nach einer Ursache suchen, die es nicht gibt.
+
+- **Die Musik kommt zum Schluss auf den fertigen Film.** Bisher musste sie **vor** dem Rendern feststehen — für einen Film, den niemand gesehen hatte, geplant gegen eine **geschätzte** Länge. Wem sie nicht gefiel, der renderte alles noch einmal, bei 1440p also noch einmal anderthalb Stunden. Jetzt wird der Film zuerst stumm gerendert, seine Länge **gemessen**, und der Soundtrack darüber gelegt: Der Videostream wird dabei **kopiert**, nicht neu berechnet. Das kostet Sekunden statt zwanzig Minuten und keinen Deut Qualität. Einen zweiten Soundtrack auszuprobieren ist damit keine Entscheidung über den Abend mehr. Die Review-Kopie nimmt automatisch die vertonte Fassung — eine Beurteilung des stummen Schnitts kann die Frage nicht beantworten, die ein fertiger Film stellt.
+
+- **Die Musikabschnitte folgen dem Film statt der Division.** Aus dem echten Szenenplan entsteht ein Cue Sheet — Zeiten, Kapitelrollen, Tagesnummern, wie bewegt ein Tag ist, wo Kartenetappen liegen — und daraus setzt ein Modell die Abschnittsgrenzen dorthin, wo die Reise sich wendet. Jede Grenze liegt auf einer Cue-Grenze, die Musik wechselt also nie mitten in einem Tag. **Kein Foto und kein Video verlassen dafür das Haus**: Das Modell sieht Zeiten und Szenenarten und die eigenen Worte der Reise, sonst nichts. Jeder Vorschlag wird gegen die Regeln geprüft, die Geld kosten, und ein Vorschlag, der eine bricht, wird **nicht zurechtgebogen** — dann gilt der deterministische Plan.
+
+- **Was die Musik kostet, steht vollständig da, bevor sie bestellt wird.** Modell, wie viele Generierungen neu sind gegenüber schon vorhandenen, wie viel Audio das gegenüber der Filmlänge ist, die Rechnung hinter dem Preis, wer die Abschnitte gesetzt hat — und in klaren Worten, dass es ein kostenpflichtiger Aufruf ist, **pro Anfrage** abgerechnet und nicht pro Minute, und dass die erzeugten Titel gespeichert und wiederverwendet werden.
+
+### Fixed
+
+- **Eine Viertelstunde Film hätte fünf Minuten Stille bekommen.** Der Musikplaner war auf acht Abschnitte angehoben worden, der Paketbauer schnitt die Liste weiterhin bei vier ab. Beide Deployables trugen dieselbe 4 — waren sich also **perfekt einig**, und ein Test, der sie miteinander vergleicht, hätte nichts gefunden. Gemessen: Ein Film von 12:23 plant fünf Abschnitte, vier kamen an, die Musik endete bei 9:54 und der Rest war still — **nachdem** der fünfte Abschnitt erzeugt und bezahlt worden war. Der bestehende Test hielt das Abschneiden als Absicht fest. Die Obergrenze ist jetzt die des Planers, in beiden Deployables **gegen den Planer** geprüft, und zu viele Abschnitte werden abgelehnt statt gekürzt.
+
+- **Ein Film hätte nicht mehr über 512 MB hinausgedurft.** Bei 1440p wäre er genau daran gescheitert. Die Grenze liegt jetzt bei 2048 MB, und der Renderer verlangt vorher freien Platz, der zur gerenderten Größe passt statt zu einer festen Zahl.
+
+- **Der Dateiname hätte einen 1440p-Film als Review-Kopie ausgegeben.** Ein Auftrag, der nur einen Videostream kopiert, hat nie ein Profil gewählt und kann keins melden — der Name fiel auf den Standard zurück. Er wird jetzt aus den gemessenen Bildmaßen gelesen, und eine unbekannte Größe antwortet mit gar nichts statt mit einer Vermutung.
+
+- **„Nicht verfügbar" nannte den falschen Grund.** Der Musikdialog behauptete einen fehlenden Gemini-Schlüssel, egal welcher der beiden Wege tatsächlich fehlte, und schickte damit zum Nachsehen an die eine Stelle, die in Ordnung war. Jetzt steht der Grund da, den der Dienst ohnehin ausrechnet.
+
 ## [4.109.0] - 2026-08-11
 
 ### Fixed

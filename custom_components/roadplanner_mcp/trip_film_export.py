@@ -34,6 +34,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .qa_excerpt import QaExcerptError, excerpt_range
 from .render_profiles import DEFAULT_RENDER_PROFILE, RENDER_PROFILES
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
@@ -48,6 +49,7 @@ from .crew_portraits import portrait_key
 from .character_assets import build_character_package
 from .trip_film_crew import build_crew_package
 from .trip_film_music import (
+    MusicPackageError,
     build_music_package,
     build_music_timeline_package,
     list_tracks,
@@ -177,12 +179,80 @@ class TripFilmExporter:
             chapters, budget, map_context, manifest.get("narrative")
         )
 
+    async def async_add_music(self, trip_id: str, job_id: str) -> dict[str, Any]:
+        """Put the already-generated score onto an already-rendered film.
+
+        The one place where the film's length stops being an estimate.
+        The render finished, ffprobe measured it, and the timeline is
+        laid out against that number instead of the guess the plan was
+        priced against - which is the entire reason the music goes on
+        last rather than travelling in the package.
+
+        Free, and it must stay that way: this asks the same reading
+        question ``_async_music`` asks - "what exists, and when does it
+        play?" - and never the music service. A section that was never
+        generated is simply not in the timeline, and the offer in the
+        panel is where that is decided and paid for.
+        """
+        if self._music_timeline is None:
+            raise ValidationError("Für diese Installation gibt es keine erzeugte Musik.")
+        result = await self._renderer_app.async_result(job_id)
+        if not result:
+            raise ValidationError("Zu diesem Auftrag gibt es kein Ergebnis.")
+        seconds = float((result.get("video") or {}).get("duration_seconds") or 0.0)
+        if seconds <= 0:
+            # Named rather than defaulted: falling back to the estimate
+            # here would fit the score to a length nobody measured, and
+            # the mismatch would only be audible at the end of the film.
+            raise ValidationError(
+                "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
+            )
+        timeline = await self._music_timeline(trip_id, seconds)
+        if not timeline:
+            raise ValidationError(
+                "Für diesen Film ist noch keine Musik erzeugt worden."
+            )
+        try:
+            music, files = await self._hass.async_add_executor_job(
+                build_music_timeline_package, timeline
+            )
+        except MusicPackageError as err:
+            raise ValidationError(str(err)) from err
+        if not music:
+            raise ValidationError(
+                "Die erzeugten Musikdateien sind nicht mehr im Musikordner."
+            )
+        submitted = await self._renderer_app.async_submit_add_music_job(
+            source_job_id=job_id,
+            music=music,
+            files=files,
+        )
+        _LOGGER.debug(
+            "Musik für %s aufgelegt: %s Abschnitte auf %.1f s",
+            trip_id,
+            len(music.get("sections") or []),
+            seconds,
+        )
+        return {
+            **submitted,
+            # The measured length, said back, because it is the number the
+            # score was fitted to and it is NOT the one the offer quoted.
+            "film_seconds": round(seconds, 2),
+        }
+
     async def async_music_options(self) -> list[dict[str, Any]]:
         """What could be played under a film. Names and sizes only."""
         return await self._hass.async_add_executor_job(list_tracks)
 
     async def async_submit(
-        self, trip_id: str, *, music: str = "", profile: str = ""
+        self,
+        trip_id: str,
+        *,
+        music: str = "",
+        profile: str = "",
+        excerpt: bool = False,
+        excerpt_chapter_id: str = "",
+        excerpt_start_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Build the package for the whole trip and queue the render.
 
@@ -281,11 +351,29 @@ class TripFilmExporter:
         # The clip bytes travel beside the images, under the paths the
         # package already names. The renderer plays what it is given and
         # never fetches anything.
+        # A quality check is a WINDOW into this film, not another film:
+        # the package above is built exactly as it always is, and only
+        # the frames drawn from it change. Building a smaller package
+        # would make the check about something nobody is going to ship.
+        window = None
+        excerpt_info: dict[str, Any] | None = None
+        if excerpt:
+            try:
+                excerpt_info = excerpt_range(
+                    package["scene_plan"],
+                    chapter_id=excerpt_chapter_id,
+                    start_seconds=excerpt_start_seconds,
+                )
+            except QaExcerptError as err:
+                raise ValidationError(str(err)) from err
+            window = (excerpt_info["start_frame"], excerpt_info["end_frame"])
+
         submitted = await self._renderer_app.async_submit_trip_film_job(
             package=package,
             files={**files, **clip_files},
             title=(manifest.get("trip") or {}).get("title") or "Reisefilm",
             profile_id=profile_id,
+            frame_range=window,
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
         _LOGGER.debug(
@@ -309,6 +397,10 @@ class TripFilmExporter:
             "crew_count": len((crew or {}).get("members") or []),
             "music": (music_entry or {}).get("title", ""),
             "character_assets": len((characters or {}).get("assets") or []),
+            # What the excerpt contains and what it could not weigh, so
+            # nobody reads "automatisch gewählt" as "everything was
+            # considered".
+            "excerpt": excerpt_info,
         }
 
 
