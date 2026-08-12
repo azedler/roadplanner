@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.112.0] - 2026-08-12
+
 ### Changed
 
 - **Fotos und Clips werden jetzt in der Auflösung vorbereitet, die ihr Platz im Film wirklich braucht** (Add-on 0.26.0). Der erste 1440p-Prüfausschnitt zeigte Fotos, die neben Schrift, Grafik und Karte sichtbar weicher wirkten — auffällig bei den großen Einzelbildern, nicht bei den kleinen Kacheln. Die Ursache war **eine Zahl**: Jedes Bild wurde auf 900 Pixel längste Kante gebracht, egal wohin es im Film gehört.
@@ -33,7 +35,6 @@ The project follows Semantic Versioning for public releases.
 ### Fixed
 
 - **Die neuen Bilder wären am Renderer abgeprallt.** `MAX_FILM_IMAGE_BYTES` stand auf **beiden** Seiten auf 280 kB, ein 1440p-Hero wiegt rund 760. Das Paket wäre komplett abgelehnt worden, mit einer Meldung, die nichts darüber sagt, welche der beiden Zahlen sich bewegt hat — dieselbe Form zum dritten Mal, diesmal vor der Auslieferung gefunden. Der Vergleichstest, der genau davor schützen soll, hätte es **nicht** gefunden: Sein Leser erkannte nur reine Ziffern, und beide neuen Werte stehen als Ausdruck da — ein Vergleich, der seine Operanden nicht findet, besteht.
-
 
 ## [4.111.0] - 2026-08-12
 
