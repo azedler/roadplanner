@@ -18,6 +18,7 @@ import base64
 import importlib
 import importlib.machinery
 import importlib.util
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -191,15 +192,27 @@ def _service(root, session, *, api_key="k", vertex=True):
 
 
 
+# The regional Vertex host, whole. `<region>-aiplatform.googleapis.com`
+# is one hyphenated token, so this is a full match rather than a suffix
+# test - and a full match is also the only form code scanning accepts as
+# evidence about a destination, for the good reason that a suffix on an
+# unparsed string proves nothing.
+_VERTEX_HOST = re.compile(r"[a-z0-9-]+-aiplatform\.googleapis\.com\Z")
+_STUDIO_HOST = "generativelanguage.googleapis.com"
+
+
 def _host(url: str) -> str:
     """Where a request actually goes.
 
     Parsed rather than searched for: `"aiplatform" in url` is true of a
     URL pointing anywhere at all that merely mentions the name in a path
-    or a query, so it is no evidence about the destination. Code
-    scanning flags the same weakness in the sibling test.
+    or a query, so it is no evidence about the destination.
     """
     return urlsplit(url).hostname or ""
+
+
+def _is_vertex(url: str) -> bool:
+    return bool(_VERTEX_HOST.fullmatch(_host(url)))
 
 
 FILM = 7 * 60 + 12.0
@@ -347,7 +360,7 @@ def verify_either_route_is_enough_on_its_own() -> None:
         )
         assert session.calls > 0
         assert session.token_calls == 0, "AI Studio braucht kein Token"
-        assert all(_host(url) == "generativelanguage.googleapis.com" for url in session.urls), (
+        assert all(_host(url) == _STUDIO_HOST for url in session.urls), (
             session.urls
         )
 
@@ -358,7 +371,7 @@ def verify_either_route_is_enough_on_its_own() -> None:
         assert session.token_calls == 1, (
             f"{session.token_calls} Token für einen Soundtrack - eines reicht"
         )
-        assert any(_host(url).endswith("-aiplatform.googleapis.com") for url in session.urls), (
+        assert any(_is_vertex(url) for url in session.urls), (
             session.urls
         )
 
