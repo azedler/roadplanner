@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.1] - 2026-08-12
+
 ### Fixed
 
 - **Die kleine Kopie hätte den stummen Ausschnitt kopiert, nicht die Fassung.** Alle drei Tonfassungen werden auf denselben stummen Ausschnitt gemischt — der bleibt deshalb der Quell-Auftrag, denn Musik auf einen Film zu legen, der schon Ton hat, wird zu Recht abgelehnt. Die Review-Kopie las aber genau diesen Quell-Auftrag, und die Review-Kopie ist das, was hochgeladen wird: Es wären **dreimal derselbe stumme Ausschnitt** gewesen, und der Hörtest hätte über nichts entschieden. Jede Mischung merkt sich jetzt ihren eigenen Auftrag, und die Kopie wird von dem gemacht. Der Knopf erscheint je Fassung erst, wenn deren Mischung läuft.
