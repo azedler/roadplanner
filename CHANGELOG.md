@@ -6,6 +6,24 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.0] - 2026-08-12
+
+### Added
+
+- **Der Musikarchitektur-Vergleich A/B/C** (Add-on 0.27.0). Die offene Frage war nie, *wie* die Musik klingen soll, sondern **wie viele musikalische Ebenen** ein Reisefilm überhaupt will. Das lässt sich an keinem Diagramm entscheiden, also gibt es jetzt drei Tonfassungen desselben 60–90-Sekunden-Ausschnitts: **A** ein einzelnes durchgehendes Stück, **B** ein sehr zurückhaltendes Klangbett mit einem charaktervolleren Akzent darüber, **C** nur das Klangbett. Bild, Schnitt, Texte, Karte und Videoclips sind in allen dreien identisch — es ändert sich ausschließlich der Ton.
+
+  **Drei Fassungen heißen nicht drei Käufe.** Rollen und Fassungen sind getrennte Dinge, deshalb teilen sich B und C *dieselbe* Klangbett-Datei. Wären es zwei, unterschieden sich die beiden Fassungen zusätzlich in ihrem Material, und die Antwort aus dem Hörtest wäre wertlos. Drei Fassungen, drei Rollen, drei Generierungen: geschätzt 0,24 USD, abgerechnet pro Anfrage.
+
+  Jede Anfrage trägt **denselben festgeschriebenen Stil**, sonst vergleicht der Hörtest Geschmäcker statt Architekturen. Der StyleLock ist dabei ehrlich darüber, was er ist: Lyria hat kein Tempo-Feld, kein Tonart-Feld und keinen Seed, also sagt jede Eigenschaft selbst `prompt_only`, statt in einem Schema zu sitzen, das verbindlich aussieht. Was hinterher messbar ist, wird gemessen; Tempo und Tonart stehen ausdrücklich als *nicht gemessen* da, statt schlecht geschätzt zu werden.
+
+  **Die Lautheit wird angeglichen, und das ist die Bedingung, unter der der Test überhaupt etwas taugt.** Wer drei Fassungen hört, bevorzugt zuverlässig die lauteste und begründet das anschließend mit dem Arrangement. Der Mix wird deshalb als Mix gemessen und um *eine statische Zahl* verschoben — bewusst nicht mit `loudnorm`, das den Pegel während des Stücks nachregelt und dessen schlimmster Fall genau das sparsame, gleichmäßige Material ist, aus dem Fassung C besteht. Die Korrektur ist begrenzt, und ob das Ziel wirklich erreicht wurde, steht im Ergebnis: Der eine Fall, in dem die Fassungen *nicht* vergleichbar sind, muss sichtbar sein.
+
+  Der Prototyp kann nicht zum Produkt werden: Das Fenster ist das des Prüfausschnitts, alles Längere wird abgelehnt statt hochskaliert. Der komplette Soundtrack des Films wird hier nicht erzeugt — das entscheidet erst der Hörtest.
+
+### Changed
+
+- **Nur die Enden des Films klingen noch wie Enden.** Bisher bekam jeder Musikabschnitt dieselbe Tag-Liste, also jeder ein `[Intro]` und ein `[Outro]` — sechs kleine abgeschlossene Stücke hintereinander, genau der Playlist-Klang, den die Abschnittsbildung vermeiden soll. Ein Abschnitt in der Filmmitte wird nie beim Anfangen gehört; er blendet aus dem vorigen auf. Da es weder Seed noch „setze dieses Stück fort" gibt, ist das die einzige Handhabe auf Kontinuität, die dieser Anbieter überhaupt bietet.
+
 ## [4.112.1] - 2026-08-12
 
 ### Fixed
