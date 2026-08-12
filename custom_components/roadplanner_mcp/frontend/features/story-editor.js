@@ -529,8 +529,10 @@ export const storyEditorMixin = {
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
         ${this._renderStoryFilmMusic()}
         ${this._renderStoryFilmProfile()}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-qa-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon> Prüfausschnitt (60–90 s)</button>` : ""}
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
       </div>
+      ${this._renderStoryFilmExcerpt()}
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
       ${this._renderStoryTripDiagnosis()}
@@ -656,6 +658,116 @@ export const storyEditorMixin = {
    * a twelve-minute film is over two hundred megabytes and the question
    * asked of it afterwards - does this cut work? - does not need them.
    */
+  /**
+   * Stop a render that is running.
+   *
+   * The marker is written and the card keeps polling. The renderer
+   * notices between frames, ends its work, cleans up and writes the
+   * outcome - so the answer arrives the same way every other answer
+   * about that job does, rather than being guessed here.
+   */
+  async _rendererAppCancel() {
+    const jobId = this._rendererAppJob?.job_id;
+    if (!jobId || this._rendererAppJob?.terminal || this._rendererAppCancelling) return;
+    this._rendererAppCancelling = true;
+    this._render({ preserveScroll: true });
+    try {
+      await this._runAction(
+        "renderer_app_cancel",
+        { job_id: jobId },
+        "Abbruch angefordert",
+        {
+          refresh: false,
+          blockUi: false,
+          errorMode: "dialog",
+          errorTitle: "Der Render konnte nicht abgebrochen werden",
+        },
+      );
+    } finally {
+      this._rendererAppCancelling = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
+  /**
+   * The quality check: a piece of the film, at the size being judged.
+   *
+   * Not a shorter film - a window into this one. The package is built
+   * exactly as a full render builds it, and only the frames drawn
+   * change, so what comes back is evidence about the film somebody is
+   * actually going to ship.
+   */
+  async _storyFilmQaRender() {
+    this._storyFilmStartError = "";
+    // The package build is the same couple of hundred photographs a full
+    // render fetches. Only the drawing is short, so the silence before
+    // the first progress number is just as long.
+    this._storyFilmPreparing = true;
+    this._render({ preserveScroll: true });
+    const result = await this._runAction(
+      "story_film_qa_render",
+      {
+        trip_id: this._selectedTripId,
+        music: this._storyFilmTrack || "",
+        profile: this._storyFilmChosen(
+          this._storyFilmProfileTable("render"),
+          this._storyFilmQaProfile || "high_quality",
+        ),
+        chapter_id: this._storyFilmQaChapterId || "",
+        start_seconds: this._storyFilmQaStartSeconds || "",
+      },
+      "Prüfausschnitt wird gerendert",
+      { refresh: false, blockUi: false, errorTitle: "Der Prüfausschnitt konnte nicht gestartet werden" },
+    );
+    this._storyFilmPreparing = false;
+    if (!result?.renderer_app_job?.job_id) {
+      this._storyFilmStartError =
+        "Der Prüfausschnitt konnte nicht gestartet werden. Der genaue Grund "
+        + "steht im Home-Assistant-Protokoll unter „roadplanner\u201c.";
+      this._render({ preserveScroll: true });
+      return;
+    }
+    this._rendererAppKind = "trip_film";
+    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._storyFilmExcerpt = result.renderer_app_job.excerpt || null;
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
+  /**
+   * What the chosen excerpt contains - and what could not be weighed.
+   *
+   * The second half matters as much as the first: a scene plan carries
+   * no orientation, so nothing balanced portrait against landscape. Not
+   * saying so would let "automatisch gewählt" read as "everything was
+   * considered".
+   */
+  _renderStoryFilmExcerpt() {
+    const found = this._storyFilmExcerpt;
+    if (!found) return "";
+    const names = {
+      chapter_transition: "Kapitelwechsel",
+      map: "Karte",
+      map_drive: "Kartenfahrt",
+      text: "Text",
+      hero: "Hero",
+      collage: "Collage",
+      clip: "Videoclip",
+    };
+    const has = Object.entries(found.contains || {})
+      .filter(([, present]) => present)
+      .map(([key]) => names[key] || key);
+    const missing = (found.missing || []).map((key) => names[key] || key);
+    const start = Math.round(Number(found.start_seconds) || 0);
+    return `<small class="hint">Ausschnitt ab ${Math.floor(start / 60)}:${String(start % 60).padStart(2, "0")} · ${escapeHtml(String(Math.round(Number(found.seconds) || 0)))} s · ${escapeHtml(String(found.scene_count || 0))} Szenen (${escapeHtml(String(found.reason || ""))}).
+      ${has.length ? `Enthält: ${escapeHtml(has.join(", "))}.` : ""}
+      ${missing.length ? ` Ohne: ${escapeHtml(missing.join(", "))}.` : ""}
+      Nicht gewichtet: Hoch-/Querformat – der Szenenplan führt keine Ausrichtung.</small>`;
+  },
+
   async _storyFilmReviewCopy() {
     const sourceId = this._storyFilmSourceJobId || "";
     if (!sourceId) return;
@@ -686,6 +798,42 @@ export const storyEditorMixin = {
     // The link points at the film this copy was made from. Leaving it
     // would offer the two-hundred-megabyte version under the label of
     // the small one.
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
+  /**
+   * The soundtrack onto the film that was just rendered.
+   *
+   * Free, and it has to look free: every section it uses was generated
+   * and paid for at the offer, and this only reads them off the disk.
+   * The film keeps its own length here - measured by ffprobe rather than
+   * estimated - which is the whole reason the music goes on last.
+   */
+  async _storyFilmAddMusic() {
+    const sourceId = this._storyFilmSourceJobId || "";
+    if (!sourceId) return;
+    const result = await this._runAction(
+      "story_film_add_music",
+      { trip_id: this._selectedTripId, job_id: sourceId },
+      "Musik wird aufgelegt",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Musik konnte nicht aufgelegt werden",
+      },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    // The film with its music becomes the new source: a review copy made
+    // from here carries the soundtrack, and that is the version somebody
+    // sends out. Copying the silent cut would answer the one question a
+    // review of a finished film cannot answer.
+    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._rendererAppKind = "film_music";
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
     this._rendererAppDownloadUrl = "";
     this._render({ preserveScroll: true });
     this._pollRendererAppJob(result.renderer_app_job.job_id);
@@ -784,19 +932,62 @@ export const storyEditorMixin = {
           `<span class="story-motif ${entry.cached_name ? "met" : "unmet"}"><ha-icon icon="${entry.cached_name ? "mdi:check-circle-outline" : "mdi:music-note-plus"}"></ha-icon>${escapeHtml(String(entry.label || entry.section || ""))} · ${escapeHtml(String(Math.round(Number(entry.seconds || 0))))}s</span>`,
       )
       .join("");
+    const currency = String(offer.currency || "USD");
     const price = offer.reused
       ? "Alle Abschnitte sind schon erzeugt – ein weiterer Lauf kostet nichts."
-      : `${offer.new_generations} von ${offer.sections} Abschnitten sind neu · geschätzt ${escapeHtml(String(offer.estimated_cost))} ${escapeHtml(String(offer.currency || "USD"))}`;
+      : `${offer.new_generations} von ${offer.sections} Abschnitten sind neu · geschätzt ${escapeHtml(String(offer.estimated_cost))} ${escapeHtml(currency)}`;
     const button =
       canEdit && offer.available && offer.new_generations
-        ? actionButton(this._actionCosts(), "story-film-music-generate", `Musik erzeugen (${offer.estimated_cost} ${offer.currency || "USD"})`)
+        ? actionButton(this._actionCosts(), "story-film-music-generate", `Musik erzeugen (${offer.estimated_cost} ${currency})`)
         : "";
+    // §38: what is ordered, from whom, how long, at what price - before
+    // the button that spends money is pressed. A single total says
+    // nothing about what it buys, and "kostenpflichtig" said afterwards
+    // is not a disclosure.
+    const facts = [
+      ["Modell", String(offer.model || "")],
+      [
+        "Generierungen",
+        `${offer.new_generations} neu${offer.cached ? ` · ${offer.cached} vorhanden` : ""}`,
+      ],
+      ["Audio", `${Math.round(Number(offer.audio_seconds || 0))} s für ${minutes} Minuten Film`],
+      [
+        "Preis",
+        offer.reused
+          ? "0 – nichts Neues"
+          : `${offer.new_generations} × ${offer.price_per_generation} ${currency} = ${offer.estimated_cost} ${currency}`,
+      ],
+      [
+        "Abschnitte geplant von",
+        // The two values the service actually writes. Anything else is
+        // shown as it stands rather than silently read as "arithmetic".
+        { arithmetik: "der Verteilung im Film", gemini: "einem Modell" }[
+          String(offer.planned_by || "")
+        ] || String(offer.planned_by || "—"),
+      ],
+    ]
+      .filter(([, value]) => value)
+      .map(
+        ([name, value]) =>
+          `<li><span>${escapeHtml(name)}</span><strong>${escapeHtml(String(value))}</strong></li>`,
+      )
+      .join("");
     return `<div class="story-music-plan">
       <div class="story-curation-head"><span class="eyebrow">KI-Musik</span>${button}</div>
       <p class="story-curation-counts">Ein Soundtrack in ${escapeHtml(String(offer.sections))} Abschnitten für rund ${escapeHtml(String(minutes))} Minuten Film.</p>
       <div class="story-motifs">${chips}</div>
+      <ul class="story-music-facts">${facts}</ul>
       <p class="hint">${escapeHtml(price)}</p>
-      ${offer.available ? "" : `<p class="hint">Dafür ist kein Google-Schlüssel konfiguriert – der Film läuft ohne oder mit einem eigenen Titel.</p>`}
+      ${
+        offer.reused
+          ? ""
+          : `<p class="hint">Das ist ein kostenpflichtiger Aufruf bei Google und wird pro Generierung abgerechnet – nicht pro Minute.${offer.assets_are_stored ? " Die erzeugten Titel werden gespeichert und beim nächsten Rendern wiederverwendet, du zahlst also einmal dafür." : ""}</p>`
+      }
+      ${
+        offer.available
+          ? ""
+          : `<p class="hint">${escapeHtml(String(offer.unavailable_reason || "Musik kann gerade nicht erzeugt werden."))}</p>`
+      }
       ${offer.price_note ? `<small class="hint">${escapeHtml(String(offer.price_note))}</small>` : ""}
     </div>`;
   },
@@ -826,21 +1017,74 @@ export const storyEditorMixin = {
         )
         .join("")}
     </select></label>
-    <button class="secondary-button" type="button" data-action="story-film-review-copy"><ha-icon icon="mdi:content-duplicate"></ha-icon> Review-Kopie erstellen</button>`;
+    <button class="secondary-button" type="button" data-action="story-film-review-copy"><ha-icon icon="mdi:content-duplicate"></ha-icon> Review-Kopie erstellen</button>
+    ${this._renderStoryFilmAddMusic()}`;
+  },
+
+  /**
+   * The offer to put the score on, beside the film it goes on.
+   *
+   * Only when there is music to put on. Offering it with nothing
+   * generated would be a button that can only fail, and the failure
+   * would read as "the mux is broken" rather than "order the music
+   * first".
+   */
+  _renderStoryFilmAddMusic() {
+    const offer = this._storyFilmMusicOfferData;
+    if (!this._storyFilmSourceJobId || !offer) return "";
+    // Every section already generated - anything less would put a score
+    // on that goes quiet partway through.
+    const ready = (offer.section_state || []).length
+      && (offer.section_state || []).every((entry) => entry.cached_name);
+    if (!ready) return "";
+    return `<button class="secondary-button" type="button" data-action="story-film-add-music"><ha-icon icon="mdi:music-note-plus"></ha-icon> Musik auflegen</button>`;
   },
 
   _renderStoryFilmJobLine() {
     const job = this._rendererAppJob;
     const kind = this._rendererAppKind;
-    if (!job || (kind !== "trip_film" && kind !== "review_copy")) return "";
-    // A copy is minutes, a film is close to an hour. Saying "viele
-    // Minuten" over a copy would make a normal wait look like a hang.
-    const isCopy = kind === "review_copy";
+    // Three kinds of work, three sets of words. A table rather than a
+    // boolean: the boolean was `isCopy`, and a third kind arriving would
+    // have been described as "ein Reisefilm wird gerendert" - close
+    // enough to look right and wrong about the one thing that matters,
+    // which is how long to expect to wait.
+    const WORK = {
+      trip_film: {
+        running:
+          "Ein Reisefilm wird gerade gerendert (%s). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.",
+        done: "Der zuletzt erzeugte Reisefilm ist fertig",
+        download: "Film herunterladen",
+        cancelled: "Der Render wurde abgebrochen",
+        failed: "Der zuletzt gestartete Reisefilm ist nicht fertig geworden",
+      },
+      review_copy: {
+        running:
+          "Eine kleine Kopie des Films wird erstellt (%s). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.",
+        done: "Die kleine Kopie ist fertig",
+        download: "Kopie herunterladen",
+        cancelled: "Die Review-Kopie wurde abgebrochen",
+        failed: "Die Review-Kopie ist nicht fertig geworden",
+      },
+      film_music: {
+        running:
+          "Die Musik wird auf den Film gelegt (%s). Die Bilder werden dabei nur kopiert, das dauert Sekunden bis wenige Minuten.",
+        done: "Der Film mit Musik ist fertig",
+        download: "Film mit Musik herunterladen",
+        cancelled: "Das Auflegen wurde abgebrochen",
+        failed: "Die Musik ist nicht auf den Film gekommen",
+      },
+    };
+    const words = WORK[kind];
+    if (!job || !words) return "";
     if (!job.terminal) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
-      return isCopy
-        ? `<small class="story-film-job">Eine kleine Kopie des Films wird erstellt (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.</small>`
-        : `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
+      // A render can run for an hour. A stop that only exists as "restart
+      // the add-on" is not a stop somebody can find.
+      const stop = this._canEdit()
+        ? `<div class="button-row"><button class="text-button" type="button" data-action="renderer-app-cancel"${this._rendererAppCancelling ? " disabled" : ""}><ha-icon icon="mdi:stop-circle-outline"></ha-icon> ${this._rendererAppCancelling ? "Wird abgebrochen …" : "Abbrechen"}</button></div>`
+        : "";
+      const progress = `<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>`;
+      return `${stop}<small class="story-film-job">${words.running.replace("%s", progress)}</small>`;
     }
     if (job.state === "completed") {
       // "It is in the other card" is a signpost, not an answer - and on a
@@ -851,9 +1095,9 @@ export const storyEditorMixin = {
       // yesterday - which is exactly what happened when the map arrived
       // and an older film was downloaded to look for it.
       const made = job.updated_at ? this._formatTimestamp(job.updated_at) : "";
-      return `<small class="story-film-job">${isCopy ? "Die kleine Kopie ist fertig" : "Der zuletzt erzeugte Reisefilm ist fertig"}${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
+      return `<small class="story-film-job">${words.done}${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
       <div class="button-row">
-        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : isCopy ? "Kopie herunterladen" : "Film herunterladen"}</button>
+        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : words.download}</button>
         ${this._renderStoryFilmReviewCopy()}
       </div>
       ${
@@ -865,8 +1109,13 @@ export const storyEditorMixin = {
     // The renderer says WHY it refused, and saying only "failed" throws
     // that away. A package the installed add-on is too old to read looks
     // exactly like a crash until the reason is printed.
+    if (job.state === "cancelled") {
+      // Said as what it was. Reporting a stop somebody asked for as a
+      // failure sends them looking for a cause that does not exist.
+      return `<small class="story-film-job">${words.cancelled}. Es ist nichts kaputt – ein neuer Lauf kann jederzeit gestartet werden.</small>`;
+    }
     const why = cleanText(job.reason || job.detail || "");
-    return `<small class="story-film-job">${isCopy ? "Die Review-Kopie ist nicht fertig geworden" : "Der zuletzt gestartete Reisefilm ist nicht fertig geworden"} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
+    return `<small class="story-film-job">${words.failed} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
   },
 
   // --- rendering -------------------------------------------------------

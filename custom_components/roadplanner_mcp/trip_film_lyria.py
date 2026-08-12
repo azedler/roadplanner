@@ -65,36 +65,80 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 MUSIC_DIR = "music"
-LYRIA_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
+
+# Lyria lives on Vertex AI and nowhere else.
+#
+# This module used to call `generativelanguage.googleapis.com` - the
+# Gemini Developer API, which is what the rest of the integration talks
+# to and which does not serve Lyria at all. The call could never have
+# succeeded; it had simply never been made. That is what a note written
+# from memory looks like once somebody checks it.
+#
+# Vertex wants three things this integration did not have: a project, a
+# region, and an OAuth2 bearer token from a service account. The API key
+# is refused there.
+LYRIA_REGION = "us-central1"
 # The long-form model: a film is minutes, and a thirty-second clip looped
 # eight times is not a soundtrack.
 LYRIA_MODEL = "lyria-3-pro-preview"
 LYRIA_CLIP_MODEL = "lyria-3-clip-preview"
-# Roughly what one generation yields. The app produces up to about three
-# minutes; the API is documented as generating up to about two, so the
-# smaller figure is the one a plan may rely on - planning against the
-# larger one would silently leave the end of a film unscored.
-LYRIA_TRACK_SECONDS = 118
+
+# The most audio one call yields.
+#
+# 118 stood here, with a comment calling the API "documented as about two
+# minutes". It is three. The number mattered more than it looks: the
+# planner cuts the film into sections and then orders one generation per
+# section, so a track length that is too small buys more calls than the
+# film needs - and the section length was never checked against it at
+# all, which left four and a half minutes of silence in a twelve-minute
+# film. Both are fixed; this is the figure a plan may rely on.
+LYRIA_TRACK_SECONDS = 180
 LYRIA_TIMEOUT_SECONDS = 300
 MAX_TRACK_BYTES = 40 * 1024 * 1024
 TRACK_FILENAME_RE = re.compile(r"^lyria-[0-9a-f]{16}\.(mp3|wav)$")
 
-# What one generation costs, as a rough figure for the dialog.
+# What one generation costs.
 #
-# Corrected against the published price: $0.08 per full song. The number
-# standing here before was 0.60 EUR and was a guess written down as a
-# fact - seven times too high, which is exactly the direction that makes
-# somebody decline something affordable.
-#
-# Deliberately a constant with a name rather than a number in a
-# sentence: when the published price changes, the thing to edit is
-# obvious, and nobody has to hunt through translated strings for it.
+# Billed PER REQUEST rather than per second: one call to Lyria 3 Pro is
+# one charge whether it returns thirty seconds or three minutes. So the
+# thing that decides the price of a film's music is how many sections it
+# is planned in, which is exactly why the section arithmetic above is
+# worth getting right.
 LYRIA_ESTIMATED_COST_USD = 0.08
 LYRIA_ESTIMATED_COST_EUR = 0.08
 LYRIA_PRICE_NOTE = (
-    "Schätzwert. Die tatsächliche Abrechnung erfolgt über deinen "
-    "Google-Zugang und kann abweichen."
+    "Schätzwert je Generierung. Die tatsächliche Abrechnung erfolgt über "
+    "dein Google-Cloud-Projekt und kann abweichen."
 )
+
+
+def lyria_endpoint(project: str, *, region: str = LYRIA_REGION, model: str = LYRIA_MODEL) -> str:
+    """Where a generation is asked for.
+
+    Built from a project and a region rather than being a constant,
+    because on Vertex those are part of the address. Both are checked
+    against a narrow pattern first: they end up in a URL, and a project
+    id is not somewhere to accept free text.
+    """
+    name = str(project or "").strip()
+    if not _PROJECT_RE.match(name):
+        raise LyriaError(
+            "Für Vertex AI fehlt eine gültige Google-Cloud-Projekt-ID"
+        )
+    place = str(region or "").strip() or LYRIA_REGION
+    if not _REGION_RE.match(place):
+        raise LyriaError(f"Ungültige Vertex-Region: {place!r}")
+    chosen = str(model or "").strip() or LYRIA_MODEL
+    if chosen not in (LYRIA_MODEL, LYRIA_CLIP_MODEL):
+        raise LyriaError(f"Unbekanntes Lyria-Modell: {chosen!r}")
+    return (
+        f"https://{place}-aiplatform.googleapis.com/v1/projects/{name}"
+        f"/locations/{place}/publishers/google/models/{chosen}:predict"
+    )
+
+
+_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_REGION_RE = re.compile(r"^[a-z]+-[a-z]+[0-9]$")
 
 
 class LyriaError(RuntimeError):
@@ -171,38 +215,119 @@ def track_filename(key: str, extension: str = "mp3") -> str:
     return f"lyria-{clean}.{suffix}"
 
 
-def build_request(prompt: str) -> tuple[str, dict[str, Any]]:
-    """The endpoint and body for one generation.
+# The AI Studio route: the Gemini Developer API's Interactions endpoint,
+# authenticated with the key this integration already has.
+LYRIA_INTERACTIONS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
-    Kept as a pure function so the shape can be checked without a network
-    and without a key - which is the only kind of checking available for
-    it here.
+
+# Where the Gemini Developer API lists what a key may use. A GET, so it
+# reads and never generates - which is the whole point of asking this
+# way instead of trying a small piece of music.
+GEMINI_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def lyria_models_in(payload: Any) -> list[str]:
+    """Which Lyria models a model listing contains.
+
+    The listing names each model as `models/<id>`. Searching for "lyria"
+    rather than for the exact id on purpose: the point of asking is to
+    find out what this key can reach, and a preview id that has moved on
+    by one suffix is still an answer worth reporting.
     """
+    found: list[str] = []
+    models = (payload or {}).get("models") if isinstance(payload, dict) else None
+    for entry in models or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "")
+        short = name.split("/")[-1]
+        if "lyria" in short.lower() and short not in found:
+            found.append(short)
+    return found
+
+
+def build_gemini_request(prompt: str, *, model: str = LYRIA_MODEL) -> tuple[str, dict[str, Any]]:
+    """The AI Studio form: one key, one endpoint, no project."""
     clean = str(prompt or "").strip()
     if not clean:
         raise LyriaError("Für die Musikgenerierung fehlt ein Prompt")
-    return LYRIA_ENDPOINT, {
-        "model": LYRIA_MODEL,
-        "input": [{"type": "text", "text": clean}],
+    return LYRIA_INTERACTIONS_ENDPOINT, {"model": model, "input": clean}
+
+
+def build_vertex_request(
+    prompt: str,
+    *,
+    project: str,
+    region: str = LYRIA_REGION,
+    model: str = LYRIA_MODEL,
+    seconds: float | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """The Vertex form: `instances` and `parameters`, bearer token."""
+    clean = str(prompt or "").strip()
+    if not clean:
+        raise LyriaError("Für die Musikgenerierung fehlt ein Prompt")
+    instance: dict[str, Any] = {"prompt": clean}
+    if seconds is not None:
+        wanted = max(1.0, min(float(seconds), float(LYRIA_TRACK_SECONDS)))
+        instance["duration_seconds"] = round(wanted)
+    return lyria_endpoint(project, region=region, model=model), {
+        "instances": [instance],
+        "parameters": {"sampleCount": 1},
     }
+
+
+def build_request(
+    prompt: str,
+    *,
+    project: str = "",
+    region: str = LYRIA_REGION,
+    model: str = LYRIA_MODEL,
+    seconds: float | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Where this generation goes, and in what shape.
+
+    BOTH routes exist, and deliberately so. Google's own accounts of
+    where Lyria lives disagree: one says the Gemini Developer API does
+    not serve it and Vertex is the only way, another says Lyria 3 is
+    reachable from AI Studio's Interactions endpoint with an ordinary
+    API key. The documentation that would settle it is not reachable
+    from this environment, and picking one on the strength of the most
+    recent sentence somebody read is how the wrong endpoint got shipped
+    and defended by a test in the first place.
+
+    So the choice is configuration, not a guess: with a project
+    configured this goes to Vertex, otherwise to AI Studio. The one
+    piece of evidence that actually decides it is a call that succeeds,
+    and whichever route works is the one that stays.
+    """
+    if str(project or "").strip():
+        return build_vertex_request(
+            prompt, project=project, region=region, model=model, seconds=seconds
+        )
+    return build_gemini_request(prompt, model=model)
 
 
 def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
     """Find the generated audio in whatever the response nests it in.
 
-    Deliberately a search rather than a fixed path. The response is
-    documented as steps containing content blocks, and the exact nesting
-    is the part of this integration written from documentation rather
-    than from a call that was actually made. Looking for "an object that
-    says it is audio and carries data" is robust to that nesting being
-    one level different, and it cannot pick up anything else: nothing
-    else in the response claims to be audio.
+    Deliberately a search rather than a fixed path. The exact nesting is
+    the part of this integration written from documentation rather than
+    from a call that was actually made, so looking for "an object that
+    carries audio bytes" survives that nesting being one level different
+    - and it cannot pick up anything else, because nothing else in the
+    response carries base64 under an audio name.
+
+    Vertex answers `predict` with a `predictions` array whose entries
+    carry `bytesBase64Encoded`. The walker only knew `data`, which is the
+    Gemini shape - so against the endpoint this module now actually calls
+    it would have found nothing, thrown away a generation that had
+    already been paid for, and reported "keine Audiodaten".
     """
     import base64
 
     found: list[tuple[bytes, str]] = []
 
-    def walk(node: Any, depth: int = 0) -> None:
+    def walk(node: Any, depth: int = 0, under: str = "") -> None:
         if found or depth > 12:
             return
         if isinstance(node, dict):
@@ -212,20 +337,36 @@ def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
             # audio mime type. Recognising only one of them would mean a
             # paid generation whose audio we then threw away.
             mime = str(node.get("mime_type") or node.get("mimeType") or "")
-            is_audio = str(node.get("type") or "") == "audio" or mime.startswith("audio/")
-            if is_audio and node.get("data"):
+            # Vertex names it `bytesBase64Encoded` and often omits the
+            # mime type entirely; Gemini names it `data` and says what it
+            # is. Either counts, and a Vertex prediction counts even
+            # unlabelled - there is nothing else in that response it
+            # could be.
+            encoded = node.get("bytesBase64Encoded") or node.get("data")
+            is_audio = (
+                str(node.get("type") or "") == "audio"
+                or mime.startswith("audio/")
+                or bool(node.get("bytesBase64Encoded"))
+                # `{"output_audio": {"data": ...}}` - the shape the
+                # google-genai SDK reads. The block itself says nothing
+                # about being audio; the key that holds it does. Without
+                # this the walker skips it, and a generation that was
+                # billed comes back as "keine Audiodaten".
+                or "audio" in under.lower()
+            )
+            if is_audio and encoded:
                 try:
-                    blob = base64.b64decode(str(node["data"]), validate=False)
+                    blob = base64.b64decode(str(encoded), validate=False)
                 except Exception:  # noqa: BLE001 - a bad block is simply skipped
                     return
                 if blob and len(blob) <= MAX_TRACK_BYTES:
                     found.append((blob, mime or "audio/mp3"))
                 return
-            for value in node.values():
-                walk(value, depth + 1)
+            for key, value in node.items():
+                walk(value, depth + 1, str(key))
         elif isinstance(node, list):
             for value in node:
-                walk(value, depth + 1)
+                walk(value, depth + 1, under)
 
     walk(payload)
     return found[0] if found else None
@@ -255,7 +396,9 @@ def cost_notice(brief: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "LYRIA_ENDPOINT",
     "LYRIA_ESTIMATED_COST_EUR",
+    "GEMINI_MODELS_ENDPOINT",
     "LYRIA_MODEL",
+    "lyria_models_in",
     "LYRIA_TRACK_SECONDS",
     "LyriaError",
     "audio_from_response",

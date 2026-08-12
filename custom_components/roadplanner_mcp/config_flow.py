@@ -38,6 +38,10 @@ from .const import (
     CONF_BACKUP_PATH,
     CONF_ENABLE_HANDOFF_WEBHOOK,
     CONF_GEMINI_API_KEY,
+    CONF_VERTEX_PROJECT,
+    CONF_VERTEX_REGION,
+    CONF_VERTEX_SERVICE_ACCOUNT,
+    DEFAULT_VERTEX_REGION,
     CONF_GEMINI_FALLBACK_MODEL,
     CONF_GEMINI_LITE_MODEL,
     CONF_GEMINI_MODEL,
@@ -279,6 +283,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 ),
             ): vol.In(("gemini",)),
             vol.Optional(CONF_GEMINI_API_KEY): str,
+            # Only needed when Lyria is NOT reachable from AI Studio -
+            # the system check says which. Left empty, the music takes
+            # the ordinary key above and none of this matters.
+            vol.Optional(CONF_VERTEX_PROJECT): str,
+            vol.Optional(CONF_VERTEX_REGION): str,
+            vol.Optional(CONF_VERTEX_SERVICE_ACCOUNT): str,
             vol.Required(
                 CONF_GEMINI_MODEL_MODE,
                 default=defaults.get(
@@ -671,6 +681,20 @@ def _normalize_input(
         result[CONF_GEMINI_API_KEY] = current[CONF_GEMINI_API_KEY]
     else:
         result[CONF_GEMINI_API_KEY] = DEFAULT_GEMINI_API_KEY
+    # The service-account JSON is a credential and behaves like the keys
+    # above: submitted once, kept, and never cleared by an options form
+    # that simply did not repeat it.
+    submitted_account = str(result.get(CONF_VERTEX_SERVICE_ACCOUNT, "")).strip()
+    if submitted_account:
+        result[CONF_VERTEX_SERVICE_ACCOUNT] = submitted_account
+    elif current and current.get(CONF_VERTEX_SERVICE_ACCOUNT):
+        result[CONF_VERTEX_SERVICE_ACCOUNT] = current[CONF_VERTEX_SERVICE_ACCOUNT]
+    else:
+        result[CONF_VERTEX_SERVICE_ACCOUNT] = ""
+    result[CONF_VERTEX_PROJECT] = str(result.get(CONF_VERTEX_PROJECT, "") or "").strip()
+    result[CONF_VERTEX_REGION] = (
+        str(result.get(CONF_VERTEX_REGION, "") or "").strip() or DEFAULT_VERTEX_REGION
+    )
     submitted_google_key = str(
         result.get(CONF_GOOGLE_PLACES_API_KEY, "")
     ).strip()

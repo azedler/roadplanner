@@ -195,12 +195,21 @@ def verify_only_two_fields_are_editable() -> None:
         "media_update_assignment",
         "story_film_preview",
         "story_film_render",
+        # A 60-90 s window into the SAME film, for judging how it looks
+        # at full size. Carries a trip, a size, and at most a chapter id
+        # or a start time - both matched against the film's own plan.
+        "story_film_qa_render",
         # A small copy of a film that has already been rendered. It names
         # a JOB, never a file: the source is a job id, matched against
         # the job-id pattern before either side builds a path from it.
         # Reads one local MP4, calls nothing, costs nothing, and cannot
         # touch the roadbook.
         "story_film_review_copy",
+        # Putting an already-generated score onto an already-rendered
+        # film. Names a JOB and a trip, nothing else; reads the music
+        # folder, copies the video stream, orders nothing and cannot
+        # touch the roadbook.
+        "story_film_add_music",
         # The editorial pass: read its state, run it, throw it away. None
         # of the three can carry a roadbook change.
         "story_director_status",
@@ -209,6 +218,10 @@ def verify_only_two_fields_are_editable() -> None:
         # Fetching the finished film where it was started. "It is in the
         # other card" is a signpost, not an answer.
         "renderer_app_download",
+        # Stopping a render that is running. It names a JOB and writes a
+        # marker into the exchange folder; it carries no trip, no day and
+        # no text, so it cannot reach the roadbook at all.
+        "renderer_app_cancel",
         # What could play under the film. It returns NAMES of files in one
         # fixed folder, never paths - see trip_film_music.
         "story_film_music",

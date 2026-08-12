@@ -162,19 +162,86 @@ def verify_the_audio_is_found_wherever_it_is_nested() -> None:
     assert lyria.audio_from_response({"type": "image", "data": encoded}) is None
 
 
-def verify_the_request_targets_the_key_roadplanner_already_has() -> None:
-    """Gemini rather than Vertex: one authentication story, not two."""
-    url, body = lyria.build_request("warm und ruhig")
-    assert url.startswith("https://generativelanguage.googleapis.com/"), url
-    assert "aiplatform" not in url, "Vertex braeuchte ein Dienstkonto und ein Projekt"
-    assert body["model"] == lyria.LYRIA_MODEL
-    assert body["input"][0]["text"] == "warm und ruhig"
+def verify_both_routes_exist_and_are_chosen_by_configuration() -> None:
+    """Where Lyria answers is not settled, so neither is guessed.
+
+    This check previously asserted that `aiplatform` did NOT appear in
+    the URL, under "Gemini rather than Vertex: one authentication story,
+    not two". It was not merely agreeing with a mistake - it was holding
+    one in place, with a reason that is true and irrelevant: Vertex is
+    less convenient, and convenience is not why an API works.
+
+    Then the accounts reversed. One says the Gemini Developer API does
+    not serve Lyria at all; another that Lyria 3 is reachable from AI
+    Studio's Interactions endpoint with an ordinary key. The
+    documentation that would settle it is not reachable from here.
+
+    So the endpoint is configuration rather than a belief: a project
+    means Vertex, no project means AI Studio. Whichever one a real call
+    succeeds against is the one that stays - and until such a call has
+    been made, neither is written down as fact.
+    """
+    studio_url, studio_body = lyria.build_request("warm und ruhig")
+    assert studio_url == lyria.LYRIA_INTERACTIONS_ENDPOINT, studio_url
+    assert studio_body["model"] == lyria.LYRIA_MODEL
+    assert studio_body["input"] == "warm und ruhig"
+
+    url, body = lyria.build_request("warm und ruhig", project="reise-film-2026")
+    assert "aiplatform.googleapis.com" in url, url
+    assert "generativelanguage" not in url, (
+        "die Gemini-API bedient Lyria nicht - dieser Aufruf kann nicht gelingen"
+    )
+    assert url.endswith(f"/{lyria.LYRIA_MODEL}:predict"), url
+    assert "/projects/reise-film-2026/" in url, url
+    # The Vertex prediction shape, not the Gemini one.
+    assert body["instances"][0]["prompt"] == "warm und ruhig"
+    assert body["parameters"]["sampleCount"] == 1
+    # A section asks for its own length, so a track cannot come back
+    # shorter than the plan expects and leave its end silent.
+    _url, sized = lyria.build_request("x", project="reise-film-2026", seconds=149)
+    assert sized["instances"][0]["duration_seconds"] == 149
+    # Never more than one call can deliver, whatever is asked for.
+    _url, capped = lyria.build_request("x", project="reise-film-2026", seconds=9999)
+    assert capped["instances"][0]["duration_seconds"] == lyria.LYRIA_TRACK_SECONDS
+
     try:
-        lyria.build_request("   ")
+        lyria.build_request("   ", project="reise-film-2026")
     except lyria.LyriaError:
         pass
     else:
         raise AssertionError("Ein leerer Prompt haette abgelehnt werden muessen")
+    # A project id ends up in a URL. It is not somewhere for free text.
+    # An empty project is not an error - it is the AI Studio route.
+    for bad in ("X", "../etc", "a" * 40, "Projekt Name"):
+        try:
+            lyria.build_request("warm", project=bad)
+        except lyria.LyriaError:
+            continue
+        raise AssertionError(f"{bad!r} wurde als Projekt-ID akzeptiert")
+
+
+def verify_a_vertex_answer_is_read_at_all() -> None:
+    """The shape the endpoint this module now calls actually returns.
+
+    The reader knew `data`, which is the Gemini name. Vertex answers
+    `:predict` with `predictions` carrying `bytesBase64Encoded` - so
+    against the real endpoint it would have found nothing, thrown away a
+    generation that had already been billed, and reported "keine
+    Audiodaten zurückgegeben".
+    """
+    import base64 as _base64
+
+    blob = b"ID3 fake audio"
+    encoded = _base64.b64encode(blob).decode("ascii")
+    found = lyria.audio_from_response(
+        {"predictions": [{"bytesBase64Encoded": encoded, "mimeType": "audio/mp3"}]}
+    )
+    assert found is not None, "eine Vertex-Antwort wird nicht gelesen"
+    assert found[0] == blob
+    # Vertex often omits the mime type; there is nothing else in that
+    # response those bytes could be.
+    bare = lyria.audio_from_response({"predictions": [{"bytesBase64Encoded": encoded}]})
+    assert bare is not None and bare[0] == blob
 
 
 for check in (
@@ -184,7 +251,8 @@ for check in (
     verify_the_brief_stays_instrumental_and_quiet,
     verify_the_cost_is_named_before_anything_is_generated,
     verify_the_audio_is_found_wherever_it_is_nested,
-    verify_the_request_targets_the_key_roadplanner_already_has,
+    verify_both_routes_exist_and_are_chosen_by_configuration,
+    verify_a_vertex_answer_is_read_at_all,
 ):
     check()
 

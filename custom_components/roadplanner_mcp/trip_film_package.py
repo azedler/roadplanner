@@ -60,6 +60,11 @@ _LOGGER = logging.getLogger(__name__)
 
 FILM_PACKAGE_VERSION = 1
 FILM_MANIFEST_FILENAME = "film.json"
+# What a mux job hands over: the score and nothing else. Its own name
+# beside the film manifest, because a job that carries one must never be
+# mistaken for a job that carries the other - one has photographs in it.
+MUSIC_PACKAGE_VERSION = 1
+MUSIC_MANIFEST_FILENAME = "music.json"
 FILM_PHOTO_DIR = "photos"
 FILM_CLIP_DIR = "clips"
 # A rendered clip is already cut and re-encoded to the film's own
@@ -585,6 +590,8 @@ __all__ = [
     "MAX_FILM_PACKAGE_BYTES",
     "MAX_FILM_VIDEO_BYTES",
     "MAX_PHOTOS_PER_CHAPTER",
+    "MUSIC_MANIFEST_FILENAME",
+    "MUSIC_PACKAGE_VERSION",
     "build_film_package",
     "photo_filename",
     "photos_per_chapter",

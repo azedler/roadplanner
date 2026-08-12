@@ -155,6 +155,25 @@ def review_choices() -> list[dict[str, Any]]:
     ]
 
 
+def profile_for_size(width: Any, height: Any) -> str:
+    """Which profile a finished file's dimensions belong to, or "".
+
+    A job that only COPIED a video stream - the music mux - never chose a
+    profile and cannot report one. Falling back to the default there
+    would name a 1440p file `...-review-720p.mp4`, which is worse than
+    saying nothing: the name is the only thing anybody reads before
+    sending a film on.
+    """
+    try:
+        size = (int(width), int(height))
+    except (TypeError, ValueError):
+        return ""
+    for profile in RENDER_PROFILES.values():
+        if (profile["width"], profile["height"]) == size:
+            return str(profile["id"])
+    return ""
+
+
 def film_filename(trip_slug: str, profile_id: str, *, source_suffix: str = "") -> str:
     """A name that says what the file is, in the language of the product.
 
@@ -180,6 +199,7 @@ __all__ = [
     "RENDER_PROFILES",
     "REVIEW_COPY_PROFILES",
     "film_filename",
+    "profile_for_size",
     "profile_choices",
     "render_profile",
     "review_choices",

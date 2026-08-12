@@ -24,9 +24,23 @@ export const JOB_STATES = [
   "running",
   "completed",
   "failed",
+  // Asked for. Deliberately NOT "failed": somebody pressing stop is not
+  // the same event as a render breaking, and reporting it as a failure
+  // sends them looking for a cause that does not exist.
+  "cancelled",
   "expired",
 ];
-export const TERMINAL_JOB_STATES = new Set(["completed", "failed", "expired"]);
+export const TERMINAL_JOB_STATES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+// Where a cancel is asked for. A file named after the job and nothing
+// else in it - the request carries no data, so there is nothing in it to
+// validate beyond the name, and the name is a job id.
+export const CANCEL_DIR = "cancel";
 
 export const ACTIONS = [
   "ping",
@@ -38,6 +52,13 @@ export const ACTIONS = [
   // one finished MP4 from a previous job's result and re-encodes it. No
   // package, no browser, no photograph, no service.
   "create_review_copy",
+  // The soundtrack onto a film that already exists. Also not a render:
+  // the video stream is COPIED, so this is seconds of work rather than
+  // the twenty minutes a second Remotion pass would cost - which is the
+  // whole reason the music comes last instead of travelling in the
+  // package. A different soundtrack stops being a decision about
+  // whether it is worth waiting for.
+  "add_music",
 ];
 export const ARTIFACT_TEXT = "roadplanner-renderer-poc.txt";
 export const ARTIFACT_IMAGE = "roadplanner-renderer-poc.svg";
@@ -45,6 +66,11 @@ export const ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4";
 export const ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4";
 export const ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4";
 export const ARTIFACT_REVIEW_COPY = "roadplanner-review-copy.mp4";
+// The same film with its soundtrack on it. Its own name rather than an
+// overwrite of the silent one: the silent film is what a second,
+// different soundtrack is muxed onto, and losing it would mean
+// re-rendering to try another.
+export const ARTIFACT_FILM_WITH_MUSIC = "roadplanner-trip-film-music.mp4";
 
 export const MAX_JSON_BYTES = 64 * 1024;
 export const MAX_MESSAGE_LENGTH = 120;
@@ -250,8 +276,29 @@ export function parseJob(raw, { now }) {
   // filename and no path anywhere in this protocol, which is what makes
   // traversal impossible rather than merely guarded against.
   const sourceRaw = String(payload?.input?.source_job_id ?? "").trim();
-  if (payload.action === "create_review_copy" && !isJobId(sourceRaw)) {
+  if (
+    (payload.action === "create_review_copy" || payload.action === "add_music")
+    && !isJobId(sourceRaw)
+  ) {
     throw new ProtocolError(ERROR_INVALID_JOB, "input.source_job_id fehlt oder ist ungültig.");
+  }
+  // Which frames of the film to draw. A quality check at full size is a
+  // PIECE of the film - the same plan, the same scenes, the same media,
+  // only fewer frames - so it travels as two numbers rather than as a
+  // second kind of job. Absent means the whole film, which is what every
+  // job before this one meant.
+  const frameStart = Number(payload?.input?.frame_start);
+  const frameEnd = Number(payload?.input?.frame_end);
+  let frameRange = null;
+  if (Number.isInteger(frameStart) && Number.isInteger(frameEnd)) {
+    if (frameStart < 0 || frameEnd < frameStart) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Ungültiger Bildbereich.");
+    }
+    frameRange = [frameStart, frameEnd];
+  } else if (Number.isFinite(frameStart) !== Number.isFinite(frameEnd)) {
+    // One without the other is a half-written request, and guessing the
+    // missing end would render something nobody asked for.
+    throw new ProtocolError(ERROR_INVALID_JOB, "Bildbereich unvollständig.");
   }
   return {
     jobId: payload.job_id,
@@ -260,6 +307,7 @@ export function parseJob(raw, { now }) {
     expires,
     renderProfile: profileId,
     sourceJobId: isJobId(sourceRaw) ? sourceRaw : "",
+    frameRange,
   };
 }
 
@@ -792,7 +840,13 @@ export function parseMusic(value) {
   };
 }
 
-export const MAX_MUSIC_SECTIONS = 4;
+// As many as the planner on the integration side can ever produce. This
+// was 4 while the planner had been raised to 8, and both deployables
+// carried the same wrong 4 - so a test comparing the two files to each
+// other would have found them in perfect agreement while a twelve-minute
+// film went silent for its last two and a half minutes. The number that
+// matters is the PLANNER's ceiling, and that is what the test reads.
+export const MAX_MUSIC_SECTIONS = 8;
 
 /**
  * A score in sections, or nothing.
@@ -846,6 +900,45 @@ export function parseMusicSections(value) {
       fadeOutSeconds: number("fade_out_seconds"),
     };
   });
+}
+
+/** What an `add_music` job hands over. Just the score, no film. */
+export const MUSIC_PACKAGE_FILENAME = "music.json";
+export const MUSIC_PACKAGE_VERSION = 1;
+
+/**
+ * The soundtrack on its own, for muxing onto a film that already exists.
+ *
+ * Deliberately the same section shape the film package already carries,
+ * because it is the same thing arriving by a different door: one plan,
+ * one set of files, one set of times. A second shape would be a second
+ * place for the times to be wrong in.
+ *
+ * No photograph, no manifest, no trip. A mux job never sees the journey.
+ */
+export function parseMusicPackage(text) {
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Das Musikpaket ist kein gültiges JSON.");
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Das Musikpaket ist kein Objekt.");
+  }
+  if (payload.package_version !== MUSIC_PACKAGE_VERSION) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Unbekannte Musikpaket-Version.");
+  }
+  const sections = parseMusicSections(payload.sections);
+  if (!sections.length) {
+    throw new ProtocolError(ERROR_INVALID_JOB, "Das Musikpaket enthält keine Abschnitte.");
+  }
+  const volume = typeof payload.volume === "number" ? payload.volume : 0.42;
+  return {
+    jobId: isJobId(payload.job_id) ? payload.job_id : "",
+    volume: Math.max(0, Math.min(1, volume)),
+    sections,
+  };
 }
 
 const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
