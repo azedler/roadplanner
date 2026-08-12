@@ -169,6 +169,12 @@ class _Tokens:
 
 
 def _service(root, session, *, api_key="k", vertex=True):
+    # ONE holder for the whole service, because that is what the
+    # integration builds: `_vertex_provider` keeps the ServiceAccount
+    # tokens keyed by the credential and hands the same object out on
+    # every read. A fake that minted a fresh holder per call would have
+    # hidden a token exchange before every single generation.
+    holder = _Tokens()
     return service_module.TripFilmMusicService(
         _Hass(),
         _StoryContext(),
@@ -176,7 +182,7 @@ def _service(root, session, *, api_key="k", vertex=True):
         api_key_provider=lambda: api_key,
         music_root=root,
         vertex_provider=(
-            (lambda: {"project": "reise-film-2026", "region": "us-central1", "tokens": _Tokens()})
+            (lambda: {"project": "reise-film-2026", "region": "us-central1", "tokens": holder})
             if vertex
             else (lambda: None)
         ),
@@ -402,14 +408,12 @@ def verify_a_film_without_length_orders_nothing() -> None:
         assert session.calls == 0
 
 
-for check in (
-    verify_the_offer_costs_nothing_and_orders_nothing,
-    verify_generating_pays_once_and_a_second_render_is_free,
-    verify_a_film_that_lost_a_photo_does_not_buy_a_new_soundtrack,
-    verify_the_music_is_never_shorter_than_the_film,
-    verify_without_a_key_nothing_is_promised,
-    verify_a_film_without_length_orders_nothing,
-):
-    check()
+# Every verify_ in the file, found rather than listed. The list used to
+# be written out by hand and four checks had fallen off it - including
+# the two that ask whether a probe costs money. A test nobody runs is
+# indistinguishable from one that passes.
+for _name, _check in sorted(dict(globals()).items()):
+    if _name.startswith("verify_") and callable(_check):
+        _check()
 
 print("Trip film music service tests passed.")

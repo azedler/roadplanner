@@ -322,8 +322,22 @@ def cost_notice(
         "cached": min(total, max(0, int(cached))),
         "new_generations": new,
         "estimated_cost": round(new * float(price_per_generation), 2),
+        "price_per_generation": round(float(price_per_generation), 2),
         "currency": "USD",
         "seconds": plan.get("film_seconds"),
+        # How much audio is being ordered, which is not the same as the
+        # film's length: sections overlap by a crossfade. Named because
+        # "0,40 USD" alone says nothing about what is bought.
+        "audio_seconds": round(
+            sum(float(entry.get("seconds") or 0) for entry in plan.get("sections") or []),
+            1,
+        ),
+        # Whether a model placed the boundaries or the arithmetic did.
+        # The difference is audible and it is worth being able to see.
+        "planned_by": plan.get("planned_by") or "arithmetik",
+        # Said in the dialog rather than assumed: what is generated is
+        # kept, so agreeing to this price agrees to it once.
+        "assets_are_stored": True,
         "reused": new == 0,
     }
 

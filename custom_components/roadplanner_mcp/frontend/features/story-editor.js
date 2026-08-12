@@ -896,19 +896,62 @@ export const storyEditorMixin = {
           `<span class="story-motif ${entry.cached_name ? "met" : "unmet"}"><ha-icon icon="${entry.cached_name ? "mdi:check-circle-outline" : "mdi:music-note-plus"}"></ha-icon>${escapeHtml(String(entry.label || entry.section || ""))} · ${escapeHtml(String(Math.round(Number(entry.seconds || 0))))}s</span>`,
       )
       .join("");
+    const currency = String(offer.currency || "USD");
     const price = offer.reused
       ? "Alle Abschnitte sind schon erzeugt – ein weiterer Lauf kostet nichts."
-      : `${offer.new_generations} von ${offer.sections} Abschnitten sind neu · geschätzt ${escapeHtml(String(offer.estimated_cost))} ${escapeHtml(String(offer.currency || "USD"))}`;
+      : `${offer.new_generations} von ${offer.sections} Abschnitten sind neu · geschätzt ${escapeHtml(String(offer.estimated_cost))} ${escapeHtml(currency)}`;
     const button =
       canEdit && offer.available && offer.new_generations
-        ? actionButton(this._actionCosts(), "story-film-music-generate", `Musik erzeugen (${offer.estimated_cost} ${offer.currency || "USD"})`)
+        ? actionButton(this._actionCosts(), "story-film-music-generate", `Musik erzeugen (${offer.estimated_cost} ${currency})`)
         : "";
+    // §38: what is ordered, from whom, how long, at what price - before
+    // the button that spends money is pressed. A single total says
+    // nothing about what it buys, and "kostenpflichtig" said afterwards
+    // is not a disclosure.
+    const facts = [
+      ["Modell", String(offer.model || "")],
+      [
+        "Generierungen",
+        `${offer.new_generations} neu${offer.cached ? ` · ${offer.cached} vorhanden` : ""}`,
+      ],
+      ["Audio", `${Math.round(Number(offer.audio_seconds || 0))} s für ${minutes} Minuten Film`],
+      [
+        "Preis",
+        offer.reused
+          ? "0 – nichts Neues"
+          : `${offer.new_generations} × ${offer.price_per_generation} ${currency} = ${offer.estimated_cost} ${currency}`,
+      ],
+      [
+        "Abschnitte geplant von",
+        // The two values the service actually writes. Anything else is
+        // shown as it stands rather than silently read as "arithmetic".
+        { arithmetik: "der Verteilung im Film", gemini: "einem Modell" }[
+          String(offer.planned_by || "")
+        ] || String(offer.planned_by || "—"),
+      ],
+    ]
+      .filter(([, value]) => value)
+      .map(
+        ([name, value]) =>
+          `<li><span>${escapeHtml(name)}</span><strong>${escapeHtml(String(value))}</strong></li>`,
+      )
+      .join("");
     return `<div class="story-music-plan">
       <div class="story-curation-head"><span class="eyebrow">KI-Musik</span>${button}</div>
       <p class="story-curation-counts">Ein Soundtrack in ${escapeHtml(String(offer.sections))} Abschnitten für rund ${escapeHtml(String(minutes))} Minuten Film.</p>
       <div class="story-motifs">${chips}</div>
+      <ul class="story-music-facts">${facts}</ul>
       <p class="hint">${escapeHtml(price)}</p>
-      ${offer.available ? "" : `<p class="hint">Dafür ist kein Google-Schlüssel konfiguriert – der Film läuft ohne oder mit einem eigenen Titel.</p>`}
+      ${
+        offer.reused
+          ? ""
+          : `<p class="hint">Das ist ein kostenpflichtiger Aufruf bei Google und wird pro Generierung abgerechnet – nicht pro Minute.${offer.assets_are_stored ? " Die erzeugten Titel werden gespeichert und beim nächsten Rendern wiederverwendet, du zahlst also einmal dafür." : ""}</p>`
+      }
+      ${
+        offer.available
+          ? ""
+          : `<p class="hint">${escapeHtml(String(offer.unavailable_reason || "Musik kann gerade nicht erzeugt werden."))}</p>`
+      }
       ${offer.price_note ? `<small class="hint">${escapeHtml(String(offer.price_note))}</small>` : ""}
     </div>`;
   },

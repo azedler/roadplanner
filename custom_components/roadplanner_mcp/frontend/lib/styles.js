@@ -841,6 +841,9 @@ export const PANEL_STYLES = `<style>
       .story-diagnosis-list span { color: var(--secondary-text-color); }
       .story-music-plan { border-top: 1px solid var(--divider-color); margin-top: 12px; padding-top: 12px; display: grid; gap: 8px; }
       .story-music-plan p { margin: 0; }
+      .story-music-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 0.92em; }
+      .story-music-facts li { display: flex; justify-content: space-between; gap: 12px; }
+      .story-music-facts span { color: var(--secondary-text-color); }
       .character-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 10px; }
       .character-slot { display: grid; gap: 6px; align-content: start; border: 1px solid var(--divider-color); border-radius: 12px; padding: 10px; }
       .character-candidate { margin: 0; display: grid; gap: 4px; }
