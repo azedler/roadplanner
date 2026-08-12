@@ -1882,6 +1882,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyMusicPrototypeGenerate();
     } else if (action === "story-music-prototype-mix" && this._canEdit()) {
       void this._storyMusicPrototypeMix(cleanText(target.dataset.variant));
+    } else if (action === "story-music-prototype-review" && this._canEdit()) {
+      void this._storyMusicPrototypeReview(cleanText(target.dataset.variant));
     } else if (action === "renderer-app-cancel" && this._canEdit()) {
       void this._rendererAppCancel();
     } else if (action === "story-chapter-image" && this._canEdit()) {
