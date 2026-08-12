@@ -182,7 +182,109 @@ def verify_a_film_without_length_asks_for_nothing() -> None:
     )
 
 
+def verify_only_the_films_ends_are_asked_to_sound_like_ends() -> None:
+    """Six complete little pieces in a row are a playlist, not a score.
+
+    There is no seed and no "continue the previous piece", so the only
+    handle on continuity is what each section is asked to sound like at
+    its edges. A section that plays under the middle of the film is never
+    heard beginning - it fades up out of the one before it - and asking
+    for an `[Intro]` there buys an opening gesture nobody hears as one.
+    """
+    tags = plan_module.structure_tags
+    first = tags(80.0, position=plan_module.POSITION_FIRST)
+    middle = tags(80.0, position=plan_module.POSITION_MIDDLE)
+    last = tags(80.0, position=plan_module.POSITION_LAST)
+
+    assert first[0] == "[Intro]", first
+    assert "[Intro]" not in middle, middle
+    assert "[Intro]" not in last, last
+
+    # Only the film's own ending ends. Everywhere else a crossfade
+    # follows, and a piece that finishes under a film that carries on is
+    # the seam this whole arrangement exists to avoid.
+    assert "[Outro]" not in first, first
+    assert "[Outro]" not in middle, middle
+    assert last[-1] == "[Final Chord]", last
+
+    # A single section IS both ends of the film, so it gets both.
+    only = tags(80.0, position=plan_module.POSITION_ONLY)
+    assert only[0] == "[Intro]" and "[Outro]" in only, only
+
+
+def verify_an_unknown_position_keeps_both_ends() -> None:
+    """A missing answer must not silently become a middle section.
+
+    That is the failure this project keeps having: an absent value
+    rendered as a state. Read as "middle", a film would lose its opening
+    and its ending; read as "the whole arc" it is at worst redundant.
+    """
+    found = plan_module.structure_tags(80.0, position="")
+    assert found == plan_module.structure_tags(80.0, position=plan_module.POSITION_ONLY)
+
+
+def verify_length_still_decides_how_many_parts_are_named() -> None:
+    """Position changes the edges; the piece's length changes the middle.
+
+    There is no duration parameter, so how many parts are named is one of
+    only two handles on how long the music runs.
+    """
+    short = plan_module.structure_tags(30.0, position=plan_module.POSITION_MIDDLE)
+    long = plan_module.structure_tags(150.0, position=plan_module.POSITION_MIDDLE)
+    assert len(long) > len(short), (short, long)
+    assert plan_module.TAGS_BODY_SHORT[0] in short
+
+
+def verify_the_position_reaches_the_actual_request() -> None:
+    """The tags are worth nothing if the caller never passes a position.
+
+    This project has already built a module that was correct, tested and
+    imported by nobody - its own test passed because it tested the
+    module rather than the chain. So: the prompt really differs, and the
+    service really names the argument.
+    """
+    import ast
+
+    section = {"mood": "Weite, ruhige Wärme."}
+    prompts = {
+        position: plan_module.section_prompt(
+            section, motifs=[], seconds=80.0, position=position
+        )
+        for position in (
+            plan_module.POSITION_FIRST,
+            plan_module.POSITION_MIDDLE,
+            plan_module.POSITION_LAST,
+        )
+    }
+    assert len(set(prompts.values())) == 3, prompts
+
+    assert plan_module.section_position(0, 4) == plan_module.POSITION_FIRST
+    assert plan_module.section_position(2, 4) == plan_module.POSITION_MIDDLE
+    assert plan_module.section_position(3, 4) == plan_module.POSITION_LAST
+    assert plan_module.section_position(0, 1) == plan_module.POSITION_ONLY
+
+    source = (
+        ROOT / "custom_components" / "roadplanner_mcp" / "trip_film_music_service.py"
+    ).read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "section_prompt"
+    ]
+    assert calls, "der Dienst ruft section_prompt gar nicht mehr auf"
+    for call in calls:
+        assert any(
+            keyword.arg == "position" for keyword in call.keywords
+        ), f"section_prompt in Zeile {call.lineno} ohne Position"
+
+
 for check in (
+    verify_only_the_films_ends_are_asked_to_sound_like_ends,
+    verify_an_unknown_position_keeps_both_ends,
+    verify_length_still_decides_how_many_parts_are_named,
+    verify_the_position_reaches_the_actual_request,
     verify_a_long_film_gets_few_long_sections_not_many_short_ones,
     verify_a_short_film_is_one_piece_of_music,
     verify_the_music_covers_the_whole_film,

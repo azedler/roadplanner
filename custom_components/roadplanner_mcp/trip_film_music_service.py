@@ -37,6 +37,7 @@ from .trip_film_music_plan import (
     FADE_IN_SECONDS,
     FADE_OUT_SECONDS,
     build_plan,
+    section_position,
     section_prompt,
     cost_notice as plan_cost_notice,
     section_cache_key,
@@ -342,6 +343,7 @@ class TripFilmMusicService:
                         {"mood": mood},
                         motifs=list(plan.get("motifs") or []),
                         seconds=entry["seconds"],
+                        position=section_position(index, len(chosen)),
                     ),
                 }
             )
