@@ -24,7 +24,9 @@ from __future__ import annotations
 import ast
 import base64
 import importlib.util
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,8 +189,17 @@ def verify_both_routes_exist_and_are_chosen_by_configuration() -> None:
     assert studio_body["input"] == "warm und ruhig"
 
     url, body = lyria.build_request("warm und ruhig", project="reise-film-2026")
-    assert "aiplatform.googleapis.com" in url, url
-    assert "generativelanguage" not in url, (
+    # The HOST, parsed, not a substring anywhere in the string. A
+    # substring check passes for a URL whose host is somewhere else
+    # entirely and merely mentions this one in a path or a query - which
+    # is exactly what makes it useless as evidence about where a request
+    # goes. Code scanning names the same weakness.
+    # The regional host is `<region>-aiplatform.googleapis.com` - one
+    # token, hyphenated, not a subdomain. Written as the real shape
+    # rather than a guess at it.
+    host = urlsplit(url).hostname or ""
+    assert re.fullmatch(r"[a-z0-9-]+-aiplatform\.googleapis\.com", host), url
+    assert host != "generativelanguage.googleapis.com", (
         "die Gemini-API bedient Lyria nicht - dieser Aufruf kann nicht gelingen"
     )
     assert url.endswith(f"/{lyria.LYRIA_MODEL}:predict"), url
