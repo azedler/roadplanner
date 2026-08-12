@@ -438,6 +438,197 @@ def verify_a_film_without_length_orders_nothing() -> None:
         assert session.calls == 0
 
 
+# --- the architecture comparison ---------------------------------------
+
+plan_module = importlib.import_module(f"{_PACKAGE}.trip_film_plan")
+music_package = importlib.import_module(f"{_PACKAGE}.trip_film_music")
+arch_module = importlib.import_module(f"{_PACKAGE}.music_architecture")
+
+
+def _scene(kind, seconds, chapter):
+    return {
+        "type": kind,
+        "frames": int(round(seconds * plan_module.FILM_FPS)),
+        "chapter_id": chapter,
+    }
+
+
+def _scene_plan():
+    """A film long enough that the excerpt chooser has a choice."""
+    scenes = [_scene(plan_module.SCENE_INTRO, 6, "intro")]
+    for day in range(1, 9):
+        chapter = f"day-{day}"
+        scenes.extend(
+            [
+                _scene(plan_module.SCENE_CHAPTER_CARD, 3, chapter),
+                _scene(plan_module.SCENE_MAP_LEG, 9, chapter),
+                _scene(plan_module.SCENE_HERO, 6, chapter),
+                _scene(plan_module.SCENE_COLLAGE, 7, chapter),
+                _scene(plan_module.SCENE_TEXT, 5, chapter),
+            ]
+        )
+    scenes.append(_scene(plan_module.SCENE_OUTRO, 7, "outro"))
+    return {"fps": plan_module.FILM_FPS, "scenes": scenes}
+
+
+def verify_the_comparison_costs_three_requests_and_then_nothing() -> None:
+    """Three fassungen, three purchases, and a restart pays nothing.
+
+    The cache IS the music folder, so "survives a restart" is not a
+    hopeful phrase here - a second service object is built over the same
+    directory and the request counter must not move. A cache that only
+    lived in the first object would have been invisible in every test
+    that reused one.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        plan = _scene_plan()
+
+        offer = asyncio.run(_service(root, session).async_prototype_offer("t1", scene_plan=plan))
+        assert offer["generation_count"] == 3, offer["assets"]
+        assert session.calls == 0, "ein Angebot darf nichts kosten"
+
+        made = asyncio.run(
+            _service(root, session).async_prototype_generate("t1", scene_plan=plan)
+        )
+        assert made["generated"] == 3, made
+        assert session.calls == 3, session.calls
+        assert all(variant["ready"] for variant in made["variants"]), made["variants"]
+
+        # A different service object over the same folder: a restart.
+        again = asyncio.run(
+            _service(root, session).async_prototype_generate("t1", scene_plan=plan)
+        )
+        assert again["generated"] == 0, again
+        assert again["reused"] == 3
+        assert session.calls == 3, "ein zweiter Lauf hat noch einmal bezahlt"
+
+
+def verify_the_bed_is_one_file_on_disk() -> None:
+    """B and C must name the same file, not two files that sound alike.
+
+    Checked on the folder rather than on the plan: the plan promising one
+    bed while the folder holds two would be the same comparison broken
+    in a place no arithmetic test looks.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        plan = _scene_plan()
+        made = asyncio.run(
+            _service(root, session).async_prototype_generate("t1", scene_plan=plan)
+        )
+        beds = {
+            layer["cached_name"]
+            for variant in made["variants"]
+            for layer in variant["layers"]
+            if layer["role"] == arch_module.ROLE_BED
+        }
+        assert len(beds) == 1, beds
+        assert len(list(Path(root).glob("*.mp3"))) == 3, sorted(Path(root).iterdir())
+
+
+def verify_each_fassung_mixes_exactly_its_own_layers() -> None:
+    """§31: A only the score, B bed plus accent, C only the bed.
+
+    And the levels: summing a bed and an accent at one volume is not a
+    layered mix, it is two tracks at once - which is the thing the
+    comparison would then fail to be about.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        plan = _scene_plan()
+        service = _service(root, session)
+        asyncio.run(service.async_prototype_generate("t1", scene_plan=plan))
+
+        packages = {}
+        for name in arch_module.VARIANTS:
+            found = asyncio.run(service.async_prototype_variant("t1", name, scene_plan=plan))
+            assert found, name
+            package, files = music_package.build_music_variant_package(
+                found,
+                root,
+                target_lufs=found["target_lufs"],
+                true_peak_dbtp=found["true_peak_ceiling_dbtp"],
+            )
+            assert len(files) == len(package["sections"])
+            packages[name] = package
+
+        roles = {
+            name: [entry["role"] for entry in package["sections"]]
+            for name, package in packages.items()
+        }
+        assert roles["A"] == [arch_module.ROLE_SCORE], roles
+        assert roles["B"] == [arch_module.ROLE_BED, arch_module.ROLE_ACCENT], roles
+        assert roles["C"] == [arch_module.ROLE_BED], roles
+
+        levels = {entry["role"]: entry["volume"] for entry in packages["B"]["sections"]}
+        assert levels[arch_module.ROLE_BED] < levels[arch_module.ROLE_ACCENT] / 2, levels
+        # Alone the bed comes up, but not to where a background layer has
+        # quietly become a lead track.
+        alone = packages["C"]["sections"][0]["volume"]
+        assert levels[arch_module.ROLE_BED] < alone < levels[arch_module.ROLE_ACCENT], alone
+
+        # The loudness target travels with every fassung, or the
+        # comparison is decided by whichever one is louder.
+        for name, package in packages.items():
+            assert package["target_lufs"] == arch_module.TARGET_LUFS, name
+            assert package["variant"] == name
+            for entry in package["sections"]:
+                assert entry["fade_in_seconds"] > 0 and entry["fade_out_seconds"] > 0
+
+
+def verify_a_fassung_missing_a_layer_is_refused_not_shortened() -> None:
+    """The layered mix without its bed IS the single-score mix.
+
+    Silently dropping the layer would have produced two fassungen that
+    are the same audio, compared against each other, and reported as a
+    finding about architecture.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        plan = _scene_plan()
+        service = _service(root, session)
+        made = asyncio.run(service.async_prototype_generate("t1", scene_plan=plan))
+        layered = next(v for v in made["variants"] if v["variant"] == arch_module.VARIANT_B)
+        bed = next(
+            layer for layer in layered["layers"] if layer["role"] == arch_module.ROLE_BED
+        )
+        (Path(root) / bed["cached_name"]).unlink()
+
+        # The read-only side says nothing rather than something shorter.
+        assert (
+            asyncio.run(
+                service.async_prototype_variant("t1", arch_module.VARIANT_B, scene_plan=plan)
+            )
+            is None
+        )
+        # And the package builder refuses even if it is handed one.
+        try:
+            music_package.build_music_variant_package(layered, root)
+        except music_package.MusicPackageError as err:
+            assert "Ebene" in str(err), err
+        else:
+            raise AssertionError("eine fehlende Ebene haette abgelehnt werden muessen")
+
+
+def verify_the_prototype_never_orders_a_whole_soundtrack() -> None:
+    """§17, asked of what was actually REQUESTED.
+
+    Every request asks for around the excerpt's own length. A prototype
+    that quietly ordered twelve minutes would still count as three
+    generations, so counting requests alone cannot see this.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        session = _Session()
+        plan = _scene_plan()
+        made = asyncio.run(
+            _service(root, session).async_prototype_generate("t1", scene_plan=plan)
+        )
+        assert made["window_seconds"] <= 90.5, made["window_seconds"]
+        for asset in made["assets"]:
+            assert asset["requested_seconds"] <= made["window_seconds"] * 1.2 + 0.1, asset
+
+
 # Every verify_ in the file, found rather than listed. The list used to
 # be written out by hand and four checks had fallen off it - including
 # the two that ask whether a probe costs money. A test nobody runs is

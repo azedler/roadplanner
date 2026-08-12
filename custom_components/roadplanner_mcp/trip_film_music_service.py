@@ -37,10 +37,17 @@ from .trip_film_music_plan import (
     FADE_IN_SECONDS,
     FADE_OUT_SECONDS,
     build_plan,
+    section_position,
     section_prompt,
     cost_notice as plan_cost_notice,
     section_cache_key,
 )
+from .music_prototype import (
+    PrototypeError,
+    build_prototype,
+    describe as prototype_describe,
+)
+from .music_style_lock import build_style_lock
 from .google_service_account import ServiceAccountError
 from .trip_film_lyria import (
     GEMINI_MODELS_ENDPOINT,
@@ -342,6 +349,7 @@ class TripFilmMusicService:
                         {"mood": mood},
                         motifs=list(plan.get("motifs") or []),
                         seconds=entry["seconds"],
+                        position=section_position(index, len(chosen)),
                     ),
                 }
             )
@@ -527,6 +535,174 @@ class TripFilmMusicService:
                 if entry["cached_name"]
             ],
         }
+
+    # --- the architecture comparison -----------------------------------
+    #
+    # Its own pair of methods on purpose, and the reason is the same one
+    # that keeps this whole service away from the exporter: the offer
+    # reads and prices, the generation is the only thing that can spend,
+    # and nothing between them can slip from one to the other. The
+    # prototype never touches the soundtrack planner, so no path from
+    # here can order twelve minutes of music.
+
+    async def _async_prototype(
+        self,
+        trip_id: str,
+        scene_plan: dict[str, Any],
+        *,
+        chapter_id: str = "",
+        start_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """The experiment as it stands, priced against what already exists."""
+        trip_id = str(trip_id or "").strip()
+        if not trip_id:
+            raise ValidationError("Für den Musikvergleich fehlt die Reise-ID")
+        if not isinstance(scene_plan, dict) or not scene_plan.get("scenes"):
+            raise ValidationError(
+                "Für den Musikvergleich braucht es den Szenenplan des Films"
+            )
+        manifest = await self._story_context.async_manifest(trip_id)
+        lock = build_style_lock()
+        # Priced against the folder, so "three new" and "one new, two
+        # already there" are different sentences before anything is
+        # confirmed rather than different bills afterwards.
+        try:
+            dry = build_prototype(
+                scene_plan,
+                chapters=manifest.get("chapters") or [],
+                style_lock=lock,
+                model=LYRIA_MODEL,
+                track_seconds=LYRIA_TRACK_SECONDS,
+                price_per_generation=LYRIA_ESTIMATED_COST_USD,
+                chapter_id=chapter_id,
+                start_seconds=start_seconds,
+            )
+        except PrototypeError as err:
+            raise ValidationError(str(err)) from err
+        cached: dict[str, str] = {}
+        for asset in dry["assets"]:
+            existing = await self._hass.async_add_executor_job(
+                self._find_cached, asset["cache_key"]
+            )
+            if existing:
+                cached[asset["cache_key"]] = existing
+        if not cached:
+            return dry
+        try:
+            return build_prototype(
+                scene_plan,
+                chapters=manifest.get("chapters") or [],
+                style_lock=lock,
+                cached_by_key=cached,
+                model=LYRIA_MODEL,
+                track_seconds=LYRIA_TRACK_SECONDS,
+                price_per_generation=LYRIA_ESTIMATED_COST_USD,
+                chapter_id=chapter_id,
+                start_seconds=start_seconds,
+            )
+        except PrototypeError as err:
+            raise ValidationError(str(err)) from err
+
+    async def async_prototype_offer(
+        self,
+        trip_id: str,
+        *,
+        scene_plan: dict[str, Any] | None = None,
+        chapter_id: str = "",
+        start_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """What the comparison would cost. Reads, prices, orders nothing."""
+        found = await self._async_prototype(
+            trip_id, scene_plan or {}, chapter_id=chapter_id, start_seconds=start_seconds
+        )
+        ready, reason = self._vertex_state()
+        return {
+            **found,
+            "notice": prototype_describe(found),
+            "ready": ready,
+            "reason": reason,
+            "price_note": LYRIA_PRICE_NOTE,
+        }
+
+    async def async_prototype_variant(
+        self,
+        trip_id: str,
+        variant: str,
+        *,
+        scene_plan: dict[str, Any] | None = None,
+        chapter_id: str = "",
+        start_seconds: float | None = None,
+    ) -> dict[str, Any] | None:
+        """One fassung's layers, if every piece it needs already exists.
+
+        The read-only half, and the one the film exporter is given - it
+        can see what was bought and how loud each layer plays, and it has
+        no way to buy anything. A fassung with a missing layer comes back
+        as nothing rather than as a shorter fassung: the layered mix
+        without its bed IS the single-score mix, and it would have been
+        compared against itself while looking like a result.
+        """
+        found = await self._async_prototype(
+            trip_id, scene_plan or {}, chapter_id=chapter_id, start_seconds=start_seconds
+        )
+        for entry in found.get("variants") or []:
+            if str(entry.get("variant")) != str(variant):
+                continue
+            if not entry.get("ready"):
+                return None
+            return {
+                **entry,
+                "target_lufs": found.get("target_lufs"),
+                "true_peak_ceiling_dbtp": found.get("true_peak_ceiling_dbtp"),
+            }
+        return None
+
+    async def async_prototype_generate(
+        self,
+        trip_id: str,
+        *,
+        scene_plan: dict[str, Any] | None = None,
+        chapter_id: str = "",
+        start_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Order the pieces the comparison still needs. Spends money.
+
+        At most three requests, and only ever the ones missing. The bed
+        is one of them however many fassungen use it - that is not an
+        optimisation but the condition under which the comparison means
+        anything.
+        """
+        found = await self._async_prototype(
+            trip_id, scene_plan or {}, chapter_id=chapter_id, start_seconds=start_seconds
+        )
+        missing = [asset for asset in found["assets"] if not asset["cached_name"]]
+        if missing:
+            ready, why = self._vertex_state()
+            if not ready:
+                raise ValidationError(why)
+        generated = 0
+        names: dict[str, str] = {
+            asset["cache_key"]: asset["cached_name"]
+            for asset in found["assets"]
+            if asset["cached_name"]
+        }
+        for asset in missing:
+            blob, mime_type = await self._async_order(
+                asset["prompt"], seconds=float(asset["requested_seconds"]) or None
+            )
+            name = track_filename(asset["cache_key"], extension_for(mime_type))
+            written = await self._hass.async_add_executor_job(self._store, name, blob)
+            if not written:
+                raise ValidationError("Die erzeugte Musik konnte nicht gespeichert werden")
+            names[asset["cache_key"]] = name
+            generated += 1
+        for asset in found["assets"]:
+            asset["cached_name"] = names.get(asset["cache_key"], asset["cached_name"])
+        for variant in found["variants"]:
+            for layer in variant["layers"]:
+                layer["cached_name"] = names.get(layer["cache_key"], layer["cached_name"])
+            variant["ready"] = all(layer["cached_name"] for layer in variant["layers"])
+        return {**found, "generated": generated, "reused": len(found["assets"]) - generated}
 
     async def _async_order(self, prompt: str, *, seconds: float | None = None) -> tuple[bytes, str]:
         """One generation. Everything that can cost money passes here."""

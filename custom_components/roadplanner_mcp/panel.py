@@ -112,6 +112,12 @@ _ACTIONS = {
     # video stream is copied, so it costs seconds and no quality, and
     # every section it uses was paid for when it was generated.
     "story_film_add_music",
+    # The music architecture comparison: what three fassungen of one
+    # excerpt would cost, ordering the pieces, and mixing one of them
+    # onto the rendered excerpt. Only the middle one spends anything.
+    "story_music_prototype_offer",
+    "story_music_prototype_generate",
+    "story_music_prototype_mix",
     # Stop a render that is running. Writes a marker into the exchange
     # folder; the app notices between frames.
     "renderer_app_cancel",
@@ -230,6 +236,10 @@ _EDIT_ACTIONS = {
     # Writes a second film into the shared directory - the same pictures
     # with a soundtrack on them.
     "story_film_add_music",
+    # The same, for one fassung of the comparison. And the generation,
+    # which writes audio into the music folder and costs money.
+    "story_music_prototype_generate",
+    "story_music_prototype_mix",
     # Writes into the shared directory, and ends work somebody started.
     "renderer_app_cancel",
     "update_trip",
@@ -365,6 +375,11 @@ _PROVIDER_CALL_ACTIONS = {
     # is spent the moment the request goes out; a dropped connection must
     # not orphan a track that was already paid for and never stored.
     "story_film_music_generate",
+    # Up to three of the same, for the architecture comparison.
+    "story_music_prototype_generate",
+    # Writes a fassung's layers into the shared directory before the job
+    # file. Being cancelled halfway would leave a partial package.
+    "story_music_prototype_mix",
     # One bounded Gemini url_context read of a Park4Night page (stop form).
     "park4night_lookup",
     # Same bounded read for an arbitrary place link (enrichment dialog).
@@ -1695,6 +1710,50 @@ async def _execute_action(
 
     if action == "story_film_music":
         return {"film_music": await runtime.trip_film.async_music_options()}
+
+    if action == "story_music_prototype_offer":
+        # What the A/B/C architecture comparison would cost. Read-only
+        # and free, like every other offer here: three fassungen of one
+        # excerpt, at most three generations, because two of them share
+        # the atmosphere layer.
+        trip_id = str(data.get("trip_id") or "")
+        _seconds, scene_plan = await runtime.trip_film.async_estimate_plan(trip_id)
+        return {
+            "music_prototype": await runtime.film_music.async_prototype_offer(
+                trip_id, scene_plan=scene_plan
+            )
+        }
+
+    if action == "story_music_prototype_generate":
+        # The one place this comparison can spend, and its own action for
+        # the same reason the soundtrack's is: nothing that renders or
+        # mixes can reach it. It orders at most three pieces and never
+        # the film's soundtrack - a prototype that could quietly buy
+        # twelve minutes of music would not be a prototype.
+        trip_id = str(data.get("trip_id") or "")
+        _seconds, scene_plan = await runtime.trip_film.async_estimate_plan(trip_id)
+        return {
+            "music_prototype": await runtime.film_music.async_prototype_generate(
+                trip_id, scene_plan=scene_plan
+            )
+        }
+
+    if action == "story_music_prototype_mix":
+        # One fassung onto the rendered excerpt. Free: the pieces were
+        # bought earlier after somebody was shown a price, and this reads
+        # them off the disk and mixes. Trying all three is three muxes of
+        # a few seconds each rather than three renders.
+        trip_id = str(data.get("trip_id") or "")
+        job_id = str(data.get("job_id") or "")
+        variant = str(data.get("variant") or "")
+        try:
+            return {
+                "renderer_app_job": await runtime.trip_film.async_add_variant_music(
+                    trip_id, job_id, variant
+                )
+            }
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
 
     if action == "story_film_music_offer":
         # What generated music would cost and what would be ordered -

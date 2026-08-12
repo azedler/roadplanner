@@ -501,6 +501,12 @@ async function produceFilmMusic(jobId, sourceJobId, onProgress, isCancelled) {
     outputPath: target,
     sections,
     volume: parsed.volume,
+    // Only present for the architecture comparison, where three
+    // fassungen of one film have to be judged against each other and
+    // the louder one would otherwise simply win.
+    targetLufs: parsed.targetLufs,
+    truePeakDbtp: parsed.truePeakDbtp,
+    variant: parsed.variant,
     onProgress,
     isCancelled,
   });

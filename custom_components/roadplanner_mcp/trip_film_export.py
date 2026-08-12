@@ -23,6 +23,7 @@ own limits.
 
 from __future__ import annotations
 
+from functools import partial
 import hashlib
 import io
 from pathlib import Path
@@ -54,6 +55,7 @@ from .trip_film_music import (
     MusicPackageError,
     build_music_package,
     build_music_timeline_package,
+    build_music_variant_package,
     list_tracks,
 )
 from .trip_film_plan import (
@@ -99,6 +101,7 @@ class TripFilmExporter:
         crew_portraits: Any = None,
         characters: Any = None,
         music_timeline: Any = None,
+        music_variant: Any = None,
     ) -> None:
         self._hass = hass
         self._manager = manager
@@ -119,6 +122,10 @@ class TripFilmExporter:
         # Read-only by construction: what has already been generated and
         # when it plays. Not the music service - see `_async_music`.
         self._music_timeline = music_timeline
+        # The same construction for the architecture comparison: what has
+        # already been generated for one fassung and how loud each layer
+        # plays. Also read-only, and also deliberately not the service.
+        self._music_variant = music_variant
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -196,6 +203,76 @@ class TripFilmExporter:
             return 0.0, {}
         return plan_seconds(plan), plan
 
+    async def async_add_variant_music(
+        self, trip_id: str, job_id: str, variant: str
+    ) -> dict[str, Any]:
+        """One fassung of the architecture comparison onto a rendered excerpt.
+
+        Same reading question as every other music path here - "what
+        exists, and how loud does each layer play?" - asked of a hook
+        that can only read. The pieces were bought earlier, deliberately,
+        after somebody was shown a price; nothing in this module can
+        order one.
+
+        The loudness target travels with the package because it is the
+        condition the comparison rests on: three fassungen of one film
+        cannot be judged against each other if one of them is louder,
+        and a listener asked to compare them would answer the volume
+        rather than the architecture.
+        """
+        if self._music_variant is None:
+            raise ValidationError("Für diese Installation gibt es keinen Musikvergleich.")
+        result = await self._renderer_app.async_result(job_id)
+        if not result:
+            raise ValidationError("Zu diesem Auftrag gibt es kein Ergebnis.")
+        seconds = float((result.get("video") or {}).get("duration_seconds") or 0.0)
+        if seconds <= 0:
+            raise ValidationError(
+                "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
+            )
+        # From the same planner run the excerpt itself was cut from, so
+        # the fassung is laid out over the film that was rendered rather
+        # than over a second plan that happens to be similar.
+        _seconds, scene_plan = await self.async_estimate_plan(trip_id)
+        found = await self._music_variant(trip_id, variant, scene_plan)
+        if not found or not found.get("layers"):
+            raise ValidationError(
+                f"Für die Fassung {variant} ist noch keine Musik erzeugt worden."
+            )
+        # Fitted to the film that EXISTS. The excerpt was planned from a
+        # scene plan whose lengths are estimates, and a layer that ran
+        # past the last frame would be paid for and never heard.
+        layers = [
+            {**layer, "seconds": min(float(layer.get("seconds") or 0.0), seconds)}
+            for layer in found["layers"]
+        ]
+        try:
+            music, files = await self._hass.async_add_executor_job(
+                partial(
+                    build_music_variant_package,
+                    {**found, "layers": layers},
+                    target_lufs=found.get("target_lufs"),
+                    true_peak_dbtp=found.get("true_peak_ceiling_dbtp"),
+                )
+            )
+        except MusicPackageError as err:
+            raise ValidationError(str(err)) from err
+        if not music:
+            raise ValidationError(
+                "Die erzeugten Musikdateien sind nicht mehr im Musikordner."
+            )
+        submitted = await self._renderer_app.async_submit_add_music_job(
+            source_job_id=job_id,
+            music=music,
+            files=files,
+            title=f"Musikvergleich {variant}",
+        )
+        return {
+            **submitted,
+            "variant": variant,
+            "film_seconds": round(seconds, 2),
+        }
+
     async def async_add_music(self, trip_id: str, job_id: str) -> dict[str, Any]:
         """Put the already-generated score onto an already-rendered film.
 
@@ -231,7 +308,8 @@ class TripFilmExporter:
             )
         try:
             music, files = await self._hass.async_add_executor_job(
-                build_music_timeline_package, timeline
+                build_music_timeline_package,
+    build_music_variant_package, timeline
             )
         except MusicPackageError as err:
             raise ValidationError(str(err)) from err
@@ -530,7 +608,8 @@ class TripFilmExporter:
             _LOGGER.info("Für diese Reise ist noch keine KI-Musik erzeugt worden")
             return None, {}
         return await self._hass.async_add_executor_job(
-            build_music_timeline_package, timeline
+            build_music_timeline_package,
+    build_music_variant_package, timeline
         )
 
     async def _async_crew(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:

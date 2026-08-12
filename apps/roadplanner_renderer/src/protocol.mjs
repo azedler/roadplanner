@@ -904,6 +904,17 @@ export function parseMusicSections(value) {
       seconds: number("seconds"),
       fadeInSeconds: number("fade_in_seconds"),
       fadeOutSeconds: number("fade_out_seconds"),
+      // A layer's own level, and `undefined` when it has none so the
+      // package's shared volume still applies. Layering needs it: an
+      // atmosphere under a piece of music is not the same thing at the
+      // same loudness, it is two tracks playing at once.
+      volume:
+        typeof entry.volume === "number" && Number.isFinite(entry.volume)
+          ? Math.max(0, Math.min(1, entry.volume))
+          : undefined,
+      // What this layer is for. Carried so a finished job can say what
+      // it mixed; it decides nothing here.
+      role: cleanText(entry.role, 24),
     };
   });
 }
@@ -940,12 +951,44 @@ export function parseMusicPackage(text) {
     throw new ProtocolError(ERROR_INVALID_JOB, "Das Musikpaket enthält keine Abschnitte.");
   }
   const volume = typeof payload.volume === "number" ? payload.volume : 0.42;
+  const variant = String(payload.variant ?? "");
+  if (variant && !MUSIC_VARIANT_RE.test(variant)) {
+    // Matched rather than sanitised: it becomes part of a filename, and
+    // a name assembled from something that merely looks harmless is how
+    // a path check turns into a path.
+    throw new ProtocolError(ERROR_INVALID_JOB, "Ungültige Musikvariante.");
+  }
+  const target =
+    typeof payload.target_lufs === "number" && Number.isFinite(payload.target_lufs)
+      ? Math.max(-40, Math.min(-5, payload.target_lufs))
+      : null;
   return {
     jobId: isJobId(payload.job_id) ? payload.job_id : "",
     volume: Math.max(0, Math.min(1, volume)),
+    variant,
+    // Absent means "leave the level alone", which is what every
+    // soundtrack job built before the A/B comparison expects.
+    targetLufs: target,
+    truePeakDbtp:
+      typeof payload.true_peak_dbtp === "number" && Number.isFinite(payload.true_peak_dbtp)
+        ? Math.max(-9, Math.min(-0.1, payload.true_peak_dbtp))
+        : null,
     sections,
   };
 }
+
+/**
+ * Which comparison fassung this mux is, as a label and nothing else.
+ *
+ * Deliberately NOT part of any filename. Each variant is its own mux
+ * job with its own results folder, so all three can keep the one
+ * artifact name - and the review copy, which looks for that name in the
+ * job it was given, keeps working for every one of them without knowing
+ * that a comparison exists. A per-variant filename would have been a
+ * second place to get the name right, and the review copy would have
+ * quietly fallen back to the silent cut for all three.
+ */
+export const MUSIC_VARIANT_RE = /^[A-Z]$/;
 
 const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/;
 

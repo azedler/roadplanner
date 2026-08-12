@@ -881,6 +881,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         music_timeline=lambda trip_id, seconds, scene_plan=None: film_music.async_timeline(
             trip_id, film_seconds=seconds, scene_plan=scene_plan
         ),
+        # The same shape for the architecture comparison, and for the
+        # same reason: the film may mix a fassung that was paid for, and
+        # it has no way to order one.
+        music_variant=lambda trip_id, variant, scene_plan=None: (
+            film_music.async_prototype_variant(
+                trip_id, variant, scene_plan=scene_plan
+            )
+        ),
     )
 
     trip_summaries = TripSummaryService(

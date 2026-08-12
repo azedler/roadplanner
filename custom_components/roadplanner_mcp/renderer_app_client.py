@@ -498,6 +498,19 @@ class RendererAppClient:
             "volume": (music or {}).get("volume", DEFAULT_MUSIC_VOLUME),
             "sections": sections,
         }
+        # Only the architecture comparison sets these, and only there do
+        # they mean anything: three fassungen of one film cannot be
+        # judged against each other if one of them is simply louder.
+        # Absent is the normal case and leaves the mix exactly where the
+        # section levels put it.
+        for name, key in (
+            ("variant", "variant"),
+            ("target_lufs", "target_lufs"),
+            ("true_peak_dbtp", "true_peak_dbtp"),
+        ):
+            value = (music or {}).get(key)
+            if value not in (None, ""):
+                package[name] = value
         job = build_job(
             job_id=job_id,
             action=ACTION_ADD_MUSIC,

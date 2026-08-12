@@ -121,6 +121,18 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
             "Bereits erzeugte Abschnitte werden wiederverwendet."
         ),
     },
+    "story_music_prototype_generate": {
+        "cost": COST_MODEL,
+        "effect": (
+            "Erzeugt die Stücke für den Architekturvergleich A/B/C über "
+            "einen Filmausschnitt."
+        ),
+        "note": (
+            "Kostet Geld - der Preis steht vorher daneben. Höchstens drei "
+            "Anfragen, weil zwei Fassungen dasselbe Klangbett benutzen; "
+            "der Soundtrack des ganzen Films wird hier nicht erzeugt."
+        ),
+    },
 }
 
 

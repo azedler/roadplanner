@@ -534,6 +534,7 @@ export const storyEditorMixin = {
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
       </div>
       ${this._renderStoryFilmExcerpt()}
+      ${this._renderStoryMusicPrototype()}
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
       ${this._renderStoryTripDiagnosis()}
@@ -858,6 +859,180 @@ export const storyEditorMixin = {
     });
     if (!result) return;
     this._storyFilmMusic = result.film_music || [];
+    this._render({ preserveScroll: true });
+  },
+
+  /**
+   * The music architecture comparison, as small a panel as it can be.
+   *
+   * Three fassungen of the same excerpt, one line each, and two
+   * buttons. Deliberately not a music studio: what is being decided is
+   * whether a travel film wants one piece, an atmosphere with a layer
+   * over it, or the atmosphere alone - and that is decided by listening,
+   * not by turning knobs here.
+   */
+  _renderStoryMusicPrototype() {
+    const found = this._storyMusicPrototype;
+    const canEdit = this._canEdit();
+    if (!found) {
+      return canEdit
+        ? `<div class="film-music-plan"><button class="text-button" type="button" data-action="story-music-prototype-offer"><ha-icon icon="mdi:ab-testing"></ha-icon> Musikarchitektur vergleichen (A/B/C)</button></div>`
+        : "";
+    }
+    const rows = (found.variants || [])
+      .map((entry) => {
+        // Three states, and "cached" is a different sentence from
+        // "generated" - one of them means the next attempt is free.
+        const state = entry.ready
+          ? "vorhanden"
+          : "noch nicht erzeugt";
+        const mixable = entry.ready && this._storyFilmSourceJobId;
+        return `<li>
+          <strong>${escapeHtml(String(entry.label || entry.variant))}</strong>
+          <small>${escapeHtml(String(entry.question || ""))}</small>
+          <small class="hint">${escapeHtml(state)}</small>
+          ${
+            mixable && canEdit
+              ? `<button class="text-button" type="button" data-action="story-music-prototype-mix" data-variant="${escapeHtml(String(entry.variant))}"><ha-icon icon="mdi:music-note-plus"></ha-icon> Fassung ${escapeHtml(String(entry.variant))} auflegen</button>`
+              : ""
+          }
+        </li>`;
+      })
+      .join("");
+    const excerpt = found.excerpt || {};
+    const currency = String(found.currency || "USD");
+    // §16: model, purpose, how many requests, what one request delivers,
+    // and the estimate - on screen BEFORE the button that spends. A
+    // single total says nothing about what it buys, and the word
+    // "kostenpflichtig" said afterwards is not a disclosure.
+    const facts = [
+      ["Modell", String(found.model || "")],
+      [
+        "Zweck",
+        `Architekturvergleich A/B/C über ${Math.round(Number(found.window_seconds || 0))} s Film`,
+      ],
+      [
+        "Generierungen",
+        `${found.generation_count} neu${found.reused_count ? ` · ${found.reused_count} vorhanden` : ""}`,
+      ],
+      ["Provider-Tracklänge", `bis ${found.provider_track_seconds} s je Anfrage`],
+      [
+        "Geschätzt",
+        found.generation_count
+          ? `${found.generation_count} × ${found.price_per_generation} ${currency} = ${found.estimated_cost} ${currency}`
+          : "0 – nichts Neues",
+      ],
+    ]
+      .filter(([, value]) => value)
+      .map(
+        ([name, value]) =>
+          `<li><span>${escapeHtml(name)}</span><strong>${escapeHtml(String(value))}</strong></li>`,
+      )
+      .join("");
+    const button =
+      canEdit && found.generation_count && found.ready !== false
+        ? actionButton(
+            this._actionCosts(),
+            "story-music-prototype-generate",
+            `${found.generation_count} Stück erzeugen (${found.estimated_cost} ${currency})`,
+          )
+        : "";
+    return `<div class="film-music-plan">
+      <h4>Musikarchitektur-Prototyp</h4>
+      <small>Derselbe Ausschnitt (${escapeHtml(
+        String(Math.round(Number(found.window_seconds || 0))),
+      )} s ab ${escapeHtml(
+        String(Math.round(Number(excerpt.start_seconds || 0))),
+      )} s), drei Tonfassungen. Nur der Ton ändert sich.</small>
+      <ul class="plain-list">${rows}</ul>
+      <ul class="story-music-facts">${facts}</ul>
+      <small class="hint">${escapeHtml(String(found.notice || ""))}</small>
+      ${
+        found.ready === false
+          ? `<small class="hint">${escapeHtml(String(found.reason || ""))}</small>`
+          : ""
+      }
+      ${
+        found.generation_count
+          ? `<p class="hint">Das ist ein kostenpflichtiger Aufruf bei Google und wird pro Anfrage abgerechnet – nicht pro Sekunde. Die Stücke werden gespeichert und für weitere Mischungen wiederverwendet.</p>`
+          : ""
+      }
+      ${button}
+    </div>`;
+  },
+
+  /** What the comparison would cost. Reads and prices, orders nothing. */
+  async _storyMusicPrototypeOffer() {
+    const result = await this._runAction(
+      "story_music_prototype_offer",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Der Musikvergleich konnte nicht berechnet werden",
+      },
+    );
+    if (!result?.music_prototype) return;
+    this._storyMusicPrototype = result.music_prototype;
+    this._render({ preserveScroll: true });
+  },
+
+  /**
+   * The one button here that spends money, and it says how much first.
+   *
+   * At most three generations for three fassungen, because two of them
+   * share the atmosphere layer. Nothing about the film's full soundtrack
+   * is ordered from here.
+   */
+  async _storyMusicPrototypeGenerate() {
+    const found = this._storyMusicPrototype;
+    if (!found || !found.generation_count) return;
+    const result = await this._runAction(
+      "story_music_prototype_generate",
+      { trip_id: this._selectedTripId },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Musik konnte nicht erzeugt werden",
+      },
+    );
+    if (!result?.music_prototype) return;
+    this._storyMusicPrototype = result.music_prototype;
+    const made = result.music_prototype;
+    this._showToast(
+      `${made.generated} Stück erzeugt` + (made.reused ? ` · ${made.reused} wiederverwendet` : ""),
+      "success",
+      7000,
+    );
+    await this._storyFilmMusicLoad();
+    this._render({ preserveScroll: true });
+  },
+
+  /** One fassung onto the rendered excerpt. Free - the pieces exist. */
+  async _storyMusicPrototypeMix(variant) {
+    if (!variant || !this._storyFilmSourceJobId) return;
+    const result = await this._runAction(
+      "story_music_prototype_mix",
+      {
+        trip_id: this._selectedTripId,
+        job_id: this._storyFilmSourceJobId,
+        variant,
+      },
+      "",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Fassung konnte nicht aufgelegt werden",
+      },
+    );
+    if (!result?.renderer_app_job) return;
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppKind = "film_music";
     this._render({ preserveScroll: true });
   },
 

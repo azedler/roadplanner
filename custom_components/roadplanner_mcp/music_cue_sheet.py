@@ -194,6 +194,187 @@ def build_cue_sheet(
     }
 
 
+# A cue sheet for a single stretch of film needs a finer grain than one
+# per chapter: a seventy-five-second excerpt is often one chapter, and
+# "one cue" describes nothing. But finer must not become per-scene -
+# music that comments on every cut is the micro-scoring this whole file
+# is built to avoid. So the grain is the RUN: consecutive scenes that
+# behave the same way.
+CHARACTER_TRAVEL = "fahrt"
+CHARACTER_READING = "lesen"
+CHARACTER_MOTION = "bewegtbild"
+CHARACTER_STILLS = "bilder"
+
+# Under this a run is not a musical movement, it is a moment; it gets
+# folded into its neighbour instead of becoming a segment of its own.
+MIN_SEGMENT_SECONDS = 8.0
+# And this many segments is already more than a minute of music can act
+# on. The cap is what keeps §11 honest when a busy excerpt would
+# otherwise produce nine of them.
+MAX_WINDOW_CUES = 5
+
+
+def _character(scene_type: str) -> str:
+    if scene_type in _MAP:
+        return CHARACTER_TRAVEL
+    if scene_type == SCENE_CLIP:
+        return CHARACTER_MOTION
+    if scene_type in _TEXT:
+        return CHARACTER_READING
+    return CHARACTER_STILLS
+
+
+def build_window_cue_sheet(
+    plan: dict[str, Any],
+    *,
+    start_frame: int,
+    end_frame: int,
+    chapters: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The larger movements inside one stretch of film.
+
+    Times come out in two forms and both are named: where the segment
+    sits in the whole film, and where it sits inside the excerpt. A
+    planner that only saw one of them would either place music against
+    the wrong clock or have to work the other one out - and working out
+    a time is the one thing a language model must not be doing here.
+
+    Frames in, seconds out. The excerpt is chosen in frames because a
+    frame is where a scene actually begins; rounding that to seconds
+    first and cutting there is how a photograph ends up half faded in.
+    """
+    scenes = list(plan.get("scenes") or [])
+    if not scenes:
+        raise CueSheetError("Ein Film ohne Szenen hat keinen Ablauf")
+    fps = int(plan.get("fps") or FILM_FPS)
+    begin = max(0, int(start_frame))
+    stop = int(end_frame)
+    if stop <= begin:
+        raise CueSheetError("Der Ausschnitt hat keine Länge")
+    by_chapter = {
+        str(entry.get("chapter_id") or ""): entry for entry in (chapters or [])
+    }
+
+    # Every scene that the window touches, clipped to it.
+    inside: list[tuple[int, int, dict[str, Any]]] = []
+    cursor = 0
+    for scene in scenes:
+        frames = max(0, int(scene.get("frames") or 0))
+        if frames <= 0:
+            continue
+        scene_start, scene_end = cursor, cursor + frames
+        cursor = scene_end
+        if scene_end <= begin or scene_start >= stop:
+            continue
+        inside.append((max(scene_start, begin), min(scene_end, stop), scene))
+    if not inside:
+        raise CueSheetError("In diesem Ausschnitt liegt keine Szene")
+
+    # Runs of like-behaving scenes.
+    runs: list[dict[str, Any]] = []
+    for scene_start, scene_end, scene in inside:
+        character = _character(str(scene.get("type") or ""))
+        if runs and runs[-1]["character"] == character:
+            runs[-1]["end"] = scene_end
+            runs[-1]["scenes"].append(scene)
+            continue
+        runs.append(
+            {
+                "character": character,
+                "start": scene_start,
+                "end": scene_end,
+                "scenes": [scene],
+            }
+        )
+
+    # Anything too short to be a movement joins its predecessor - or its
+    # successor when it is the first. Repeated until nothing is short,
+    # because folding two shorts together can still leave a short.
+    least = MIN_SEGMENT_SECONDS * fps
+    merged = True
+    while merged and len(runs) > 1:
+        merged = False
+        for index, run in enumerate(runs):
+            if run["end"] - run["start"] >= least:
+                continue
+            target = index - 1 if index > 0 else 1
+            keep, drop = (target, index) if index > 0 else (index, target)
+            runs[keep]["end"] = max(runs[keep]["end"], runs[drop]["end"])
+            runs[keep]["start"] = min(runs[keep]["start"], runs[drop]["start"])
+            runs[keep]["scenes"].extend(runs[drop]["scenes"])
+            del runs[drop]
+            merged = True
+            break
+
+    # Still too many? Fold the shortest into its neighbour until the cap
+    # holds. Shortest first, so the segments that survive are the ones
+    # that actually last long enough to be scored.
+    while len(runs) > MAX_WINDOW_CUES:
+        index = min(
+            range(len(runs)), key=lambda position: runs[position]["end"] - runs[position]["start"]
+        )
+        target = index - 1 if index > 0 else 1
+        keep, drop = (target, index) if index > 0 else (index, target)
+        runs[keep]["end"] = max(runs[keep]["end"], runs[drop]["end"])
+        runs[keep]["start"] = min(runs[keep]["start"], runs[drop]["start"])
+        runs[keep]["scenes"].extend(runs[drop]["scenes"])
+        del runs[drop]
+
+    cues: list[dict[str, Any]] = []
+    for index, run in enumerate(runs):
+        members = run["scenes"]
+        kinds = {str(scene.get("type") or "") for scene in members}
+        names: list[str] = []
+        for scene in members:
+            name = str(scene.get("chapter_id") or "")
+            if name and name not in names:
+                names.append(name)
+        chapter = by_chapter.get(names[0]) if names else None
+        cues.append(
+            {
+                "index": index,
+                "character": run["character"],
+                "start_seconds": round(run["start"] / fps, 2),
+                "end_seconds": round(run["end"] / fps, 2),
+                "seconds": round((run["end"] - run["start"]) / fps, 2),
+                # The same moment on the excerpt's own clock, so nothing
+                # downstream has to subtract anything to place music.
+                "window_start_seconds": round((run["start"] - begin) / fps, 2),
+                "window_end_seconds": round((run["end"] - begin) / fps, 2),
+                "chapter_ids": names,
+                "story_role": str((chapter or {}).get("story_role") or ""),
+                "importance": str((chapter or {}).get("importance") or ""),
+                "scene_types": sorted(kinds),
+                "has_map": bool(kinds & _MAP),
+                "has_text": bool(kinds & _TEXT),
+                "has_photo": bool(kinds & _STILL),
+                "has_video": SCENE_CLIP in kinds,
+                "energy_hint": _energy(members),
+                "narrative_function": _function(
+                    members, first=False, last=False
+                ),
+                # Whether the film changes day here. A chapter boundary
+                # is the one transition worth telling a composer about;
+                # every other cut is a cut.
+                "transition_hint": (
+                    "kapitelwechsel"
+                    if index > 0 and names and names != cues[index - 1]["chapter_ids"]
+                    else "weiter"
+                ),
+            }
+        )
+
+    return {
+        "cue_sheet_version": CUE_SHEET_VERSION,
+        "fps": fps,
+        "start_seconds": round(begin / fps, 2),
+        "end_seconds": round(stop / fps, 2),
+        "window_seconds": round((stop - begin) / fps, 2),
+        "cue_count": len(cues),
+        "cues": cues,
+    }
+
+
 def summarise(sheet: dict[str, Any]) -> dict[str, Any]:
     """The whole film in the few numbers a plan is argued from.
 
@@ -215,7 +396,14 @@ def summarise(sheet: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "CHARACTER_MOTION",
+    "CHARACTER_READING",
+    "CHARACTER_STILLS",
+    "CHARACTER_TRAVEL",
     "CUE_SHEET_VERSION",
+    "MAX_WINDOW_CUES",
+    "MIN_SEGMENT_SECONDS",
+    "build_window_cue_sheet",
     "ENERGY_CALM",
     "ENERGY_LIVELY",
     "ENERGY_STEADY",
