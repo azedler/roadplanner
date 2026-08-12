@@ -875,8 +875,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # ONE read-only question - "what has already been generated, and
         # when does it play?" - rather than the service itself. The film
         # can play a soundtrack somebody paid for; it cannot buy one.
-        music_timeline=lambda trip_id, seconds: film_music.async_timeline(
-            trip_id, film_seconds=seconds
+        music_timeline=lambda trip_id, seconds, scene_plan=None: film_music.async_timeline(
+            trip_id, film_seconds=seconds, scene_plan=scene_plan
         ),
     )
 

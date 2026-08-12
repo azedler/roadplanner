@@ -175,6 +175,25 @@ def excerpt_range(
     else:
         reason = "automatisch gewählt"
 
+    # How far from the film's middle a window sits, as the tie-break.
+    #
+    # Score alone is not enough, and a real film showed why. On the trip
+    # this was first run against, the opening minute contained all seven
+    # ingredients and therefore scored the maximum - as did many later
+    # windows - and "earliest wins" handed back minute zero every time.
+    # That is the one minute §22 warned against and the least
+    # representative part of the film: intro, crew and the starting map
+    # occur exactly once, while the body of the film is days.
+    #
+    # A synthetic plan hid it. Its opening did not happen to contain
+    # everything, so the check that the excerpt is not minute zero passed
+    # while the real answer was minute zero - a test agreeing with an
+    # assumption instead of with the data.
+    middle = total_frames // 2
+
+    def _distance(begin: int, end: int) -> int:
+        return abs((begin + end) // 2 - middle)
+
     best: tuple[int, int, int, list[dict[str, Any]]] | None = None
     for index in starts:
         begin = entries[index][0]
@@ -188,22 +207,36 @@ def excerpt_range(
                 # Adding this scene overshot; the window without it was
                 # already long enough and is the one to judge.
                 break
-            candidate = (_score(_contains(window)), -begin, end, list(window))
-            if best is None or candidate[:2] > best[:2]:
+            candidate = (
+                _score(_contains(window)),
+                -_distance(begin, end),
+                begin,
+                end,
+                list(window),
+            )
+            if best is None or candidate[:3] > best[:3]:
                 best = candidate
             break
         else:
             # The film ended before the window was full. What is left is
             # still a legitimate ending to look at.
             if window and (entries[-1][1] - begin) >= least // 2:
-                candidate = (_score(_contains(window)), -begin, entries[-1][1], list(window))
-                if best is None or candidate[:2] > best[:2]:
+                candidate = (
+                    _score(_contains(window)),
+                    -_distance(begin, entries[-1][1]),
+                    begin,
+                    entries[-1][1],
+                    list(window),
+                )
+                if best is None or candidate[:3] > best[:3]:
                     best = candidate
 
     if best is None:
         raise QaExcerptError("Es liess sich kein zusammenhängender Ausschnitt bilden")
-    score, negative_begin, end_frame, window = best
-    return _describe(-negative_begin, end_frame, window, fps, reason, total_frames, score)
+    # `begin` is in the key after the distance, so two windows equally
+    # far from the middle still resolve the same way on every run.
+    score, _negative_distance, start_frame, end_frame, window = best
+    return _describe(start_frame, end_frame, window, fps, reason, total_frames, score)
 
 
 def _describe(

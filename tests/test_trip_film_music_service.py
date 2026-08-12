@@ -22,6 +22,7 @@ from pathlib import Path
 import sys
 import tempfile
 import types
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -189,6 +190,18 @@ def _service(root, session, *, api_key="k", vertex=True):
     )
 
 
+
+def _host(url: str) -> str:
+    """Where a request actually goes.
+
+    Parsed rather than searched for: `"aiplatform" in url` is true of a
+    URL pointing anywhere at all that merely mentions the name in a path
+    or a query, so it is no evidence about the destination. Code
+    scanning flags the same weakness in the sibling test.
+    """
+    return urlsplit(url).hostname or ""
+
+
 FILM = 7 * 60 + 12.0
 
 
@@ -334,7 +347,9 @@ def verify_either_route_is_enough_on_its_own() -> None:
         )
         assert session.calls > 0
         assert session.token_calls == 0, "AI Studio braucht kein Token"
-        assert all("generativelanguage" in url for url in session.urls), session.urls
+        assert all(_host(url) == "generativelanguage.googleapis.com" for url in session.urls), (
+            session.urls
+        )
 
     with tempfile.TemporaryDirectory() as root:
         # Project configured: Vertex wins, and a token is minted once.
@@ -343,7 +358,9 @@ def verify_either_route_is_enough_on_its_own() -> None:
         assert session.token_calls == 1, (
             f"{session.token_calls} Token für einen Soundtrack - eines reicht"
         )
-        assert any("aiplatform" in url for url in session.urls), session.urls
+        assert any(_host(url).endswith("-aiplatform.googleapis.com") for url in session.urls), (
+            session.urls
+        )
 
 
 def verify_the_model_probe_costs_nothing() -> None:

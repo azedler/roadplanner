@@ -153,6 +153,54 @@ def verify_too_many_sections_are_refused_rather_than_sliced() -> None:
     raise AssertionError("zu viele Abschnitte wurden stillschweigend abgeschnitten")
 
 
+def verify_the_music_planner_is_actually_reached() -> None:
+    """Built, tested, and connected to nothing. Twice in one block.
+
+    The cue sheet, the model brief and the proposal validator all
+    existed and all had passing tests, and the section boundaries were
+    still placed by arithmetic on every run - because no caller ever
+    passed a scene plan, so the director returned None before doing
+    anything. The panel said so, honestly, in a line nobody had reason
+    to read: "Abschnitte geplant von - der Verteilung im Film".
+
+    The same shape as the mux above. A module tested in isolation says
+    nothing about whether anything calls it, so the chain gets checked.
+    """
+    export = (PACKAGE_ROOT / "trip_film_export.py").read_text(encoding="utf-8")
+    # The plan is handed back rather than measured and dropped. It used
+    # to be built, its length taken, and the plan itself discarded.
+    assert "async def async_estimate_plan(" in export, export[:0]
+    body = export.split("async def async_estimate_plan(", 1)[1]
+    body = body.split("\n    async def ", 1)[0]
+    assert "return plan_seconds(plan), plan" in body, body
+
+    panel = (PACKAGE_ROOT / "panel.py").read_text(encoding="utf-8")
+    for action in ("story_film_music_offer", "story_film_music_generate"):
+        block = panel.split(f'if action == "{action}":', 1)[1]
+        block = block.split('\n    if action == "', 1)[0]
+        assert "async_estimate_plan(" in block, (
+            f"{action} holt weiterhin nur die Länge - der Planer sieht keinen "
+            "Szenenplan und die Arithmetik entscheidet"
+        )
+        assert "scene_plan=scene_plan" in block, block
+
+    # And the two must agree: a price accepted for one set of sections
+    # must buy that set, not another.
+    offer = panel.split('if action == "story_film_music_offer":', 1)[1]
+    offer = offer.split('\n    if action == "', 1)[0]
+    generate = panel.split('if action == "story_film_music_generate":', 1)[1]
+    generate = generate.split('\n    if action == "', 1)[0]
+    for block in (offer, generate):
+        assert "film_seconds=seconds" in block, block
+
+    # The render path asks the same question, so the score the film gets
+    # is the score that was planned and paid for.
+    music_body = export.split("async def _async_music(", 1)[1]
+    music_body = music_body.split("\n    async def ", 1)[0]
+    assert "async_estimate_plan(" in music_body, music_body
+    assert "self._music_timeline(trip_id, seconds, scene_plan)" in music_body, music_body
+
+
 def verify_the_film_export_still_has_no_path_to_a_paid_call() -> None:
     """The mux reads what exists. It never orders anything.
 
