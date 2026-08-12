@@ -104,6 +104,9 @@ _ACTIONS = {
     # exchange folder and writes a smaller one beside it: no photograph,
     # no provider, no cost.
     "story_film_review_copy",
+    # A 60-90 s piece of the SAME film at full size, for judging how it
+    # looks rather than what is in it.
+    "story_film_qa_render",
     # Stop a render that is running. Writes a marker into the exchange
     # folder; the app notices between frames.
     "renderer_app_cancel",
@@ -218,6 +221,7 @@ _EDIT_ACTIONS = {
     # Writes a video into the shared directory. Nothing about the trip
     # changes, but it does produce a file.
     "story_film_review_copy",
+    "story_film_qa_render",
     # Writes into the shared directory, and ends work somebody started.
     "renderer_app_cancel",
     "update_trip",
@@ -334,6 +338,9 @@ _PROVIDER_CALL_ACTIONS = {
     # The same, for a whole trip: up to ninety photos and minutes of work
     # that must survive a phone locking its screen.
     "story_film_render",
+    # Builds the same package as a full render - a couple of hundred
+    # photographs - and only then draws fewer frames from it.
+    "story_film_qa_render",
     # Re-encodes a whole film. Minutes rather than an hour, and still far
     # longer than a websocket call should be allowed to hang on.
     "story_film_review_copy",
@@ -1624,6 +1631,32 @@ async def _execute_action(
                     profile_id=str(data.get("profile") or "") or DEFAULT_REVIEW_PROFILE,
                 )
             }
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+
+    if action == "story_film_qa_render":
+        # The quality check: a contiguous 60-90 s window of the SAME
+        # film, at whichever size is being judged. Same scene ids, same
+        # media, same seconds - only the frames drawn and the profile
+        # change, which is what makes it evidence about the real film.
+        try:
+            return {"renderer_app_job": await runtime.trip_film.async_submit(
+                str(data.get("trip_id") or ""),
+                music=str(data.get("music") or ""),
+                profile=str(data.get("profile") or "") or "high_quality",
+                excerpt=True,
+                # A CHAPTER ID, not a path, and a number of seconds. Both
+                # are matched against the film's own plan before anything
+                # is built from them.
+                excerpt_chapter_id=str(data.get("chapter_id") or ""),
+                excerpt_start_seconds=(
+                    float(data["start_seconds"])
+                    if str(data.get("start_seconds") or "").strip()
+                    else None
+                ),
+            )}
+        except (TypeError, ValueError) as err:
+            raise ValidationError(f"Ungültige Ausschnittwahl: {err}") from err
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
 

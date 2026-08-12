@@ -78,6 +78,7 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "story_film_music_generate",
   "story_film_render",
   "story_film_review_copy",
+  "story_film_qa_render",
 ]);
 
 class RoadplannerPanel extends HTMLElement {
@@ -1862,6 +1863,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmPreview();
     } else if (action === "story-film-render" && this._canEdit()) {
       void this._storyFilmRender();
+    } else if (action === "story-film-qa-render" && this._canEdit()) {
+      void this._storyFilmQaRender();
     } else if (action === "story-film-review-copy" && this._canEdit()) {
       void this._storyFilmReviewCopy();
     } else if (action === "renderer-app-cancel" && this._canEdit()) {

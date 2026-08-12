@@ -529,8 +529,10 @@ export const storyEditorMixin = {
         <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
         ${this._renderStoryFilmMusic()}
         ${this._renderStoryFilmProfile()}
+        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-qa-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon> Prüfausschnitt (60–90 s)</button>` : ""}
         ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
       </div>
+      ${this._renderStoryFilmExcerpt()}
       ${this._renderStoryFilmMusicPlan()}
       ${this._renderStoryFilmJobLine()}
       ${this._renderStoryTripDiagnosis()}
@@ -685,6 +687,85 @@ export const storyEditorMixin = {
       this._rendererAppCancelling = false;
       this._render({ preserveScroll: true });
     }
+  },
+
+  /**
+   * The quality check: a piece of the film, at the size being judged.
+   *
+   * Not a shorter film - a window into this one. The package is built
+   * exactly as a full render builds it, and only the frames drawn
+   * change, so what comes back is evidence about the film somebody is
+   * actually going to ship.
+   */
+  async _storyFilmQaRender() {
+    this._storyFilmStartError = "";
+    // The package build is the same couple of hundred photographs a full
+    // render fetches. Only the drawing is short, so the silence before
+    // the first progress number is just as long.
+    this._storyFilmPreparing = true;
+    this._render({ preserveScroll: true });
+    const result = await this._runAction(
+      "story_film_qa_render",
+      {
+        trip_id: this._selectedTripId,
+        music: this._storyFilmTrack || "",
+        profile: this._storyFilmChosen(
+          this._storyFilmProfileTable("render"),
+          this._storyFilmQaProfile || "high_quality",
+        ),
+        chapter_id: this._storyFilmQaChapterId || "",
+        start_seconds: this._storyFilmQaStartSeconds || "",
+      },
+      "Prüfausschnitt wird gerendert",
+      { refresh: false, blockUi: false, errorTitle: "Der Prüfausschnitt konnte nicht gestartet werden" },
+    );
+    this._storyFilmPreparing = false;
+    if (!result?.renderer_app_job?.job_id) {
+      this._storyFilmStartError =
+        "Der Prüfausschnitt konnte nicht gestartet werden. Der genaue Grund "
+        + "steht im Home-Assistant-Protokoll unter „roadplanner\u201c.";
+      this._render({ preserveScroll: true });
+      return;
+    }
+    this._rendererAppKind = "trip_film";
+    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._storyFilmExcerpt = result.renderer_app_job.excerpt || null;
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
+  /**
+   * What the chosen excerpt contains - and what could not be weighed.
+   *
+   * The second half matters as much as the first: a scene plan carries
+   * no orientation, so nothing balanced portrait against landscape. Not
+   * saying so would let "automatisch gewählt" read as "everything was
+   * considered".
+   */
+  _renderStoryFilmExcerpt() {
+    const found = this._storyFilmExcerpt;
+    if (!found) return "";
+    const names = {
+      chapter_transition: "Kapitelwechsel",
+      map: "Karte",
+      map_drive: "Kartenfahrt",
+      text: "Text",
+      hero: "Hero",
+      collage: "Collage",
+      clip: "Videoclip",
+    };
+    const has = Object.entries(found.contains || {})
+      .filter(([, present]) => present)
+      .map(([key]) => names[key] || key);
+    const missing = (found.missing || []).map((key) => names[key] || key);
+    const start = Math.round(Number(found.start_seconds) || 0);
+    return `<small class="hint">Ausschnitt ab ${Math.floor(start / 60)}:${String(start % 60).padStart(2, "0")} · ${escapeHtml(String(Math.round(Number(found.seconds) || 0)))} s · ${escapeHtml(String(found.scene_count || 0))} Szenen (${escapeHtml(String(found.reason || ""))}).
+      ${has.length ? `Enthält: ${escapeHtml(has.join(", "))}.` : ""}
+      ${missing.length ? ` Ohne: ${escapeHtml(missing.join(", "))}.` : ""}
+      Nicht gewichtet: Hoch-/Querformat – der Szenenplan führt keine Ausrichtung.</small>`;
   },
 
   async _storyFilmReviewCopy() {

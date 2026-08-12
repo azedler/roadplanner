@@ -351,7 +351,7 @@ async function discardIncompleteResult(jobId) {
  * run for ten minutes and read seventy photos, so the job deadline it runs
  * under is the film's, not the clip's.
  */
-async function produceTripFilm(jobId, profileId, onProgress, isCancelled) {
+async function produceTripFilm(jobId, profileId, onProgress, isCancelled, frameRange) {
   const { renderTripFilmVideo } = await import("./render.mjs");
   const folder = path.join(DIRS.results, jobId);
   await fs.mkdir(folder, { recursive: true });
@@ -363,6 +363,7 @@ async function produceTripFilm(jobId, profileId, onProgress, isCancelled) {
     profileId,
     onProgress,
     isCancelled,
+    frameRange,
   });
 
   const bytes = await fs.readFile(target);
@@ -596,6 +597,7 @@ async function handleJob(name) {
           }
         },
         () => cancelRequested(jobId),
+        job.frameRange,
       );
       await writeStatus(jobId, "completed", { progress: 1 });
       log("info", "Reisefilm abgeschlossen", {
@@ -605,6 +607,7 @@ async function handleJob(name) {
         chapters: facts.chapter_count,
         photos: facts.photo_count,
         chapters_without_photos: facts.chapters_without_photos,
+        frame_range: job.frameRange ? job.frameRange.join("-") : "",
       });
     } else {
       await produceArtifacts(jobId, job.message);

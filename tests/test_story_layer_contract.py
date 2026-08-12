@@ -195,6 +195,10 @@ def verify_only_two_fields_are_editable() -> None:
         "media_update_assignment",
         "story_film_preview",
         "story_film_render",
+        # A 60-90 s window into the SAME film, for judging how it looks
+        # at full size. Carries a trip, a size, and at most a chapter id
+        # or a start time - both matched against the film's own plan.
+        "story_film_qa_render",
         # A small copy of a film that has already been rendered. It names
         # a JOB, never a file: the source is a job id, matched against
         # the job-id pattern before either side builds a path from it.

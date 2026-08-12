@@ -413,6 +413,7 @@ class RendererAppClient:
         files: dict[str, bytes],
         title: str,
         profile_id: str = DEFAULT_RENDER_PROFILE,
+        frame_range: tuple[int, int] | None = None,
     ) -> dict[str, Any]:
         """Hand over a whole trip: its photos first, the job last.
 
@@ -439,6 +440,7 @@ class RendererAppClient:
             # the job stale while it was still being rendered.
             ttl_seconds=FILM_JOB_TTL_SECONDS,
             render_profile=profile_id,
+            frame_range=frame_range,
         )
         written = await self._hass.async_add_executor_job(
             self._write_trip_film_job, job, package, files
@@ -450,6 +452,10 @@ class RendererAppClient:
             "package_bytes": written,
             "image_count": len(files),
             "render_profile": profile_id,
+            # Named in the answer so the card can say "ein Ausschnitt"
+            # rather than showing a film that will end after ninety
+            # seconds and look truncated.
+            "frame_range": list(frame_range) if frame_range else None,
         }
 
     def _write_trip_film_job(

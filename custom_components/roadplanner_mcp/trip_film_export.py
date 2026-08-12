@@ -34,6 +34,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .qa_excerpt import QaExcerptError, excerpt_range
 from .render_profiles import DEFAULT_RENDER_PROFILE, RENDER_PROFILES
 from .roadplanner import RoadplannerError, ValidationError
 from .trip_export_photos import async_fetch_media_photo
@@ -182,7 +183,14 @@ class TripFilmExporter:
         return await self._hass.async_add_executor_job(list_tracks)
 
     async def async_submit(
-        self, trip_id: str, *, music: str = "", profile: str = ""
+        self,
+        trip_id: str,
+        *,
+        music: str = "",
+        profile: str = "",
+        excerpt: bool = False,
+        excerpt_chapter_id: str = "",
+        excerpt_start_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Build the package for the whole trip and queue the render.
 
@@ -281,11 +289,29 @@ class TripFilmExporter:
         # The clip bytes travel beside the images, under the paths the
         # package already names. The renderer plays what it is given and
         # never fetches anything.
+        # A quality check is a WINDOW into this film, not another film:
+        # the package above is built exactly as it always is, and only
+        # the frames drawn from it change. Building a smaller package
+        # would make the check about something nobody is going to ship.
+        window = None
+        excerpt_info: dict[str, Any] | None = None
+        if excerpt:
+            try:
+                excerpt_info = excerpt_range(
+                    package["scene_plan"],
+                    chapter_id=excerpt_chapter_id,
+                    start_seconds=excerpt_start_seconds,
+                )
+            except QaExcerptError as err:
+                raise ValidationError(str(err)) from err
+            window = (excerpt_info["start_frame"], excerpt_info["end_frame"])
+
         submitted = await self._renderer_app.async_submit_trip_film_job(
             package=package,
             files={**files, **clip_files},
             title=(manifest.get("trip") or {}).get("title") or "Reisefilm",
             profile_id=profile_id,
+            frame_range=window,
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
         _LOGGER.debug(
@@ -309,6 +335,10 @@ class TripFilmExporter:
             "crew_count": len((crew or {}).get("members") or []),
             "music": (music_entry or {}).get("title", ""),
             "character_assets": len((characters or {}).get("assets") or []),
+            # What the excerpt contains and what it could not weigh, so
+            # nobody reads "automatisch gewählt" as "everything was
+            # considered".
+            "excerpt": excerpt_info,
         }
 
 

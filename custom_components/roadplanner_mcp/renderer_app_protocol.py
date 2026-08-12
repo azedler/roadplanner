@@ -350,6 +350,7 @@ def build_job(
     ttl_seconds: int = JOB_TTL_SECONDS,
     render_profile: str = "",
     source_job_id: str = "",
+    frame_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Build a job. Everything in it is either fixed or server-generated."""
     validate_job_id(job_id)
@@ -371,6 +372,16 @@ def build_job(
         if not _PROFILE_ID_RE.match(render_profile):
             raise RendererProtocolError(f"Unbekanntes Renderprofil: {render_profile!r}")
         payload_input["render_profile"] = render_profile
+    if frame_range is not None:
+        # Which frames of the film to draw. A quality check at full size
+        # is a PIECE of the same film - same plan, same scenes, same
+        # media - so it travels as two numbers rather than as a second
+        # kind of job. Absent means the whole film.
+        start, end = int(frame_range[0]), int(frame_range[1])
+        if start < 0 or end < start:
+            raise RendererProtocolError("Ungültiger Bildbereich")
+        payload_input["frame_start"] = start
+        payload_input["frame_end"] = end
     if action == ACTION_CREATE_REVIEW_COPY:
         # The only id in this protocol that names something that already
         # exists. Validated with the same pattern as every other job id,

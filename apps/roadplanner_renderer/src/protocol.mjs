@@ -267,6 +267,24 @@ export function parseJob(raw, { now }) {
   if (payload.action === "create_review_copy" && !isJobId(sourceRaw)) {
     throw new ProtocolError(ERROR_INVALID_JOB, "input.source_job_id fehlt oder ist ungültig.");
   }
+  // Which frames of the film to draw. A quality check at full size is a
+  // PIECE of the film - the same plan, the same scenes, the same media,
+  // only fewer frames - so it travels as two numbers rather than as a
+  // second kind of job. Absent means the whole film, which is what every
+  // job before this one meant.
+  const frameStart = Number(payload?.input?.frame_start);
+  const frameEnd = Number(payload?.input?.frame_end);
+  let frameRange = null;
+  if (Number.isInteger(frameStart) && Number.isInteger(frameEnd)) {
+    if (frameStart < 0 || frameEnd < frameStart) {
+      throw new ProtocolError(ERROR_INVALID_JOB, "Ungültiger Bildbereich.");
+    }
+    frameRange = [frameStart, frameEnd];
+  } else if (Number.isFinite(frameStart) !== Number.isFinite(frameEnd)) {
+    // One without the other is a half-written request, and guessing the
+    // missing end would render something nobody asked for.
+    throw new ProtocolError(ERROR_INVALID_JOB, "Bildbereich unvollständig.");
+  }
   return {
     jobId: payload.job_id,
     action: payload.action,
@@ -274,6 +292,7 @@ export function parseJob(raw, { now }) {
     expires,
     renderProfile: profileId,
     sourceJobId: isJobId(sourceRaw) ? sourceRaw : "",
+    frameRange,
   };
 }
 

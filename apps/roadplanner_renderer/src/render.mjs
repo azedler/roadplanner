@@ -80,6 +80,10 @@ export const TRIP_FILM_COMPOSITION_ID = "roadplanner-trip-film";
 // composition is still caught before it renders for an hour.
 export const TRIP_FILM_MIN_SECONDS = 15;
 export const TRIP_FILM_MAX_SECONDS = 900;
+// An excerpt is deliberately short. The film's own floor of fifteen
+// seconds would still allow one, but a check nobody can judge is not
+// worth ninety minutes of 1440p, so the excerpt has its own.
+export const QA_MIN_SECONDS = 20;
 
 // A re-encode of a finished film, not a render. Fifteen minutes is many
 // times what a twelve-minute film takes on the target box, and short
@@ -315,6 +319,7 @@ export async function renderTripFilmVideo({
   onProgress,
   isCancelled,
   profileId = DEFAULT_RENDER_PROFILE,
+  frameRange = null,
 }) {
   const started = Date.now();
   // An unknown id falls back to the default rather than failing: a render
@@ -466,9 +471,18 @@ export async function renderTripFilmVideo({
       },
       limits: FILM_LIMITS,
       quality: profile,
+      frameRange,
       expected: (composition) => {
-        const seconds = composition.durationInFrames / profile.fps;
-        if (seconds < TRIP_FILM_MIN_SECONDS || seconds > TRIP_FILM_MAX_SECONDS) {
+        // What will actually be drawn. An excerpt is not the film, so
+        // checking it against the film's length would refuse every
+        // quality check - and the range is inclusive, which is how
+        // Remotion counts one.
+        const frames = frameRange
+          ? frameRange[1] - frameRange[0] + 1
+          : composition.durationInFrames;
+        const seconds = frames / profile.fps;
+        const floor = frameRange ? QA_MIN_SECONDS : TRIP_FILM_MIN_SECONDS;
+        if (seconds < floor || seconds > TRIP_FILM_MAX_SECONDS) {
           throw new RenderError(
             "OUTPUT_INVALID",
             `Der Film ergibt ${Math.round(seconds)} s - das liegt ausserhalb des erwarteten Rahmens.`,
@@ -725,6 +739,7 @@ async function renderComposition({
   limits = LIMITS,
   quality = null,
   isCancelled = null,
+  frameRange = null,
 }) {
   const timings = {};
   const startedAt = Date.now();
@@ -799,7 +814,7 @@ async function renderComposition({
     // moved at all, which is what a wedged browser looks like.
     const ceilingMs = renderCeilingMs(
       limits,
-      composition.durationInFrames,
+      frameRange ? frameRange[1] - frameRange[0] + 1 : composition.durationInFrames,
       quality ? pixelFactor(quality) : 1,
     );
     const stallMs = Number(limits.stallTimeoutMs) || 0;
@@ -860,6 +875,11 @@ async function renderComposition({
       // keep gets the quality it deserves. Both come from the profile
       // table rather than from a number typed here, so "smaller" is one
       // decision instead of two that can drift apart.
+      // Only the frames asked for. The composition is the whole film -
+      // same scenes, same media, same times - and this draws a window
+      // into it, which is what makes an excerpt evidence about the film
+      // rather than about a second, smaller film.
+      ...(frameRange ? { frameRange } : {}),
       x264Preset: quality?.x264Preset ?? "veryfast",
       crf: Number.isFinite(quality?.crf) ? quality.crf : 20,
       // One browser tab: a Home Assistant box shares its cores with
