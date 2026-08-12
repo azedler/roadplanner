@@ -28,7 +28,14 @@ import { promisify } from "node:util";
 
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
-import { DEFAULT_VOLUME as MUSIC_VOLUME, muxArgs } from "./audiomux.mjs";
+import {
+  DEFAULT_VOLUME as MUSIC_VOLUME,
+  analyseArgs,
+  gainForTarget,
+  loudnessArgs,
+  muxArgs,
+  parseLoudness,
+} from "./audiomux.mjs";
 import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
 import {
   DEFAULT_RENDER_PROFILE,
@@ -97,6 +104,16 @@ export const REVIEW_COPY_TIMEOUT_MS = Number(
 // something that takes five minutes here is wedged, not slow.
 export const MUSIC_MUX_TIMEOUT_MS = Number(
   process.env.ROADPLANNER_MUSIC_MUX_TIMEOUT_MS || 300_000,
+);
+// Decoding a finished film for a meter is seconds of work. The limit
+// exists so a stuck process cannot hold a finished film hostage, not
+// because the measurement is expensive.
+// How far a finished mix may sit from its target and still count as
+// matched. One unit is around the threshold at which a listener starts
+// to hear one fassung as "better" purely for being louder.
+export const LOUDNESS_TOLERANCE_LU = 1.0;
+export const LOUDNESS_TIMEOUT_MS = Number(
+  process.env.ROADPLANNER_LOUDNESS_TIMEOUT_MS || 120_000,
 );
 /**
  * Hard limits.
@@ -735,6 +752,11 @@ export async function muxFilmMusic({
   outputPath,
   sections,
   volume = MUSIC_VOLUME,
+  // Absent means "leave the level where the mix put it", which is what
+  // every soundtrack job before the architecture comparison expects.
+  targetLufs = null,
+  truePeakDbtp = null,
+  variant = "",
   onProgress,
   isCancelled = null,
 }) {
@@ -785,6 +807,29 @@ export async function muxFilmMusic({
     );
   }
 
+  // Where the mix has to end up, and what that costs in gain. Measured
+  // on the summed mix rather than on the layers, because the sum of two
+  // measurements is not the measurement of their sum - and measured
+  // BEFORE the film is written, so the correction is a static number in
+  // the same pass rather than a second encode of a finished file.
+  let gainDb = null;
+  let premix = { integratedLufs: null, loudnessRange: null, truePeakDbfs: null };
+  if (targetLufs !== null && targetLufs !== undefined) {
+    const analysed = Date.now();
+    premix = await measure(analyseArgs({ sections: list, volume }));
+    timings.loudness_analysis = (Date.now() - analysed) / 1000;
+    gainDb = gainForTarget(premix.integratedLufs, targetLufs, {
+      truePeakDbfs: premix.truePeakDbfs,
+      ceilingDbtp: truePeakDbtp ?? undefined,
+    });
+    // A mix nobody could measure is left exactly where it is. Guessing
+    // a correction from a measurement that did not happen is how a
+    // missing answer turns into a wrong one.
+    if (gainDb === null) {
+      timings.loudness_analysis_failed = 1;
+    }
+  }
+
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const partial = `${outputPath.replace(/\.mp4$/i, "")}.part.mp4`;
   const args = [
@@ -797,6 +842,7 @@ export async function muxFilmMusic({
       output: partial,
       filmSeconds: source.duration_seconds,
       volume,
+      gainDb: gainDb ?? undefined,
     }),
   ];
 
@@ -889,6 +935,13 @@ export async function muxFilmMusic({
     );
   }
 
+  // Measured, not assumed. "The three fassungen are comparably loud" is
+  // a hope until somebody has the number, and a listener reliably
+  // prefers whichever one is louder while reporting it as the better
+  // arrangement - which would have made the whole comparison worthless
+  // in a way nobody could see afterwards.
+  const loudness = await measure(loudnessArgs(partial));
+
   await fs.rename(partial, outputPath);
   timings.total = (Date.now() - startedAt) / 1000;
   return {
@@ -896,6 +949,33 @@ export async function muxFilmMusic({
       ...facts,
       music_sections: list.length,
       music_volume: volume,
+      music_variant: variant || "",
+      music_target_lufs: targetLufs,
+      // What the mix measured before it was moved, and by how much it
+      // was moved. Both, because "-20 LUFS" alone hides whether that
+      // took half a decibel or the whole allowance - and an allowance
+      // that ran out is the one case where the fassungen are NOT
+      // comparable, which a report has to be able to say.
+      music_premix_lufs: premix.integratedLufs,
+      music_gain_db: gainDb === null ? null : Math.round(gainDb * 100) / 100,
+      // Whether the target was actually REACHED. The correction is
+      // bounded, so a mix far below the target - a near-silent layer, a
+      // gain of zero, a file that decoded to nothing - lands short, and
+      // then the fassungen are not comparable after all. Saying so is
+      // the whole difference between a listening test and a listening
+      // test whose result nobody can trust; three variants that quietly
+      // differ by two decibels would return a confident wrong answer.
+      music_loudness_matched:
+        targetLufs === null || targetLufs === undefined
+          ? null
+          : loudness.integratedLufs !== null &&
+            Math.abs(loudness.integratedLufs - targetLufs) <= LOUDNESS_TOLERANCE_LU,
+      // Null rather than zero when the meter said nothing. A missing
+      // measurement that reads as "-0.0 LUFS" is an absent answer in the
+      // costume of a result.
+      music_measured_lufs: loudness.integratedLufs,
+      music_measured_lra: loudness.loudnessRange,
+      music_true_peak_dbfs: loudness.truePeakDbfs,
       source_size_bytes: source.size_bytes,
       // The length the soundtrack was actually fitted to, said by the
       // side that measured it. The plan was made against an estimate.
@@ -903,6 +983,44 @@ export async function muxFilmMusic({
     },
     timings,
   };
+}
+
+/**
+ * Whatever an ffmpeg R128 call measured: a finished file, or a mix that
+ * does not exist yet.
+ *
+ * Never fatal. A film that is correct in every other respect must not
+ * be thrown away because a meter did not run, so a failure here comes
+ * back as three nulls - and null is what gets reported, rather than a
+ * number that was never measured.
+ */
+async function measure(args) {
+  const empty = { integratedLufs: null, loudnessRange: null, truePeakDbfs: null };
+  try {
+    return await new Promise((resolve) => {
+      const child = spawn(FFMPEG, args, { stdio: ["ignore", "ignore", "pipe"] });
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve(empty);
+      }, LOUDNESS_TIMEOUT_MS);
+      // The summary is at the END of the output, so the tail is what
+      // has to survive - the opposite of every other stderr buffer here.
+      child.stderr.on("data", (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-4000);
+      });
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve(empty);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve(code === 0 ? parseLoudness(stderr) : empty);
+      });
+    });
+  } catch {
+    return empty;
+  }
 }
 
 /** Read a file, refusing an oversized one and never following a symlink. */
