@@ -213,7 +213,7 @@ def build_plan(
     title = " ".join(str(trip.get("title") or "").split())[:120]
     motifs = _motifs(narrative, chapters)
     for section in sections:
-        section["prompt"] = _prompt(section, motifs=motifs, seconds=section["seconds"])
+        section["prompt"] = section_prompt(section, motifs=motifs, seconds=section["seconds"])
     return {
         "music_plan_version": MUSIC_PLAN_VERSION,
         "trip_title": title,
@@ -247,7 +247,7 @@ def _motifs(
     return words[:6]
 
 
-def _prompt(section: dict[str, Any], *, motifs: list[str], seconds: float) -> str:
+def section_prompt(section: dict[str, Any], *, motifs: list[str], seconds: float) -> str:
     """What one section is asked for.
 
     The length is stated in words because that is how the long-form
@@ -344,6 +344,7 @@ __all__ = [
     "plan_cache_key",
     "MusicPlanError",
     "MAX_SECTIONS",
+    "section_prompt",
     "plan_sections",
     "section_cache_key",
 ]

@@ -16,6 +16,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .assistant import RoadplannerAssistant
 from .google_service_account import ServiceAccountError, ServiceAccountTokens
+from .music_plan_director import RESPONSE_SCHEMA as MUSIC_PLAN_SCHEMA
 from .const import (
     CONFIG_ENTRY_VERSION,
     CONF_ARCHIVE_PATH,
@@ -825,6 +826,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         return read
 
+    async def _plan_music(brief: str) -> Any:
+        """Ask Gemini where the music should turn.
+
+        Structured facts in, a structured proposal out - no photograph
+        and no video, which is what makes this cheap and private. The
+        answer is validated by the caller and thrown away if it breaks a
+        rule, so this may return anything at all without consequence.
+        """
+        return await manager.provider.async_generate_json(
+            system_instruction=(
+                "Du planst Musikabschnitte für einen privaten Reisefilm. "
+                "Du beschreibst nur, was in den Daten steht. Du erfindest "
+                "keine Reiseereignisse und keine Gefühle als Tatsachen."
+            ),
+            messages=[{"role": "user", "content": brief}],
+            schema=MUSIC_PLAN_SCHEMA,
+            max_output_tokens=2048,
+            temperature=0.4,
+        )
+
     film_music = TripFilmMusicService(
         hass,
         story_context,
@@ -836,6 +857,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # holder is built once so its hour-long token is reused across
         # the handful of calls one soundtrack costs.
         vertex_provider=_vertex_provider(options),
+        # Optional on purpose: without a provider the arithmetic plan
+        # stands and the film still gets music. A planner that could
+        # stop a render is not worth having.
+        plan_director=_plan_music if getattr(manager, "provider", None) else None,
     )
     trip_film = TripFilmExporter(
         hass,

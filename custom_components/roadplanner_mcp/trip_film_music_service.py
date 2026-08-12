@@ -25,8 +25,19 @@ from pathlib import Path
 from typing import Any
 
 from .roadplanner import ValidationError
+from .music_cue_sheet import CueSheetError, build_cue_sheet
+from .music_plan_director import (
+    MAX_SECTIONS as DIRECTOR_MAX_SECTIONS,
+    PlanDirectorError,
+    build_brief,
+    validate_proposal,
+)
 from .trip_film_music_plan import (
+    CROSSFADE_SECONDS,
+    FADE_IN_SECONDS,
+    FADE_OUT_SECONDS,
     build_plan,
+    section_prompt,
     cost_notice as plan_cost_notice,
     section_cache_key,
 )
@@ -58,6 +69,13 @@ _LOGGER = logging.getLogger(__name__)
 # the film, and coarse enough that ordinary drift changes nothing.
 LENGTH_QUANTUM_SECONDS = 30.0
 
+# How loud the music sits under the pictures. Named here rather than in
+# the renderer so the timeline carries it: after this, the mux places
+# what it is told and decides nothing. Conservative on purpose - there
+# is no speech to duck under yet, and a soundtrack that has to be turned
+# down is worse than one that could have been louder.
+DEFAULT_MUSIC_VOLUME = 0.42
+
 
 def quantized_seconds(film_seconds: float) -> float:
     """The length the soundtrack is planned for."""
@@ -79,6 +97,7 @@ class TripFilmMusicService:
         api_key_provider: Any = None,
         music_root: str | Path = DEFAULT_MUSIC_ROOT,
         vertex_provider: Any = None,
+        plan_director: Any = None,
     ) -> None:
         self._hass = hass
         self._story_context = story_context
@@ -90,6 +109,10 @@ class TripFilmMusicService:
         # Both are callables rather than values, so a credential added
         # after startup takes effect without rebuilding the service.
         self._vertex_provider = vertex_provider
+        # Optional by design: without it the arithmetic plan stands, and
+        # a film still gets music. A planner that could stop a render is
+        # not worth having.
+        self._plan_director = plan_director
         self._root = Path(music_root)
 
     def _route(self) -> dict[str, Any]:
@@ -210,18 +233,119 @@ class TripFilmMusicService:
             # project", so it is carried through rather than flattened.
             raise ValidationError(str(err)) from err
 
-    async def _async_plan(self, trip_id: str, film_seconds: float) -> dict[str, Any]:
-        """The soundtrack this film would get, without ordering any of it."""
+    async def _async_plan(
+        self,
+        trip_id: str,
+        film_seconds: float,
+        *,
+        scene_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """The soundtrack this film would get, without ordering any of it.
+
+        With a scene plan it can do better than arithmetic: a cue sheet
+        says where the journey turns, and a model may put the boundaries
+        there. Without one - or when the model's answer breaks a rule -
+        the deterministic plan stands. Both produce the same SHAPE, so
+        nothing downstream has to know which one it got.
+        """
         trip_id = str(trip_id or "").strip()
         if not trip_id:
             raise ValidationError("Für die Musik fehlt die Reise-ID")
         manifest = await self._story_context.async_manifest(trip_id)
-        return build_plan(
+        chapters = manifest.get("chapters") or []
+        plan = build_plan(
             trip=manifest.get("trip") or {},
             narrative=manifest.get("narrative") or {},
             film_seconds=quantized_seconds(film_seconds),
             track_seconds=LYRIA_TRACK_SECONDS,
+            chapters=chapters,
         )
+        # Set FIRST, then overwritten on success. It was set on two of
+        # the three exits and missing on the third, which is how a field
+        # becomes a KeyError for one caller and an empty string that
+        # reads as a third state for another.
+        plan["planned_by"] = "arithmetik"
+        if not isinstance(scene_plan, dict) or not scene_plan.get("scenes"):
+            return plan
+        directed = await self._async_directed_sections(
+            scene_plan, plan, manifest=manifest, chapters=chapters
+        )
+        if directed is None:
+            return plan
+        plan["sections"] = directed
+        plan["generation_count"] = len(directed)
+        plan["planned_by"] = "gemini"
+        return plan
+
+    async def _async_directed_sections(
+        self,
+        scene_plan: dict[str, Any],
+        plan: dict[str, Any],
+        *,
+        manifest: dict[str, Any],
+        chapters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]] | None:
+        """Ask a model where the music should turn. Never trust the answer.
+
+        Returns sections in the same shape the arithmetic planner
+        produces, or None - and None means "use that one", not "fail".
+        Music is the last thing that should stop a film from rendering.
+        """
+        director = self._plan_director
+        if director is None:
+            return None
+        try:
+            sheet = build_cue_sheet(scene_plan, chapters=chapters)
+        except CueSheetError as err:
+            _LOGGER.debug("Kein Cue Sheet: %s", err)
+            return None
+        brief = build_brief(
+            sheet,
+            trip_title=str(plan.get("trip_title") or ""),
+            narrative=manifest.get("narrative") or {},
+            motifs=list(plan.get("motifs") or []),
+            max_sections=DIRECTOR_MAX_SECTIONS,
+            style=str(plan.get("style") or ""),
+        )
+        try:
+            proposal = await director(brief)
+        except Exception as err:  # noqa: BLE001 - a planner is never fatal
+            _LOGGER.info("Musikplanung ohne Modell: %s", type(err).__name__)
+            return None
+        try:
+            chosen = validate_proposal(
+                proposal, sheet, track_seconds=LYRIA_TRACK_SECONDS
+            )
+        except PlanDirectorError as err:
+            # Recorded rather than repaired. A proposal nudged into shape
+            # is a plan nobody chose, and the reason belongs in the log
+            # where somebody can see WHY the film sounds arithmetic.
+            _LOGGER.info("Musikvorschlag abgelehnt: %s", err)
+            return None
+
+        sections: list[dict[str, Any]] = []
+        for index, entry in enumerate(chosen):
+            mood = str(entry.get("mood") or "")
+            sections.append(
+                {
+                    "section": f"cue-{entry['starts_at_cue']}",
+                    "label": entry.get("label") or f"Abschnitt {index + 1}",
+                    "start_seconds": entry["start_seconds"],
+                    "end_seconds": entry["end_seconds"],
+                    "seconds": entry["seconds"],
+                    "fade_in_seconds": FADE_IN_SECONDS if index == 0 else CROSSFADE_SECONDS,
+                    "fade_out_seconds": (
+                        FADE_OUT_SECONDS if index == len(chosen) - 1 else CROSSFADE_SECONDS
+                    ),
+                    "mood": mood,
+                    "prompt": section_prompt(
+                        {"mood": mood},
+                        motifs=list(plan.get("motifs") or []),
+                        seconds=entry["seconds"],
+                    ),
+                }
+            )
+        return sections
 
     async def async_offer(
         self, trip_id: str, *, film_seconds: float = 0.0
@@ -274,6 +398,7 @@ class TripFilmMusicService:
                     "label": section.get("label"),
                     "seconds": section.get("seconds"),
                     "start_seconds": section.get("start_seconds"),
+                    "end_seconds": section.get("end_seconds"),
                     "fade_in_seconds": section.get("fade_in_seconds"),
                     "fade_out_seconds": section.get("fade_out_seconds"),
                     "key": key,
@@ -283,7 +408,11 @@ class TripFilmMusicService:
         return state
 
     async def async_timeline(
-        self, trip_id: str, *, film_seconds: float = 0.0
+        self,
+        trip_id: str,
+        *,
+        film_seconds: float = 0.0,
+        scene_plan: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """What is already generated for this film, and when it plays.
 
@@ -293,18 +422,39 @@ class TripFilmMusicService:
         for is simply absent from the timeline, and the film renders
         with the sections that are there.
         """
-        plan = await self._async_plan(trip_id, film_seconds)
-        return [
-            {
-                "name": entry["cached_name"],
-                "start_seconds": entry["start_seconds"],
-                "seconds": entry["seconds"],
-                "fade_in_seconds": entry["fade_in_seconds"],
-                "fade_out_seconds": entry["fade_out_seconds"],
-            }
-            for entry in await self._async_section_state(plan)
-            if entry["cached_name"]
-        ]
+        plan = await self._async_plan(trip_id, film_seconds, scene_plan=scene_plan)
+        state = await self._async_section_state(plan)
+        entries = [entry for entry in state if entry["cached_name"]]
+        timeline: list[dict[str, Any]] = []
+        for position, entry in enumerate(entries):
+            # Named per entry rather than derived at mux time: the mux
+            # must be able to place every section without deciding
+            # anything, so a crossfade is a number here and not a rule
+            # somewhere else. Two neighbours that are actually adjacent
+            # cross; a gap left by an ungenerated section does not.
+            follows = position > 0 and (
+                abs(entry["start_seconds"] - entries[position - 1].get("end_seconds", -1))
+                < CROSSFADE_SECONDS + 0.5
+            )
+            timeline.append(
+                {
+                    "name": entry["cached_name"],
+                    "music_asset_id": entry["key"],
+                    "start_seconds": entry["start_seconds"],
+                    "seconds": entry["seconds"],
+                    # Where in the generated track this section starts.
+                    # Always zero today - one generation per section - and
+                    # named anyway, so a later change that reuses one
+                    # track twice has somewhere to say so instead of
+                    # inventing a field.
+                    "asset_offset_seconds": 0.0,
+                    "volume": DEFAULT_MUSIC_VOLUME,
+                    "fade_in_seconds": entry["fade_in_seconds"],
+                    "fade_out_seconds": entry["fade_out_seconds"],
+                    "crossfade_seconds": CROSSFADE_SECONDS if follows else 0.0,
+                }
+            )
+        return timeline
 
     async def async_generate(
         self, trip_id: str, *, film_seconds: float = 0.0
