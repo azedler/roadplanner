@@ -326,6 +326,71 @@ def verify_the_size_choice_does_not_hide_behind_another_button() -> None:
         )
 
 
+def verify_both_sides_allow_a_film_the_same_size() -> None:
+    """The ceiling a finished film may not exceed, in two deployables.
+
+    It was 512 MB on both sides, measured when 720p was the only size a
+    film came in - and there a twelve-minute film lands at 221 MB, so the
+    number never came up. Render profiles turned it into a trap: the same
+    film at 1440p is projected at 670-880 MB. The renderer checks the
+    size AFTER the file is finished, so the render would run for about an
+    hour and a half and then be refused for being exactly as large as it
+    was asked to be.
+
+    Compared across both files for the usual reason: if one side is
+    raised alone, the renderer writes a film the integration then refuses
+    to read, or the other way round.
+    """
+    limits = (
+        ROOT / "apps" / "roadplanner_renderer" / "src" / "film_limits.mjs"
+    ).read_text(encoding="utf-8")
+    match = re.search(
+        r"ROADPLANNER_FILM_MAX_BYTES \|\| (\d+) \* 1024 \* 1024", limits
+    )
+    assert match, "der Renderer hat keine Ausgabegrenze mehr"
+    renderer_mb = int(match.group(1))
+
+    protocol = (
+        ROOT / "custom_components" / "roadplanner_mcp" / "renderer_app_protocol.py"
+    ).read_text(encoding="utf-8")
+    other = re.search(r"MAX_FILM_ARTIFACT_BYTES = (\d+) \* 1024 \* 1024", protocol)
+    assert other, "die Integration hat keine Filmgrenze mehr"
+    integration_mb = int(other.group(1))
+
+    assert renderer_mb == integration_mb, (
+        f"Renderer erlaubt {renderer_mb} MB, Integration {integration_mb} MB - "
+        "eine Seite wurde allein angehoben"
+    )
+    # Big enough for the size a film is actually asked for. 1440p is the
+    # recommended profile, so it must fit with room to spare rather than
+    # by luck.
+    assert renderer_mb >= 1024, (
+        f"{renderer_mb} MB reichen für 1440p nicht - ein voller Film dort "
+        "wird auf 670-880 MB geschätzt"
+    )
+
+
+def verify_a_film_render_checks_its_own_free_space() -> None:
+    """It checked the five-second test's floor, whatever it was given.
+
+    `renderComposition` read the module's `LIMITS.minFreeBytes` rather
+    than the limits handed to it, and `FILM_LIMITS` carried no such
+    number at all. So a film - which may write the better part of a
+    gigabyte - was cleared to start by a 512 MB check meant for a
+    260 kB test video.
+    """
+    limits = (
+        ROOT / "apps" / "roadplanner_renderer" / "src" / "film_limits.mjs"
+    ).read_text(encoding="utf-8")
+    assert "minFreeBytes" in limits, "die Filmgrenzen fordern keinen Speicher mehr"
+    render = (
+        ROOT / "apps" / "roadplanner_renderer" / "src" / "render.mjs"
+    ).read_text(encoding="utf-8")
+    assert "limits?.minFreeBytes" in render, (
+        "der Render prüft wieder die Standardgrenze statt der übergebenen"
+    )
+
+
 def verify_a_small_profile_never_gets_a_smaller_deadline() -> None:
     """Render time is not proportional to pixels, so the budget must not be.
 

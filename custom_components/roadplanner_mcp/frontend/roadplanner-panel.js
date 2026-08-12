@@ -1864,6 +1864,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmRender();
     } else if (action === "story-film-review-copy" && this._canEdit()) {
       void this._storyFilmReviewCopy();
+    } else if (action === "renderer-app-cancel" && this._canEdit()) {
+      void this._rendererAppCancel();
     } else if (action === "story-chapter-image" && this._canEdit()) {
       void this._storySetChapterImage(cleanText(target.dataset.mediaId));
     } else if (action === "renderer-app-load-days") {

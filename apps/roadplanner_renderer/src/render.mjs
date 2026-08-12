@@ -313,6 +313,7 @@ export async function renderTripFilmVideo({
   outputPath,
   inputsDir,
   onProgress,
+  isCancelled,
   profileId = DEFAULT_RENDER_PROFILE,
 }) {
   const started = Date.now();
@@ -483,6 +484,7 @@ export async function renderTripFilmVideo({
         };
       },
       onProgress,
+      isCancelled,
     });
     result.timings.prepare = prepareSeconds;
     result.timings.total += prepareSeconds;
@@ -536,6 +538,7 @@ export async function createReviewCopy({
   // reason of its own passes a number here.
   targetBytes = null,
   onProgress,
+  isCancelled = null,
 }) {
   const startedAt = Date.now();
   const timings = {};
@@ -597,6 +600,11 @@ export async function createReviewCopy({
           ),
         );
       }, REVIEW_COPY_TIMEOUT_MS);
+      // Asked on the same beat as progress. ffmpeg gets SIGKILL rather
+      // than a polite signal because there is nothing to save: the
+      // partial file is removed either way, and a half-written MP4 is
+      // not worth a graceful shutdown.
+      let cancelled = false;
       child.stdout.on("data", (chunk) => {
         // ffmpeg's progress stream is key=value lines. Only one of them
         // is interesting, and it is in microseconds.
@@ -609,6 +617,15 @@ export async function createReviewCopy({
           const done = Number(value) / 1_000_000 / source.duration_seconds;
           if (Number.isFinite(done)) onProgress?.(Math.max(0, Math.min(1, done)));
         }
+        if (isCancelled && !cancelled) {
+          void Promise.resolve(isCancelled()).then((stop) => {
+            if (!stop || cancelled) return;
+            cancelled = true;
+            clearTimeout(timer);
+            child.kill("SIGKILL");
+            reject(new RenderError("CANCELLED", "Die Review-Kopie wurde abgebrochen."));
+          }).catch(() => {});
+        }
       });
       child.stderr.on("data", (chunk) => {
         stderr = `${stderr}${chunk}`.slice(-600);
@@ -619,6 +636,7 @@ export async function createReviewCopy({
       });
       child.on("close", (code) => {
         clearTimeout(timer);
+        if (cancelled) return;
         if (code === 0) resolve();
         else reject(new RenderError("RENDER_FAILED", "Die Review-Kopie ist fehlgeschlagen.", stderr));
       });
@@ -706,6 +724,7 @@ async function renderComposition({
   serveUrl = BUNDLE_DIR,
   limits = LIMITS,
   quality = null,
+  isCancelled = null,
 }) {
   const timings = {};
   const startedAt = Date.now();
@@ -718,10 +737,21 @@ async function renderComposition({
   try {
     const fsStat = statfsSync(path.dirname(outputPath));
     const free = fsStat.bavail * fsStat.bsize;
-    if (free < LIMITS.minFreeBytes) {
+    // The limits this render was GIVEN, not the module's defaults. It
+    // read `LIMITS` here regardless of what was passed, so a film - which
+    // has its own, far larger budget - was checked against the five-second
+    // test's floor. A 1440p film would have passed a 512 MB check and
+    // then written most of a gigabyte.
+    const baseFree = Number(limits?.minFreeBytes) || LIMITS.minFreeBytes;
+    // Scaled by the profile, because file size genuinely does follow
+    // pixel count - which is exactly what render TIME turned out not to
+    // do. Same factor, opposite lesson.
+    const needFree = Math.round(baseFree * (quality ? pixelFactor(quality) : 1));
+    if (free < needFree) {
       throw new RenderError(
         "INSUFFICIENT_DISK_SPACE",
-        `Zu wenig freier Speicher: ${Math.round(free / 1024 / 1024)} MB.`,
+        `Zu wenig freier Speicher: ${Math.round(free / 1024 / 1024)} MB, ` +
+          `gebraucht werden ${Math.round(needFree / 1024 / 1024)} MB.`,
       );
     }
   } catch (err) {
@@ -779,12 +809,16 @@ async function renderComposition({
     // Re-armed on every progress report; a no-op until the watchdog exists,
     // so a run without one costs nothing.
     let rearmWatchdog = () => {};
+    // Assigned by the promise below, so the progress handler can take
+    // the same exit the timeout does.
+    let failDeadline = () => {};
     const deadline = new Promise((_resolve, reject) => {
       const fail = (error) => {
         if (settled) return;
         settled = true;
         reject(error);
       };
+      failDeadline = fail;
       timer = setTimeout(
         () =>
           fail(
@@ -839,6 +873,17 @@ async function renderComposition({
       onProgress: ({ progress }) => {
         rearmWatchdog();
         onProgress?.(progress);
+        // Asked between frames rather than watched, and it reuses the
+        // race that already exists for the timeout: rejecting the
+        // deadline promise stops the render, closes the browser in the
+        // `finally` below - which takes its child processes with it -
+        // and removes the partial file on the way out. One exit path,
+        // three reasons to take it.
+        if (isCancelled) {
+          void Promise.resolve(isCancelled()).then((stop) => {
+            if (stop) failDeadline(new RenderError("CANCELLED", "Der Render wurde abgebrochen."));
+          }).catch(() => {});
+        }
       },
     });
     try {

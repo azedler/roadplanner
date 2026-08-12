@@ -24,9 +24,23 @@ export const JOB_STATES = [
   "running",
   "completed",
   "failed",
+  // Asked for. Deliberately NOT "failed": somebody pressing stop is not
+  // the same event as a render breaking, and reporting it as a failure
+  // sends them looking for a cause that does not exist.
+  "cancelled",
   "expired",
 ];
-export const TERMINAL_JOB_STATES = new Set(["completed", "failed", "expired"]);
+export const TERMINAL_JOB_STATES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+// Where a cancel is asked for. A file named after the job and nothing
+// else in it - the request carries no data, so there is nothing in it to
+// validate beyond the name, and the name is a job id.
+export const CANCEL_DIR = "cancel";
 
 export const ACTIONS = [
   "ping",

@@ -37,6 +37,7 @@ import {
   ARTIFACT_TRIP_DAY_VIDEO,
   ARTIFACT_REVIEW_COPY,
   ARTIFACT_TRIP_FILM_VIDEO,
+  CANCEL_DIR,
   ARTIFACT_VIDEO,
   ERROR_INTERNAL,
   ProtocolError,
@@ -103,6 +104,10 @@ const DIRS = {
   // job file exists, and removed by this app as soon as the job ends -
   // real travel data must not outlive the job it was prepared for.
   inputs: path.join(EXCHANGE_DIR, "inputs"),
+  // Where a stop is asked for. One file per job, named after it and
+  // empty: the request carries no data, so there is nothing in it that
+  // could be wrong except the name - and the name is a job id.
+  cancel: path.join(EXCHANGE_DIR, CANCEL_DIR),
 };
 const HEARTBEAT_FILE = path.join(EXCHANGE_DIR, "renderer-status.json");
 
@@ -346,7 +351,7 @@ async function discardIncompleteResult(jobId) {
  * run for ten minutes and read seventy photos, so the job deadline it runs
  * under is the film's, not the clip's.
  */
-async function produceTripFilm(jobId, profileId, onProgress) {
+async function produceTripFilm(jobId, profileId, onProgress, isCancelled) {
   const { renderTripFilmVideo } = await import("./render.mjs");
   const folder = path.join(DIRS.results, jobId);
   await fs.mkdir(folder, { recursive: true });
@@ -357,6 +362,7 @@ async function produceTripFilm(jobId, profileId, onProgress) {
     inputsDir: path.join(DIRS.inputs, jobId),
     profileId,
     onProgress,
+    isCancelled,
   });
 
   const bytes = await fs.readFile(target);
@@ -392,7 +398,7 @@ async function produceTripFilm(jobId, profileId, onProgress) {
  * copy is an artefact somebody asked for, not a second file smuggled into
  * a finished job's result.
  */
-async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress) {
+async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress, isCancelled) {
   if (!isJobId(sourceJobId)) {
     throw new ProtocolError(ERROR_INTERNAL, "Ungültige Quell-Job-ID.");
   }
@@ -406,6 +412,7 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress) {
     outputPath: target,
     profileId,
     onProgress,
+    isCancelled,
   });
 
   const bytes = await fs.readFile(target);
@@ -426,6 +433,47 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress) {
     )}\n`,
   );
   return { facts, timings };
+}
+
+/**
+ * Has somebody asked for this job to stop?
+ *
+ * Read from disk on every call rather than watched, for the same reason
+ * everything else here is: the request comes from another container, and
+ * a one-line existence check between progress reports costs nothing
+ * measurable against a frame that takes 140 ms to draw.
+ */
+async function cancelRequested(jobId) {
+  try {
+    await fs.access(path.join(DIRS.cancel, `${jobId}.json`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The request is answered; the marker has done its work. */
+async function clearCancel(jobId) {
+  await fs.rm(path.join(DIRS.cancel, `${jobId}.json`), { force: true }).catch(() => {});
+}
+
+/**
+ * Markers nobody came back for.
+ *
+ * A cancel for a job that had already finished, or one written while the
+ * app was down, would otherwise sit in the folder and stop a LATER job
+ * that happened to be handed the same id - which cannot occur with uuid4,
+ * but a directory that grows without bound is its own problem.
+ */
+async function cleanupOldCancels() {
+  const cutoff = Date.now() - RESULT_RETENTION_MS;
+  for (const name of await fs.readdir(DIRS.cancel).catch(() => [])) {
+    const file = path.join(DIRS.cancel, name);
+    const stat = await fs.stat(file).catch(() => null);
+    if (stat && stat.mtimeMs < cutoff) {
+      await fs.rm(file, { force: true }).catch(() => {});
+    }
+  }
 }
 
 async function handleJob(name) {
@@ -522,6 +570,7 @@ async function handleJob(name) {
             void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
           }
         },
+        () => cancelRequested(jobId),
       );
       await writeStatus(jobId, "completed", { progress: 1 });
       log("info", "Review-Kopie abgeschlossen", {
@@ -534,15 +583,20 @@ async function handleJob(name) {
       });
     } else if (job.action === "render_trip_film") {
       let lastReported = 0;
-      const { facts, timings } = await produceTripFilm(jobId, job.renderProfile, (progress) => {
+      const { facts, timings } = await produceTripFilm(
+        jobId,
+        job.renderProfile,
+        (progress) => {
         // Finer steps than the clip: ten minutes at 5 % granularity would
         // look frozen for half a minute at a time.
-        const rounded = Math.floor(progress * 100) / 100;
-        if (rounded > lastReported) {
-          lastReported = rounded;
-          void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
-        }
-      });
+          const rounded = Math.floor(progress * 100) / 100;
+          if (rounded > lastReported) {
+            lastReported = rounded;
+            void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+          }
+        },
+        () => cancelRequested(jobId),
+      );
       await writeStatus(jobId, "completed", { progress: 1 });
       log("info", "Reisefilm abgeschlossen", {
         job_id: jobId,
@@ -562,7 +616,13 @@ async function handleJob(name) {
     // recognised by the shape it promises rather than by identity.
     const classified =
       err instanceof ProtocolError || (typeof err?.code === "string" && err.code !== "");
-    const state = classified && err.code === "EXPIRED" ? "expired" : "failed";
+    // Three terminal outcomes, not two. A render somebody stopped is not
+    // a render that broke: calling it "failed" sends them looking for a
+    // cause that does not exist, and makes the reasonable next move -
+    // press it again - look like the fix.
+    let state = "failed";
+    if (classified && err.code === "EXPIRED") state = "expired";
+    else if (classified && err.code === "CANCELLED") state = "cancelled";
     await writeStatus(jobId, state, {
       error: {
         // A classified failure keeps its own code - "BROWSER_MISSING" and
@@ -580,7 +640,8 @@ async function handleJob(name) {
     // and it is the only thing that makes a failure diagnosable. It goes
     // to the app log, which the operator reads, and never into the status
     // file, which crosses the exchange directory into the panel.
-    log("warn", "Auftrag fehlgeschlagen", {
+    log(state === "cancelled" ? "info" : "warn",
+      state === "cancelled" ? "Auftrag abgebrochen" : "Auftrag fehlgeschlagen", {
       job_id: jobId,
       state,
       detail: String(err),
@@ -599,6 +660,10 @@ async function handleJob(name) {
     await fs.rm(claimed, { force: true }).catch(() => {});
     await discardInputs(jobId);
     await discardIncompleteResult(jobId);
+    // The request has been answered either way. Leaving the marker would
+    // make the NEXT thing this worker is told about that job read as
+    // "stop", and a cancel that outlives its job is a trap.
+    await clearCancel(jobId);
   }
 }
 
@@ -692,6 +757,8 @@ async function cleanupOldResults() {
     await fs.rm(folder, { recursive: true, force: true }).catch(() => {});
     log("info", "verwaistes Renderpaket aufgeräumt", { job_id: name });
   }
+
+  await cleanupOldCancels();
 
   // A crashed render can leave a .part behind; nothing ever reads those.
   for (const dir of [DIRS.results, DIRS.jobs, DIRS.status]) {

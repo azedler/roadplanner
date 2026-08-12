@@ -89,15 +89,22 @@ JOB_RUNNING = "running"
 JOB_COMPLETED = "completed"
 JOB_FAILED = "failed"
 JOB_EXPIRED = "expired"
+# Asked for, and deliberately NOT a failure: somebody pressing stop is a
+# different event from a render breaking, and reporting it as a failure
+# sends them looking for a cause that does not exist.
+JOB_CANCELLED = "cancelled"
 JOB_STATES = (
     JOB_QUEUED,
     JOB_CLAIMED,
     JOB_RUNNING,
     JOB_COMPLETED,
     JOB_FAILED,
+    JOB_CANCELLED,
     JOB_EXPIRED,
 )
-TERMINAL_JOB_STATES = frozenset({JOB_COMPLETED, JOB_FAILED, JOB_EXPIRED})
+TERMINAL_JOB_STATES = frozenset(
+    {JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED, JOB_EXPIRED}
+)
 
 # --- what may be asked for ----------------------------------------------
 
@@ -147,6 +154,10 @@ ALLOWED_ARTIFACTS = {
 # Where a job's input package lives. Named after the job, never after
 # anything a user typed.
 INPUTS_DIR = "inputs"
+# Where a stop is asked for. One file per job, named after it: the request
+# carries no data at all, so the only thing in it that could be wrong is
+# the name - and the name is a job id, checked like every other.
+CANCEL_DIR = "cancel"
 # Text artefacts are read into the panel; a video never is. Keeping the
 # limits apart means the small ones stay small - a 64 MiB text file would
 # be nonsense, and a 256 KiB cap would reject every real video.
@@ -167,10 +178,17 @@ JOB_TTL_SECONDS = 300
 MAX_JSON_BYTES = 64 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024
 MAX_VIDEO_ARTIFACT_BYTES = 64 * 1024 * 1024
-# Three minutes of 720p is several times a fifteen-second clip. Kept as its
-# own number so raising it for the film cannot silently raise it for the
-# day video, which has no business being this large.
-MAX_FILM_ARTIFACT_BYTES = 512 * 1024 * 1024
+# A whole film is several times a fifteen-second clip. Kept as its own
+# number so raising it for the film cannot silently raise it for the day
+# video, which has no business being this large.
+#
+# The renderer holds the same ceiling in `film_limits.mjs` and a test
+# compares both files. It was 512 MB on both sides, measured against
+# 720p, where a twelve-minute film lands at 221 MB. Render profiles made
+# that number a trap: the same film at 1440p is projected at 670-880 MB,
+# so it would render for an hour and a half and then be refused for
+# being exactly the size it was asked to be.
+MAX_FILM_ARTIFACT_BYTES = 2048 * 1024 * 1024
 # A whole trip takes minutes to render on a home box, not seconds. This is
 # the job TTL the film is submitted with; the app has its own matching
 # ceilings.

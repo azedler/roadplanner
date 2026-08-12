@@ -656,6 +656,37 @@ export const storyEditorMixin = {
    * a twelve-minute film is over two hundred megabytes and the question
    * asked of it afterwards - does this cut work? - does not need them.
    */
+  /**
+   * Stop a render that is running.
+   *
+   * The marker is written and the card keeps polling. The renderer
+   * notices between frames, ends its work, cleans up and writes the
+   * outcome - so the answer arrives the same way every other answer
+   * about that job does, rather than being guessed here.
+   */
+  async _rendererAppCancel() {
+    const jobId = this._rendererAppJob?.job_id;
+    if (!jobId || this._rendererAppJob?.terminal || this._rendererAppCancelling) return;
+    this._rendererAppCancelling = true;
+    this._render({ preserveScroll: true });
+    try {
+      await this._runAction(
+        "renderer_app_cancel",
+        { job_id: jobId },
+        "Abbruch angefordert",
+        {
+          refresh: false,
+          blockUi: false,
+          errorMode: "dialog",
+          errorTitle: "Der Render konnte nicht abgebrochen werden",
+        },
+      );
+    } finally {
+      this._rendererAppCancelling = false;
+      this._render({ preserveScroll: true });
+    }
+  },
+
   async _storyFilmReviewCopy() {
     const sourceId = this._storyFilmSourceJobId || "";
     if (!sourceId) return;
@@ -838,9 +869,14 @@ export const storyEditorMixin = {
     const isCopy = kind === "review_copy";
     if (!job.terminal) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
-      return isCopy
+      // A render can run for an hour. A stop that only exists as "restart
+      // the add-on" is not a stop somebody can find.
+      const stop = this._canEdit()
+        ? `<div class="button-row"><button class="text-button" type="button" data-action="renderer-app-cancel"${this._rendererAppCancelling ? " disabled" : ""}><ha-icon icon="mdi:stop-circle-outline"></ha-icon> ${this._rendererAppCancelling ? "Wird abgebrochen …" : "Abbrechen"}</button></div>`
+        : "";
+      return stop + (isCopy
         ? `<small class="story-film-job">Eine kleine Kopie des Films wird erstellt (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.</small>`
-        : `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`;
+        : `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`);
     }
     if (job.state === "completed") {
       // "It is in the other card" is a signpost, not an answer - and on a
@@ -865,6 +901,11 @@ export const storyEditorMixin = {
     // The renderer says WHY it refused, and saying only "failed" throws
     // that away. A package the installed add-on is too old to read looks
     // exactly like a crash until the reason is printed.
+    if (job.state === "cancelled") {
+      // Said as what it was. Reporting a stop somebody asked for as a
+      // failure sends them looking for a cause that does not exist.
+      return `<small class="story-film-job">${isCopy ? "Die Review-Kopie wurde abgebrochen" : "Der Render wurde abgebrochen"}. Es ist nichts kaputt – ein neuer Lauf kann jederzeit gestartet werden.</small>`;
+    }
     const why = cleanText(job.reason || job.detail || "");
     return `<small class="story-film-job">${isCopy ? "Die Review-Kopie ist nicht fertig geworden" : "Der zuletzt gestartete Reisefilm ist nicht fertig geworden"} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
   },

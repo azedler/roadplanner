@@ -209,6 +209,10 @@ def verify_only_two_fields_are_editable() -> None:
         # Fetching the finished film where it was started. "It is in the
         # other card" is a signpost, not an answer.
         "renderer_app_download",
+        # Stopping a render that is running. It names a JOB and writes a
+        # marker into the exchange folder; it carries no trip, no day and
+        # no text, so it cannot reach the roadbook at all.
+        "renderer_app_cancel",
         # What could play under the film. It returns NAMES of files in one
         # fixed folder, never paths - see trip_film_music.
         "story_film_music",

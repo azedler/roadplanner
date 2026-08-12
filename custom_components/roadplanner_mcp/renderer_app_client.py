@@ -56,6 +56,7 @@ from .renderer_app_protocol import (
     ARTIFACT_TEXT,
     ARTIFACT_TRIP_DAY_VIDEO,
     ARTIFACT_VIDEO,
+    CANCEL_DIR,
     INPUTS_DIR,
     MAX_VIDEO_ARTIFACT_BYTES,
     TEXT_ARTIFACT_KINDS,
@@ -93,7 +94,7 @@ JOBS_DIR = "jobs"
 PROCESSING_DIR = "processing"
 STATUS_DIR = "status"
 RESULTS_DIR = "results"
-_SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR, INPUTS_DIR)
+_SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR, INPUTS_DIR, CANCEL_DIR)
 
 # How many status files a single look is willing to open. The folder is
 # written by another container; the panel's cost must not depend on how
@@ -335,6 +336,33 @@ class RendererAppClient:
         total += len(manifest)
         self._write_job(job)
         return total
+
+    async def async_cancel_job(self, job_id: str) -> dict[str, Any]:
+        """Ask a running render to stop.
+
+        A marker file named after the job, and nothing in it. The request
+        carries no data, so there is nothing to validate except the name,
+        and the name is checked with the same pattern every other id here
+        is - which is why this cannot point anywhere.
+
+        Deliberately fire-and-forget: this does not wait for the renderer
+        to notice, because the renderer is another process and the answer
+        would be a guess. The job's own status says when it has stopped,
+        the way it says everything else.
+
+        Writing a marker for a job that already finished is harmless. The
+        app removes it when the job ends and sweeps stale ones anyway, and
+        refusing here would mean reading a status only to race it.
+        """
+        job = validate_job_id(job_id)
+        await self._hass.async_add_executor_job(self._write_cancel, job)
+        return {"job_id": job, "cancel_requested": True}
+
+    def _write_cancel(self, job_id: str) -> None:
+        """Blocking write - executor only. Atomic, like everything here."""
+        folder = self._dir / CANCEL_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        self._write_atomic(folder / f"{job_id}.json", b"{}\n")
 
     async def async_submit_review_copy_job(
         self,

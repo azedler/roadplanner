@@ -32,7 +32,20 @@ export const FILM_LIMITS = {
   // all for this long. A wall clock cannot tell "slow" from "stuck"; this
   // can, which is why the ceiling no longer has to try.
   stallTimeoutMs: Number(process.env.ROADPLANNER_FILM_STALL_MS || 600_000),
-  maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 512 * 1024 * 1024),
+  // What a finished film may weigh.
+  //
+  // 512 MB was measured against 720p, where a twelve-minute film lands
+  // at 221 MB - comfortable. It stops being comfortable the moment a
+  // profile is chosen: the same film at 1440p is projected at 670-880 MB
+  // and at 4K well past a gigabyte. The render would run for an hour and
+  // a half and then be refused for being what it was asked to be, which
+  // is the worst possible moment to find out.
+  maxOutputBytes: Number(process.env.ROADPLANNER_FILM_MAX_BYTES || 2048 * 1024 * 1024),
+  // Free space demanded BEFORE the browser starts, for the baseline
+  // profile. Scaled by the profile's pixels at the call site - unlike
+  // render time, file size really does follow pixel count, so this is
+  // the one place that factor belongs.
+  minFreeBytes: Number(process.env.ROADPLANNER_FILM_MIN_FREE_BYTES || 768 * 1024 * 1024),
 };
 
 /**

@@ -104,6 +104,9 @@ _ACTIONS = {
     # exchange folder and writes a smaller one beside it: no photograph,
     # no provider, no cost.
     "story_film_review_copy",
+    # Stop a render that is running. Writes a marker into the exchange
+    # folder; the app notices between frames.
+    "renderer_app_cancel",
     # The camper's picture: look, upload, confirm, throw away. No model
     # is called by any of them - the picture comes from the user.
     "media_diagnose_day",
@@ -215,6 +218,8 @@ _EDIT_ACTIONS = {
     # Writes a video into the shared directory. Nothing about the trip
     # changes, but it does produce a file.
     "story_film_review_copy",
+    # Writes into the shared directory, and ends work somebody started.
+    "renderer_app_cancel",
     "update_trip",
     "add_day",
     "update_day",
@@ -1824,6 +1829,21 @@ async def _execute_action(
                 str(facts.get("render_profile") or ""),
             ),
         }
+
+    if action == "renderer_app_cancel":
+        # A render can run for an hour. Being unable to stop it, other
+        # than by restarting the add-on, is not a product - so this
+        # writes the marker and returns. It deliberately does not wait
+        # for the renderer to notice: that is another process, and the
+        # job's own status is what says when it has stopped.
+        try:
+            return {
+                "renderer_app_cancel": await runtime.renderer_app.async_cancel_job(
+                    str(data.get("job_id") or "")
+                )
+            }
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
 
     if action == "renderer_app_recent_jobs":
         # Read-only, and the answer to "what is this box doing right now?"
