@@ -348,7 +348,11 @@ class TripFilmMusicService:
         return sections
 
     async def async_offer(
-        self, trip_id: str, *, film_seconds: float = 0.0
+        self,
+        trip_id: str,
+        *,
+        film_seconds: float = 0.0,
+        scene_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """What generating would cost and what would be ordered.
 
@@ -357,7 +361,7 @@ class TripFilmMusicService:
         "four sections, three already there, one new" is a materially
         different decision from "four new" - so it is the one shown.
         """
-        plan = await self._async_plan(trip_id, film_seconds)
+        plan = await self._async_plan(trip_id, film_seconds, scene_plan=scene_plan)
         sections = await self._async_section_state(plan)
         cached = sum(1 for entry in sections if entry["cached_name"])
         notice = plan_cost_notice(
@@ -457,7 +461,11 @@ class TripFilmMusicService:
         return timeline
 
     async def async_generate(
-        self, trip_id: str, *, film_seconds: float = 0.0
+        self,
+        trip_id: str,
+        *,
+        film_seconds: float = 0.0,
+        scene_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Order the sections that are missing. The only paid method here.
 
@@ -467,7 +475,7 @@ class TripFilmMusicService:
         section, so a film that grew by a minute regenerates the section
         whose length changed rather than the whole score.
         """
-        plan = await self._async_plan(trip_id, film_seconds)
+        plan = await self._async_plan(trip_id, film_seconds, scene_plan=scene_plan)
         state = await self._async_section_state(plan)
         missing = [entry for entry in state if not entry["cached_name"]]
         if missing:

@@ -91,6 +91,60 @@ def verify_it_is_not_simply_the_first_minute() -> None:
     assert found["score"] and found["score"] > 0, found
 
 
+def verify_a_rich_opening_still_does_not_win() -> None:
+    """The real film's answer, which the synthetic plan above hid.
+
+    On the first real trip this ran against, the opening minute happened
+    to contain all seven ingredients - so it scored the maximum, as did
+    many later windows, and "earliest wins" handed back minute zero on
+    every run. The check above passed the whole time, because its
+    invented plan had a poorer opening.
+
+    So this builds the shape that actually occurred: everything worth
+    scoring, right at the front.
+    """
+    def _rich(chapter_id: str) -> list[dict]:
+        """Every ingredient, inside one window's worth of frames."""
+        return [
+            {"type": "chapter_card", "chapter_id": chapter_id, "frames": 90},
+            {"type": "map_leg", "chapter_id": chapter_id, "frames": 190},
+            {"type": "hero", "chapter_id": chapter_id, "frames": 110},
+            {"type": "clip", "chapter_id": chapter_id, "frames": 170},
+            {"type": "collage", "chapter_id": chapter_id, "frames": 140},
+            {"type": "text", "chapter_id": chapter_id, "frames": 110},
+        ]
+
+    plain = [{"type": "collage", "chapter_id": "fill", "frames": 140}] * 12
+    scenes = (
+        [{"type": "intro", "chapter_id": "", "frames": 90}]
+        + _rich("d0")
+        + plain
+        + _rich("d6")
+        + plain
+        + [{"type": "outro", "chapter_id": "", "frames": 150}]
+    )
+    plan = {
+        "plan_version": 1,
+        "fps": 30,
+        "total_frames": sum(int(s["frames"]) for s in scenes),
+        "scenes": scenes,
+    }
+    found = qa.excerpt_range(plan)
+    # Two windows reach the same top score. The tie is the whole test.
+    assert all(found["contains"].values()), found
+    assert found["start_frame"] > 0, (
+        "der Ausschnitt ist wieder der Filmanfang - genau die eine Minute, "
+        "die den Film am schlechtesten vertritt"
+    )
+    # The rule is about the window's MIDDLE, not where it starts: an
+    # excerpt centred on the film sits well before half-time, and the
+    # ending is as unrepresentative as the opening. Within a tenth of
+    # the film, so a coarse scene grid does not make this brittle.
+    middle = found["film_seconds"] / 2
+    centre = found["start_seconds"] + found["seconds"] / 2
+    assert abs(centre - middle) <= found["film_seconds"] / 10, found
+
+
 def verify_the_window_never_splits_a_scene() -> None:
     """A photograph fading in and never landing reads as a broken film."""
     plan = _plan()
