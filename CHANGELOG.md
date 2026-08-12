@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.0] - 2026-08-12
+
 ### Added
 
 - **Der Musikarchitektur-Vergleich A/B/C** (Add-on 0.27.0). Die offene Frage war nie, *wie* die Musik klingen soll, sondern **wie viele musikalische Ebenen** ein Reisefilm überhaupt will. Das lässt sich an keinem Diagramm entscheiden, also gibt es jetzt drei Tonfassungen desselben 60–90-Sekunden-Ausschnitts: **A** ein einzelnes durchgehendes Stück, **B** ein sehr zurückhaltendes Klangbett mit einem charaktervolleren Akzent darüber, **C** nur das Klangbett. Bild, Schnitt, Texte, Karte und Videoclips sind in allen dreien identisch — es ändert sich ausschließlich der Ton.
