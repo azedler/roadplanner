@@ -92,7 +92,30 @@ LYRIA_CLIP_MODEL = "lyria-3-clip-preview"
 # film needs - and the section length was never checked against it at
 # all, which left four and a half minutes of silence in a twelve-minute
 # film. Both are fixed; this is the figure a plan may rely on.
-LYRIA_TRACK_SECONDS = 180
+# 184, from the provider's own documentation. But the number that
+# matters more is that there IS NO DURATION PARAMETER: the length is
+# steered by the section tags in the prompt and by a sentence asking for
+# roughly so many seconds, and the result varies - documented as landing
+# anywhere between about 68 and 84 seconds when 75 were asked for.
+#
+# So this is a CEILING, never a promise. Anything that lays audio onto a
+# timeline has to measure what came back instead of trusting what was
+# planned, or a section ends early and the film goes quiet - the failure
+# this area has already had twice, arriving a third way.
+LYRIA_TRACK_SECONDS = 184
+# Ask for a little more than the section needs, then trim. The provider
+# rounds off musically rather than to a stopwatch, and a piece that came
+# back four seconds short would be four seconds of silence.
+LYRIA_LENGTH_HEADROOM = 1.12
+# What the provider returns, from its documentation. The mux re-encodes
+# to AAC at the same rate and channel count, so nothing is resampled.
+LYRIA_OUTPUT_MIME = "audio/mp3"
+LYRIA_OUTPUT_BITRATE = 192_000
+LYRIA_OUTPUT_SAMPLE_RATE = 44_100
+# Public preview limit. Five sections for a twelve-minute film sit well
+# under it; the guard costs nothing and a burst that hits it would fail
+# generations somebody has already agreed to pay for.
+LYRIA_REQUESTS_PER_MINUTE = 10
 LYRIA_TIMEOUT_SECONDS = 300
 MAX_TRACK_BYTES = 40 * 1024 * 1024
 TRACK_FILENAME_RE = re.compile(r"^lyria-[0-9a-f]{16}\.(mp3|wav)$")
@@ -106,6 +129,14 @@ TRACK_FILENAME_RE = re.compile(r"^lyria-[0-9a-f]{16}\.(mp3|wav)$")
 # worth getting right.
 LYRIA_ESTIMATED_COST_USD = 0.08
 LYRIA_ESTIMATED_COST_EUR = 0.08
+# Half the price, always exactly thirty seconds, and the same request and
+# response shape - only the model name changes. That makes it the right
+# instrument for the question "is this the right sound at all": three
+# style directions cost 0.12 rather than 0.24, and thirty seconds is
+# plenty to hear an instrumentation and a mood. The full arrangement is
+# then ordered from `pro` with the prompt that won.
+LYRIA_CLIP_SECONDS = 30
+LYRIA_CLIP_COST_USD = 0.04
 LYRIA_PRICE_NOTE = (
     "Schätzwert je Generierung. Die tatsächliche Abrechnung erfolgt über "
     "dein Google-Cloud-Projekt und kann abweichen."

@@ -30,6 +30,18 @@ export const DEFAULT_VOLUME = 0.42;
 /** Headroom before the limiter, so a loud section cannot clip. */
 export const PEAK_CEILING = 0.9;
 
+/**
+ * Where a comparison mix is brought to, in EBU R128 terms.
+ *
+ * Only used when a caller asks for it. Three soundtracks under the same
+ * pictures cannot be judged if one of them is simply louder - a listener
+ * reliably prefers the loud one and reports it as the better
+ * arrangement. Matching integrated loudness removes that, and it is the
+ * only way the question "which architecture works" gets asked at all.
+ */
+export const DEFAULT_TARGET_LUFS = -20;
+export const DEFAULT_TRUE_PEAK_DBTP = -1.5;
+
 const seconds = (value) =>
   Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
 
@@ -41,7 +53,19 @@ const seconds = (value) =>
  * left channel on some builds, which is the kind of fault nobody hears
  * until it is in a finished film.
  */
-export function sectionFilter(section, index, { volume = DEFAULT_VOLUME } = {}) {
+export function sectionFilter(
+  section,
+  index,
+  { volume = DEFAULT_VOLUME, inputOffset = 1 } = {},
+) {
+  // A section may carry its own level, and a layered mix depends on it:
+  // the atmosphere sits far under the piece on top of it, and summing
+  // both at one shared volume is not a layered mix, it is two tracks at
+  // once. Falling back to the shared value keeps every existing
+  // sequential soundtrack exactly as it was.
+  const level = Number.isFinite(Number(section.volume))
+    ? Math.max(0, Number(section.volume))
+    : Number(volume);
   const start = Math.round(seconds(section.startSeconds) * 1000);
   const length = seconds(section.seconds);
   const fadeIn = Math.min(seconds(section.fadeInSeconds), length / 2);
@@ -59,9 +83,13 @@ export function sectionFilter(section, index, { volume = DEFAULT_VOLUME } = {}) 
       `afade=t=out:st=${Math.max(0, length - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`,
     );
   }
-  parts.push(`volume=${Number(volume).toFixed(3)}`);
+  parts.push(`volume=${level.toFixed(3)}`);
   if (start > 0) parts.push(`adelay=${start}|${start}`);
-  return `[${index + 1}:a]${parts.join(",")}[a${index}]`;
+  // The mux has the film as input 0, so the audio starts at 1. A graph
+  // that only measures the music has no film in it and starts at 0.
+  // Getting this wrong does not fail loudly - ffmpeg simply resolves a
+  // different stream - so it is a parameter rather than a constant.
+  return `[${index + inputOffset}:a]${parts.join(",")}[a${index}]`;
 }
 
 /**
@@ -85,11 +113,96 @@ export function buildFilterGraph(sections, options = {}) {
     list.length === 1
       ? `${inputs}anull[mixed]`
       : `${inputs}amix=inputs=${list.length}:normalize=0:dropout_transition=0[mixed]`;
-  return [
-    ...chains,
-    mix,
-    `[mixed]alimiter=limit=${PEAK_CEILING}:level=disabled[music]`,
-  ].join(";");
+  const stages = [...chains, mix];
+  // Loudness matching, and only when asked for. It belongs to the
+  // FINISHED mix rather than to the individual layers: what a listener
+  // compares is the variant, and normalising the parts would flatten
+  // exactly the internal balance a layered variant is being judged on.
+  //
+  // A STATIC gain, deliberately. `loudnorm` in a single pass normalises
+  // dynamically - it pulls quiet stretches up as they happen - and the
+  // material most affected by that is sparse, even, atmospheric audio,
+  // which is exactly what the atmosphere variant is. The comparison
+  // would then be between one architecture and another architecture
+  // plus an automatic level rider, and the pumping would be reported as
+  // "the bed sounds artificial". So the mix is measured first and moved
+  // by one number, which changes the level and nothing else.
+  let last = "mixed";
+  if (options.gainDb !== undefined && options.gainDb !== null) {
+    const gain = Number(options.gainDb);
+    if (!Number.isFinite(gain)) throw new Error("Die Pegelkorrektur ist keine Zahl.");
+    stages.push(`[mixed]volume=${gain.toFixed(2)}dB[levelled]`);
+    last = "levelled";
+  }
+  stages.push(`[${last}]alimiter=limit=${PEAK_CEILING}:level=disabled[music]`);
+  return stages.join(";");
+}
+
+/**
+ * The largest static move that is ever applied to reach a target.
+ *
+ * A mix that is thirty decibels below where it should be is not quiet,
+ * it is broken - a missing layer, a gain of zero, a file of silence -
+ * and lifting it would turn a fault into a hiss nobody can explain.
+ */
+export const MAX_GAIN_DB = 18;
+
+/**
+ * What to move the mix by, from what it measured and where it should be.
+ *
+ * Two limits, and the peak one is not decoration. Loudness says nothing
+ * about peaks: a quiet, dynamic mix can be eight decibels below target
+ * and still have a transient near full scale, and lifting it by those
+ * eight would clip it. So the move is whichever of the two is smaller,
+ * and the result is a level that is as close to the target as the
+ * material allows rather than one that reached it by distorting.
+ */
+export function gainForTarget(
+  measuredLufs,
+  targetLufs,
+  { truePeakDbfs = null, ceilingDbtp = DEFAULT_TRUE_PEAK_DBTP } = {},
+) {
+  // `Number(null)` is 0, not NaN. Every absent measurement here would
+  // therefore have arrived as a perfectly plausible zero: an unmeasured
+  // mix would have been "0 LUFS" and lowered by eighteen decibels, and
+  // an unmeasured peak would have been "0 dBFS" and capped every gain
+  // at -1.5 dB. Both are silent wrong answers, which is why the check
+  // is for a real number rather than for a truthy one.
+  const number = (value) =>
+    value === null || value === undefined || value === "" ? NaN : Number(value);
+  const measured = number(measuredLufs);
+  const target = number(targetLufs);
+  if (!Number.isFinite(measured) || !Number.isFinite(target)) return null;
+  let wanted = target - measured;
+  const peak = number(truePeakDbfs);
+  const ceiling = number(ceilingDbtp);
+  if (Number.isFinite(peak) && Number.isFinite(ceiling)) {
+    wanted = Math.min(wanted, ceiling - peak);
+  }
+  return Math.max(-MAX_GAIN_DB, Math.min(MAX_GAIN_DB, wanted));
+}
+
+/**
+ * The same mix, decoded into a meter instead of into a file.
+ *
+ * The measurement has to happen on the FINISHED mix, after the layers
+ * are summed at their own levels - the sum of two measured layers is
+ * not the measurement of their sum. Nothing is written, so this costs a
+ * decode and no disk.
+ */
+export function analyseArgs({ sections, volume = DEFAULT_VOLUME }) {
+  const list = (sections || []).filter((entry) => entry && entry.path);
+  if (!list.length) throw new Error("Ohne Musikabschnitte gibt es nichts zu messen.");
+  const args = ["-hide_banner", "-nostats"];
+  for (const section of list) args.push("-i", section.path);
+  args.push(
+    "-filter_complex",
+    `${buildFilterGraph(list, { volume, inputOffset: 0 })};[music]ebur128=peak=true`,
+    "-f",
+    "null",
+    "-",
+  );
+  return args;
 }
 
 /**
@@ -100,7 +213,14 @@ export function buildFilterGraph(sections, options = {}) {
  * used - the film decides the length, and a soundtrack that came out a
  * little short must not truncate it.
  */
-export function muxArgs({ video, sections, output, filmSeconds, volume = DEFAULT_VOLUME }) {
+export function muxArgs({
+  video,
+  sections,
+  output,
+  filmSeconds,
+  volume = DEFAULT_VOLUME,
+  gainDb,
+}) {
   if (!video || !output) throw new Error("Video und Ziel werden gebraucht.");
   const list = (sections || []).filter((entry) => entry && entry.path);
   if (!list.length) throw new Error("Ohne Musikabschnitte gibt es nichts zu mischen.");
@@ -110,7 +230,7 @@ export function muxArgs({ video, sections, output, filmSeconds, volume = DEFAULT
   for (const section of list) args.push("-i", section.path);
   args.push(
     "-filter_complex",
-    buildFilterGraph(list, { volume }),
+    buildFilterGraph(list, { volume, gainDb }),
     "-map",
     "0:v:0",
     "-map",
@@ -148,4 +268,60 @@ export function sectionsEnd(sections) {
   );
 }
 
-export default { buildFilterGraph, muxArgs, sectionFilter, sectionsEnd };
+/**
+ * The ffmpeg call that MEASURES a finished file instead of writing one.
+ *
+ * A report that says "the three variants are comparably loud" without a
+ * number is a hope. This produces the numbers: integrated loudness,
+ * loudness range and true peak, straight from ffmpeg's own R128 meter,
+ * decoding to nowhere.
+ */
+export function loudnessArgs(media) {
+  if (!media) throw new Error("Ohne Datei gibt es nichts zu messen.");
+  return [
+    "-hide_banner",
+    "-nostats",
+    "-i",
+    media,
+    "-map",
+    "0:a:0",
+    "-filter_complex",
+    "ebur128=peak=true",
+    "-f",
+    "null",
+    "-",
+  ];
+}
+
+/**
+ * The three numbers out of that call's summary.
+ *
+ * Anything not found comes back as `null` rather than as a zero. A
+ * missing measurement that reads as "-0.0 dBFS" is an absent answer
+ * wearing the costume of a result, and this project has already sent
+ * somebody chasing one of those.
+ */
+export function parseLoudness(text) {
+  const source = String(text || "");
+  const summary = source.slice(source.lastIndexOf("Summary:"));
+  const pick = (label) => {
+    const found = new RegExp(`${label}:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(summary);
+    return found ? Number(found[1]) : null;
+  };
+  return {
+    integratedLufs: pick("I"),
+    loudnessRange: pick("LRA"),
+    truePeakDbfs: pick("Peak"),
+  };
+}
+
+export default {
+  analyseArgs,
+  buildFilterGraph,
+  gainForTarget,
+  loudnessArgs,
+  muxArgs,
+  parseLoudness,
+  sectionFilter,
+  sectionsEnd,
+};

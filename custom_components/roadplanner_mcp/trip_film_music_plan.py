@@ -34,11 +34,115 @@ MUSIC_PLAN_VERSION = 1
 # What the whole soundtrack should sound like. One sentence, reused by
 # every section, because a film whose music changes character between
 # sections sounds like a playlist rather than a score.
+# The whole style, in prose, because prose is the only channel there is.
+#
+# The provider has no `negative_prompt`: everything a piece must NOT be
+# has to be said in the same free text as everything it must be. Half of
+# this list used to live in a brief and never reached a request.
 BASE_STYLE = (
-    "Instrumental, warm, nordisch, leicht verspielt, atmosphärisch. "
-    "Ruhig genug für einen Familien-Reisefilm. "
-    "Kein Gesang, keine dominante Trailer-Musik - die Bilder bleiben vorn."
+    "Instrumental, warm, nordisch, atmosphärisch, leicht verspielt. "
+    "Modern akustisch-filmisch, zurückhaltend, persönlich - die liebevolle "
+    "Begleitung einer echten Familienreise, mit einem leisen Gefühl von "
+    "Unterwegssein. "
+    "Ausdrücklich nicht: Gesang, gesprochene Stimme, Trailer-Pathos, "
+    "bombastische Filmmusik, Melodram, Comedy-Untermalung, dominante "
+    "elektronische Beats, aggressives Schlagzeug, Werbemusik, "
+    "Stockmusik-Beliebigkeit. "
+    "Die Bilder bleiben vorn."
 )
+
+# The arrangement vocabulary the provider understands, and the only
+# handle there is on length - there is no duration parameter, so how many
+# parts are named is what decides whether a piece runs a minute or three.
+# Sparse for a short piece, fuller for a long one.
+#
+# Deliberately the instrumental subset: `[Verse]` and `[Chorus]` are
+# words about singing, and this music has none.
+TAGS_BODY_SHORT = ("[Main Theme]",)
+TAGS_BODY_LONG = ("[Main Theme]", "[Variation]", "[Bridge]")
+# Past this a piece is long enough to want a middle. Under it, naming
+# more parts than the music has time for makes it hurry.
+TAG_DENSITY_THRESHOLD_SECONDS = 90.0
+
+# Where a piece sits in the film, because that - not its length - decides
+# how it should begin and end. Every section used to be asked for the
+# same arrangement, so every one of them opened with `[Intro]` and closed
+# with `[Outro]`: six little pieces that each announce themselves and
+# then take their leave, laid end to end. A middle section is never heard
+# starting; it fades up out of the one before it. Naming that in the
+# prompt is the only continuity handle this provider offers - there is no
+# seed and no "continue this piece".
+POSITION_FIRST = "first"
+POSITION_MIDDLE = "middle"
+POSITION_LAST = "last"
+# One piece that is the whole soundtrack: it needs both ends.
+POSITION_ONLY = "only"
+
+_TAGS_HEAD: dict[str, tuple[str, ...]] = {
+    POSITION_FIRST: ("[Intro]",),
+    POSITION_ONLY: ("[Intro]",),
+    POSITION_MIDDLE: (),
+    POSITION_LAST: (),
+}
+# `[Fade Out]` rather than `[Outro]` wherever a crossfade follows: an
+# outro is a piece ending, and a piece ending under a film that carries
+# on is exactly the "playlist" sound this is meant to avoid.
+_TAGS_TAIL: dict[str, tuple[str, ...]] = {
+    POSITION_FIRST: ("[Fade Out]",),
+    POSITION_MIDDLE: ("[Fade Out]",),
+    POSITION_LAST: ("[Outro]", "[Final Chord]"),
+    POSITION_ONLY: ("[Outro]", "[Final Chord]"),
+}
+
+
+# The same instruction in prose, because tags alone are a hint and this
+# provider reads free text. Said in the section's own terms rather than
+# as "part 3 of 6": the model is not being told about a film it cannot
+# hear, only how this piece should begin and end.
+_POSITION_DIRECTION = {
+    POSITION_FIRST: (
+        "Beginne ruhig und öffnend. Schließe nicht ab, sondern lasse das "
+        "Stück offen ausklingen - es geht danach weiter."
+    ),
+    POSITION_MIDDLE: (
+        "Setze ohne Auftakt mitten in der Bewegung ein, als liefe die Musik "
+        "schon. Schließe nicht ab, sondern lasse das Stück offen ausklingen."
+    ),
+    POSITION_LAST: (
+        "Setze ohne Auftakt mitten in der Bewegung ein und führe zu einem "
+        "ruhigen, endgültigen Schluss."
+    ),
+    POSITION_ONLY: (
+        "Ein vollständiger Bogen: ruhig öffnend, ruhig und endgültig "
+        "schließend."
+    ),
+}
+
+
+def section_position(index: int, count: int) -> str:
+    """Which end of the film a section is at, from its place in the list."""
+    if count <= 1:
+        return POSITION_ONLY
+    if index <= 0:
+        return POSITION_FIRST
+    if index >= count - 1:
+        return POSITION_LAST
+    return POSITION_MIDDLE
+
+
+def structure_tags(seconds: float, *, position: str = POSITION_ONLY) -> tuple[str, ...]:
+    """Which arrangement to ask for: length decides how much, place decides how it opens and closes."""
+    body = (
+        TAGS_BODY_LONG
+        if float(seconds) >= TAG_DENSITY_THRESHOLD_SECONDS
+        else TAGS_BODY_SHORT
+    )
+    if position not in _TAGS_HEAD:
+        # An unknown position must not silently become a middle section -
+        # that would drop the film's opening and its ending. The complete
+        # arc is the one answer that is never wrong, only redundant.
+        position = POSITION_ONLY
+    return _TAGS_HEAD[position] + body + _TAGS_TAIL[position]
 
 class MusicPlanError(ValueError):
     """A film this plan cannot score, said rather than approximated."""
@@ -247,22 +351,46 @@ def _motifs(
     return words[:6]
 
 
-def section_prompt(section: dict[str, Any], *, motifs: list[str], seconds: float) -> str:
+def section_prompt(
+    section: dict[str, Any],
+    *,
+    motifs: list[str],
+    seconds: float,
+    headroom: float = 1.12,
+    position: str = POSITION_ONLY,
+) -> str:
     """What one section is asked for.
 
-    The length is stated in words because that is how the long-form
-    model is steered, and the style sentence is repeated in every
-    section so the four pieces belong to one score.
+    Length is stated in SECONDS and reinforced by how many arrangement
+    parts are named, because those are the only two handles there are -
+    the provider has no duration parameter and decides musically where a
+    piece ends. Asking in minutes was worse than imprecise: "etwa
+    1-minütig" for a seventy-five-second section rounds down and biases
+    the result short, and short means the film goes quiet at the end of
+    that section.
+
+    A little more is asked for than the film needs. What comes back is
+    measured and trimmed; what cannot be trimmed is the silence after a
+    piece that ended early.
+
+    `position` is the only continuity handle this provider offers. There
+    is no seed and no "continue the previous piece", so a middle section
+    can be asked for nothing better than to sound like one: no opening
+    gesture, no closing one. Without it every section is a complete
+    little work, and six complete little works in a row are a playlist.
     """
-    minutes = max(1, round(seconds / 60))
+    wanted = max(1.0, float(seconds) * max(1.0, float(headroom)))
+    tags = " ".join(structure_tags(wanted, position=position))
     parts = [
-        f"Erzeuge ein etwa {minutes}-minütiges Instrumentalstück.",
+        f"{tags}",
+        f"Erzeuge ein durchgehendes Instrumentalstück von etwa {round(wanted)} Sekunden.",
+        _POSITION_DIRECTION.get(position, ""),
         BASE_STYLE,
         section["mood"],
     ]
     if motifs:
         parts.append("Stimmungsbilder: " + ", ".join(motifs) + ".")
-    return " ".join(parts)
+    return " ".join(part for part in parts if part)
 
 
 def plan_cache_key(plan: dict[str, Any], *, model: str) -> str:
@@ -344,6 +472,14 @@ def cost_notice(
 
 __all__ = [
     "BASE_STYLE",
+    "TAGS_BODY_LONG",
+    "TAGS_BODY_SHORT",
+    "POSITION_FIRST",
+    "POSITION_LAST",
+    "POSITION_MIDDLE",
+    "POSITION_ONLY",
+    "section_position",
+    "structure_tags",
     "CROSSFADE_SECONDS",
     "FADE_IN_SECONDS",
     "FADE_OUT_SECONDS",
