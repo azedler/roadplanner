@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.110.0] - 2026-08-12
+
 ### Added
 
 - **Ein Prüfausschnitt in der Größe, in der geurteilt wird.** Ein voller 1440p-Render dauert etwa anderthalb Stunden — niemand beurteilt einen Schnitt, der so viel kostet. Der Film lässt sich jetzt in **60 bis 90 Sekunden** prüfen, und zwar als **derselbe Film**: dasselbe Renderpaket, derselbe Szenenplan, dieselben Fotos, dieselben Sekunden. Nur die gezeichneten Bilder sind weniger. Genau das macht die Prüfung zu einem Beleg über den Film, den man am Ende ausgibt, statt über einen zweiten, kleineren. Das Fenster wird bewertet statt geraten — der Ausschnitt soll enthalten, was der Film kann, und die Eröffnung tut das selten. Ein bestimmter Tag oder eine bestimmte Minute lassen sich auch von Hand verlangen. Was nicht gewichtet werden konnte, wird benannt statt verschwiegen: Der Szenenplan führt keine Ausrichtung, also kann Hoch- und Querformat nicht ausgewogen werden.
@@ -27,7 +29,6 @@ The project follows Semantic Versioning for public releases.
 - **Der Dateiname hätte einen 1440p-Film als Review-Kopie ausgegeben.** Ein Auftrag, der nur einen Videostream kopiert, hat nie ein Profil gewählt und kann keins melden — der Name fiel auf den Standard zurück. Er wird jetzt aus den gemessenen Bildmaßen gelesen, und eine unbekannte Größe antwortet mit gar nichts statt mit einer Vermutung.
 
 - **„Nicht verfügbar" nannte den falschen Grund.** Der Musikdialog behauptete einen fehlenden Gemini-Schlüssel, egal welcher der beiden Wege tatsächlich fehlte, und schickte damit zum Nachsehen an die eine Stelle, die in Ordnung war. Jetzt steht der Grund da, den der Dienst ohnehin ausrechnet.
-
 
 ## [4.109.0] - 2026-08-11
 
