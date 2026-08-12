@@ -321,15 +321,25 @@ def verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have() -> None:
         .read_text(encoding="utf-8")
     )
 
+    # Both sides write these as arithmetic - `4 * 1024 * 1024` reads as
+    # four megabytes and `4194304` does not - so the readers evaluate the
+    # expression rather than matching digits. A digit-only pattern would
+    # have quietly failed to FIND the constant, and a comparison that
+    # cannot find its operands passes.
+    def _value(text: str) -> int:
+        allowed = set("0123456789_* ")
+        assert set(text) <= allowed, f"unerwarteter Ausdruck: {text!r}"
+        return int(eval(text.replace("_", ""), {"__builtins__": {}}, {}))  # noqa: S307
+
     def _js(name: str) -> int:
-        match = re.search(rf"export const {name} = (\d+);", protocol)
+        match = re.search(rf"export const {name} = ([\d_*\s]+);", protocol)
         assert match, f"{name} fehlt im Renderer"
-        return int(match.group(1))
+        return _value(match.group(1).strip())
 
     def _py(name: str) -> int:
-        match = re.search(rf"^{name} = ([\d_]+)", package_py, re.MULTILINE)
+        match = re.search(rf"^{name} = ([\d_*\s]+)$", package_py, re.MULTILINE)
         assert match, f"{name} fehlt in trip_film_package.py"
-        return int(match.group(1).replace("_", ""))
+        return _value(match.group(1).strip())
 
     for name in ("MAX_FILM_IMAGES", "MAX_FILM_CHAPTERS"):
         js_name = name
@@ -340,6 +350,16 @@ def verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have() -> None:
     assert _js("MAX_FILM_PHOTOS_PER_CHAPTER") == _py("MAX_PHOTOS_PER_CHAPTER"), (
         f"Bilder je Kapitel: Renderer {_js('MAX_FILM_PHOTOS_PER_CHAPTER')}, "
         f"Integration {_py('MAX_PHOTOS_PER_CHAPTER')}"
+    )
+    # The third occurrence of the same fault, caught here rather than in
+    # somebody's house: a picture is prepared for the SLOT it lands in
+    # now, so a landscape hero at 1440p weighs about 760 kB where the old
+    # fixed 900-pixel one weighed 80. The renderer refuses anything over
+    # its own ceiling with "Bild mit ungültiger Größe" - a message that
+    # says nothing about which of the two numbers moved.
+    assert _js("MAX_FILM_IMAGE_BYTES") == _py("MAX_PREPARED_IMAGE_BYTES"), (
+        f"Bytes je Bild: Renderer {_js('MAX_FILM_IMAGE_BYTES')}, "
+        f"Integration {_py('MAX_PREPARED_IMAGE_BYTES')}"
     )
 
     # And the filename pattern has to reach at least as far as the limit,

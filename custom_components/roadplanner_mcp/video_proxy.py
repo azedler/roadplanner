@@ -43,10 +43,33 @@ ANALYSIS_HEIGHT = 360
 ANALYSIS_FPS = 8
 ANALYSIS_CRF = 32
 
-# What the film shows. 720p because that is what the film renders at, so
-# anything larger is bytes nobody sees.
+# What the film shows. It used to be a flat 720 with the reasoning "that
+# is what the film renders at" - true when there was one size, and the
+# same sentence became wrong the moment a profile could ask for 1440.
+# A clip played full frame at 1440p was being scaled 2x by the renderer.
+#
+# Derived from the profile now, and NEVER above the recording's own
+# height: a phone video is not improved by being enlarged before it is
+# handed over, it only costs bytes and decode time.
 RENDER_HEIGHT = 720
 RENDER_CRF = 23
+
+
+def render_height(profile_id: str = "", source_height: int = 0) -> int:
+    """How many lines the film's copy of a clip should have.
+
+    Full frame, because a clip that is shown small is still cut at the
+    size it might be shown large - the scene plan decides where a clip
+    goes, and it is not consulted here. That asymmetry with photographs
+    is deliberate: a clip costs one cut either way, while pictures are
+    two hundred and sixty files where the difference is the package.
+    """
+    from .render_profiles import render_profile  # noqa: PLC0415 - avoids a cycle
+
+    wanted = int(render_profile(profile_id)["height"])
+    if source_height and source_height > 0:
+        return max(ANALYSIS_HEIGHT, min(wanted, int(source_height)))
+    return wanted
 
 # An effectively unbounded width, because the limit that matters is the
 # height. It has to be stated: `force_original_aspect_ratio` treats w and
@@ -131,7 +154,14 @@ def analysis_args(
     ]
 
 
-def render_args(source: Path, target: Path, *, start: float, end: float) -> list[str]:
+def render_args(
+    source: Path,
+    target: Path,
+    *,
+    start: float,
+    end: float,
+    height: int = RENDER_HEIGHT,
+) -> list[str]:
     """The ffmpeg call for the piece the film plays.
 
     Accurate rather than fast: `-ss` after `-i` decodes to the exact
@@ -159,7 +189,7 @@ def render_args(source: Path, target: Path, *, start: float, end: float) -> list
         # Same trap, same fix: the film's clips are cut with this call,
         # so a portrait recording would have been refused here too - one
         # step later, in the middle of a film export.
-        f"scale=w={MAX_PROXY_WIDTH}:h={RENDER_HEIGHT}"
+        f"scale=w={MAX_PROXY_WIDTH}:h={max(ANALYSIS_HEIGHT, int(height))}"
         f":force_original_aspect_ratio=decrease:force_divisible_by=2",
         "-c:v",
         "libx264",
@@ -188,11 +218,16 @@ async def async_cut_analysis_proxy(
 
 
 async def async_cut_render_proxy(
-    source: Path, target: Path, *, start: float, end: float
+    source: Path,
+    target: Path,
+    *,
+    start: float,
+    end: float,
+    height: int = RENDER_HEIGHT,
 ) -> int:
     """Cut the piece the film plays. Returns its size in bytes."""
     return await _async_cut(
-        render_args(source, target, start=start, end=end),
+        render_args(source, target, start=start, end=end, height=height),
         target,
         timeout=RENDER_TIMEOUT,
         what="Renderproxy",
