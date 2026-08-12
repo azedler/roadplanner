@@ -100,13 +100,38 @@ def verify_a_name_from_outside_never_becomes_a_path() -> None:
         assert files == {}, hostile
 
 
-def verify_only_four_sections_can_ever_travel() -> None:
-    root = _folder({f"{index}.mp3": b"x" for index in range(9)})
+def verify_a_score_too_long_for_the_channel_is_refused_not_shortened() -> None:
+    """This check used to assert the bug.
+
+    It read: hand over nine sections, expect exactly MAX_MUSIC_SECTIONS
+    back - which was the truncation written down a second time as if it
+    were the intent. With the cap at 4 and the planner producing 5 for a
+    twelve-minute film, the fifth section was silently dropped, the film
+    went quiet for its last two and a half minutes, and this test passed
+    on every run.
+
+    Dropping the tail of a soundtrack is an absence with no message
+    attached. So the answer is a refusal that names the number.
+    """
+    over = music.MAX_MUSIC_SECTIONS + 1
+    root = _folder({f"{index}.mp3": b"x" for index in range(over)})
+    try:
+        music.build_music_timeline_package(
+            _timeline(*[f"{index}.mp3" for index in range(over)]), root
+        )
+    except music.MusicPackageError as err:
+        assert str(music.MAX_MUSIC_SECTIONS) in str(err), err
+    else:
+        raise AssertionError("zu viele Abschnitte wurden stillschweigend gekürzt")
+    # And the cap is not a number of its own: it has to be at least what
+    # the planner can produce, or a legal plan is unshippable.
+    exactly = music.MAX_MUSIC_SECTIONS
+    root = _folder({f"{index}.mp3": b"x" for index in range(exactly)})
     entry, files = music.build_music_timeline_package(
-        _timeline(*[f"{index}.mp3" for index in range(9)]), root
+        _timeline(*[f"{index}.mp3" for index in range(exactly)]), root
     )
-    assert len(entry["sections"]) == music.MAX_MUSIC_SECTIONS
-    assert len(files) == music.MAX_MUSIC_SECTIONS
+    assert len(entry["sections"]) == exactly
+    assert len(files) == exactly
 
 
 def verify_the_film_can_play_a_score_but_never_order_one() -> None:
@@ -127,14 +152,11 @@ def verify_the_film_can_play_a_score_but_never_order_one() -> None:
     assert "!= GENERATED_MUSIC" in EXPORT_SOURCE
 
 
-for check in (
-    verify_a_generated_score_travels_as_numbered_files,
-    verify_a_missing_section_costs_a_section_not_the_film,
-    verify_nothing_generated_means_no_music_at_all,
-    verify_a_name_from_outside_never_becomes_a_path,
-    verify_only_four_sections_can_ever_travel,
-    verify_the_film_can_play_a_score_but_never_order_one,
-):
-    check()
+# Found rather than listed: a hand-written list is a place for a check
+# to quietly fall off, and this file has one that used to pass while
+# asserting a bug.
+for _name, _check in sorted(dict(globals()).items()):
+    if _name.startswith("verify_") and callable(_check):
+        _check()
 
 print("Trip film music package tests passed.")

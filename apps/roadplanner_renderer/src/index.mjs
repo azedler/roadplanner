@@ -35,9 +35,12 @@ import {
   ARTIFACT_IMAGE,
   ARTIFACT_TEXT,
   ARTIFACT_TRIP_DAY_VIDEO,
+  ARTIFACT_FILM_WITH_MUSIC,
   ARTIFACT_REVIEW_COPY,
   ARTIFACT_TRIP_FILM_VIDEO,
   CANCEL_DIR,
+  MUSIC_PACKAGE_FILENAME,
+  parseMusicPackage,
   ARTIFACT_VIDEO,
   ERROR_INTERNAL,
   ProtocolError,
@@ -408,8 +411,20 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress, isCa
   await fs.mkdir(folder, { recursive: true });
   const target = path.join(folder, ARTIFACT_REVIEW_COPY);
 
+  // Whichever film that job produced. A mux job's folder holds the
+  // vertonte film and a render job's the silent one, never both - so
+  // this is a lookup rather than a choice. Without it the copy somebody
+  // sends out for review would be the silent cut, which is the one
+  // question a review of a finished film cannot answer.
+  let sourcePath = path.join(DIRS.results, sourceJobId, ARTIFACT_FILM_WITH_MUSIC);
+  try {
+    await fs.access(sourcePath);
+  } catch {
+    sourcePath = path.join(DIRS.results, sourceJobId, ARTIFACT_TRIP_FILM_VIDEO);
+  }
+
   const { facts, timings } = await createReviewCopy({
-    sourcePath: path.join(DIRS.results, sourceJobId, ARTIFACT_TRIP_FILM_VIDEO),
+    sourcePath,
     outputPath: target,
     profileId,
     onProgress,
@@ -421,6 +436,80 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress, isCa
     {
       kind: "video",
       filename: ARTIFACT_REVIEW_COPY,
+      size_bytes: bytes.length,
+      sha256: sha256(bytes),
+    },
+  ];
+  await writeAtomic(
+    path.join(folder, "result.json"),
+    `${JSON.stringify(
+      buildResult({ jobId, completedAt: new Date(), artifacts, video: facts, timings }),
+      null,
+      2,
+    )}\n`,
+  );
+  return { facts, timings };
+}
+
+/**
+ * The soundtrack onto a film that already exists.
+ *
+ * Cheapest job that produces a film: the video stream is copied, so a
+ * twelve-minute score goes on in seconds. That is what makes the order
+ * right - the film is rendered first, its length is then measured rather
+ * than estimated, and a soundtrack somebody does not like costs another
+ * few seconds instead of another render.
+ *
+ * The audio arrives in this job's own inputs folder, exactly as a film
+ * package does, and is verified byte for byte before ffmpeg sees it.
+ */
+async function produceFilmMusic(jobId, sourceJobId, onProgress, isCancelled) {
+  if (!isJobId(sourceJobId)) {
+    throw new ProtocolError(ERROR_INTERNAL, "Ungültige Quell-Job-ID.");
+  }
+  const inputs = path.join(DIRS.inputs, jobId);
+  let manifest;
+  try {
+    manifest = await fs.readFile(path.join(inputs, MUSIC_PACKAGE_FILENAME), "utf8");
+  } catch {
+    throw new ProtocolError(ERROR_INTERNAL, "Zu diesem Auftrag gibt es kein Musikpaket.");
+  }
+  const parsed = parseMusicPackage(manifest);
+
+  // Same defence the film package gets: the declared hash decides, and a
+  // file whose bytes disagree with it never reaches a decoder.
+  const sections = [];
+  for (const section of parsed.sections) {
+    const file = path.join(inputs, section.path);
+    const bytes = await fs.readFile(file).catch(() => null);
+    if (!bytes) {
+      throw new ProtocolError(ERROR_INTERNAL, `Musikdatei fehlt: ${section.path}`);
+    }
+    if (sha256(bytes) !== section.sha256) {
+      throw new ProtocolError(ERROR_INTERNAL, "Musikdatei: SHA-256 stimmt nicht.");
+    }
+    sections.push({ ...section, path: file });
+  }
+
+  const { muxFilmMusic } = await import("./render.mjs");
+  const folder = path.join(DIRS.results, jobId);
+  await fs.mkdir(folder, { recursive: true });
+  const target = path.join(folder, ARTIFACT_FILM_WITH_MUSIC);
+
+  const { facts, timings } = await muxFilmMusic({
+    sourcePath: path.join(DIRS.results, sourceJobId, ARTIFACT_TRIP_FILM_VIDEO),
+    outputPath: target,
+    sections,
+    volume: parsed.volume,
+    onProgress,
+    isCancelled,
+  });
+
+  const bytes = await fs.readFile(target);
+  const artifacts = [
+    {
+      kind: "video",
+      filename: ARTIFACT_FILM_WITH_MUSIC,
       size_bytes: bytes.length,
       sha256: sha256(bytes),
     },
@@ -581,6 +670,31 @@ async function handleJob(name) {
         seconds: timings.total,
         size_bytes: facts.size_bytes,
         source_size_bytes: facts.source_size_bytes,
+      });
+    } else if (job.action === "add_music") {
+      let lastReported = 0;
+      const { facts, timings } = await produceFilmMusic(
+        jobId,
+        job.sourceJobId,
+        (progress) => {
+          const rounded = Math.floor(progress * 100) / 100;
+          if (rounded > lastReported) {
+            lastReported = rounded;
+            void writeStatus(jobId, "running", { progress: rounded }).catch(() => {});
+          }
+        },
+        () => cancelRequested(jobId),
+      );
+      await writeStatus(jobId, "completed", { progress: 1 });
+      log("info", "Musik aufgelegt", {
+        job_id: jobId,
+        source_job_id: job.sourceJobId,
+        sections: facts.music_sections,
+        // The measured length the score was fitted to, which is the whole
+        // point of putting the music on last.
+        film_seconds: facts.measured_seconds,
+        seconds: timings.total,
+        size_bytes: facts.size_bytes,
       });
     } else if (job.action === "render_trip_film") {
       let lastReported = 0;

@@ -205,6 +205,11 @@ def verify_only_two_fields_are_editable() -> None:
         # Reads one local MP4, calls nothing, costs nothing, and cannot
         # touch the roadbook.
         "story_film_review_copy",
+        # Putting an already-generated score onto an already-rendered
+        # film. Names a JOB and a trip, nothing else; reads the music
+        # folder, copies the video stream, orders nothing and cannot
+        # touch the roadbook.
+        "story_film_add_music",
         # The editorial pass: read its state, run it, throw it away. None
         # of the three can carry a roadbook change.
         "story_director_status",

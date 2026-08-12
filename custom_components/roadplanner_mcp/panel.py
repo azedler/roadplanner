@@ -41,6 +41,7 @@ from .render_profiles import (
     DEFAULT_REVIEW_PROFILE,
     film_filename,
     profile_choices,
+    profile_for_size,
     review_choices,
 )
 from .renderer_app_protocol import ACTION_RENDER_REMOTION_TEST, RendererProtocolError
@@ -107,6 +108,10 @@ _ACTIONS = {
     # A 60-90 s piece of the SAME film at full size, for judging how it
     # looks rather than what is in it.
     "story_film_qa_render",
+    # Puts an already-generated score onto an already-rendered film. The
+    # video stream is copied, so it costs seconds and no quality, and
+    # every section it uses was paid for when it was generated.
+    "story_film_add_music",
     # Stop a render that is running. Writes a marker into the exchange
     # folder; the app notices between frames.
     "renderer_app_cancel",
@@ -222,6 +227,9 @@ _EDIT_ACTIONS = {
     # changes, but it does produce a file.
     "story_film_review_copy",
     "story_film_qa_render",
+    # Writes a second film into the shared directory - the same pictures
+    # with a soundtrack on them.
+    "story_film_add_music",
     # Writes into the shared directory, and ends work somebody started.
     "renderer_app_cancel",
     "update_trip",
@@ -344,6 +352,9 @@ _PROVIDER_CALL_ACTIONS = {
     # Re-encodes a whole film. Minutes rather than an hour, and still far
     # longer than a websocket call should be allowed to hang on.
     "story_film_review_copy",
+    # Writes the whole score into the shared directory before the job
+    # file. Being cancelled halfway would leave a partial package.
+    "story_film_add_music",
     # Five Gemini calls over a whole trip. A connection that drops halfway
     # must not orphan calls that were already paid for.
     "story_director_run",
@@ -1634,6 +1645,28 @@ async def _execute_action(
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
 
+    if action == "story_film_add_music":
+        # The soundtrack onto a film that already exists. Free: every
+        # section it uses has been generated and paid for already, and
+        # this reads them off the disk. If one were missing, the offer
+        # would have said so - this does not order anything.
+        #
+        # The order is the point. The film is rendered first, so its
+        # length here is a MEASURED number rather than the estimate the
+        # plan was priced against, and the score is fitted to the film
+        # that exists. Trying a second soundtrack costs another mux
+        # instead of another ninety-minute render.
+        trip_id = str(data.get("trip_id") or "")
+        job_id = str(data.get("job_id") or "")
+        try:
+            return {
+                "renderer_app_job": await runtime.trip_film.async_add_music(
+                    trip_id, job_id
+                )
+            }
+        except RendererProtocolError as err:
+            raise ValidationError(str(err)) from err
+
     if action == "story_film_qa_render":
         # The quality check: a contiguous 60-90 s window of the SAME
         # film, at whichever size is being judged. Same scene ids, same
@@ -1855,11 +1888,18 @@ async def _execute_action(
         # this?", which is the question render profiles exist to make
         # answerable.
         facts = (result or {}).get("video") or {}
+        # A mux job copied the video stream and never chose a profile, so
+        # it cannot report one. Read back from the dimensions it DID
+        # measure rather than falling through to the default, which would
+        # have named a 1440p film `...-review-720p.mp4`.
+        profile = str(facts.get("render_profile") or "") or profile_for_size(
+            facts.get("width"), facts.get("height")
+        )
         return {
             "renderer_app_download_url": url,
             "renderer_app_download_name": film_filename(
                 str(data.get("trip_title") or "reise"),
-                str(facts.get("render_profile") or ""),
+                profile,
             ),
         }
 

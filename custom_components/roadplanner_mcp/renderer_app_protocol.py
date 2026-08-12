@@ -128,6 +128,16 @@ ACTION_RENDER_TRIP_FILM = "render_trip_film"
 # sides build ``results/<job_id>/<fixed name>`` from a value that has been
 # matched against the job-id pattern, so there is nothing to traverse.
 ACTION_CREATE_REVIEW_COPY = "create_review_copy"
+# The soundtrack onto a film that has already been rendered. Also not a
+# render, and cheaper still: the video stream is COPIED, so a whole score
+# goes onto a twelve-minute film in seconds.
+#
+# That is what lets the music come last. A film rendered first has a
+# MEASURED length rather than the estimate the plan was priced against,
+# so the score is fitted to the film that exists - and a soundtrack
+# somebody does not like costs another few seconds instead of another
+# ninety-minute render.
+ACTION_ADD_MUSIC = "add_music"
 ALLOWED_ACTIONS = (
     ACTION_PING,
     ACTION_CREATE_TEST_ARTIFACT,
@@ -135,6 +145,7 @@ ALLOWED_ACTIONS = (
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
     ACTION_CREATE_REVIEW_COPY,
+    ACTION_ADD_MUSIC,
 )
 
 ARTIFACT_TEXT = "roadplanner-renderer-poc.txt"
@@ -143,6 +154,10 @@ ARTIFACT_VIDEO = "roadplanner-remotion-test.mp4"
 ARTIFACT_TRIP_DAY_VIDEO = "roadplanner-trip-day.mp4"
 ARTIFACT_TRIP_FILM_VIDEO = "roadplanner-trip-film.mp4"
 ARTIFACT_REVIEW_COPY = "roadplanner-review-copy.mp4"
+# The same film with its soundtrack on it, under its own name. The silent
+# film stays where it is: it is what a SECOND soundtrack is muxed onto,
+# and overwriting it would make trying another one a re-render again.
+ARTIFACT_FILM_WITH_MUSIC = "roadplanner-trip-film-music.mp4"
 ALLOWED_ARTIFACTS = {
     ARTIFACT_TEXT: "text",
     ARTIFACT_IMAGE: "image",
@@ -150,6 +165,7 @@ ALLOWED_ARTIFACTS = {
     ARTIFACT_TRIP_DAY_VIDEO: "video",
     ARTIFACT_TRIP_FILM_VIDEO: "video",
     ARTIFACT_REVIEW_COPY: "video",
+    ARTIFACT_FILM_WITH_MUSIC: "video",
 }
 # Where a job's input package lives. Named after the job, never after
 # anything a user typed.
@@ -382,7 +398,7 @@ def build_job(
             raise RendererProtocolError("Ungültiger Bildbereich")
         payload_input["frame_start"] = start
         payload_input["frame_end"] = end
-    if action == ACTION_CREATE_REVIEW_COPY:
+    if action in (ACTION_CREATE_REVIEW_COPY, ACTION_ADD_MUSIC):
         # The only id in this protocol that names something that already
         # exists. Validated with the same pattern as every other job id,
         # which is what makes the path built from it unsteerable.
@@ -542,7 +558,11 @@ def artifact_limit(filename: str) -> int:
     kind = ALLOWED_ARTIFACTS.get(filename)
     if kind in TEXT_ARTIFACT_KINDS:
         return MAX_ARTIFACT_BYTES
-    if filename in (ARTIFACT_TRIP_FILM_VIDEO, ARTIFACT_REVIEW_COPY):
+    if filename in (
+        ARTIFACT_TRIP_FILM_VIDEO,
+        ARTIFACT_REVIEW_COPY,
+        ARTIFACT_FILM_WITH_MUSIC,
+    ):
         return MAX_FILM_ARTIFACT_BYTES
     return MAX_VIDEO_ARTIFACT_BYTES
 

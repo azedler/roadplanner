@@ -803,6 +803,42 @@ export const storyEditorMixin = {
     this._pollRendererAppJob(result.renderer_app_job.job_id);
   },
 
+  /**
+   * The soundtrack onto the film that was just rendered.
+   *
+   * Free, and it has to look free: every section it uses was generated
+   * and paid for at the offer, and this only reads them off the disk.
+   * The film keeps its own length here - measured by ffprobe rather than
+   * estimated - which is the whole reason the music goes on last.
+   */
+  async _storyFilmAddMusic() {
+    const sourceId = this._storyFilmSourceJobId || "";
+    if (!sourceId) return;
+    const result = await this._runAction(
+      "story_film_add_music",
+      { trip_id: this._selectedTripId, job_id: sourceId },
+      "Musik wird aufgelegt",
+      {
+        refresh: false,
+        blockUi: false,
+        errorMode: "dialog",
+        errorTitle: "Die Musik konnte nicht aufgelegt werden",
+      },
+    );
+    if (!result?.renderer_app_job?.job_id) return;
+    // The film with its music becomes the new source: a review copy made
+    // from here carries the soundtrack, and that is the version somebody
+    // sends out. Copying the silent cut would answer the one question a
+    // review of a finished film cannot answer.
+    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._rendererAppKind = "film_music";
+    this._rendererAppJob = result.renderer_app_job;
+    this._rendererAppResult = null;
+    this._rendererAppDownloadUrl = "";
+    this._render({ preserveScroll: true });
+    this._pollRendererAppJob(result.renderer_app_job.job_id);
+  },
+
   async _storyFilmMusicLoad() {
     const result = await this._runAction("story_film_music", {}, "", {
       refresh: false,
@@ -981,16 +1017,65 @@ export const storyEditorMixin = {
         )
         .join("")}
     </select></label>
-    <button class="secondary-button" type="button" data-action="story-film-review-copy"><ha-icon icon="mdi:content-duplicate"></ha-icon> Review-Kopie erstellen</button>`;
+    <button class="secondary-button" type="button" data-action="story-film-review-copy"><ha-icon icon="mdi:content-duplicate"></ha-icon> Review-Kopie erstellen</button>
+    ${this._renderStoryFilmAddMusic()}`;
+  },
+
+  /**
+   * The offer to put the score on, beside the film it goes on.
+   *
+   * Only when there is music to put on. Offering it with nothing
+   * generated would be a button that can only fail, and the failure
+   * would read as "the mux is broken" rather than "order the music
+   * first".
+   */
+  _renderStoryFilmAddMusic() {
+    const offer = this._storyFilmMusicOfferData;
+    if (!this._storyFilmSourceJobId || !offer) return "";
+    // Every section already generated - anything less would put a score
+    // on that goes quiet partway through.
+    const ready = (offer.section_state || []).length
+      && (offer.section_state || []).every((entry) => entry.cached_name);
+    if (!ready) return "";
+    return `<button class="secondary-button" type="button" data-action="story-film-add-music"><ha-icon icon="mdi:music-note-plus"></ha-icon> Musik auflegen</button>`;
   },
 
   _renderStoryFilmJobLine() {
     const job = this._rendererAppJob;
     const kind = this._rendererAppKind;
-    if (!job || (kind !== "trip_film" && kind !== "review_copy")) return "";
-    // A copy is minutes, a film is close to an hour. Saying "viele
-    // Minuten" over a copy would make a normal wait look like a hang.
-    const isCopy = kind === "review_copy";
+    // Three kinds of work, three sets of words. A table rather than a
+    // boolean: the boolean was `isCopy`, and a third kind arriving would
+    // have been described as "ein Reisefilm wird gerendert" - close
+    // enough to look right and wrong about the one thing that matters,
+    // which is how long to expect to wait.
+    const WORK = {
+      trip_film: {
+        running:
+          "Ein Reisefilm wird gerade gerendert (%s). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.",
+        done: "Der zuletzt erzeugte Reisefilm ist fertig",
+        download: "Film herunterladen",
+        cancelled: "Der Render wurde abgebrochen",
+        failed: "Der zuletzt gestartete Reisefilm ist nicht fertig geworden",
+      },
+      review_copy: {
+        running:
+          "Eine kleine Kopie des Films wird erstellt (%s). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.",
+        done: "Die kleine Kopie ist fertig",
+        download: "Kopie herunterladen",
+        cancelled: "Die Review-Kopie wurde abgebrochen",
+        failed: "Die Review-Kopie ist nicht fertig geworden",
+      },
+      film_music: {
+        running:
+          "Die Musik wird auf den Film gelegt (%s). Die Bilder werden dabei nur kopiert, das dauert Sekunden bis wenige Minuten.",
+        done: "Der Film mit Musik ist fertig",
+        download: "Film mit Musik herunterladen",
+        cancelled: "Das Auflegen wurde abgebrochen",
+        failed: "Die Musik ist nicht auf den Film gekommen",
+      },
+    };
+    const words = WORK[kind];
+    if (!job || !words) return "";
     if (!job.terminal) {
       const percent = Math.round((Number(job.progress) || 0) * 100);
       // A render can run for an hour. A stop that only exists as "restart
@@ -998,9 +1083,8 @@ export const storyEditorMixin = {
       const stop = this._canEdit()
         ? `<div class="button-row"><button class="text-button" type="button" data-action="renderer-app-cancel"${this._rendererAppCancelling ? " disabled" : ""}><ha-icon icon="mdi:stop-circle-outline"></ha-icon> ${this._rendererAppCancelling ? "Wird abgebrochen …" : "Abbrechen"}</button></div>`
         : "";
-      return stop + (isCopy
-        ? `<small class="story-film-job">Eine kleine Kopie des Films wird erstellt (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das ist kein neuer Render – der fertige Film wird nur kleiner gerechnet, und das dauert einige Minuten.</small>`
-        : `<small class="story-film-job">Ein Reisefilm wird gerade gerendert (<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>). Das dauert bei einer ganzen Reise viele Minuten – die Seite darf zwischendurch geschlossen werden.</small>`);
+      const progress = `<span data-renderer-progress="story">${escapeHtml(String(job.state || "läuft"))} · ${percent} %</span>`;
+      return `${stop}<small class="story-film-job">${words.running.replace("%s", progress)}</small>`;
     }
     if (job.state === "completed") {
       // "It is in the other card" is a signpost, not an answer - and on a
@@ -1011,9 +1095,9 @@ export const storyEditorMixin = {
       // yesterday - which is exactly what happened when the map arrived
       // and an older film was downloaded to look for it.
       const made = job.updated_at ? this._formatTimestamp(job.updated_at) : "";
-      return `<small class="story-film-job">${isCopy ? "Die kleine Kopie ist fertig" : "Der zuletzt erzeugte Reisefilm ist fertig"}${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
+      return `<small class="story-film-job">${words.done}${made ? ` – erstellt am ${escapeHtml(made)}` : ""}.</small>
       <div class="button-row">
-        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : isCopy ? "Kopie herunterladen" : "Film herunterladen"}</button>
+        <button class="secondary-button" type="button" data-action="renderer-app-download"${this._rendererAppDownloading ? " disabled" : ""}><ha-icon icon="mdi:download"></ha-icon> ${this._rendererAppDownloading ? "Wird bereitgestellt …" : words.download}</button>
         ${this._renderStoryFilmReviewCopy()}
       </div>
       ${
@@ -1028,10 +1112,10 @@ export const storyEditorMixin = {
     if (job.state === "cancelled") {
       // Said as what it was. Reporting a stop somebody asked for as a
       // failure sends them looking for a cause that does not exist.
-      return `<small class="story-film-job">${isCopy ? "Die Review-Kopie wurde abgebrochen" : "Der Render wurde abgebrochen"}. Es ist nichts kaputt – ein neuer Lauf kann jederzeit gestartet werden.</small>`;
+      return `<small class="story-film-job">${words.cancelled}. Es ist nichts kaputt – ein neuer Lauf kann jederzeit gestartet werden.</small>`;
     }
     const why = cleanText(job.reason || job.detail || "");
-    return `<small class="story-film-job">${isCopy ? "Die Review-Kopie ist nicht fertig geworden" : "Der zuletzt gestartete Reisefilm ist nicht fertig geworden"} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
+    return `<small class="story-film-job">${words.failed} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
   },
 
   // --- rendering -------------------------------------------------------

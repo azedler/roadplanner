@@ -49,6 +49,7 @@ from .crew_portraits import portrait_key
 from .character_assets import build_character_package
 from .trip_film_crew import build_crew_package
 from .trip_film_music import (
+    MusicPackageError,
     build_music_package,
     build_music_timeline_package,
     list_tracks,
@@ -177,6 +178,67 @@ class TripFilmExporter:
         return _estimated_seconds(
             chapters, budget, map_context, manifest.get("narrative")
         )
+
+    async def async_add_music(self, trip_id: str, job_id: str) -> dict[str, Any]:
+        """Put the already-generated score onto an already-rendered film.
+
+        The one place where the film's length stops being an estimate.
+        The render finished, ffprobe measured it, and the timeline is
+        laid out against that number instead of the guess the plan was
+        priced against - which is the entire reason the music goes on
+        last rather than travelling in the package.
+
+        Free, and it must stay that way: this asks the same reading
+        question ``_async_music`` asks - "what exists, and when does it
+        play?" - and never the music service. A section that was never
+        generated is simply not in the timeline, and the offer in the
+        panel is where that is decided and paid for.
+        """
+        if self._music_timeline is None:
+            raise ValidationError("Für diese Installation gibt es keine erzeugte Musik.")
+        result = await self._renderer_app.async_result(job_id)
+        if not result:
+            raise ValidationError("Zu diesem Auftrag gibt es kein Ergebnis.")
+        seconds = float((result.get("video") or {}).get("duration_seconds") or 0.0)
+        if seconds <= 0:
+            # Named rather than defaulted: falling back to the estimate
+            # here would fit the score to a length nobody measured, and
+            # the mismatch would only be audible at the end of the film.
+            raise ValidationError(
+                "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
+            )
+        timeline = await self._music_timeline(trip_id, seconds)
+        if not timeline:
+            raise ValidationError(
+                "Für diesen Film ist noch keine Musik erzeugt worden."
+            )
+        try:
+            music, files = await self._hass.async_add_executor_job(
+                build_music_timeline_package, timeline
+            )
+        except MusicPackageError as err:
+            raise ValidationError(str(err)) from err
+        if not music:
+            raise ValidationError(
+                "Die erzeugten Musikdateien sind nicht mehr im Musikordner."
+            )
+        submitted = await self._renderer_app.async_submit_add_music_job(
+            source_job_id=job_id,
+            music=music,
+            files=files,
+        )
+        _LOGGER.debug(
+            "Musik für %s aufgelegt: %s Abschnitte auf %.1f s",
+            trip_id,
+            len(music.get("sections") or []),
+            seconds,
+        )
+        return {
+            **submitted,
+            # The measured length, said back, because it is the number the
+            # score was fitted to and it is NOT the one the offer quoted.
+            "film_seconds": round(seconds, 2),
+        }
 
     async def async_music_options(self) -> list[dict[str, Any]]:
         """What could be played under a film. Names and sizes only."""

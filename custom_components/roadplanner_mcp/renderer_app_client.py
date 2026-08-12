@@ -43,11 +43,13 @@ from .render_profiles import (
     REVIEW_COPY_PROFILES,
 )
 from .renderer_app_protocol import (
+    ACTION_ADD_MUSIC,
     ACTION_CREATE_REVIEW_COPY,
     ACTION_CREATE_TEST_ARTIFACT,
     ACTION_RENDER_REMOTION_TEST,
     ACTION_RENDER_TRIP_DAY,
     ACTION_RENDER_TRIP_FILM,
+    ARTIFACT_FILM_WITH_MUSIC,
     ARTIFACT_REVIEW_COPY,
     ARTIFACT_TRIP_FILM_VIDEO,
     FILM_JOB_TTL_SECONDS,
@@ -82,8 +84,11 @@ from .trip_day_render_package import (
     image_filename,
     validate_package,
 )
+from .trip_film_music import DEFAULT_VOLUME as DEFAULT_MUSIC_VOLUME
 from .trip_film_package import (
     FILM_MANIFEST_FILENAME,
+    MUSIC_MANIFEST_FILENAME,
+    MUSIC_PACKAGE_VERSION,
     validate_film_package,
 )
 
@@ -110,8 +115,10 @@ _KIND_BY_ACTION = {
     ACTION_RENDER_TRIP_DAY: "trip_day",
     ACTION_RENDER_TRIP_FILM: "trip_film",
     ACTION_CREATE_REVIEW_COPY: "review_copy",
+    ACTION_ADD_MUSIC: "film_music",
 }
 _KIND_BY_ARTIFACT = {
+    ARTIFACT_FILM_WITH_MUSIC: "film_music",
     ARTIFACT_REVIEW_COPY: "review_copy",
     ARTIFACT_TRIP_FILM_VIDEO: "trip_film",
     ARTIFACT_TRIP_DAY_VIDEO: "trip_day",
@@ -458,6 +465,78 @@ class RendererAppClient:
             "frame_range": list(frame_range) if frame_range else None,
         }
 
+    async def async_submit_add_music_job(
+        self,
+        *,
+        source_job_id: str,
+        music: dict[str, Any],
+        files: dict[str, bytes],
+        title: str = "Musik auflegen",
+    ) -> dict[str, Any]:
+        """Put a finished soundtrack onto a film that already exists.
+
+        Cheap in the way that matters: the app copies the video stream, so
+        this is seconds of work on a twelve-minute film. That is the whole
+        reason the music comes last - the film's length is measured by
+        then rather than estimated, and a soundtrack somebody does not
+        like costs another mux instead of another render.
+
+        Same ordering as every other job with a package: the audio first,
+        the job file last, so a worker that finds the job finds a complete
+        one.
+        """
+        source = validate_job_id(source_job_id)
+        sections = list((music or {}).get("sections") or [])
+        if not sections:
+            raise RendererProtocolError("Ohne Musikabschnitte gibt es nichts aufzulegen")
+        if len(sections) != len(files):
+            raise RendererProtocolError("Musikpaket und Audiodateien passen nicht zusammen")
+        job_id = new_job_id()
+        package = {
+            "package_version": MUSIC_PACKAGE_VERSION,
+            "job_id": job_id,
+            "volume": (music or {}).get("volume", DEFAULT_MUSIC_VOLUME),
+            "sections": sections,
+        }
+        job = build_job(
+            job_id=job_id,
+            action=ACTION_ADD_MUSIC,
+            message=title or "Musik auflegen",
+            now=utc_now(),
+            # Seconds of work, but it queues behind whatever else the one
+            # worker is doing - which may be an hour of 1440p.
+            ttl_seconds=FILM_JOB_TTL_SECONDS,
+            source_job_id=source,
+        )
+        written = await self._hass.async_add_executor_job(
+            self._write_music_job, job, package, files
+        )
+        return {
+            "job_id": job_id,
+            "state": JOB_QUEUED,
+            "submitted_at": job["created_at"],
+            "package_bytes": written,
+            "source_job_id": source,
+            "sections": len(sections),
+        }
+
+    def _write_music_job(
+        self, job: dict[str, Any], package: dict[str, Any], files: dict[str, bytes]
+    ) -> int:
+        folder = self._dir / INPUTS_DIR / validate_job_id(job["job_id"])
+        folder.mkdir(parents=True, exist_ok=True)
+        total = 0
+        for relative, blob in files.items():
+            target = self._safe_child(folder, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._write_atomic(target, blob)
+            total += len(blob)
+        manifest = json.dumps(package, ensure_ascii=False).encode("utf-8")
+        self._write_atomic(folder / MUSIC_MANIFEST_FILENAME, manifest)
+        total += len(manifest)
+        self._write_job(job)
+        return total
+
     def _write_trip_film_job(
         self, job: dict[str, Any], package: dict[str, Any], files: dict[str, bytes]
     ) -> int:
@@ -667,6 +746,7 @@ class RendererAppClient:
         video_path = ""
         for candidate in (
             ARTIFACT_REVIEW_COPY,
+            ARTIFACT_FILM_WITH_MUSIC,
             ARTIFACT_TRIP_FILM_VIDEO,
             ARTIFACT_TRIP_DAY_VIDEO,
             ARTIFACT_VIDEO,

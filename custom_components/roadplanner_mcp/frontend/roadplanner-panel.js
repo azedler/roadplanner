@@ -79,6 +79,9 @@ const SERVER_CONTINUING_ACTIONS = new Set([
   "story_film_render",
   "story_film_review_copy",
   "story_film_qa_render",
+  // Writes the whole score into the shared directory before the job
+  // file. Interrupted halfway it would leave a partial package.
+  "story_film_add_music",
 ]);
 
 class RoadplannerPanel extends HTMLElement {
@@ -1867,6 +1870,8 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyFilmQaRender();
     } else if (action === "story-film-review-copy" && this._canEdit()) {
       void this._storyFilmReviewCopy();
+    } else if (action === "story-film-add-music" && this._canEdit()) {
+      void this._storyFilmAddMusic();
     } else if (action === "renderer-app-cancel" && this._canEdit()) {
       void this._rendererAppCancel();
     } else if (action === "story-chapter-image" && this._canEdit()) {

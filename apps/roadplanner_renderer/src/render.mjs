@@ -28,6 +28,7 @@ import { promisify } from "node:util";
 
 import { openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 
+import { DEFAULT_VOLUME as MUSIC_VOLUME, muxArgs } from "./audiomux.mjs";
 import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
 import {
   DEFAULT_RENDER_PROFILE,
@@ -90,6 +91,12 @@ export const QA_MIN_SECONDS = 20;
 // enough that a wedged ffmpeg does not hold the only worker all evening.
 export const REVIEW_COPY_TIMEOUT_MS = Number(
   process.env.ROADPLANNER_REVIEW_COPY_TIMEOUT_MS || 900_000,
+);
+// Muxing copies the video stream, so this is minutes of margin around a
+// job that takes seconds. Deliberately far below the review copy's:
+// something that takes five minutes here is wedged, not slow.
+export const MUSIC_MUX_TIMEOUT_MS = Number(
+  process.env.ROADPLANNER_MUSIC_MUX_TIMEOUT_MS || 300_000,
 );
 /**
  * Hard limits.
@@ -703,6 +710,196 @@ export async function createReviewCopy({
       source_size_bytes: source.size_bytes,
       source_width: source.width,
       source_height: source.height,
+    },
+    timings,
+  };
+}
+
+/**
+ * The soundtrack onto a film that already exists.
+ *
+ * The counterpart to `createReviewCopy` and the same kind of job: one
+ * finished MP4 in, one finished MP4 out, no browser and no package of
+ * photographs. The difference is that this one does not re-encode the
+ * pictures at all - `-c:v copy` - so it costs seconds where a second
+ * Remotion pass costs twenty minutes.
+ *
+ * That is the whole reason the music comes last. The film's length is a
+ * MEASURED fact here rather than the estimate the plan was made from, so
+ * the soundtrack is finalised against the film that exists; and trying a
+ * different soundtrack is a seconds-long job rather than a decision
+ * about whether it is worth an evening.
+ */
+export async function muxFilmMusic({
+  sourcePath,
+  outputPath,
+  sections,
+  volume = MUSIC_VOLUME,
+  onProgress,
+  isCancelled = null,
+}) {
+  const startedAt = Date.now();
+  const timings = {};
+
+  let stat;
+  try {
+    stat = await fs.lstat(sourcePath);
+  } catch {
+    throw new RenderError("PACKAGE_MISSING", "Zu diesem Auftrag gibt es keinen Film.");
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new RenderError("PACKAGE_INVALID", "Die Quelle ist keine gewöhnliche Datei.");
+  }
+
+  const probeStarted = Date.now();
+  const source = await probe(sourcePath);
+  timings.probe_source = (Date.now() - probeStarted) / 1000;
+  if (source.duration_seconds <= 0) {
+    throw new RenderError("PACKAGE_INVALID", "Die Quelldatei hat keine lesbare Länge.");
+  }
+  if (source.has_audio) {
+    // Muxing onto a film that already has music would leave two
+    // soundtracks in one file, and the second one would be inaudible
+    // rather than obviously wrong. The silent film is the master.
+    throw new RenderError(
+      "PACKAGE_INVALID",
+      "Dieser Film hat bereits eine Tonspur - die Musik gehört auf den stummen Film.",
+    );
+  }
+
+  const list = (sections || []).filter((entry) => entry && entry.path);
+  if (!list.length) {
+    throw new RenderError("PACKAGE_INVALID", "Ohne Musikabschnitte gibt es nichts zu mischen.");
+  }
+  // Against the film that EXISTS, not the one the plan was made for. A
+  // section that starts after the last frame would be silently paid for
+  // and never heard, which is precisely the kind of absence this project
+  // keeps rendering as a state.
+  const overrun = list.filter((entry) => Number(entry.startSeconds) >= source.duration_seconds);
+  if (overrun.length) {
+    throw new RenderError(
+      "PACKAGE_INVALID",
+      `${overrun.length} Musikabschnitt(e) beginnen nach dem Filmende (${Math.round(
+        source.duration_seconds,
+      )} s).`,
+    );
+  }
+
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const partial = `${outputPath.replace(/\.mp4$/i, "")}.part.mp4`;
+  const args = [
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    ...muxArgs({
+      video: sourcePath,
+      sections: list,
+      output: partial,
+      filmSeconds: source.duration_seconds,
+      volume,
+    }),
+  ];
+
+  const muxStarted = Date.now();
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      let rest = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(
+          new RenderError(
+            "RENDER_TIMEOUT",
+            `Das Muxen hat die Zeitgrenze von ${Math.round(
+              MUSIC_MUX_TIMEOUT_MS / 1000,
+            )} s überschritten.`,
+          ),
+        );
+      }, MUSIC_MUX_TIMEOUT_MS);
+      let cancelled = false;
+      child.stdout.on("data", (chunk) => {
+        rest += chunk.toString();
+        const lines = rest.split("\n");
+        rest = lines.pop() ?? "";
+        for (const line of lines) {
+          const [key, value] = line.split("=");
+          if (key !== "out_time_us") continue;
+          const done = Number(value) / 1_000_000 / source.duration_seconds;
+          if (Number.isFinite(done)) onProgress?.(Math.max(0, Math.min(1, done)));
+        }
+        if (isCancelled && !cancelled) {
+          void Promise.resolve(isCancelled()).then((stop) => {
+            if (!stop || cancelled) return;
+            cancelled = true;
+            clearTimeout(timer);
+            child.kill("SIGKILL");
+            reject(new RenderError("CANCELLED", "Das Muxen wurde abgebrochen."));
+          }).catch(() => {});
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-600);
+      });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        reject(
+          new RenderError("RENDER_FAILED", "ffmpeg konnte nicht gestartet werden.", err?.message),
+        );
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (cancelled) return;
+        if (code === 0) resolve();
+        else reject(new RenderError("RENDER_FAILED", "Das Muxen ist fehlgeschlagen.", stderr));
+      });
+    });
+  } catch (err) {
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw err instanceof RenderError
+      ? err
+      : new RenderError("RENDER_FAILED", "Das Muxen ist fehlgeschlagen.", String(err));
+  }
+  timings.mux = (Date.now() - muxStarted) / 1000;
+
+  let facts;
+  try {
+    facts = await probe(partial);
+  } catch (err) {
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw err;
+  }
+  // The pictures were copied, so they must be identical. Anything else
+  // means the video stream was touched, and a re-encode nobody asked for
+  // is a quality loss nobody would look for.
+  const problems = [];
+  if (!facts.has_audio) problems.push("keine Tonspur");
+  if (facts.width !== source.width || facts.height !== source.height) {
+    problems.push(`Bildgröße ${facts.width}x${facts.height} statt ${source.width}x${source.height}`);
+  }
+  if (Math.abs(facts.duration_seconds - source.duration_seconds) > 0.5) {
+    problems.push(`Dauer ${facts.duration_seconds} s statt ${source.duration_seconds} s`);
+  }
+  if (facts.size_bytes <= 0) problems.push("Dateigröße 0");
+  if (problems.length) {
+    await fs.rm(partial, { force: true }).catch(() => {});
+    throw new RenderError(
+      "OUTPUT_INVALID",
+      `Der vertonte Film entspricht nicht der Erwartung: ${problems.join(", ")}.`,
+    );
+  }
+
+  await fs.rename(partial, outputPath);
+  timings.total = (Date.now() - startedAt) / 1000;
+  return {
+    facts: {
+      ...facts,
+      music_sections: list.length,
+      music_volume: volume,
+      source_size_bytes: source.size_bytes,
+      // The length the soundtrack was actually fitted to, said by the
+      // side that measured it. The plan was made against an estimate.
+      measured_seconds: source.duration_seconds,
     },
     timings,
   };
