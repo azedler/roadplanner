@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.112.1] - 2026-08-12
+
+### Fixed
+
+- **Der Prüfausschnitt startete überhaupt nicht mehr** — „Die Roadplanner-Aktion ist unerwartet fehlgeschlagen", auf dem echten System, beim ersten Render nach 4.112.0. Ursache: `NameError: name 'profile_id' is not defined`. Die Clip-Höhe wird jetzt aus dem Renderprofil geholt, und die Zeile stand in einer Hilfsfunktion, die diese Variable nicht hat — sie gehört der aufrufenden. **Python übersetzt das anstandslos**; es scheitert erst, wenn der Zweig läuft, und der braucht eine Reise mit Video. Genau die hat kein Test hier.
+
+  Zwei Sekunden später wäre der nächste gekommen: Die Paketprüfung maß jedes Bild noch gegen 280 kB — die Zahl, die als **Anker** für die Byte-Kurve stehenblieb, nicht als Grenze. Ein 1440p-Hero wiegt rund 760 kB, die Integration hätte ihr eigenes Paket abgelehnt. Dieselbe Form zum vierten Mal, und der Vergleichstest ließ sie durch, weil er die *andere* Konstante liest.
+
+  Dazu ein dritter, beim Aufräumen gefunden: `__init__.py` benutzte `_LOGGER` auf dem Pfad, auf dem ein Vertex-Dienstkonto nicht lesbar ist — die Datei hat keinen Logger und importiert `logging` nicht. Ein kaputtes Dienstkonto hätte einen Absturz erzeugt statt des Satzes, der erklärt, was daran kaputt ist.
+
+- **Es gibt jetzt eine Prüfung, die undefinierte Namen findet.** Jede andere in diesem Projekt liest Quelltext als *Text* — steht dieser String da, sind diese zwei Zahlen gleich —, und keine davon kann einen Namen sehen, den es nicht gibt; `compile()` prinzipbedingt auch nicht. Die neue geht den Syntaxbaum jedes Moduls durch und fragt, ob jeder gelesene Name aus irgendeinem sichtbaren Gültigkeitsbereich erreichbar ist. Sie brauchte selbst zwei Korrekturen: Die erste Fassung meldete Falschalarme auf Closures, die zweite sammelte jede lokale Variable in den Modulscope — und bestand damit ausgerechnet an dem Fehler, für den sie geschrieben wurde.
+
 ## [4.112.0] - 2026-08-12
 
 ### Changed

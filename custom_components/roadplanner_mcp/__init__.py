@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import PurePosixPath
 import secrets
 from typing import Any
@@ -221,6 +222,8 @@ from .webhook import (
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
+
+_LOGGER = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class RoadplannerRuntimeData:
