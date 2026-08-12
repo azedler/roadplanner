@@ -162,19 +162,30 @@ def verify_the_audio_is_found_wherever_it_is_nested() -> None:
     assert lyria.audio_from_response({"type": "image", "data": encoded}) is None
 
 
-def verify_the_request_targets_vertex_where_lyria_lives() -> None:
-    """The endpoint, and the assumption that used to be enforced here.
+def verify_both_routes_exist_and_are_chosen_by_configuration() -> None:
+    """Where Lyria answers is not settled, so neither is guessed.
 
-    This check previously read "Gemini rather than Vertex: one
-    authentication story, not two", and asserted that `aiplatform` did
-    NOT appear in the URL. It was not merely agreeing with a mistake, it
-    was holding it in place: Lyria is a Vertex model and the Gemini
-    Developer API does not serve it, so the request this test protected
-    could never have succeeded. It had simply never been made.
+    This check previously asserted that `aiplatform` did NOT appear in
+    the URL, under "Gemini rather than Vertex: one authentication story,
+    not two". It was not merely agreeing with a mistake - it was holding
+    one in place, with a reason that is true and irrelevant: Vertex is
+    less convenient, and convenience is not why an API works.
 
-    Convenience is not a reason an API works. Vertex does need a project
-    and a service account, and that is the price of the feature.
+    Then the accounts reversed. One says the Gemini Developer API does
+    not serve Lyria at all; another that Lyria 3 is reachable from AI
+    Studio's Interactions endpoint with an ordinary key. The
+    documentation that would settle it is not reachable from here.
+
+    So the endpoint is configuration rather than a belief: a project
+    means Vertex, no project means AI Studio. Whichever one a real call
+    succeeds against is the one that stays - and until such a call has
+    been made, neither is written down as fact.
     """
+    studio_url, studio_body = lyria.build_request("warm und ruhig")
+    assert studio_url == lyria.LYRIA_INTERACTIONS_ENDPOINT, studio_url
+    assert studio_body["model"] == lyria.LYRIA_MODEL
+    assert studio_body["input"] == "warm und ruhig"
+
     url, body = lyria.build_request("warm und ruhig", project="reise-film-2026")
     assert "aiplatform.googleapis.com" in url, url
     assert "generativelanguage" not in url, (
@@ -200,7 +211,8 @@ def verify_the_request_targets_vertex_where_lyria_lives() -> None:
     else:
         raise AssertionError("Ein leerer Prompt haette abgelehnt werden muessen")
     # A project id ends up in a URL. It is not somewhere for free text.
-    for bad in ("", "X", "../etc", "a" * 40, "Projekt Name"):
+    # An empty project is not an error - it is the AI Studio route.
+    for bad in ("X", "../etc", "a" * 40, "Projekt Name"):
         try:
             lyria.build_request("warm", project=bad)
         except lyria.LyriaError:
@@ -239,7 +251,7 @@ for check in (
     verify_the_brief_stays_instrumental_and_quiet,
     verify_the_cost_is_named_before_anything_is_generated,
     verify_the_audio_is_found_wherever_it_is_nested,
-    verify_the_request_targets_vertex_where_lyria_lives,
+    verify_both_routes_exist_and_are_chosen_by_configuration,
     verify_a_vertex_answer_is_read_at_all,
 ):
     check()

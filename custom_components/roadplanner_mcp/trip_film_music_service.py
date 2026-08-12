@@ -81,43 +81,51 @@ class TripFilmMusicService:
         self._hass = hass
         self._story_context = story_context
         self._session_factory = session_factory
-        # Kept for the shape of the call, and unused: Lyria is a Vertex
-        # model and refuses the Gemini API key outright. Removing the
-        # argument would break every caller for no gain, so it stays and
-        # says why it does nothing.
+        # The AI Studio route: the key this integration already has,
+        # against the Interactions endpoint.
         self._api_key_provider = api_key_provider
-        # Where the money is spent, and the only thing here that can
-        # authenticate: a project, a region and a service account. A
-        # callable rather than the values, so a key that is reconfigured
-        # takes effect without rebuilding the service.
+        # The Vertex route: a project, a region and a service account.
+        # Both are callables rather than values, so a credential added
+        # after startup takes effect without rebuilding the service.
         self._vertex_provider = vertex_provider
         self._root = Path(music_root)
 
-    def _vertex(self) -> dict[str, Any]:
-        """The Vertex settings, or a sentence saying which one is missing."""
+    def _route(self) -> dict[str, Any]:
+        """Which way this generation goes, and whether it can go at all.
+
+        Two routes exist because Google's own accounts of where Lyria
+        lives disagree, and the documentation that would settle it is not
+        reachable from the environment this was built in. A configured
+        Vertex project wins; otherwise the AI Studio key does. Naming
+        both beats guessing one - the last guess shipped an endpoint that
+        could not work and a test that defended it.
+        """
         found = self._vertex_provider() if callable(self._vertex_provider) else None
-        if not isinstance(found, dict):
-            raise ValidationError(
-                "Für die Musikgenerierung fehlen die Vertex-AI-Zugangsdaten. "
-                "Lyria läuft nicht über den Gemini-Schlüssel, sondern braucht "
-                "ein Google-Cloud-Projekt und ein Dienstkonto."
-            )
-        project = str(found.get("project") or "").strip()
-        if not project:
-            raise ValidationError("Für Vertex AI fehlt die Google-Cloud-Projekt-ID")
-        if not found.get("tokens"):
-            raise ValidationError("Für Vertex AI fehlt der Dienstkonto-Schlüssel")
-        return found
+        if isinstance(found, dict) and str(found.get("project") or "").strip():
+            if not found.get("tokens"):
+                raise ValidationError(
+                    "Für Vertex AI fehlt der Dienstkonto-Schlüssel. Ohne Projekt-ID "
+                    "läuft die Musik über den Gemini-Schlüssel aus AI Studio."
+                )
+            return {"kind": "vertex", **found}
+        key = str(self._api_key_provider() or "") if callable(self._api_key_provider) else ""
+        if key:
+            return {"kind": "gemini", "api_key": key}
+        raise ValidationError(
+            "Für die Musikgenerierung fehlt ein Zugang: entweder ein "
+            "Google-API-Schlüssel aus AI Studio oder ein Vertex-Projekt mit "
+            "Dienstkonto."
+        )
 
     def _vertex_state(self) -> tuple[bool, str]:
         """Can music be generated, and if not, which part is missing?
 
-        The same question `_vertex` answers by raising, in the form an
+        The same question `_route` answers by raising, in the form an
         offer needs: a read-only dialog must not fail just because
         nothing is configured yet.
         """
         try:
-            self._vertex()
+            self._route()
         except ValidationError as err:
             return False, str(err)
         return True, ""
@@ -255,10 +263,16 @@ class TripFilmMusicService:
         plan = await self._async_plan(trip_id, film_seconds)
         state = await self._async_section_state(plan)
         missing = [entry for entry in state if not entry["cached_name"]]
-        if missing and not self._api_key_provider():
-            raise ValidationError(
-                "Für KI-Musik ist kein Google-Schlüssel konfiguriert"
-            )
+        if missing:
+            # Asked of the route this generation would actually take.
+            # This used to read the API key alone, which would have
+            # refused a perfectly configured Vertex project for missing
+            # a credential it does not use - the same "wrong question"
+            # the availability flag had.
+            ready, why = self._vertex_state()
+            if not ready:
+                raise ValidationError(why)
+
 
         generated = 0
         for section, entry in zip(plan.get("sections") or [], state):
@@ -301,23 +315,25 @@ class TripFilmMusicService:
 
     async def _async_order(self, prompt: str, *, seconds: float | None = None) -> tuple[bytes, str]:
         """One generation. Everything that can cost money passes here."""
-        settings = self._vertex()
-        token = await self._async_access_token(settings["tokens"])
-        url, body = build_request(
-            prompt,
-            project=str(settings["project"]),
-            region=str(settings.get("region") or LYRIA_REGION),
-            seconds=seconds,
-        )
+        route = self._route()
+        if route["kind"] == "vertex":
+            token = await self._async_access_token(route["tokens"])
+            headers = {"Authorization": f"Bearer {token}"}
+            url, body = build_request(
+                prompt,
+                project=str(route["project"]),
+                region=str(route.get("region") or LYRIA_REGION),
+                seconds=seconds,
+            )
+        else:
+            headers = {"x-goog-api-key": str(route["api_key"])}
+            url, body = build_request(prompt)
         try:
             session = self._session_factory()
             async with session.post(
                 url,
                 json=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
+                headers={**headers, "Content-Type": "application/json"},
                 timeout=LYRIA_TIMEOUT_SECONDS,
             ) as response:
                 if response.status >= 400:

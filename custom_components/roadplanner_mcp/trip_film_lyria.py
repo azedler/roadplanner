@@ -215,7 +215,20 @@ def track_filename(key: str, extension: str = "mp3") -> str:
     return f"lyria-{clean}.{suffix}"
 
 
-def build_request(
+# The AI Studio route: the Gemini Developer API's Interactions endpoint,
+# authenticated with the key this integration already has.
+LYRIA_INTERACTIONS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
+
+
+def build_gemini_request(prompt: str, *, model: str = LYRIA_MODEL) -> tuple[str, dict[str, Any]]:
+    """The AI Studio form: one key, one endpoint, no project."""
+    clean = str(prompt or "").strip()
+    if not clean:
+        raise LyriaError("Für die Musikgenerierung fehlt ein Prompt")
+    return LYRIA_INTERACTIONS_ENDPOINT, {"model": model, "input": clean}
+
+
+def build_vertex_request(
     prompt: str,
     *,
     project: str,
@@ -223,17 +236,7 @@ def build_request(
     model: str = LYRIA_MODEL,
     seconds: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """The endpoint and body for one generation.
-
-    Vertex takes `instances` and `parameters` rather than the Gemini
-    shape this used to send. Kept as a pure function so it can be checked
-    without a network and without a key - which, until the endpoint was
-    corrected, was the only kind of checking it had ever had.
-
-    The duration is asked for explicitly. Leaving it out gets whatever
-    the model defaults to, and a section that comes back shorter than the
-    plan expects is precisely the failure this feature already had.
-    """
+    """The Vertex form: `instances` and `parameters`, bearer token."""
     clean = str(prompt or "").strip()
     if not clean:
         raise LyriaError("Für die Musikgenerierung fehlt ein Prompt")
@@ -245,6 +248,37 @@ def build_request(
         "instances": [instance],
         "parameters": {"sampleCount": 1},
     }
+
+
+def build_request(
+    prompt: str,
+    *,
+    project: str = "",
+    region: str = LYRIA_REGION,
+    model: str = LYRIA_MODEL,
+    seconds: float | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Where this generation goes, and in what shape.
+
+    BOTH routes exist, and deliberately so. Google's own accounts of
+    where Lyria lives disagree: one says the Gemini Developer API does
+    not serve it and Vertex is the only way, another says Lyria 3 is
+    reachable from AI Studio's Interactions endpoint with an ordinary
+    API key. The documentation that would settle it is not reachable
+    from this environment, and picking one on the strength of the most
+    recent sentence somebody read is how the wrong endpoint got shipped
+    and defended by a test in the first place.
+
+    So the choice is configuration, not a guess: with a project
+    configured this goes to Vertex, otherwise to AI Studio. The one
+    piece of evidence that actually decides it is a call that succeeds,
+    and whichever route works is the one that stays.
+    """
+    if str(project or "").strip():
+        return build_vertex_request(
+            prompt, project=project, region=region, model=model, seconds=seconds
+        )
+    return build_gemini_request(prompt, model=model)
 
 
 def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
@@ -267,7 +301,7 @@ def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
 
     found: list[tuple[bytes, str]] = []
 
-    def walk(node: Any, depth: int = 0) -> None:
+    def walk(node: Any, depth: int = 0, under: str = "") -> None:
         if found or depth > 12:
             return
         if isinstance(node, dict):
@@ -287,6 +321,12 @@ def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
                 str(node.get("type") or "") == "audio"
                 or mime.startswith("audio/")
                 or bool(node.get("bytesBase64Encoded"))
+                # `{"output_audio": {"data": ...}}` - the shape the
+                # google-genai SDK reads. The block itself says nothing
+                # about being audio; the key that holds it does. Without
+                # this the walker skips it, and a generation that was
+                # billed comes back as "keine Audiodaten".
+                or "audio" in under.lower()
             )
             if is_audio and encoded:
                 try:
@@ -296,11 +336,11 @@ def audio_from_response(payload: Any) -> tuple[bytes, str] | None:
                 if blob and len(blob) <= MAX_TRACK_BYTES:
                     found.append((blob, mime or "audio/mp3"))
                 return
-            for value in node.values():
-                walk(value, depth + 1)
+            for key, value in node.items():
+                walk(value, depth + 1, str(key))
         elif isinstance(node, list):
             for value in node:
-                walk(value, depth + 1)
+                walk(value, depth + 1, under)
 
     walk(payload)
     return found[0] if found else None

@@ -274,18 +274,56 @@ def verify_without_a_key_nothing_is_promised() -> None:
     """
     with tempfile.TemporaryDirectory() as root:
         session = _Session()
-        service = _service(root, session, vertex=False)
+        # NEITHER route configured. Either one alone is enough, so this
+        # has to remove both to mean "no access".
+        service = _service(root, session, api_key="", vertex=False)
         offer = asyncio.run(service.async_offer("t1", film_seconds=FILM))
         assert offer["available"] is False
-        # Not just "no": which part is missing.
-        assert "Vertex" in offer["unavailable_reason"], offer
+        # Not just "no": what would fix it, and that there are two ways.
+        reason = offer["unavailable_reason"]
+        assert "AI Studio" in reason and "Vertex" in reason, offer
         try:
             asyncio.run(service.async_generate("t1", film_seconds=FILM))
         except Exception as err:  # noqa: BLE001 - the message is the assertion
-            assert "Vertex" in str(err), err
+            assert "Zugang" in str(err), err
         else:  # pragma: no cover - a failure path that must not vanish
             raise AssertionError("ohne Schlüssel darf nicht erzeugt werden")
         assert session.calls == 0
+
+
+def verify_either_route_is_enough_on_its_own() -> None:
+    """Two ways in, because it is not settled which one Lyria answers on.
+
+    Google's own accounts disagree - one says the Gemini Developer API
+    does not serve Lyria at all, another that Lyria 3 is reachable from
+    AI Studio's Interactions endpoint with an ordinary key. Rather than
+    pick one from whichever sentence was read most recently, both are
+    built: a configured project goes to Vertex, otherwise the key goes
+    to AI Studio. The last guess shipped an endpoint that could not work
+    AND a test that defended it.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        # Key only: AI Studio, no project needed.
+        session = _Session()
+        offer = asyncio.run(
+            _service(root, session, vertex=False).async_offer("t1", film_seconds=FILM)
+        )
+        assert offer["available"] is True, offer
+        asyncio.run(
+            _service(root, session, vertex=False).async_generate("t1", film_seconds=FILM)
+        )
+        assert session.calls > 0
+        assert session.token_calls == 0, "AI Studio braucht kein Token"
+        assert all("generativelanguage" in url for url in session.urls), session.urls
+
+    with tempfile.TemporaryDirectory() as root:
+        # Project configured: Vertex wins, and a token is minted once.
+        session = _Session()
+        asyncio.run(_service(root, session).async_generate("t1", film_seconds=FILM))
+        assert session.token_calls == 1, (
+            f"{session.token_calls} Token für einen Soundtrack - eines reicht"
+        )
+        assert any("aiplatform" in url for url in session.urls), session.urls
 
 
 def verify_a_film_without_length_orders_nothing() -> None:
