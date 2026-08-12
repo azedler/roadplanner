@@ -1701,14 +1701,17 @@ async def _execute_action(
         # read-only, free, and the only thing the panel may do before
         # somebody has agreed to a price.
         trip_id = str(data.get("trip_id") or "")
+        # Length AND shape out of ONE planner run. The shape is what lets
+        # the boundaries land where the journey turns rather than where
+        # the division falls - and it was being computed and thrown away,
+        # so the planner never saw one and the arithmetic fallback ran
+        # every single time while the dialog said so and nobody read it.
+        seconds, scene_plan = await runtime.trip_film.async_estimate_plan(trip_id)
         return {
             "film_music_offer": await runtime.film_music.async_offer(
                 trip_id,
-                # How long the film runs decides how many pieces of music
-                # it needs, and therefore the price. Asked of the film
-                # rather than guessed here, so the offer and the render
-                # cannot disagree about what is being scored.
-                film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
+                film_seconds=seconds,
+                scene_plan=scene_plan,
             )
         }
 
@@ -1718,14 +1721,15 @@ async def _execute_action(
         # here. A cached track for the same brief is returned without
         # generating again, so a second attempt costs nothing.
         trip_id = str(data.get("trip_id") or "")
+        # The same two values, from the same call the offer made. Both
+        # have to agree or the price somebody accepted would buy a
+        # different set of sections than the one that was shown.
+        seconds, scene_plan = await runtime.trip_film.async_estimate_plan(trip_id)
         return {
             "film_music_generated": await runtime.film_music.async_generate(
                 trip_id,
-                # The same length the offer quoted a price for. Both go
-                # through the same estimate, and the plan rounds it, so
-                # agreeing to an offer cannot silently order a different
-                # number of sections than the one shown.
-                film_seconds=await runtime.trip_film.async_estimate_seconds(trip_id),
+                film_seconds=seconds,
+                scene_plan=scene_plan,
             )
         }
 

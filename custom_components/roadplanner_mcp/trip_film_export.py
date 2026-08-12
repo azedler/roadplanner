@@ -151,8 +151,9 @@ class TripFilmExporter:
             # wrong" and "the map is honest about not knowing" are two
             # different findings.
             "estimated_map_chapters": (map_context or {}).get("estimated_chapters", 0),
-            "film_seconds": _estimated_seconds(
-                chapters, budget, map_context, manifest.get("narrative")
+            "film_seconds": plan_seconds(
+                _estimated_plan(chapters, budget, map_context, manifest.get("narrative"))
+                or {}
             ),
         }
 
@@ -169,15 +170,27 @@ class TripFilmExporter:
         seconds, which is why the music plan rounds before it decides
         anything (see ``trip_film_music_service``).
         """
+        seconds, _plan = await self.async_estimate_plan(trip_id)
+        return seconds
+
+    async def async_estimate_plan(self, trip_id: str) -> tuple[float, dict[str, Any]]:
+        """The same estimate, and the scene plan it was measured from.
+
+        Both come out of one planner run, so the length the music is
+        priced against and the shape the music is planned over cannot
+        describe two different films. Handing back only the number is
+        what left the music planner without a cue sheet.
+        """
         manifest = await self._story_context.async_manifest(trip_id)
         chapters = manifest.get("chapters") or []
         if not chapters:
-            return 0.0
+            return 0.0, {}
         budget = _film_budget(chapters)
         map_context = await self._map.async_build(trip_id, manifest)
-        return _estimated_seconds(
-            chapters, budget, map_context, manifest.get("narrative")
-        )
+        plan = _estimated_plan(chapters, budget, map_context, manifest.get("narrative"))
+        if not plan:
+            return 0.0, {}
+        return plan_seconds(plan), plan
 
     async def async_add_music(self, trip_id: str, job_id: str) -> dict[str, Any]:
         """Put the already-generated score onto an already-rendered film.
@@ -455,8 +468,8 @@ class TripFilmExporter:
         if self._music_timeline is None:
             _LOGGER.info("KI-Musik angefragt, aber kein Musikdienst verdrahtet")
             return None, {}
-        seconds = await self.async_estimate_seconds(trip_id)
-        timeline = await self._music_timeline(trip_id, seconds)
+        seconds, scene_plan = await self.async_estimate_plan(trip_id)
+        timeline = await self._music_timeline(trip_id, seconds, scene_plan)
         if not timeline:
             # Nothing was generated for this film yet. A film without
             # music is a complete film; a render that fails because
@@ -716,21 +729,27 @@ def _film_budget(chapters: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _estimated_seconds(
+def _estimated_plan(
     chapters: list[dict[str, Any]],
     budget: dict[str, int],
     map_context: dict[str, Any] | None,
     narrative: Any = None,
-) -> float:
+) -> dict[str, Any] | None:
     """Run the real scene planner over what the film would contain.
 
     Deliberately the same function the render uses rather than an
     average-seconds-per-picture rule of thumb. A rule of thumb drifts
     away from the film the moment any timing constant moves, and then
     the soundtrack is laid out for a film nobody makes.
+
+    The PLAN is returned rather than only its length. It used to be
+    thrown away here, and the music planner - which exists to put the
+    section boundaries where the journey turns rather than where the
+    division falls - was therefore never given one and never ran. It
+    costs nothing: no photograph is opened, the planner counts pictures.
     """
     if not chapters:
-        return 0.0
+        return None
     planned = []
     for chapter in chapters:
         wanted = int(budget.get(str(chapter.get("chapter_id") or ""), 0))
@@ -754,8 +773,8 @@ def _estimated_seconds(
             ),
         )
     except FilmPlanError:
-        return 0.0
-    return plan_seconds(plan)
+        return None
+    return plan
 
 
 __all__ = ["GENERATED_MUSIC", "TripFilmExporter"]

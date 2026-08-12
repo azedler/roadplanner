@@ -468,6 +468,7 @@ export const storyEditorMixin = {
     // The film this render will produce, and therefore the only thing a
     // review copy may later be made from.
     this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._storyFilmSourceIsExcerpt = false;
     this._rendererAppPackage = {
       package_bytes: result.renderer_app_job.package_bytes,
       image_count: result.renderer_app_job.image_count,
@@ -727,8 +728,16 @@ export const storyEditorMixin = {
       this._render({ preserveScroll: true });
       return;
     }
-    this._rendererAppKind = "trip_film";
+    // Its own kind. Announcing a sixty-second excerpt as "ein Reisefilm
+    // wird gerendert - das dauert viele Minuten" makes a two-minute job
+    // look like a ninety-minute one, and the job already carries what it
+    // needs to say otherwise.
+    this._rendererAppKind = "film_excerpt";
     this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    // Marked, because an excerpt is a source for nothing: a score laid
+    // out for twelve minutes does not go onto ninety seconds, and a
+    // review copy of a piece answers a question nobody asked.
+    this._storyFilmSourceIsExcerpt = true;
     this._storyFilmExcerpt = result.renderer_app_job.excerpt || null;
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
@@ -831,6 +840,7 @@ export const storyEditorMixin = {
     // sends out. Copying the silent cut would answer the one question a
     // review of a finished film cannot answer.
     this._storyFilmSourceJobId = result.renderer_app_job.job_id;
+    this._storyFilmSourceIsExcerpt = false;
     this._rendererAppKind = "film_music";
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
@@ -1007,7 +1017,7 @@ export const storyEditorMixin = {
     // `results/<job>/roadplanner-trip-film.mp4`, which a review-copy job
     // never produced, so it would fail with a missing file - a confusing
     // way to say "that made no sense".
-    if (!this._storyFilmSourceJobId) return "";
+    if (!this._storyFilmSourceJobId || this._storyFilmSourceIsExcerpt) return "";
     const chosen = this._storyFilmChosen(profiles, this._storyFilmReviewProfile);
     return `<label class="inline-select"><span>Kopie</span><select data-action="story-film-review-profile">
       ${profiles
@@ -1031,7 +1041,8 @@ export const storyEditorMixin = {
    */
   _renderStoryFilmAddMusic() {
     const offer = this._storyFilmMusicOfferData;
-    if (!this._storyFilmSourceJobId || !offer) return "";
+    if (!this._storyFilmSourceJobId || this._storyFilmSourceIsExcerpt) return "";
+    if (!offer) return "";
     // Every section already generated - anything less would put a score
     // on that goes quiet partway through.
     const ready = (offer.section_state || []).length
@@ -1064,6 +1075,14 @@ export const storyEditorMixin = {
         download: "Kopie herunterladen",
         cancelled: "Die Review-Kopie wurde abgebrochen",
         failed: "Die Review-Kopie ist nicht fertig geworden",
+      },
+      film_excerpt: {
+        running:
+          "Ein Prüfausschnitt wird gerendert (%s). Das Paket ist so groß wie bei einem ganzen Film, gezeichnet werden aber nur 60 bis 90 Sekunden – es dauert Minuten, nicht Stunden.",
+        done: "Der Prüfausschnitt ist fertig",
+        download: "Prüfausschnitt herunterladen",
+        cancelled: "Der Prüfausschnitt wurde abgebrochen",
+        failed: "Der Prüfausschnitt ist nicht fertig geworden",
       },
       film_music: {
         running:
