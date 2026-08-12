@@ -24,6 +24,7 @@ own limits.
 from __future__ import annotations
 
 import hashlib
+import io
 from pathlib import Path
 import shutil
 import tempfile
@@ -34,6 +35,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .media_targets import photo_slots, required_edge, slot_upper_edge
 from .qa_excerpt import QaExcerptError, excerpt_range
 from .render_profiles import DEFAULT_RENDER_PROFILE, RENDER_PROFILES
 from .roadplanner import RoadplannerError, ValidationError
@@ -56,6 +58,7 @@ from .trip_film_music import (
 )
 from .trip_film_plan import (
     FILM_FPS,
+    SCENE_PHOTO,
     FilmPlanError,
     build_scene_plan,
     plan_seconds,
@@ -66,6 +69,7 @@ from .video_proxy import (
     VideoProxyError,
     async_cut_render_proxy,
     async_probe_shape,
+    render_height,
 )
 from .trip_map_builder import MapContextBuilder
 from .trip_day_render_package import RenderPackageError
@@ -270,9 +274,18 @@ class TripFilmExporter:
         """Build the package for the whole trip and queue the render.
 
         `profile` decides pixels and nothing else. Every line below it is
-        the same whatever it says: the same manifest, the same photographs,
-        the same clips, the same seconds. It is passed to the submit and
-        never consulted here, which is what keeps that true.
+        the same whatever it says: the same manifest, the same
+        photographs, the same clips, the same seconds, the same order,
+        the same crop.
+
+        It IS consulted here now, in exactly one place: how many pixels a
+        prepared photograph gets. A picture drawn into a full 1440p frame
+        needs 2790 of them and was being given 900, which is a 3.1x
+        upscale in the renderer and was the visible softness. That is a
+        technical property of the asset, not a decision about the film -
+        and the line between the two is the one thing worth guarding
+        here, so a test asserts the scene plan comes out identical at
+        every profile.
         """
         trip_id = str(trip_id or "").strip()
         if not trip_id:
@@ -300,6 +313,14 @@ class TripFilmExporter:
                 budget[chapter_id] = max(0, budget[chapter_id] - len(entries))
         session = async_get_clientsession(self._hass)
 
+        # Which slot every picture lands in, for this size. Derived from
+        # the same planner run the length estimate uses - it counts
+        # pictures and never opens one, so this costs nothing and needs
+        # no photograph to exist yet.
+        _seconds, planned = await self.async_estimate_plan(trip_id)
+        slots = photo_slots(planned) if planned else {}
+        prepared_report: list[dict[str, Any]] = []
+
         photos_by_chapter: dict[str, list[bytes]] = {}
         # Which prepared picture is the day's hero, by position. Computed
         # here because this is the only place that knows both the order
@@ -318,6 +339,14 @@ class TripFilmExporter:
                 if record is None:
                     missing_media += 1
                     continue
+                # Which rendition to ask for. Decided from the slot
+                # alone, because nothing has been downloaded yet and the
+                # orientation is therefore unknown - so this asks the
+                # landscape question, which is the larger of the two.
+                chapter_id = str(chapter.get("chapter_id") or "")
+                scene_type, in_scene = slots.get(
+                    (chapter_id, len(prepared)), (SCENE_PHOTO, 1)
+                )
                 raw = await async_fetch_media_photo(
                     session,
                     self._experience,
@@ -325,11 +354,29 @@ class TripFilmExporter:
                     record,
                     cache=self._media_cache,
                     hass=self._hass,
+                    wanted_edge=slot_upper_edge(scene_type, in_scene, profile_id),
                 )
                 if not raw:
                     missing_media += 1
                     continue
-                shrunk = await self._hass.async_add_executor_job(shrink_film_photo, raw)
+                # The slot this picture will hold. Its index is the number
+                # already prepared: a fetch that failed shifts everything
+                # after it, so the manifest's own position would name the
+                # wrong picture - the same reasoning as the hero above.
+                #
+                # A picture whose slot is not in the plan gets the full
+                # frame. Generous on purpose: pictures go missing, and a
+                # chapter that ends up with fewer of them moves the rest
+                # into BIGGER slots, never smaller.
+                report: dict[str, Any] = {}
+                shrunk = await self._hass.async_add_executor_job(
+                    _prepare_photo, raw, scene_type, in_scene, profile_id, report
+                )
+                if report:
+                    report["chapter_id"] = chapter_id
+                    report["scene_type"] = scene_type
+                    report["in_scene"] = in_scene
+                    prepared_report.append(report)
                 if shrunk:
                     if str(entry.get("role") or "") == "hero":
                         prominent_by_chapter.setdefault(
@@ -414,6 +461,12 @@ class TripFilmExporter:
             # nobody reads "automatisch gewählt" as "everything was
             # considered".
             "excerpt": excerpt_info,
+            # What every picture was prepared at, against what its slot
+            # needs. Diagnostic only: a photograph that cannot reach its
+            # slot stays in the film. Somebody would rather see the real
+            # memory a little softer than not see it - so this marks it
+            # and changes nothing.
+            "media_resolution": _resolution_summary(prepared_report),
         }
 
 
@@ -622,11 +675,19 @@ class TripFilmExporter:
                             await source_of.async_download_to(record, source)
                             originals[media_id] = source
                         target = work / f"{chapter_id}-{position}.mp4"
+                        # The film's copy, at the size this film is. A
+                        # flat 720 was right while there was one size and
+                        # became a 2x upscale the moment a profile could
+                        # ask for 1440. Never above the recording's own
+                        # height - enlarging a phone video before handing
+                        # it over buys nothing and costs bytes.
+                        shape = await async_probe_shape(source)
                         await async_cut_render_proxy(
                             source,
                             target,
                             start=float(segment.get("render_start_seconds") or 0.0),
                             end=float(segment.get("render_end_seconds") or 0.0),
+                            height=render_height(profile_id, shape[1]),
                         )
                         raw = await self._hass.async_add_executor_job(
                             target.read_bytes
@@ -727,6 +788,85 @@ def _film_budget(chapters: list[dict[str, Any]]) -> dict[str, int]:
         for chapter in chapters
         if isinstance(chapter, dict)
     }
+
+
+def _resolution_summary(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """The picture quality of the package, in numbers somebody can read.
+
+    Two counts that must never be confused: a picture the preparation
+    limited, and a picture the SOURCE limited. The first is ours to fix
+    and the second is not, and reporting them as one number would send
+    somebody looking in the wrong place - which is what "expected a PNG
+    with a transparent background" did on every rejection.
+
+    Only the pictures that fell short are listed, worst first. A film of
+    two hundred and sixty entries nobody reads is the same as no
+    diagnosis at all.
+    """
+    short = [
+        entry
+        for entry in reports
+        if entry.get("resolution_status") == "source_limited"
+    ]
+    short.sort(
+        key=lambda entry: (max(entry.get("prepared_width", 0), entry.get("prepared_height", 0)))
+        / max(1, entry.get("required_edge", 1))
+    )
+    return {
+        "prepared": len(reports),
+        "sufficient": len(reports) - len(short),
+        "source_limited": len(short),
+        "largest_prepared_edge": max(
+            (
+                max(entry.get("prepared_width", 0), entry.get("prepared_height", 0))
+                for entry in reports
+            ),
+            default=0,
+        ),
+        "package_photo_bytes": sum(int(entry.get("bytes") or 0) for entry in reports),
+        "worst": [
+            {
+                "chapter_id": entry.get("chapter_id"),
+                "scene_type": entry.get("scene_type"),
+                "source": f"{entry.get('source_width')}x{entry.get('source_height')}",
+                "prepared": f"{entry.get('prepared_width')}x{entry.get('prepared_height')}",
+                "required_edge": entry.get("required_edge"),
+            }
+            for entry in short[:8]
+        ],
+    }
+
+
+def _prepare_photo(
+    raw: bytes,
+    scene_type: str,
+    in_scene: int,
+    profile_id: str,
+    report: dict[str, Any],
+) -> bytes | None:
+    """Decode once, work out what this slot needs, resize once.
+
+    The picture has to be decoded to know its shape, and its shape
+    decides the number: with `contain` the binding axis is the other
+    one, so an upright photograph in a full frame needs little more than
+    half of what a landscape one does. Doing both in one place means one
+    decode and exactly one lossy step.
+    """
+    try:
+        from PIL import Image  # noqa: PLC0415 - optional at import time
+
+        with Image.open(io.BytesIO(raw)) as probe:
+            width, height = probe.size
+    except Exception:  # noqa: BLE001 - a picture that will not open is skipped below
+        width = height = 0
+    edge = required_edge(
+        scene_type=scene_type,
+        photo_count=in_scene,
+        profile_id=profile_id,
+        source_width=width or 1,
+        source_height=height or 1,
+    )
+    return shrink_film_photo(raw, max_edge=edge, report=report)
 
 
 def _estimated_plan(

@@ -424,7 +424,13 @@ export const MAX_FILM_CHAPTERS = 45;
 // numbers against the Python ones directly.
 export const MAX_FILM_PHOTOS_PER_CHAPTER = 14;
 export const MAX_FILM_IMAGES = 260;
-export const MAX_FILM_IMAGE_BYTES = 280 * 1024;
+// And a third time, caught before it shipped rather than after: a
+// picture is now prepared for the SLOT it lands in, so a landscape hero
+// at 1440p is about 760 kB where the old fixed 900-pixel one was 80. At
+// 280 kB this side would have refused the whole package with "Bild mit
+// ungültiger Größe" - two deployables, one number, one side raised.
+// The same test compares this against the Python ceiling.
+export const MAX_FILM_IMAGE_BYTES = 4 * 1024 * 1024;
 
 // The position range follows MAX_FILM_PHOTOS_PER_CHAPTER. It was
 // [1-4] and silently rejected every fifth picture of a day when that

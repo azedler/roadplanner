@@ -6,6 +6,36 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.112.0] - 2026-08-12
+
+### Changed
+
+- **Fotos und Clips werden jetzt in der Auflösung vorbereitet, die ihr Platz im Film wirklich braucht** (Add-on 0.26.0). Der erste 1440p-Prüfausschnitt zeigte Fotos, die neben Schrift, Grafik und Karte sichtbar weicher wirkten — auffällig bei den großen Einzelbildern, nicht bei den kleinen Kacheln. Die Ursache war **eine Zahl**: Jedes Bild wurde auf 900 Pixel längste Kante gebracht, egal wohin es im Film gehört.
+
+  Gemessen statt vermutet, gegen die Layout-Arithmetik der Komposition selbst:
+
+  | Slot | braucht bei 1440p | hatte | Upscale |
+  |---|---|---|---|
+  | Hero, quer | 2790 px | 900 | **3,10×** |
+  | Vollbild, hoch | 1526 px | 900 | 1,70× |
+  | Collage 2er | 1120 px | 900 | 1,24× |
+  | Collage 4er | 648 px | 900 | 0,72× |
+  | Collage 9er | 416 px | 900 | 0,46× |
+
+  Genau das war zu sehen. Vier-, Sechser- und Neunerkacheln bekamen schon vorher **mehr** Pixel geliefert, als sie zeichnen — die waren nie das Problem und werden jetzt sogar kleiner.
+
+  Drei Größen entscheiden, und alle drei sind aus dem Rendering abgelesen, nicht gewählt: die **Box** aus derselben Rasterrechnung, die die Komposition benutzt; der **Fit** aus ihrem `objectFit` — nur ein Querformat im Vollbild ist `cover`, alles andere `contain`, weil eine Wand aus Erinnerungen nicht beschnitten werden darf; und die **Reserve** aus der Ken-Burns-Spanne, 1,09 für ein Hero und 1,06 sonst. Weil `contain` auf der anderen Achse bindet, braucht ein Hochformat-Hero 1570 statt 2790 Pixel — deshalb entscheidet die tatsächliche Bildform mit, nicht nur der Slot.
+
+  **Der Videoclip zog mit.** Der Renderproxy hatte 720 Zeilen, mit der Begründung „das ist die Größe, in der der Film rendert" — richtig, solange es eine Größe gab. Bei 1440p wurde ein Vollbild-Clip 2× hochgezogen. Jetzt kommt die Höhe aus dem Profil und nie über die Höhe der Aufnahme selbst. **Der Analyseproxy bleibt unverändert** (360p, 8 fps, stumm): Er ist das, was das Haus verlässt, und eine größere Filmkopie ruft nichts auf, analysiert nichts neu und ändert kein Segment.
+
+  **480p wird dabei sparsamer, nicht teurer.** Über einen echten Planaufbau gemessen (23 Tage, 253 Bilder): 8,0 MB bei 480p, 13,1 MB bei 720p, 45,5 MB bei 1440p — gegen rund 20 MB bei der alten festen Größe. Nur die große Ausgabe wächst, und zwar um Faktor 2,3.
+
+  Ein zu kleines Foto bleibt im Film. Es wird nur markiert, und zwar getrennt danach, ob die **Vorbereitung** oder die **Quelle** die Grenze war — das eine ist zu beheben, das andere nicht, und eine gemeinsame Zahl schickt zum Nachsehen an die falsche Stelle. An Schrift, Abständen, Safe Areas und Layout wurde nichts angefasst; der Test gab dafür keinen Anlass.
+
+### Fixed
+
+- **Die neuen Bilder wären am Renderer abgeprallt.** `MAX_FILM_IMAGE_BYTES` stand auf **beiden** Seiten auf 280 kB, ein 1440p-Hero wiegt rund 760. Das Paket wäre komplett abgelehnt worden, mit einer Meldung, die nichts darüber sagt, welche der beiden Zahlen sich bewegt hat — dieselbe Form zum dritten Mal, diesmal vor der Auslieferung gefunden. Der Vergleichstest, der genau davor schützen soll, hätte es **nicht** gefunden: Sein Leser erkannte nur reine Ziffern, und beide neuen Werte stehen als Ausdruck da — ein Vergleich, der seine Operanden nicht findet, besteht.
+
 ## [4.111.0] - 2026-08-12
 
 ### Fixed
