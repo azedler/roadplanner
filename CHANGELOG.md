@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.111.0] - 2026-08-12
+
 ### Fixed
 
 - **Die Musikabschnitte wurden immer noch nach Division gesetzt, nicht nach dem Film.** Das Cue Sheet, der Auftrag an das Modell und die Prüfung seiner Antwort waren gebaut und hatten grüne Tests — und liefen nie. Kein Aufrufer übergab den Szenenplan, also brach der Planer ab, bevor er irgendetwas tat. Auf dem echten Panel war es zu sehen, in einer Zeile, die es seit gestern gibt: „Abschnitte geplant von — der Verteilung im Film". Die Abschnittsnamen sagten es ebenfalls: „Norden und große Reise **1**" und „**2**" ist der arithmetische Teiler, der die Hälften eines zu lang geratenen Abschnitts durchnummeriert, kein Modell, das eine Reise gelesen hat.
@@ -15,7 +17,6 @@ The project follows Semantic Versioning for public releases.
 - **Der Prüfausschnitt traf die Filmeröffnung** — genau die eine Minute, gegen die er gebaut wurde. Kein Rechenfehler: Auf einem echten Film enthält die Eröffnung alle sieben gewerteten Zutaten und erreicht damit die Höchstpunktzahl, wie viele spätere Fenster auch, und bei Gleichstand gewann das früheste. Intro, Crew und Startkarte kommen aber genau einmal vor, während der Film aus Tagen besteht. **Bei Gleichstand gewinnt jetzt das Fenster, das der Filmmitte am nächsten liegt.** Der Test hatte einen erfundenen Szenenplan mit ärmerer Eröffnung und war deshalb grün, während die echte Antwort Minute null lautete; er baut jetzt die Form nach, die wirklich auftrat.
 
 - **Ein Prüfausschnitt meldete sich als ganzer Film.** „Ein Reisefilm wird gerendert — das dauert viele Minuten" stand auch über einem Auftrag von sechzig Sekunden. Er hat eigene Worte und bietet weder „Musik auflegen" noch „Review-Kopie" an: Ein Soundtrack für zwölf Minuten passt nicht auf neunzig Sekunden.
-
 
 ## [4.110.0] - 2026-08-12
 
