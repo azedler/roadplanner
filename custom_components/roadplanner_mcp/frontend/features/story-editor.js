@@ -886,7 +886,13 @@ export const storyEditorMixin = {
         const state = entry.ready
           ? "vorhanden"
           : "noch nicht erzeugt";
-        const mixable = entry.ready && this._storyFilmSourceJobId;
+        // Only onto the EXCERPT. The layers are laid out from the
+        // excerpt's own clock and are as long as it is, so putting them
+        // on the whole film gives a minute of music and then fourteen
+        // minutes of silence - a result that looks like a finding about
+        // the architecture and is a finding about the wrong source.
+        const mixable =
+          entry.ready && this._storyFilmSourceJobId && this._storyFilmSourceIsExcerpt;
         // The job that produced THIS fassung, remembered per variant.
         // A review copy has to be made from it and not from the excerpt
         // the three were mixed onto - that one is the silent cut, and
@@ -955,6 +961,16 @@ export const storyEditorMixin = {
         String(Math.round(Number(excerpt.start_seconds || 0))),
       )} s), drei Tonfassungen. Nur der Ton ändert sich.</small>
       <ul class="plain-list">${rows}</ul>
+      ${
+        this._storyFilmSourceJobId && !this._storyFilmSourceIsExcerpt
+          ? `<small class="hint">Zuletzt wurde ein ganzer Film gerendert. Die Fassungen gehören auf den Prüfausschnitt – erzeuge ihn zuerst, sonst spielt die Musik nur die erste Minute.</small>`
+          : ""
+      }
+      ${
+        !this._storyFilmSourceJobId
+          ? `<small class="hint">Zum Auflegen fehlt noch der Prüfausschnitt.</small>`
+          : ""
+      }
       <ul class="story-music-facts">${facts}</ul>
       <small class="hint">${escapeHtml(String(found.notice || ""))}</small>
       ${
