@@ -886,13 +886,20 @@ export const storyEditorMixin = {
         const state = entry.ready
           ? "vorhanden"
           : "noch nicht erzeugt";
-        // Only onto the EXCERPT. The layers are laid out from the
-        // excerpt's own clock and are as long as it is, so putting them
-        // on the whole film gives a minute of music and then fourteen
-        // minutes of silence - a result that looks like a finding about
-        // the architecture and is a finding about the wrong source.
-        const mixable =
-          entry.ready && this._storyFilmSourceJobId && this._storyFilmSourceIsExcerpt;
+        // The layers are laid out from the excerpt's own clock and are
+        // as long as it is, so mixing them onto a whole film would give
+        // a minute of music and then fourteen minutes of silence.
+        //
+        // But this side cannot always TELL. An excerpt and a full film
+        // produce the same artifact, so after a page reload the panel
+        // has adopted a job it can only call "a film". Hiding the button
+        // on that would refuse the one case it is meant for - somebody
+        // who rendered an excerpt, reloaded, and came back to mix it.
+        // So `=== false` rather than falsy: only a film this session
+        // KNOWS is a whole film suppresses it, and the refusal that
+        // cannot be bypassed lives where the measured length is.
+        const wrongSource = this._storyFilmSourceIsExcerpt === false;
+        const mixable = entry.ready && this._storyFilmSourceJobId && !wrongSource;
         // The job that produced THIS fassung, remembered per variant.
         // A review copy has to be made from it and not from the excerpt
         // the three were mixed onto - that one is the silent cut, and
@@ -962,8 +969,8 @@ export const storyEditorMixin = {
       )} s), drei Tonfassungen. Nur der Ton ändert sich.</small>
       <ul class="plain-list">${rows}</ul>
       ${
-        this._storyFilmSourceJobId && !this._storyFilmSourceIsExcerpt
-          ? `<small class="hint">Zuletzt wurde ein ganzer Film gerendert. Die Fassungen gehören auf den Prüfausschnitt – erzeuge ihn zuerst, sonst spielt die Musik nur die erste Minute.</small>`
+        this._storyFilmSourceJobId && this._storyFilmSourceIsExcerpt === false
+          ? `<small class="hint">Zuletzt wurde ein ganzer Film gerendert. Die Fassungen gehören auf den Prüfausschnitt – erzeuge ihn zuerst, sonst spielt die Musik nur seinen Anfang.</small>`
           : ""
       }
       ${
