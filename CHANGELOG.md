@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eine Vergleichsfassung wird nicht mehr auf einen Film angeboten, der schon Ton hat.** Die jetzt sichtbare Meldung vom echten System war die des Mux: „Dieser Film hat bereits eine Tonspur — die Musik gehört auf den stummen Film." Ein Prüfausschnitt, der **mit ausgewählter Musik** gerendert wurde, hat den Ton fest eingebacken; eine Vergleichsfassung kann darauf nie liegen. Der Mux hat zu Recht abgelehnt — falsch war, dass das Panel den Knopf überhaupt anbot, und die Ablehnung las sich dann wie ein Fehler im Vergleich statt wie die falsche Quelle.
+
+  Die Auftragsliste meldet jetzt, ob ein fertiger Film eine Tonspur trägt. Die Karte blendet das Auflegen aus und nennt Ursache **und** Ausweg: oben „Musik" auf „Ohne Musik" stellen und den Prüfausschnitt neu rendern. „Unbekannt" bleibt dabei ein eigener dritter Wert — für einen Film, den niemand messen konnte, „kein Ton" zu melden, wäre genau die Vermutung, die den Knopf erzeugt, der nur scheitern kann.
+
 ## [4.113.6] - 2026-08-13
 
 ### Fixed
