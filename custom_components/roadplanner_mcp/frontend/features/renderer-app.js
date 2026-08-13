@@ -248,8 +248,31 @@ export const rendererAppMixin = {
     // separately from the job on screen, because after a copy has been
     // made the job on screen is the copy - and copying a copy would
     // compress something already compressed and answer nothing.
-    if (adopted.kind === "trip_film" && adopted.state === "completed") {
-      this._storyFilmSourceJobId = adopted.job_id;
+    //
+    // Searched through the whole list rather than read off the newest
+    // job. Somebody who rendered an excerpt and then mixed three music
+    // fassungen onto it has three newer jobs on top of it, and looking
+    // only at the first one reported that no film existed at all - while
+    // the film sat two entries further down, finished, on disk.
+    const film = recent.find(
+      (job) => job?.kind === "trip_film" && job?.state === "completed" && job?.job_id,
+    );
+    if (film) this._storyFilmSourceJobId = film.job_id;
+
+    // And the comparison fassungen that were already mixed. The browser
+    // knew which job was which fassung and forgot it on reload, so three
+    // finished mixes became three jobs nobody could tell apart - and a
+    // copy of one of them was unreachable. The server labels them now.
+    const mixes = {};
+    for (const job of recent) {
+      if (job?.kind !== "film_music" || job?.state !== "completed") continue;
+      const variant = String(job.music_variant || "");
+      // Newest first, so the first one seen for a fassung is the one to
+      // keep: re-mixing a fassung should reach the newer mix.
+      if (variant && !mixes[variant]) mixes[variant] = job.job_id;
+    }
+    if (Object.keys(mixes).length) {
+      this._storyMusicPrototypeJobs = { ...mixes, ...(this._storyMusicPrototypeJobs || {}) };
     }
     // The package facts were only ever in the browser that submitted the
     // job. Rather than invent them, the card shows the job without them.
