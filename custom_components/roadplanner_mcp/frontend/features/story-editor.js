@@ -899,7 +899,13 @@ export const storyEditorMixin = {
         // KNOWS is a whole film suppresses it, and the refusal that
         // cannot be bypassed lives where the measured length is.
         const wrongSource = this._storyFilmSourceIsExcerpt === false;
-        const mixable = entry.ready && this._storyFilmSourceJobId && !wrongSource;
+        // A film that already has a soundtrack cannot take a second one:
+        // the mux refuses it, and rightly. Only `true` suppresses the
+        // button - an unread film stays offered, because not knowing is
+        // not the same as knowing.
+        const alreadyScored = this._storyFilmSourceHasAudio === true;
+        const mixable =
+          entry.ready && this._storyFilmSourceJobId && !wrongSource && !alreadyScored;
         // The job that produced THIS fassung, remembered per variant.
         // A review copy has to be made from it and not from the excerpt
         // the three were mixed onto - that one is the silent cut, and
@@ -968,6 +974,11 @@ export const storyEditorMixin = {
         String(Math.round(Number(excerpt.start_seconds || 0))),
       )} s), drei Tonfassungen. Nur der Ton ändert sich.</small>
       <ul class="plain-list">${rows}</ul>
+      ${
+        this._storyFilmSourceHasAudio === true
+          ? `<small class="hint">Der vorhandene Ausschnitt hat schon eine Tonspur – er wurde mit ausgewählter Musik gerendert. Für den Vergleich braucht es den stummen: oben „Musik“ auf „Ohne Musik“ stellen und den Prüfausschnitt neu rendern.</small>`
+          : ""
+      }
       ${
         this._storyFilmSourceJobId && this._storyFilmSourceIsExcerpt === false
           ? `<small class="hint">Zuletzt wurde ein ganzer Film gerendert. Die Fassungen gehören auf den Prüfausschnitt – erzeuge ihn zuerst, sonst spielt die Musik nur seinen Anfang.</small>`

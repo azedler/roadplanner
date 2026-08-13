@@ -376,6 +376,42 @@ def verify_the_film_survives_the_jobs_piled_on_top_of_it() -> None:
     assert kinds[film] == "trip_film", kinds[film]
 
 
+def verify_a_film_says_whether_it_already_has_a_soundtrack() -> None:
+    """A comparison fassung only goes onto a SILENT film.
+
+    An excerpt rendered with a track selected has music baked in by the
+    composition, and the mux refuses to put a second one on it - rightly.
+    The panel offered the button anyway, and the refusal then read as a
+    fault in the comparison rather than as the wrong source. So the
+    listing says it, and `None` when nobody could read it: reporting "no
+    audio" for a film that was never measured is the guess that produces
+    exactly that button.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        cases = {"05:10": True, "05:11": False, "05:12": None}
+        wanted = {}
+        for stamp, audio in cases.items():
+            job_id = protocol.new_job_id()
+            wanted[job_id] = audio
+            _write_status(client, job_id, "completed", f"2026-08-13T{stamp}:00Z")
+            folder = client.exchange_dir / "results" / job_id
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / protocol.ARTIFACT_TRIP_FILM_VIDEO).write_bytes(b"ein Film")
+            payload = {} if audio is None else {"video": {"has_audio": audio}}
+            (folder / "result.json").write_text(json.dumps(payload), encoding="utf-8")
+        found = asyncio.run(client.async_recent_jobs())
+    for entry in found:
+        assert entry["kind"] == "trip_film", entry
+        expected = wanted[entry["job_id"]]
+        if expected is None:
+            assert "has_audio" not in entry, entry
+        else:
+            assert entry["has_audio"] is expected, entry
+
+
+verify_a_film_says_whether_it_already_has_a_soundtrack()
 verify_the_film_survives_the_jobs_piled_on_top_of_it()
 verify_a_finished_mix_says_which_fassung_it_was()
 verify_a_mix_without_a_label_is_simply_unlabelled()

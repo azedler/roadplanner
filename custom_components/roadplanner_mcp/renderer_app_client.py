@@ -710,6 +710,17 @@ class RendererAppClient:
                 continue
             kind = self._job_kind(job_id)
             entry = {**status, "kind": kind}
+            if kind == "trip_film":
+                # Whether the film this job produced already carries a
+                # soundtrack. A comparison fassung can only be muxed onto
+                # a SILENT film - the mux refuses otherwise, and rightly
+                # so - and an excerpt rendered with a track selected is
+                # not silent. Without this the panel offers three mixes
+                # that can only fail, and the failure reads as a fault in
+                # the comparison rather than as the wrong source.
+                audio = self._film_has_audio(job_id)
+                if audio is not None:
+                    entry["has_audio"] = audio
             if kind == "film_music":
                 # WHICH comparison fassung this was. The browser knew it
                 # when it submitted the job and forgot it the moment the
@@ -724,6 +735,33 @@ class RendererAppClient:
         found.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
         return found[: max(1, limit)]
 
+    def _film_has_audio(self, job_id: str) -> bool | None:
+        """Whether a finished film has a soundtrack, or nothing.
+
+        `None` when it could not be read - deliberately a third value.
+        Reporting "no audio" for a film nobody could measure would be a
+        guess wearing the costume of a fact, and it is the guess that
+        would make the panel offer a mix that cannot work.
+        """
+        found = self._result_facts(job_id)
+        if found is None:
+            return None
+        value = found.get("has_audio")
+        return bool(value) if isinstance(value, bool) else None
+
+    def _result_facts(self, job_id: str) -> dict[str, Any] | None:
+        raw = self._read_bounded(
+            self._dir / RESULTS_DIR / job_id / "result.json", MAX_JSON_BYTES
+        )
+        if raw is None:
+            return None
+        try:
+            found = decode_json(raw)
+        except RendererProtocolError:
+            return None
+        video = (found or {}).get("video")
+        return video if isinstance(video, dict) else None
+
     def _music_variant(self, job_id: str) -> str:
         """The fassung a finished mux job produced, or nothing.
 
@@ -731,16 +769,7 @@ class RendererAppClient:
         a button reappear; a missing one costs a click, and a raised
         exception here would take the whole job list with it.
         """
-        raw = self._read_bounded(
-            self._dir / RESULTS_DIR / job_id / "result.json", MAX_JSON_BYTES
-        )
-        if raw is None:
-            return ""
-        try:
-            found = decode_json(raw)
-        except RendererProtocolError:
-            return ""
-        variant = str(((found or {}).get("video") or {}).get("music_variant") or "")
+        variant = str((self._result_facts(job_id) or {}).get("music_variant") or "")
         # One letter, because that is all a variant ever is - and this
         # value comes off disk, so it is matched rather than trusted.
         return variant if len(variant) == 1 and variant.isalpha() else ""
