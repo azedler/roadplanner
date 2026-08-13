@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.8] - 2026-08-13
+
 ### Fixed
 
 - **Fertige Aufträge verschwanden aus dem Panel — je nach Auftrags-ID.** Die Auftragsliste begrenzt ihre Arbeit, bevor sie überhaupt eine Datei öffnet. Das ist richtig. Sie schnitt aber **nach Dateinamen** ab — und Statusdateien heißen wie die Auftrags-ID. „Die ersten sechzig Namen" sind damit sechzig beliebige. Ab dieser Zahl an Dateien im Austauschordner tauchte ein fertiger Film mal auf und mal nicht, je nachdem, wohin seine ID zufällig sortierte: Die Karte meldete, es gebe keinen Film, die Knöpfe, die einen brauchen, fehlten einfach, und Neuladen half nicht — die Antwort war nicht veraltet, es waren **die falschen sechzig**.
