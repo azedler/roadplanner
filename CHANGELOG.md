@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nach einem Seitenneuladen waren fertige Mischungen unerreichbar.** Wer die drei Stücke erzeugt, alle drei Fassungen aufgelegt und die Seite neu geöffnet hatte, bevor er etwas heruntergeladen hat, stand vor einem leeren Block: „Zum Auflegen fehlt noch der Prüfausschnitt" — während der Ausschnitt fertig auf der Platte lag — und drei Mischungen, die niemand mehr auseinanderhalten konnte. Die Kopien, die man hochlädt, waren damit nicht erreichbar; der einzige Weg nach vorn wäre gewesen, alle drei noch einmal zu mischen.
+
+  Zwei Ursachen, beide „der Browser wusste es und hat es vergessen". Der Quellfilm wurde vom **neuesten** Auftrag abgelesen — die drei Musikaufträge liegen aber darüber, also meldete der Blick auf den ersten Eintrag, es gebe gar keinen Film. Und welche Fassung zu welchem Auftrag gehörte, existierte nur in dem Tab, der ihn abgeschickt hatte. Der Renderer schreibt dieses Kennzeichen ohnehin ins Ergebnis; die Auftragsliste meldet es jetzt, und das Panel stellt die Knöpfe daraus wieder her — **zurückgelesen statt aus der Reihenfolge erraten**, denn genau dieses Raten würde in einem Hörtest die Musik der einen Fassung unter dem Namen der anderen zeigen.
+
 ## [4.113.3] - 2026-08-13
 
 ### Fixed
