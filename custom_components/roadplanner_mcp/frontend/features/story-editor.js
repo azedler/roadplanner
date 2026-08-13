@@ -1382,8 +1382,20 @@ export const storyEditorMixin = {
       // failure sends them looking for a cause that does not exist.
       return `<small class="story-film-job">${words.cancelled}. Es ist nichts kaputt – ein neuer Lauf kann jederzeit gestartet werden.</small>`;
     }
-    const why = cleanText(job.reason || job.detail || "");
-    return `<small class="story-film-job">${words.failed} (${escapeHtml(String(job.state || "unbekannt"))}).${why ? ` ${escapeHtml(why)}` : ""}</small>`;
+    // The renderer writes `error: {code, message}` - it always has. This
+    // read `job.reason || job.detail`, and NEITHER FIELD EXISTS on a
+    // status, so every failure this card ever showed said "(failed)" and
+    // nothing else, while the reason sat in the file unread. A default
+    // that can lie is the mistake this project keeps making; the fields
+    // are named after the ones the protocol actually validates.
+    const why = cleanText(job.error?.message || "");
+    const code = cleanText(job.error?.code || "");
+    const said = [why, code && !why.includes(code) ? `(${code})` : ""]
+      .filter(Boolean)
+      .join(" ");
+    return `<small class="story-film-job">${words.failed}.${
+      said ? ` ${escapeHtml(said)}` : ` Der Renderer hat keinen Grund hinterlassen (${escapeHtml(String(job.state || "unbekannt"))}).`
+    }</small>`;
   },
 
   // --- rendering -------------------------------------------------------
