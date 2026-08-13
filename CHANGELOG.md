@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.6] - 2026-08-13
+
 ### Fixed
 
 - **Der Prüfausschnitt verschwand, sobald genug Aufträge auf ihm lagen.** Die Auftragsliste lieferte die sechs neuesten. Eine Musiksitzung besteht aber aus einem Ausschnitt, drei Mischungen und ein paar kleinen Kopien — schon mehr als sechs, und der Ausschnitt ist der **älteste** davon. Er fiel aus dem Fenster, die Karte meldete „Zum Auflegen fehlt noch der Prüfausschnitt", während der Ausschnitt fertig auf der Platte lag, und die drei gerade wiederhergestellten Fassungen verschwanden mit ihm. Jetzt sind es vierundzwanzig; geschützt wird das Panel ohnehin durch die Lesegrenze von sechzig Dateien, nicht durch dieses Fenster.
