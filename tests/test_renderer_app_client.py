@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -411,6 +412,41 @@ def verify_a_film_says_whether_it_already_has_a_soundtrack() -> None:
             assert entry["has_audio"] is expected, entry
 
 
+def verify_the_newest_jobs_are_read_and_not_the_alphabetically_first() -> None:
+    """The scan bound has to cut by TIME, not by filename.
+
+    Status files are named after job ids, so taking the first sixty
+    names in alphabetical order takes an arbitrary sixty. Past that many
+    files in the folder a finished film appeared or vanished depending
+    on where its id happened to sort, the card reported that no film
+    existed, and reloading changed nothing - the answer was not stale,
+    it was the wrong sixty. Sorting the RESULT by time cannot repair a
+    selection made without looking at time.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        folder = client.exchange_dir / "status"
+        # Eighty older jobs whose ids all sort BEFORE the new film's, so
+        # an alphabetical cut keeps exactly the wrong ones.
+        for index in range(80):
+            job_id = f"0000{index:04d}-0000-4000-8000-{index:012d}"
+            _write_status(client, job_id, "completed", "2026-08-01T00:00:00Z")
+            os.utime(folder / f"{job_id}.json", (1_000_000, 1_000_000))
+        film = "ffffffff-0000-4000-8000-000000000001"
+        _write_status(client, film, "completed", "2026-08-13T12:40:00Z")
+        os.utime(folder / f"{film}.json", (2_000_000, 2_000_000))
+        results = client.exchange_dir / "results" / film
+        results.mkdir(parents=True, exist_ok=True)
+        (results / protocol.ARTIFACT_TRIP_FILM_VIDEO).write_bytes(b"ein Film")
+
+        found = asyncio.run(client.async_recent_jobs())
+    assert found, "die Auftragsliste ist leer"
+    assert found[0]["job_id"] == film, [item["job_id"] for item in found[:3]]
+    assert found[0]["kind"] == "trip_film", found[0]
+
+
+verify_the_newest_jobs_are_read_and_not_the_alphabetically_first()
 verify_a_film_says_whether_it_already_has_a_soundtrack()
 verify_the_film_survives_the_jobs_piled_on_top_of_it()
 verify_a_finished_mix_says_which_fassung_it_was()

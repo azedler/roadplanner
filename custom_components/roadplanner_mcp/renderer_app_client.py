@@ -685,14 +685,34 @@ class RendererAppClient:
     def _recent_jobs(self, limit: int) -> list[dict[str, Any]]:
         folder = self._dir / STATUS_DIR
         try:
-            names = [entry.name for entry in os.scandir(folder) if entry.is_file()]
+            names = []
+            for entry in os.scandir(folder):
+                if not entry.is_file():
+                    continue
+                try:
+                    names.append((entry.stat().st_mtime, entry.name))
+                except OSError:
+                    # A file that vanished between listing and stat is
+                    # simply not there; the others still are.
+                    continue
         except OSError:
             return []
         found: list[dict[str, Any]] = []
         # Bounded before any file is opened: the folder is written by
         # another container, and a thousand status files must not turn a
         # panel refresh into a thousand reads.
-        for name in sorted(names)[:_MAX_STATUS_SCAN]:
+        #
+        # NEWEST first, by modification time. This used to take the first
+        # sixty names in ALPHABETICAL order - and the names are job ids,
+        # so the order was effectively random. Past sixty files in the
+        # folder, the panel saw an arbitrary sixty of them: a finished
+        # film appeared or vanished depending on where its id happened to
+        # sort, the card reported that no film existed, and reloading the
+        # page changed nothing because the answer was not stale, it was
+        # the wrong sixty. Sorting the RESULT by time, as it did, cannot
+        # repair a selection made without looking at time at all.
+        names.sort(reverse=True)
+        for _stamp, name in names[:_MAX_STATUS_SCAN]:
             if not name.endswith(".json"):
                 continue
             job_id = name[: -len(".json")]
