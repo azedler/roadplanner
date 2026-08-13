@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.4] - 2026-08-13
+
 ### Fixed
 
 - **Nach einem Seitenneuladen waren fertige Mischungen unerreichbar.** Wer die drei Stücke erzeugt, alle drei Fassungen aufgelegt und die Seite neu geöffnet hatte, bevor er etwas heruntergeladen hat, stand vor einem leeren Block: „Zum Auflegen fehlt noch der Prüfausschnitt" — während der Ausschnitt fertig auf der Platte lag — und drei Mischungen, die niemand mehr auseinanderhalten konnte. Die Kopien, die man hochlädt, waren damit nicht erreichbar; der einzige Weg nach vorn wäre gewesen, alle drei noch einmal zu mischen.
