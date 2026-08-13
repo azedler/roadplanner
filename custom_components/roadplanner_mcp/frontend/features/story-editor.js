@@ -974,8 +974,17 @@ export const storyEditorMixin = {
           : ""
       }
       ${
-        !this._storyFilmSourceJobId
+        !this._storyFilmSourceJobId && this._rendererAppRecentAsked
           ? `<small class="hint">Zum Auflegen fehlt noch der Prüfausschnitt.</small>`
+          : ""
+      }
+      ${
+        !this._storyFilmSourceJobId && !this._rendererAppRecentAsked
+          ? // Not "the excerpt is missing" - the job list has not been
+            // read yet, and those are different sentences. Telling
+            // somebody to render something they already have is how an
+            // absent answer sends them off to redo finished work.
+              `<small class="hint">Die Aufträge der Renderer-App sind noch nicht gelesen - vorhandene Ausschnitte und Mischungen erscheinen gleich.</small>`
           : ""
       }
       <ul class="story-music-facts">${facts}</ul>

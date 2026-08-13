@@ -106,6 +106,15 @@ _SUBDIRS = (JOBS_DIR, PROCESSING_DIR, STATUS_DIR, RESULTS_DIR, INPUTS_DIR, CANCE
 # many files it decides to leave there.
 _MAX_STATUS_SCAN = 60
 
+# How many of them are reported. Six was enough while a session meant
+# "one render". It is not enough for the music comparison: an excerpt,
+# three mixes and a few small copies are already more than six, and the
+# excerpt - the one entry the panel cannot offer anything without - is
+# the OLDEST of them. It fell out of the window, and the card reported
+# that no film existed while the film sat finished on disk. What
+# protects the panel is the scan bound above, not this number.
+RECENT_JOB_LIMIT = 24
+
 # The kinds the panel distinguishes. They are the panel's vocabulary, not
 # the protocol's, which is why the mapping lives here and not in the
 # protocol module.
@@ -651,7 +660,9 @@ class RendererAppClient:
                 "reason": clean_text(str(err), limit=200),
             }
 
-    async def async_recent_jobs(self, *, limit: int = 6) -> list[dict[str, Any]]:
+    async def async_recent_jobs(
+        self, *, limit: int = RECENT_JOB_LIMIT
+    ) -> list[dict[str, Any]]:
         """Which jobs the exchange folder knows about, newest first.
 
         The panel needs this because the browser is not where a render
