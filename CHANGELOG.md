@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.5] - 2026-08-13
+
 ### Fixed
 
 - **Ein fehlgeschlagener Auftrag sagt endlich, woran er gescheitert ist.** Bisher stand da „… ist nicht fertig geworden (failed)" — und sonst nichts. Der Grund hat nie gefehlt: Der Renderer schreibt `error: {code, message}` in die Statusdatei, und zwar von Anfang an. Die Karte las `job.reason || job.detail` — **beide Felder gibt es an einem Status überhaupt nicht**, also fiel die Kette bei *jedem* Fehlschlag jeder Auftragsart auf einen leeren Text zurück. Das ist der meistwiederholte Fehler dieses Projekts in Reinform: ein Name, den das Objekt nie getragen hat, hinter einem Standardwert, der lügen kann — inzwischen das sechste Mal.
