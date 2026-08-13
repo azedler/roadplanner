@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.7] - 2026-08-13
+
 ### Fixed
 
 - **Eine Vergleichsfassung wird nicht mehr auf einen Film angeboten, der schon Ton hat.** Die jetzt sichtbare Meldung vom echten System war die des Mux: „Dieser Film hat bereits eine Tonspur — die Musik gehört auf den stummen Film." Ein Prüfausschnitt, der **mit ausgewählter Musik** gerendert wurde, hat den Ton fest eingebacken; eine Vergleichsfassung kann darauf nie liegen. Der Mux hat zu Recht abgelehnt — falsch war, dass das Panel den Knopf überhaupt anbot, und die Ablehnung las sich dann wie ein Fehler im Vergleich statt wie die falsche Quelle.
