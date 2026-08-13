@@ -257,7 +257,17 @@ export const rendererAppMixin = {
     const film = recent.find(
       (job) => job?.kind === "trip_film" && job?.state === "completed" && job?.job_id,
     );
-    if (film) this._storyFilmSourceJobId = film.job_id;
+    if (film) {
+      this._storyFilmSourceJobId = film.job_id;
+      // Whether that film already carries a soundtrack. A comparison
+      // fassung can only go onto a SILENT film, and an excerpt rendered
+      // with a track selected is not silent - the mux refuses it, which
+      // is right, but the panel offered the button anyway and the
+      // refusal read as a fault in the comparison. `undefined` stays
+      // undefined: not knowing is not the same as knowing it is silent.
+      this._storyFilmSourceHasAudio =
+        typeof film.has_audio === "boolean" ? film.has_audio : undefined;
+    }
 
     // And the comparison fassungen that were already mixed. The browser
     // knew which job was which fassung and forgot it on reload, so three
