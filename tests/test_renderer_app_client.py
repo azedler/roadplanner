@@ -295,6 +295,62 @@ def verify_one_unreadable_status_does_not_hide_the_others() -> None:
     assert [item["job_id"] for item in found] == [good], found
 
 
+def verify_a_finished_mix_says_which_fassung_it_was() -> None:
+    """Three mixes nobody can tell apart are three mixes nobody can use.
+
+    The browser knew which job was fassung A and forgot it the moment
+    the page reloaded, and the copy that gets uploaded is made from that
+    job. So the label is written into the result by the side that made
+    it and read back from there - never inferred from the order, which
+    is exactly the guess that would put fassung C's music under A's
+    name in a listening test.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        job_id = protocol.new_job_id()
+        _write_status(client, job_id, "completed", "2026-08-13T05:00:00Z")
+        folder = client.exchange_dir / "results" / job_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / protocol.ARTIFACT_FILM_WITH_MUSIC).write_bytes(b"nicht wirklich ein Film")
+        (folder / "result.json").write_text(
+            json.dumps({"video": {"music_variant": "B"}}), encoding="utf-8"
+        )
+        found = asyncio.run(client.async_recent_jobs())
+    assert found[0]["kind"] == "film_music", found
+    assert found[0]["music_variant"] == "B", found
+
+
+def verify_a_mix_without_a_label_is_simply_unlabelled() -> None:
+    """A missing label costs a click. A raised one costs the job list.
+
+    And what comes back off disk is matched rather than trusted: the
+    value ends up in a button's data attribute, and a variant is one
+    letter or it is nothing.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        for stamp, payload in (
+            ("05:01", "{kaputt"),
+            ("05:02", json.dumps({"video": {}})),
+            ("05:03", json.dumps({"video": {"music_variant": "../../etc/passwd"}})),
+        ):
+            job_id = protocol.new_job_id()
+            _write_status(client, job_id, "completed", f"2026-08-13T{stamp}:00Z")
+            folder = client.exchange_dir / "results" / job_id
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / protocol.ARTIFACT_FILM_WITH_MUSIC).write_bytes(b"x")
+            (folder / "result.json").write_text(payload, encoding="utf-8")
+        found = asyncio.run(client.async_recent_jobs())
+    assert len(found) == 3, found
+    for entry in found:
+        assert entry["kind"] == "film_music", entry
+        assert "music_variant" not in entry, entry
+
+
+verify_a_finished_mix_says_which_fassung_it_was()
+verify_a_mix_without_a_label_is_simply_unlabelled()
 verify_no_supervisor_is_the_answer_not_a_fault()
 verify_a_writable_exchange_folder_reports_ready()
 verify_a_missing_app_is_not_an_error()

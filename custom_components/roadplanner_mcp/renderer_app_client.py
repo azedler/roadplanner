@@ -697,9 +697,42 @@ class RendererAppClient:
             except RendererProtocolError:
                 # A single unreadable status must not hide the others.
                 continue
-            found.append({**status, "kind": self._job_kind(job_id)})
+            kind = self._job_kind(job_id)
+            entry = {**status, "kind": kind}
+            if kind == "film_music":
+                # WHICH comparison fassung this was. The browser knew it
+                # when it submitted the job and forgot it the moment the
+                # page reloaded - and three finished mixes nobody can tell
+                # apart are three mixes nobody can use. It was written into
+                # the result by the side that made it, so it is read back
+                # from there rather than guessed from an order.
+                variant = self._music_variant(job_id)
+                if variant:
+                    entry["music_variant"] = variant
+            found.append(entry)
         found.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
         return found[: max(1, limit)]
+
+    def _music_variant(self, job_id: str) -> str:
+        """The fassung a finished mux job produced, or nothing.
+
+        Deliberately silent on every failure. This is a label that makes
+        a button reappear; a missing one costs a click, and a raised
+        exception here would take the whole job list with it.
+        """
+        raw = self._read_bounded(
+            self._dir / RESULTS_DIR / job_id / "result.json", MAX_JSON_BYTES
+        )
+        if raw is None:
+            return ""
+        try:
+            found = decode_json(raw)
+        except RendererProtocolError:
+            return ""
+        variant = str(((found or {}).get("video") or {}).get("music_variant") or "")
+        # One letter, because that is all a variant ever is - and this
+        # value comes off disk, so it is matched rather than trusted.
+        return variant if len(variant) == 1 and variant.isalpha() else ""
 
     def _job_kind(self, job_id: str) -> str:
         """What a job was asked to do, read rather than remembered."""
