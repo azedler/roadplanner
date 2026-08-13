@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.3] - 2026-08-13
+
 ### Fixed
 
 - **Der Auflegen-Knopf verschwand nach einem Seitenneuladen.** Ein Prüfausschnitt und ein ganzer Film erzeugen dasselbe Artefakt — nach einem Reload weiß das Panel also nur „irgendein Film". Die eben eingebaute Sperre las das als „kein Ausschnitt" und blendete den Knopf aus, also genau in dem Fall, für den er da ist: Ausschnitt gerendert, Seite neu geladen, zurückgekommen zum Auflegen. Jetzt unterdrückt das Panel nur einen Film, den es in dieser Sitzung **sicher** als ganzen Film kennt; eine unbekannte Quelle wird angeboten. Die Ablehnung, die sich nicht umgehen lässt, bleibt im Exporter, wo die gemessene Länge bekannt ist. „Ich weiß nicht, was dieser Auftrag ist" ist eben nicht „dieser Auftrag ist falsch".
