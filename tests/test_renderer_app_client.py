@@ -349,6 +349,34 @@ def verify_a_mix_without_a_label_is_simply_unlabelled() -> None:
         assert "music_variant" not in entry, entry
 
 
+def verify_the_film_survives_the_jobs_piled_on_top_of_it() -> None:
+    """The excerpt is the OLDEST entry of a music session, and the one
+    the panel cannot work without.
+
+    Rendering an excerpt and then mixing three fassungen and a few small
+    copies already buries it: with a window of six it dropped off the
+    end, and the card reported that no film existed while the film sat
+    finished on disk. The number that protects the panel is the scan
+    bound, not this window.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        client = make_client(tmp)
+        asyncio.run(client.async_environment())
+        film = protocol.new_job_id()
+        _write_status(client, film, "completed", "2026-08-13T05:00:00Z")
+        folder = client.exchange_dir / "results" / film
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / protocol.ARTIFACT_TRIP_FILM_VIDEO).write_bytes(b"ein Ausschnitt")
+        for minute in range(1, 13):
+            later = protocol.new_job_id()
+            _write_status(client, later, "completed", f"2026-08-13T05:{minute:02d}:00Z")
+        found = asyncio.run(client.async_recent_jobs())
+    kinds = {item["job_id"]: item["kind"] for item in found}
+    assert film in kinds, sorted(kinds.values())
+    assert kinds[film] == "trip_film", kinds[film]
+
+
+verify_the_film_survives_the_jobs_piled_on_top_of_it()
 verify_a_finished_mix_says_which_fassung_it_was()
 verify_a_mix_without_a_label_is_simply_unlabelled()
 verify_no_supervisor_is_the_answer_not_a_fault()
