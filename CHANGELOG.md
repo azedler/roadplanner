@@ -6,6 +6,10 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eine Fassung landet nicht mehr versehentlich auf dem ganzen Film.** Die Ebenen laufen ab der Null des Prüfausschnitts und sind so lang wie er. Auf einem 15-Minuten-Film wäre das eine Minute Musik und danach vierzehn Minuten Stille — und das liest sich wie ein Befund über die Architektur, obwohl es einer über die falsche Quelle ist. Wessen letzter Render der ganze Film war, wäre beim ersten Klick hineingelaufen. Der Knopf erscheint jetzt nur, solange die Quelle wirklich der Ausschnitt ist, und sagt sonst, welcher Schritt fehlt; die Ablehnung selbst sitzt im Exporter, weil nur der die gemessene Filmlänge kennt.
+
 ## [4.113.1] - 2026-08-12
 
 ### Fixed
