@@ -239,6 +239,24 @@ class TripFilmExporter:
             raise ValidationError(
                 f"Für die Fassung {variant} ist noch keine Musik erzeugt worden."
             )
+        # Onto the EXCERPT, not onto a whole film. The layers run from
+        # the excerpt's own zero and are as long as it is, so a fifteen
+        # minute film would get a minute of music and then fourteen
+        # minutes of silence - and that reads as a finding about the
+        # architecture when it is a finding about the wrong source.
+        #
+        # Checked here rather than only in the panel, because the panel
+        # can only offer or not offer a button; this is the side that
+        # knows the film's measured length.
+        window = float(found.get("seconds") or 0.0) or float(
+            (found.get("layers") or [{}])[0].get("seconds") or 0.0
+        )
+        if window and seconds > window * 1.5:
+            raise ValidationError(
+                f"Dieser Auftrag ist {round(seconds)} s lang, die Fassung deckt "
+                f"{round(window)} s ab - die Fassungen gehören auf den "
+                "Prüfausschnitt, sonst spielt die Musik nur seinen Anfang."
+            )
         # Fitted to the film that EXISTS. The excerpt was planned from a
         # scene plan whose lengths are estimates, and a layer that ran
         # past the last frame would be paid for and never heard.
