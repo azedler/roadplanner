@@ -43,6 +43,8 @@ import { rendererAppMixin } from "./features/renderer-app.js";
 import { characterAssetsMixin } from "./features/character-assets.js";
 import { storyEditorMixin } from "./features/story-editor.js";
 import { pitchesMixin } from "./features/pitches.js";
+import { diagnosticsMixin } from "./features/diagnostics.js";
+import { playerMixin } from "./features/player.js";
 
 // Mirror of panel.py's _PROVIDER_CALL_ACTIONS: these run shielded
 // server-side and finish even when the client connection dies.
@@ -925,6 +927,13 @@ class RoadplannerPanel extends HTMLElement {
     } else if (select.dataset.action === "renderer-app-day") {
       this._rendererAppDayId = select.value;
       this._render({ preserveScroll: true });
+    } else if (select.dataset.action === "story-film-music-choice") {
+      // Two values only: nothing, or the reserved name for the score
+      // generated for this film. Choosing it does not order anything -
+      // it asks what ordering would cost.
+      this._storyFilmTrack = select.value;
+      this._render({ preserveScroll: true });
+      if (select.value) void this._storyFilmMusicOffer();
     } else if (select.dataset.action === "story-film-track") {
       // A name, not a path. The backend matches it against the folder
       // listing before anything is opened.
@@ -1868,6 +1877,24 @@ class RoadplannerPanel extends HTMLElement {
       void this._storyDirectorDiscard();
     } else if (action === "story-film-preview") {
       void this._storyFilmPreview();
+    } else if (action === "story-film-music-offer") {
+      void this._storyFilmMusicOffer();
+    } else if (action === "story-film-music-regenerate" && this._canEdit()) {
+      void this._storyFilmMusicRegenerate();
+    } else if (action === "player-enter") {
+      this._playerSetMode("player");
+    } else if (action === "player-leave") {
+      this._playerSetMode("editor");
+    } else if (action === "player-start") {
+      this._playerStart();
+    } else if (action === "player-play") {
+      this._playerTogglePlay();
+    } else if (action === "player-mute") {
+      this._playerToggleMute();
+    } else if (action === "player-restart") {
+      this._playerRestart();
+    } else if (action === "player-fullscreen") {
+      this._playerFullscreen();
     } else if (action === "story-film-render" && this._canEdit()) {
       void this._storyFilmRender();
     } else if (action === "story-film-qa-render" && this._canEdit()) {
@@ -2574,6 +2601,21 @@ class RoadplannerPanel extends HTMLElement {
   }
 
   _renderApp() {
+    // The whole shell, or none of it. A player that kept the editor's
+    // header and tabs would be a smaller editor rather than a different
+    // thing - and on a wall-mounted tablet every control that is on
+    // screen is a control somebody can press by leaning on it.
+    if (this._playerModeActive()) {
+      if (!this._playerLoaded && !this._playerLoading) {
+        this._playerLoading = true;
+        void this._playerLoadFilm().finally(() => {
+          this._playerLoading = false;
+        });
+      }
+      return `${this._renderPlayer()}
+      <div class="progress" aria-label="Aktion läuft" ${this._busy ? "" : "hidden"}></div>
+      <div class="toast-host"></div>`;
+    }
     const title = this._data?.summary?.trip?.title || "Roadplanner";
     const revision = this._data?.summary?.revision;
     const activeBadge = this._data && !this._data.selected_is_active
@@ -2596,6 +2638,9 @@ class RoadplannerPanel extends HTMLElement {
             ${this._renderTripSelect()}
             <button class="icon-button" type="button" data-action="refresh" aria-label="Daten neu laden" title="Daten neu laden">
               <ha-icon icon="mdi:refresh"></ha-icon>
+            </button>
+            <button class="icon-button" type="button" data-action="player-enter" aria-label="Player öffnen" title="Player öffnen - zeigt den Reisefilm in Endlosschleife">
+              <ha-icon icon="mdi:television-play"></ha-icon>
             </button>
             <button class="icon-button" type="button" data-action="reload-app" aria-label="App aktualisieren" title="App aktualisieren (nach einem Update, falls sich nichts ändert)">
               <ha-icon icon="mdi:cellphone-arrow-down"></ha-icon>
@@ -2631,33 +2676,60 @@ class RoadplannerPanel extends HTMLElement {
     const decisionCount = Number(this._data?.experience?.stats?.open_decision_count || 0);
     const mediaReviewCount = Number(this._data?.experience?.stats?.suggested_count || 0) + Number(this._data?.experience?.stats?.unassigned_count || 0);
     const importReadyCount = this._importDocuments().filter((item) => item?.analysis?.universal_import?.status === "ready").length;
+    // The four places somebody goes while travelling. "Heute" became
+    // "Tage" because the view has always shown the trip day by day and
+    // the old name promised a single day; "Reisegeschichte" moved up out
+    // of the tool drawer because it is where the trip ends up, not a
+    // utility; "Erinnerungen" moved down because it is a media inbox,
+    // and an inbox does not deserve one of four permanent seats.
     const primary = [
       ["overview", "mdi:map-outline", "Reise"],
-      ["day-route", "mdi:white-balance-sunny", "Heute"],
-      ["media", "mdi:image-multiple-outline", "Erinnerungen"],
+      ["day-route", "mdi:calendar-multiselect", "Tage"],
+      ["story", "mdi:book-open-page-variant-outline", "Reisegeschichte"],
       ["assistant", "mdi:message-processing-outline", "Reisebegleiter"],
     ];
-    const tools = [
-      ["decisions", "mdi:cards-playing-outline", "Entscheidungen", decisionCount, "info"],
-      ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten", todoTiming.urgent || todoTiming.upcoming, todoTiming.urgent ? "" : "warning"],
-      ["pitches", "mdi:caravan", "Stellplätze", 0, ""],
-      ["story", "mdi:book-open-page-variant-outline", "Reisegeschichte", 0, ""],
-      ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
-      ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
-      // "mdi:map-multiple-outline" does not exist in Material Design Icons,
-      // so this entry rendered with no icon at all while every other one had
-      // theirs (live report: "Für Reisen habe ich noch immer kein Symbol").
-      // A suitcase also reads better here than a third map icon next to
-      // "Reise" and "Gesamtroute".
-      ["trips", "mdi:bag-suitcase-outline", "Reisen", 0, ""],
-      ["crew", "mdi:account-group-outline", "Crew & Fahrzeuge", 0, ""],
-      ["handoffs", "mdi:inbox-arrow-down", "Übergaben", pending, ""],
+    // Grouped rather than one flat wall. Nine equally weighted tiles read
+    // as a list of everything that was ever built; the headings say what
+    // each thing is FOR, and put the technical drawer last on purpose.
+    const groups = [
+      [
+        "Reise verwalten",
+        [
+          ["decisions", "mdi:cards-playing-outline", "Entscheidungen", decisionCount, "info"],
+          ["archive", "mdi:file-document-multiple-outline", "Dokumente & Kosten", todoTiming.urgent || todoTiming.upcoming, todoTiming.urgent ? "" : "warning"],
+          ["pitches", "mdi:caravan", "Stellplätze", 0, ""],
+          ["total-route", "mdi:map-marker-path", "Gesamtroute", 0, ""],
+        ],
+      ],
+      [
+        "Medien & Personen",
+        [
+          ["media", "mdi:image-multiple-outline", "Erinnerungen", mediaReviewCount, "warning"],
+          ["crew", "mdi:account-group-outline", "Crew & Fahrzeuge", 0, ""],
+        ],
+      ],
+      [
+        "Daten & Verwaltung",
+        [
+          // "mdi:map-multiple-outline" does not exist in Material Design
+          // Icons, so this entry rendered with no icon at all while every
+          // other one had theirs (live report: "Für Reisen habe ich noch
+          // immer kein Symbol"). A suitcase also reads better here than a
+          // third map icon next to "Reise" and "Gesamtroute".
+          ["trips", "mdi:bag-suitcase-outline", "Reisen", 0, ""],
+          ["import", "mdi:file-import-outline", "Import", importReadyCount, "info"],
+          ["handoffs", "mdi:inbox-arrow-down", "Übergaben", pending, ""],
+        ],
+      ],
+      [
+        "Technik",
+        [["diagnostics", "mdi:stethoscope", "Diagnose", 0, ""]],
+      ],
     ];
-    const primaryIds = new Set(primary.map(([id]) => id));
+    const tools = groups.flatMap(([, entries]) => entries);
     const activeTool = tools.find(([id]) => id === this._activeTab);
     const badgeFor = (id) => {
       if (id === "assistant" && drafts) return `<span class="count-badge">${drafts}</span>`;
-      if (id === "media" && mediaReviewCount) return `<span class="count-badge warning">${mediaReviewCount}</span>`;
       return "";
     };
     return `<div class="navigation-shell">
@@ -2672,9 +2744,18 @@ class RoadplannerPanel extends HTMLElement {
       </nav>
       <details data-section="panel-2" class="tool-tabs">
         <summary><ha-icon icon="mdi:dots-horizontal-circle-outline"></ha-icon><span>${activeTool ? escapeHtml(activeTool[2]) : "Mehr"}</span></summary>
-        <nav class="tool-tab-grid" aria-label="Roadplanner Werkzeuge">
-          ${tools.map(([id, icon, label, count, badgeClass]) => `<button type="button" class="tool-tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span>${count ? `<span class="count-badge ${badgeClass || ""}">${count}</span>` : ""}</button>`).join("")}
-        </nav>
+        <div class="tool-tab-drawer">
+        ${groups
+          .map(
+            ([heading, entries]) => `<div class="tool-tab-group">
+          <h3 class="tool-tab-heading">${escapeHtml(heading)}</h3>
+          <nav class="tool-tab-grid" aria-label="${escapeHtml(heading)}">
+            ${entries.map(([id, icon, label, count, badgeClass]) => `<button type="button" class="tool-tab ${this._activeTab === id ? "active" : ""}" data-tab="${id}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span>${count ? `<span class="count-badge ${badgeClass || ""}">${count}</span>` : ""}</button>`).join("")}
+          </nav>
+        </div>`,
+          )
+          .join("")}
+        </div>
       </details>
     </div>`;
   }
@@ -2692,6 +2773,7 @@ class RoadplannerPanel extends HTMLElement {
     if (this._activeTab === "trips") return this._renderTrips();
     if (this._activeTab === "crew") return this._renderCrewManage();
     if (this._activeTab === "handoffs") return this._renderHandoffs();
+    if (this._activeTab === "diagnostics") return this._renderDiagnostics();
     return this._renderOverview();
   }
 
@@ -2929,6 +3011,8 @@ Object.assign(RoadplannerPanel.prototype, routeMapMixin);
 Object.assign(RoadplannerPanel.prototype, tripDayStopMixin);
 Object.assign(RoadplannerPanel.prototype, crewMixin);
 Object.assign(RoadplannerPanel.prototype, remotionSpikeMixin);
+Object.assign(RoadplannerPanel.prototype, diagnosticsMixin);
+Object.assign(RoadplannerPanel.prototype, playerMixin);
 Object.assign(RoadplannerPanel.prototype, rendererAppMixin);
 Object.assign(RoadplannerPanel.prototype, pitchesMixin);
 Object.assign(RoadplannerPanel.prototype, storyEditorMixin);

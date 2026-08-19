@@ -49,7 +49,10 @@ export const PANEL_STYLES = `<style>
       .tool-tabs > summary { list-style: none; min-height: 44px; padding: 0 12px; border-radius: 12px; display: inline-flex; align-items: center; gap: 7px; color: var(--secondary-text-color); cursor: pointer; font-weight: 700; }
       .tool-tabs > summary::-webkit-details-marker { display: none; }
       .tool-tabs > summary:hover, .tool-tabs[open] > summary { background: var(--secondary-background-color); color: var(--primary-color); }
-      .tool-tab-grid { position: absolute; right: 0; top: calc(100% + 8px); width: min(380px, calc(100vw - 24px)); padding: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--card-background-color); box-shadow: 0 12px 36px rgba(0,0,0,.22); z-index: 30; }
+      .tool-tab-drawer { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 24px)); max-height: min(70vh, 640px); overflow-y: auto; padding: 10px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--card-background-color); box-shadow: 0 12px 36px rgba(0,0,0,.22); z-index: 30; }
+      .tool-tab-group + .tool-tab-group { margin-top: 12px; }
+      .tool-tab-heading { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color); font-weight: 700; }
+      .tool-tab-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
       .tool-tab { min-width: 0; min-height: 52px; padding: 10px; border: 1px solid var(--divider-color); border-radius: 12px; background: var(--primary-background-color); color: var(--primary-text-color); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; text-align: left; cursor: pointer; }
       .tool-tab.active { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 9%, var(--card-background-color)); }
       .tool-tab span:not(.count-badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1038,7 +1041,8 @@ export const PANEL_STYLES = `<style>
         .primary-tabs .tab ha-icon { --mdc-icon-size: 20px; }
         .tool-tabs { position: static; margin: 0 8px 6px; justify-self: stretch; }
         .tool-tabs > summary { width: 100%; justify-content: center; min-height: 38px; }
-        .tool-tab-grid { position: static; width: 100%; margin-top: 6px; grid-template-columns: 1fr; box-shadow: none; }
+        .tool-tab-drawer { position: static; width: 100%; margin-top: 6px; max-height: none; box-shadow: none; }
+        .tool-tab-grid { grid-template-columns: 1fr; }
         .tab { padding: 0 12px; min-height: 50px; }
         .tab span:not(.count-badge) { font-size: 12px; }
         .content { padding: 14px 10px max(24px, calc(14px + env(safe-area-inset-bottom))); }
@@ -1118,6 +1122,56 @@ export const PANEL_STYLES = `<style>
         .integrity-issue { grid-template-columns: auto minmax(0, 1fr); }
         .integrity-issue > .text-button { grid-column: 2; justify-self: start; }
         .integrity-dialog-actions > * { width: 100%; justify-content: center; }
+      }
+
+      /* --- the film block ------------------------------------------- */
+      .film-choices { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 10px 0 4px; }
+      .film-summary { margin: 10px 0; padding: 12px 14px; border: 1px solid var(--divider-color); border-radius: 14px; background: var(--primary-background-color); }
+      .film-summary dl { margin: 0; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 4px 16px; }
+      .film-summary dl > div { display: contents; }
+      .film-summary dt { color: var(--secondary-text-color); font-size: 13px; }
+      .film-summary dd { margin: 0; font-weight: 600; }
+      .film-music-status { margin: 8px 0; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--divider-color); background: var(--secondary-background-color); display: grid; gap: 4px; }
+      .film-advanced { margin-top: 12px; }
+      .film-advanced > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 10px 0; color: var(--secondary-text-color); font-weight: 700; }
+      .film-advanced > summary::-webkit-details-marker { display: none; }
+      .latest-film { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; margin: 12px 0 4px; padding: 12px; border: 1px solid var(--divider-color); border-radius: 16px; background: var(--primary-background-color); }
+      .latest-film video { width: 100%; max-height: 42vh; border-radius: 12px; background: #000; }
+      .latest-film-meta { display: grid; gap: 6px; align-content: start; }
+
+      /* --- the player ------------------------------------------------
+         A mounted tablet, not a page. Fixed to the viewport and dark, so
+         the film is the only lit thing in the room at night. */
+      .player-shell { position: fixed; inset: 0; background: #05070a; color: #f4f6f8; display: grid; grid-template-rows: auto minmax(0, 1fr); z-index: 5; }
+      .player-chrome { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; transition: opacity .25s ease; }
+      .player-shell.idle .player-chrome, .player-shell.idle .player-controls { opacity: 0; pointer-events: none; }
+      .player-title { display: grid; gap: 2px; min-width: 0; }
+      .player-title strong { font-size: 18px; }
+      .player-title small { color: rgba(244,246,248,.7); }
+      .player-chrome .icon-button { color: #f4f6f8; }
+      .player-stage { position: relative; display: grid; place-items: center; min-height: 0; padding: 0 12px 12px; }
+      .player-stage video { width: 100%; height: 100%; max-height: 100%; object-fit: contain; background: #000; border-radius: 12px; }
+      .player-controls { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; gap: 10px; padding: 8px 12px; border-radius: 999px; background: rgba(10,12,16,.72); backdrop-filter: blur(6px); transition: opacity .25s ease; }
+      .player-controls .icon-button { color: #f4f6f8; min-width: 52px; min-height: 52px; }
+      .player-start { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; border: 0; background: rgba(5,7,10,.66); color: #f4f6f8; cursor: pointer; padding: 24px; text-align: center; }
+      .player-start ha-icon { --mdc-icon-size: 88px; }
+      .player-start span { font-size: 22px; font-weight: 700; }
+      .player-start small { color: rgba(244,246,248,.75); max-width: 34ch; }
+      .player-message { display: grid; place-content: center; justify-items: center; gap: 12px; padding: 32px; text-align: center; }
+      .player-message ha-icon { --mdc-icon-size: 64px; color: rgba(244,246,248,.6); }
+
+      @media (max-width: 900px) {
+        .latest-film { grid-template-columns: 1fr; }
+      }
+
+      /* A tablet in portrait is still a tablet: touch targets stay large
+         and nothing shrinks to fit. */
+      @media (max-width: 720px) {
+        .film-choices { flex-direction: column; align-items: stretch; }
+        .film-choices .inline-select { width: 100%; }
+        .film-summary dl { grid-template-columns: 1fr; gap: 2px; }
+        .film-summary dl > div { display: block; margin-bottom: 8px; }
+        .player-controls { bottom: 12px; }
       }
 
       @media (prefers-reduced-motion: reduce) {

@@ -40,6 +40,7 @@ from .pitch_routing import PitchRouteService
 from .render_profiles import (
     DEFAULT_REVIEW_PROFILE,
     film_filename,
+    PANEL_DEFAULT_RENDER_PROFILE,
     profile_choices,
     profile_for_size,
     review_choices,
@@ -99,6 +100,10 @@ _ACTIONS = {
     "story_film_preview",
     "story_film_music",
     "story_film_music_offer",
+    # What the player puts on the wall: the newest FINISHED film of a
+    # trip, with a URL a browser can actually fetch. Read-only, free, and
+    # unable to start anything.
+    "player_latest_film",
     "story_film_music_generate",
     "story_film_render",
     # A small copy of a film that already exists. Reads one file in the
@@ -1620,16 +1625,17 @@ async def _execute_action(
             # hard-coded in the panel: a table that exists in the
             # frontend too is the same one-number-in-two-places bug this
             # project keeps paying for.
-            "render_profiles": profile_choices(),
+            "render_profiles": profile_choices(PANEL_DEFAULT_RENDER_PROFILE),
             "review_profiles": review_choices(),
         }
 
     if action == "story_film_render":
         # The whole trip. Minutes of render, so it is submitted and polled
         # exactly like the day video rather than awaited here.
+        trip_id = str(data.get("trip_id") or "")
         try:
-            return {"renderer_app_job": await runtime.trip_film.async_submit(
-                str(data.get("trip_id") or ""),
+            submitted = await runtime.trip_film.async_submit(
+                trip_id,
                 # A NAME, not a path. See trip_film_music: the chosen
                 # value is matched against the folder listing before
                 # anything is opened, so no path is ever built from it.
@@ -1637,9 +1643,18 @@ async def _execute_action(
                 # An ID from the profile table, matched against it before
                 # a job is written. It decides pixels and nothing else.
                 profile=str(data.get("profile") or ""),
-            )}
+            )
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+        # Noted here rather than when it finishes, because when it
+        # finishes there may be nobody watching: a render runs for the
+        # better part of an hour and the browser that started it is
+        # usually gone. The record says which job is meant to become this
+        # trip's film; whether it did is read from the job itself later.
+        await runtime.player_film.async_record_submission(
+            trip_id, str(submitted.get("job_id") or ""), excerpt=False
+        )
+        return {"renderer_app_job": submitted}
 
     if action == "story_film_review_copy":
         # A small copy of a film that already exists, for looking at and
@@ -1674,22 +1689,26 @@ async def _execute_action(
         trip_id = str(data.get("trip_id") or "")
         job_id = str(data.get("job_id") or "")
         try:
-            return {
-                "renderer_app_job": await runtime.trip_film.async_add_music(
-                    trip_id, job_id
-                )
-            }
+            submitted = await runtime.trip_film.async_add_music(trip_id, job_id)
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+        # The scored film supersedes the silent one it was made from:
+        # it is the same pictures with the music on, and it is the
+        # version that belongs on the wall.
+        await runtime.player_film.async_record_submission(
+            trip_id, str(submitted.get("job_id") or ""), excerpt=False
+        )
+        return {"renderer_app_job": submitted}
 
     if action == "story_film_qa_render":
         # The quality check: a contiguous 60-90 s window of the SAME
         # film, at whichever size is being judged. Same scene ids, same
         # media, same seconds - only the frames drawn and the profile
         # change, which is what makes it evidence about the real film.
+        excerpt_trip_id = str(data.get("trip_id") or "")
         try:
-            return {"renderer_app_job": await runtime.trip_film.async_submit(
-                str(data.get("trip_id") or ""),
+            submitted = await runtime.trip_film.async_submit(
+                excerpt_trip_id,
                 music=str(data.get("music") or ""),
                 profile=str(data.get("profile") or "") or "high_quality",
                 excerpt=True,
@@ -1702,14 +1721,35 @@ async def _execute_action(
                     if str(data.get("start_seconds") or "").strip()
                     else None
                 ),
-            )}
+            )
         except (TypeError, ValueError) as err:
             raise ValidationError(f"Ungültige Ausschnittwahl: {err}") from err
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+        # Recorded AS an excerpt. Marking it is what keeps a sixty-second
+        # piece from being promoted to "the film" when it finishes - the
+        # two are the same kind of job producing the same artefact name,
+        # and once the job file is gone only this record tells them apart.
+        await runtime.player_film.async_record_submission(
+            excerpt_trip_id, str(submitted.get("job_id") or ""), excerpt=True
+        )
+        return {"renderer_app_job": submitted}
 
     if action == "story_film_music":
         return {"film_music": await runtime.trip_film.async_music_options()}
+
+    if action == "player_latest_film":
+        # The player's whole server side. It looks up which finished film
+        # belongs to this trip and makes sure a copy of it sits in the
+        # media library, because the exchange folder is not servable.
+        #
+        # `None` is a legitimate answer and not an error: "für diese Reise
+        # gibt es noch keinen Reisefilm" is a screen the player draws.
+        return {
+            "player_latest_film": await runtime.player_film.async_latest(
+                str(data.get("trip_id") or "")
+            )
+        }
 
     if action == "story_music_prototype_offer":
         # What the A/B/C architecture comparison would cost. Read-only
@@ -1789,6 +1829,10 @@ async def _execute_action(
                 trip_id,
                 film_seconds=seconds,
                 scene_plan=scene_plan,
+                # A different take of the same plan, asked for in so many
+                # words. Absent means the cached path, which is what
+                # every other route through the panel takes.
+                force=bool(data.get("force")),
             )
         }
 

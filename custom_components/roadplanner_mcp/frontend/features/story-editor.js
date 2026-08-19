@@ -2,6 +2,17 @@ import { actionButton } from "../lib/action-button.js";
 import { cleanText, escapeHtml } from "../lib/core-helpers.js";
 
 /**
+ * The reserved name that means "the score generated for this film".
+ *
+ * A reserved NAME, not a path: the backend recognises it before it ever
+ * looks in the music folder, so it can never resolve to a file. Spelled
+ * once here rather than typed into every template - it must match
+ * `GENERATED_MUSIC` in trip_film_export.py exactly, and a second literal
+ * is how those two drift apart.
+ */
+const GENERATED_MUSIC = "__generated__";
+
+/**
  * The story editor: a small editorial desk on top of the roadbook.
  *
  * It shows the trip as the TravelStoryManifest describes it - one chapter
@@ -571,22 +582,168 @@ export const storyEditorMixin = {
             ? `<small>Die Renderer-App ist nicht erreichbar (${escapeHtml(String(status.reason || status.state || "kein Lebenszeichen"))}) - der Film braucht sie.</small>`
             : "<small>Der Zustand der Renderer-App ist noch nicht bekannt.</small>"
       }
-      <div class="button-row">
-        <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
-        ${this._renderStoryFilmMusic()}
+      <div class="film-choices">
         ${this._renderStoryFilmProfile()}
-        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-qa-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon> Prüfausschnitt (60–90 s)</button>` : ""}
-        ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Reisefilm erzeugen"}</button>` : ""}
+        ${this._renderStoryFilmMusicChoice()}
       </div>
-      ${this._renderStoryFilmExcerpt()}
-      ${this._renderStoryMusicPrototype()}
-      ${this._renderStoryFilmMusicPlan()}
+      ${this._renderStoryFilmMusicStatus()}
+      ${this._renderStoryFilmSummary()}
+      <div class="button-row">
+        ${canEdit ? `<button class="primary-button" type="button" data-action="story-film-render"${(online || !status) && !running && !preparing ? "" : " disabled"}><ha-icon icon="mdi:movie-play-outline"></ha-icon>${preparing ? " Film wird vorbereitet …" : " Film erstellen"}</button>` : ""}
+        <button class="secondary-button" type="button" data-action="story-film-preview"><ha-icon icon="mdi:filmstrip-box-multiple"></ha-icon> ${film ? "Vorschau aktualisieren" : "Was käme in den Film?"}</button>
+      </div>
       ${this._renderStoryFilmJobLine()}
-      ${this._renderStoryTripDiagnosis()}
-      ${this._renderStoryAllocationSimulation()}
-      ${this._renderStoryVideoAnalysis()}
-    </div></div>
-    ${this._renderCharacterAssets()}`;
+    </div></div>`;
+  },
+
+  /**
+   * Everything the film needs before it starts, in one place.
+   *
+   * Read from the preview, the profile table and the music offer that
+   * are already loaded - nothing here asks for anything. The point is
+   * that the last thing somebody sees before pressing the button is a
+   * plain account of what they are about to get, including what it
+   * costs, rather than four pickers whose combined meaning they have to
+   * assemble themselves.
+   *
+   * Only figures that are actually known. A summary that invents a
+   * duration for a trip nobody previewed would be worse than no summary:
+   * it would be believed.
+   */
+  _renderStoryFilmSummary() {
+    const film = this._storyFilm;
+    if (!film) return "";
+    const profiles = this._storyFilmProfileTable("render");
+    const chosen = this._storyFilmChosen(profiles, this._storyFilmProfile);
+    const profile = profiles.find((entry) => entry.id === chosen);
+    const offer = this._storyFilmMusicOfferData;
+    const wantsMusic = this._storyFilmTrack === GENERATED_MUSIC;
+    const rows = [];
+    const seconds = Number(film.film_seconds || 0);
+    if (seconds > 0) rows.push(["Dauer", this._storyFilmClock(seconds)]);
+    if (profile) {
+      rows.push([
+        "Qualität",
+        `${profile.label} · ${profile.width}×${profile.height} · ${profile.fps} fps`,
+      ]);
+    }
+    // "Ausgewählt" on purpose. Selected, available and rendered are three
+    // different numbers, and folding them together is how a film promised
+    // more photographs than it showed. This is what the plan CHOSE; the
+    // days it could not fill are named separately rather than averaged
+    // into the same figure. How many video moments end up in the cut is
+    // not known until the package is built, so it is not claimed here.
+    const media = [`${film.planned_photo_count} Bilder ausgewählt`];
+    if (Number(film.chapters_without_photos || 0) > 0) {
+      media.push(`${film.chapters_without_photos} Tage ohne Fotos`);
+    }
+    rows.push(["Medien", media.join(" · ")]);
+    if (!wantsMusic) {
+      rows.push(["Musik", this._storyFilmTrack ? `Datei „${this._storyFilmTrack}“` : "Ohne Musik"]);
+    } else if (offer) {
+      const fresh = Number(offer.new_generations || 0);
+      rows.push(["Musik", fresh ? "KI-Musik · wird neu erzeugt" : "KI-Musik · vorhandener Soundtrack"]);
+      rows.push([
+        "Zusätzliche Musikkosten",
+        `${(Number(offer.estimated_cost) || 0).toFixed(2)} ${escapeHtml(String(offer.currency || "USD"))}`,
+      ]);
+    } else {
+      rows.push(["Musik", "KI-Musik"]);
+    }
+    return `<div class="film-summary"><dl>
+      ${rows
+        .map(
+          ([label, value]) =>
+            `<div><dt>${escapeHtml(String(label))}</dt><dd>${escapeHtml(String(value))}</dd></div>`,
+        )
+        .join("")}
+    </dl></div>`;
+  },
+
+  /**
+   * The things that are still worth having and no longer worth showing.
+   *
+   * A QA excerpt, a small review copy, an own soundtrack file: each one
+   * exists for a good reason, and none of them is part of "make a film
+   * of our trip". They sat in the same button row as the film itself,
+   * which made a page of six equally weighted controls out of a decision
+   * with two parts. Collapsed, not deleted - somebody who wants a 60
+   * second excerpt knows they want one.
+   */
+  _renderStoryFilmAdvancedExports() {
+    const canEdit = this._canEdit();
+    const status = this._rendererAppStatus;
+    const online = Boolean(status?.online);
+    const job = this._rendererAppJob;
+    const running = job && !job.terminal && job.state;
+    const blocked = !((online || !status) && !running);
+    return `<details data-section="film-advanced" class="film-advanced">
+      <summary><span><ha-icon icon="mdi:export-variant"></ha-icon>Weitere Exportoptionen</span><small>Prüfausschnitt, Review-Kopie, eigene Musikdatei</small></summary>
+      <div class="assistant-technical-content">
+        <small class="hint">Review-Fassungen sind kleine Abnahmekopien zum Anschauen und Verschicken – nicht der eigentliche Film.</small>
+        <div class="button-row">
+          ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-qa-render"${blocked ? " disabled" : ""}><ha-icon icon="mdi:magnify-scan"></ha-icon> Prüfausschnitt (60–90 s)</button>` : ""}
+        </div>
+        ${this._renderStoryFilmMusic()}
+      </div>
+    </details>`;
+  },
+
+  /**
+   * The finished film, where the story ends up.
+   *
+   * The film used to be reachable only as a download link at the bottom
+   * of the job block that made it - which means it existed as evidence
+   * that a render had worked, and not as the thing the whole feature is
+   * for. Here it is the first thing on the page: a title, a picture, and
+   * a way to watch it.
+   *
+   * The LAST SUCCESSFUL one, from the same record the player uses. A
+   * render that failed this morning does not take last week's film off
+   * the page.
+   */
+  _renderStoryLatestFilm() {
+    if (this._storyLatestFilm === undefined && !this._storyLatestFilmAsked) {
+      this._storyLatestFilmAsked = true;
+      void this._storyLoadLatestFilm();
+    }
+    const film = this._storyLatestFilm;
+    if (!film || !film.url) return "";
+    const parts = [];
+    if (Number(film.duration_seconds) > 0) parts.push(this._storyFilmClock(film.duration_seconds));
+    if (film.width && film.height) parts.push(`${film.width}×${film.height}`);
+    parts.push(film.has_music ? "mit Musik" : "ohne Musik");
+    return `<div class="latest-film">
+      <video src="${escapeHtml(String(film.url))}" controls preload="metadata" playsinline></video>
+      <div class="latest-film-meta">
+        <strong>Der Reisefilm</strong>
+        <small>${escapeHtml(parts.join(" · "))}</small>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="player-enter"><ha-icon icon="mdi:television-play"></ha-icon> Im Player ansehen</button>
+        </div>
+      </div>
+    </div>`;
+  },
+
+  async _storyLoadLatestFilm() {
+    const result = await this._runAction(
+      "player_latest_film",
+      { trip_id: this._selectedTripId },
+      "",
+      { refresh: false, blockUi: false, errorTitle: "" },
+    ).catch(() => null);
+    // `null` is an answer: this trip has no finished film. Stored as
+    // null rather than left undefined so the question is not asked again
+    // on every render.
+    this._storyLatestFilm = result?.player_latest_film || null;
+    this._render({ preserveScroll: true });
+  },
+
+  /** Seconds as mm:ss, because "912 s" is not a film length. */
+  _storyFilmClock(seconds) {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    const minutes = Math.floor(total / 60);
+    return `${minutes}:${String(total % 60).padStart(2, "0")}`;
   },
 
   /**
@@ -605,6 +762,80 @@ export const storyEditorMixin = {
    * become a file location. "Ohne Musik" is a first-class choice and the
    * default - a film with no soundtrack is a complete film.
    */
+  /**
+   * The whole music decision, in two options.
+   *
+   * There used to be one list holding "Ohne Musik", a generated score and
+   * every file in the music folder, and around it a cue sheet, a style
+   * lock, a plan, an architecture comparison and three fassungen. All of
+   * that still exists and still works; none of it is a decision somebody
+   * makes while sending a film to their family. The question here is the
+   * only one they actually have: should there be music or not.
+   *
+   * Own files are not gone - they moved to the advanced exports, where
+   * somebody who deliberately put an mp3 in the folder will look.
+   */
+  _renderStoryFilmMusicChoice() {
+    const wants = this._storyFilmTrack === GENERATED_MUSIC;
+    return `<label class="inline-select"><span>Musik</span><select data-action="story-film-music-choice">
+      <option value=""${wants ? "" : " selected"}>Ohne Musik</option>
+      <option value="${GENERATED_MUSIC}"${wants ? " selected" : ""}>Mit KI-Musik</option>
+    </select></label>`;
+  },
+
+  /**
+   * What choosing KI-Musik means for this trip, in money and in work.
+   *
+   * Two states, and the difference between them is the entire point.
+   * Music that already exists is reused by every further render, at
+   * every size, for nothing - and somebody who does not know that will
+   * avoid re-rendering a film they should be re-rendering. Music that
+   * does not exist yet costs a named amount, once.
+   *
+   * The numbers come from the real plan. Nothing here is a constant: a
+   * hard-coded "5 Abschnitte · 0,40 USD" would be right for exactly one
+   * trip and quietly wrong for every other.
+   */
+  _renderStoryFilmMusicStatus() {
+    if (this._storyFilmTrack !== GENERATED_MUSIC) return "";
+    const offer = this._storyFilmMusicOfferData;
+    const canEdit = this._canEdit();
+    if (!offer) {
+      return `<div class="film-music-status"><small class="hint">Der Musikstand für diese Reise ist noch nicht geladen.</small>
+        <button class="text-button" type="button" data-action="story-film-music-offer"><ha-icon icon="mdi:refresh"></ha-icon> Musikstand prüfen</button></div>`;
+    }
+    const fresh = Number(offer.new_generations || 0);
+    const total = Number(offer.sections || 0);
+    const cost = (Number(offer.estimated_cost) || 0).toFixed(2);
+    const currency = escapeHtml(String(offer.currency || "USD"));
+    if (fresh === 0 && total > 0) {
+      return `<div class="film-music-status">
+        <strong>KI-Musik · vorhandener Soundtrack</strong>
+        <small>${escapeHtml(String(total))} Abschnitte sind bereits erzeugt. Zusätzliche Kosten: 0,00 ${currency}.</small>
+        <small class="hint">Weitere Renderdurchgänge – auch in einer anderen Größe – verwenden diese Musik erneut und kosten nichts.</small>
+        ${
+          canEdit
+            ? `<button class="text-button" type="button" data-action="story-film-music-regenerate"><ha-icon icon="mdi:music-note-plus"></ha-icon> Neue Musikvariante erzeugen</button>`
+            : ""
+        }
+      </div>`;
+    }
+    if (!offer.available) {
+      return `<div class="film-music-status">
+        <strong>KI-Musik ist nicht verfügbar</strong>
+        <small>${escapeHtml(String(offer.unavailable_reason || "Kein Grund gemeldet."))}</small>
+      </div>`;
+    }
+    return `<div class="film-music-status">
+      <strong>KI-Musik wird einmal erzeugt</strong>
+      <small>Geplante Musikabschnitte: ${escapeHtml(String(total))}${
+        Number(offer.cached || 0) > 0 ? ` (${escapeHtml(String(offer.cached))} davon schon vorhanden)` : ""
+      }</small>
+      <small>Geschätzte Zusatzkosten: ca. ${cost} ${currency}</small>
+      <small class="hint">Die Musik wird einmal erzeugt und danach für weitere Rendergrößen wiederverwendet.</small>
+    </div>`;
+  },
+
   _renderStoryFilmMusic() {
     const tracks = this._storyFilmMusic;
     // A reserved NAME, handled on the other side before the folder is
@@ -623,7 +854,7 @@ export const storyEditorMixin = {
       <option value=""${chosen ? "" : " selected"}>Ohne Musik</option>
       ${
         hasGenerated
-          ? `<option value="__generated__"${chosen === "__generated__" ? " selected" : ""}>KI-Musik (${escapeHtml(String(generated.cached))} Abschnitte)</option>`
+          ? `<option value="${GENERATED_MUSIC}"${chosen === GENERATED_MUSIC ? " selected" : ""}>KI-Musik (${escapeHtml(String(generated.cached))} Abschnitte)</option>`
           : ""
       }
       ${tracks
@@ -1201,13 +1432,47 @@ export const storyEditorMixin = {
     this._render({ preserveScroll: true });
   },
 
-  /** The one place in the story editor that spends money. */
-  async _storyFilmMusicGenerate() {
+  /**
+   * A different take of the same score, asked for on purpose.
+   *
+   * The only route in the product that pays for music that already
+   * exists. Everything else - a second render, another size, a review
+   * copy, a page reload, a restarted Home Assistant - reuses what is
+   * there, which is the promise the status block makes. So this one asks
+   * first, and it asks with the numbers: what it costs, how many
+   * provider calls, and that the pieces now on disk are replaced.
+   */
+  async _storyFilmMusicRegenerate() {
     const offer = this._storyFilmMusicOfferData;
-    if (!offer || !offer.new_generations) return;
+    if (!offer) {
+      await this._storyFilmMusicOffer();
+      return;
+    }
+    const sections = Number(offer.sections || 0);
+    if (!sections) return;
+    const price = Number(offer.price_per_generation) || 0;
+    const total = (sections * price).toFixed(2);
+    const currency = String(offer.currency || "USD");
+    this._confirm(
+      "Neue Musikvariante erzeugen?",
+      `Alle ${sections} Abschnitte werden neu erzeugt – ${sections} Aufrufe bei `
+        + `${String(offer.model || "Lyria")}, geschätzt ${total} ${currency}. `
+        + "Die bisherigen Stücke dieser Reise werden dabei ersetzt. "
+        + "Für einen normalen Filmrender ist das nicht nötig: der verwendet die "
+        + "vorhandene Musik und kostet nichts.",
+      `Neu erzeugen (${total} ${currency})`,
+      () => this._storyFilmMusicGenerate({ force: true }),
+      true,
+    );
+  },
+
+  /** The one place in the story editor that spends money. */
+  async _storyFilmMusicGenerate({ force = false } = {}) {
+    const offer = this._storyFilmMusicOfferData;
+    if (!offer || (!offer.new_generations && !force)) return;
     const result = await this._runAction(
       "story_film_music_generate",
-      { trip_id: this._selectedTripId },
+      { trip_id: this._selectedTripId, force },
       "",
       {
         refresh: false,
@@ -2186,7 +2451,10 @@ export const storyEditorMixin = {
         <span><strong>${escapeHtml(String(Number(sources.stored || 0)))}</strong> aus Zusammenfassungen</span>
       </div>
       ${this._renderStoryDirector(manifest)}
+      ${this._renderStoryLatestFilm()}
       ${this._renderStoryFilm()}
+      ${this._renderStoryFilmAdvancedExports()}
+      ${this._renderCharacterAssets()}
       ${this._renderStoryChapterStrip(chapters, chapter)}
 
       <article class="story-chapter">

@@ -205,6 +205,7 @@ from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
 from .character_asset_service import CharacterAssetService
+from .player_film import PlayerFilmService, PlayerFilmStore
 from .character_asset_store import CharacterAssetStore
 from .trip_film_export import TripFilmExporter
 from .trip_film_music_service import TripFilmMusicService
@@ -263,6 +264,11 @@ class RoadplannerRuntimeData:
     film_music: TripFilmMusicService
     character_assets: CharacterAssetStore
     character_asset_service: CharacterAssetService
+    # Which finished film the player puts on the wall. Its own service
+    # because "the last render that was started" and "the last one that
+    # worked" are different films, and only the second one belongs on a
+    # tablet in the kitchen.
+    player_film: PlayerFilmService
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -900,6 +906,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         media_cache=media_cache,
     )
 
+    # Reads the exchange folder and copies a finished film into the media
+    # library so a browser can play it. It can start nothing and pay for
+    # nothing - the player is a viewer, and a viewer that could trigger a
+    # render would be a tablet on a wall spending money.
+    player_film_store = PlayerFilmStore(archive_root / "player")
+    await hass.async_add_executor_job(player_film_store.initialize)
+    player_film = PlayerFilmService(hass, renderer_app, trip_video, player_film_store)
+
     runtime = RoadplannerRuntimeData(
         manager=manager,
         coordinator=coordinator,
@@ -940,6 +954,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         film_music=film_music,
         character_asset_service=character_asset_service,
         character_assets=character_assets,
+        player_film=player_film,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

@@ -195,6 +195,11 @@ def verify_only_two_fields_are_editable() -> None:
         "media_update_assignment",
         "story_film_preview",
         "story_film_render",
+        # Which film this trip already has, so the story page can show it
+        # instead of only offering to make another one. Read-only: it
+        # names a trip, returns a URL into the media library, and cannot
+        # start a render or reach a provider.
+        "player_latest_film",
         # A 60-90 s window into the SAME film, for judging how it looks
         # at full size. Carries a trip, a size, and at most a chapter id
         # or a start time - both matched against the film's own plan.
