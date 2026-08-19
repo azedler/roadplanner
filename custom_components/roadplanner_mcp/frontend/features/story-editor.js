@@ -1021,7 +1021,7 @@ export const storyEditorMixin = {
       <ul class="plain-list">${rows}</ul>
       ${
         this._storyFilmSourceHasAudio === true
-          ? `<small class="hint">Der vorhandene Ausschnitt hat schon eine Tonspur – er wurde mit ausgewählter Musik gerendert. Für den Vergleich braucht es den stummen: oben „Musik“ auf „Ohne Musik“ stellen und den Prüfausschnitt neu rendern.</small>`
+          ? `<small class="hint">Im vorhandenen Ausschnitt ist schon Musik zu hören – er wurde mit ausgewählter Musik gerendert. Für den Vergleich braucht es den stummen: oben „Musik“ auf „Ohne Musik“ stellen und den Prüfausschnitt neu rendern.</small>`
           : ""
       }
       ${

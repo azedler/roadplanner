@@ -261,11 +261,44 @@ def verify_the_pictures_are_copied_and_not_re_encoded() -> None:
 
 
 def verify_a_film_that_already_has_music_is_refused() -> None:
-    """Two soundtracks in one file, the second one inaudible."""
+    """Two soundtracks in one file, the second one inaudible.
+
+    Refused on a MEASUREMENT, not on the presence of a stream. This
+    check used to demand the opposite - it required the words "bereits
+    eine Tonspur" beside a test of `source.has_audio`, and so it wrote
+    the bug down a second time and held it in place. Every Remotion
+    render carries an AAC track; an empty one measures about -91 dBFS.
+    Counting streams therefore refused every silent excerpt and told the
+    user to render a film without an audio stream, which this renderer
+    cannot produce.
+    """
     body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
     body = body.split("\n/**", 1)[0]
-    assert "source.has_audio" in body, body
-    assert "bereits eine Tonspur" in body, body
+    assert "measureVolume(sourcePath)" in body, (
+        "der Mux entscheidet wieder nach Streams statt nach Pegel"
+    )
+    assert "hörbare Tonspur" in body, body
+    # Unknown must not refuse. An unmeasurable film is the one case where
+    # both answers are guesses, and blocking is the guess that costs the
+    # user work already paid for.
+    assert "audible === true" in body, (
+        "eine ungemessene Quelle darf den Mux nicht blockieren"
+    )
+
+
+def verify_a_silent_mix_is_not_reported_as_ready() -> None:
+    """Something has to be audible before the file counts as finished.
+
+    A mux that wrote silence is right in every checkable respect: the
+    file has the expected size, length and an audio stream. Exactly that
+    file was uploaded and listened to before anybody measured it.
+    """
+    body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
+    body = body.split("\n/**", 1)[0]
+    assert "measureVolume(partial)" in body, (
+        "das Ergebnis wird nicht mehr daraufhin geprüft, ob etwas zu hören ist"
+    )
+    assert "stumme Tonspur" in body, body
 
 
 def verify_the_review_copy_carries_the_soundtrack() -> None:
