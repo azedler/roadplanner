@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.8] - 2026-08-13
+
+### Fixed
+
+- **Fertige Aufträge verschwanden aus dem Panel — je nach Auftrags-ID.** Die Auftragsliste begrenzt ihre Arbeit, bevor sie überhaupt eine Datei öffnet. Das ist richtig. Sie schnitt aber **nach Dateinamen** ab — und Statusdateien heißen wie die Auftrags-ID. „Die ersten sechzig Namen" sind damit sechzig beliebige. Ab dieser Zahl an Dateien im Austauschordner tauchte ein fertiger Film mal auf und mal nicht, je nachdem, wohin seine ID zufällig sortierte: Die Karte meldete, es gebe keinen Film, die Knöpfe, die einen brauchen, fehlten einfach, und Neuladen half nicht — die Antwort war nicht veraltet, es waren **die falschen sechzig**.
+
+  Dass das Ergebnis anschließend nach Zeit sortiert wurde, konnte eine Auswahl nicht heilen, die ohne jeden Blick auf die Zeit getroffen wurde. Abgeschnitten wird jetzt nach Änderungszeit, neueste zuerst. Der Test legt achtzig ältere Aufträge an, deren IDs alle vor der des neuen Films sortieren, und verlangt den Film als ersten Eintrag.
+
+  Das ist die Ursache hinter drei verschiedenen Symptomen desselben Tages: „Zum Auflegen fehlt noch der Prüfausschnitt" auf einem System, das einen hatte; drei fertige Mischungen, die sich nicht mehr auseinanderhalten ließen; und ein kompletter Auftragsblock, der nach einem Neuladen weg war.
+
 ## [4.113.7] - 2026-08-13
 
 ### Fixed
