@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.9] - 2026-08-19
+
 ### Fixed
 
 - **Der Vergleich bot Fassungen an, die der Renderer ablehnen musste.** Drei Angaben beschreiben den Film, mit dem der nächste Schritt arbeitet: welcher Auftrag ihn erzeugt hat, ob er ein Prüfausschnitt ist, und ob er schon eine Tonspur trägt. Nur die ersten beiden wurden mitgeführt, wenn ein neuer Render zur Quelle wurde. Die dritte stand an genau **einer** Stelle im Code — beim Wiederherstellen nach einem Seitenladen. Jeder Render, der innerhalb einer Sitzung gestartet wurde, ließ sie über den **vorherigen** Film reden.
