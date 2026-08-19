@@ -6,6 +6,16 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.113.9] - 2026-08-19
+
+### Fixed
+
+- **Der Vergleich bot Fassungen an, die der Renderer ablehnen musste.** Drei Angaben beschreiben den Film, mit dem der nächste Schritt arbeitet: welcher Auftrag ihn erzeugt hat, ob er ein Prüfausschnitt ist, und ob er schon eine Tonspur trägt. Nur die ersten beiden wurden mitgeführt, wenn ein neuer Render zur Quelle wurde. Die dritte stand an genau **einer** Stelle im Code — beim Wiederherstellen nach einem Seitenladen. Jeder Render, der innerhalb einer Sitzung gestartet wurde, ließ sie über den **vorherigen** Film reden.
+
+  Sichtbar wurde das so: Die Vergleichsfassungen lagen auf einem stummen Ausschnitt, dann wurde ein neuer Ausschnitt mit ausgewählter Musik gerendert. Das Panel hielt die Quelle weiter für stumm, ließ die drei Auflegen-Knöpfe stehen — und der Renderer verweigerte, was das Panel gerade angeboten hatte: „Dieser Film hat bereits eine Tonspur (PACKAGE_INVALID)". Die Weigerung war richtig; das Angebot nicht. Der Hinweis, der für genau diesen Fall geschrieben war, erschien nie.
+
+  Die Quelle wird jetzt als Einheit gesetzt, und die Tonspur-Auskunft beginnt dabei als **unbekannt** statt geerbt zu werden. Unbekannt ist bewusst ein dritter Wert: Ein Film, den niemand gemessen hat, ist kein stummer Film — und nur diese Vermutung bietet eine Mischung an, die nicht funktionieren kann. Beantwortet wird die Frage, sobald der Auftrag fertig ist, aus dem **gemessenen** Ergebnis (`video.has_audio`), nie daraus, dass vor dem Render ein Stück ausgewählt war.
+
 ## [4.113.8] - 2026-08-13
 
 ### Fixed
