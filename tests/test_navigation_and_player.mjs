@@ -267,3 +267,121 @@ assert.ok(diagnosis.includes("Musikarchitektur") || diagnosis.includes("story-mu
 assert.equal(typeof panel._renderActiveTab, "function");
 
 console.log("Diagnosis view tests passed.");
+
+// --- Film erstellen mit KI-Musik: stumm rendern, dann auflegen ----------
+//
+// The render-time path that baked the score into the package is gone -
+// it contradicted "music comes last" and had been crashing for a week
+// without anybody noticing, which is how we know it had no users. The
+// promise now has two halves: the submit records the intent, and the
+// poll's terminal transition triggers the mux. Both halves are exercised
+// here with stubs, because the real ones need a renderer and an hour.
+
+let muxCalls = 0;
+panel._storyFilmAddMusic = async () => { muxCalls += 1; };
+
+// Completed film with the intent set: exactly one mux, flag cleared.
+panel._storyFilmMuxAfterRender = true;
+panel._rendererAppKind = "trip_film";
+panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(muxCalls, 1, "der fertige Film bekommt seine Musik nicht");
+assert.equal(panel._storyFilmMuxAfterRender, false, "die Absicht bleibt scharf");
+
+// A failed render clears the intent and muxes nothing - a primed flag
+// surviving a failure would fire on some later, unrelated completion.
+muxCalls = 0;
+panel._storyFilmMuxAfterRender = true;
+panel._storyFilmMaybeAutoMux({ terminal: true, state: "failed" });
+await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(muxCalls, 0, "ein gescheiterter Render legt Musik auf");
+assert.equal(panel._storyFilmMuxAfterRender, false, "die Absicht überlebt das Scheitern");
+
+// A progress tick is not a completion.
+panel._storyFilmMuxAfterRender = true;
+panel._storyFilmMaybeAutoMux({ terminal: false, state: "running" });
+await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(muxCalls, 0, "ein laufender Render löst den Mux aus");
+assert.equal(panel._storyFilmMuxAfterRender, true, "die Absicht fällt vor dem Ende");
+
+// Without the intent - Ohne Musik, or an own file - nothing fires.
+panel._storyFilmMuxAfterRender = false;
+panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(muxCalls, 0, "ein Film ohne Musikwunsch wird gemuxt");
+
+// A quality excerpt never gets the full score muxed on: its sections
+// would start after its last frame.
+panel._storyFilmMuxAfterRender = true;
+panel._rendererAppKind = "film_excerpt";
+panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(muxCalls, 0, "der Prüfausschnitt bekommt den ganzen Soundtrack");
+panel._rendererAppKind = "trip_film";
+
+// --- the submit records the intent, and only for the generated score ---
+
+const submitted = [];
+panel._runAction = async (action, payload) => {
+  submitted.push([action, payload]);
+  if (action === "story_film_render") {
+    return { renderer_app_job: { job_id: "job-neu", chapter_count: 3, chapters_without_photos: 0 } };
+  }
+  return null;
+};
+panel._pollRendererAppJob = () => {};
+
+panel._storyFilmTrack = "__generated__";
+panel._storyFilmMuxAfterRender = false;
+await panel._storyFilmRenderSubmit();
+assert.equal(panel._storyFilmMuxAfterRender, true, "die Mux-Absicht wird beim Einreichen nicht gesetzt");
+
+panel._storyFilmTrack = "";
+await panel._storyFilmRenderSubmit();
+assert.equal(panel._storyFilmMuxAfterRender, false, "ein Film ohne Musik trägt eine Mux-Absicht");
+
+// --- missing music asks first, with the price, and starts nothing ------
+
+let confirmations = 0;
+panel._confirm = (title, message) => {
+  confirmations += 1;
+  assert.ok(/0\.16 USD/.test(message), message);
+  assert.ok(/2 Aufrufe/.test(message), message);
+};
+panel._storyFilmTrack = "__generated__";
+panel._storyFilmMusicOfferData = {
+  model: "lyria-3-pro-preview",
+  sections: 5,
+  cached: 3,
+  new_generations: 2,
+  estimated_cost: 0.16,
+  price_per_generation: 0.08,
+  currency: "USD",
+  available: true,
+};
+submitted.length = 0;
+await panel._storyFilmRender();
+assert.equal(confirmations, 1, "fehlende Musik wird ohne Rückfrage bestellt oder ignoriert");
+assert.equal(
+  submitted.filter(([action]) => action === "story_film_render").length,
+  0,
+  "der Render startet, bevor jemand den Musikkosten zugestimmt hat",
+);
+
+// With everything cached there is nothing to ask: straight to the render.
+panel._storyFilmMusicOfferData = {
+  ...panel._storyFilmMusicOfferData,
+  cached: 5,
+  new_generations: 0,
+  estimated_cost: 0,
+};
+confirmations = 0;
+await panel._storyFilmRender();
+assert.equal(confirmations, 0, "vorhandene Musik wird noch einmal bestätigt");
+assert.equal(
+  submitted.filter(([action]) => action === "story_film_render").length,
+  1,
+  "mit vorhandener Musik startet der Render nicht",
+);
+
+console.log("Silent-render-then-mux tests passed.");

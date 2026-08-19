@@ -350,6 +350,10 @@ export const rendererAppMixin = {
         if (structural) this._rendererAppRedraw();
         else this._rendererAppPatchProgress();
         if (result.renderer_app_job.terminal) {
+          // The second half of "Film erstellen mit KI-Musik": a film
+          // that was submitted for a score gets it muxed on now. The
+          // hook is one-shot and checks everything itself.
+          this._storyFilmMaybeAutoMux?.(result.renderer_app_job);
           // The App line otherwise keeps showing whatever the last
           // environment probe saw - which is stale after an app update.
           const status = await this._runAction("renderer_app_status", {}, "", {

@@ -326,8 +326,7 @@ class TripFilmExporter:
             )
         try:
             music, files = await self._hass.async_add_executor_job(
-                build_music_timeline_package,
-    build_music_variant_package, timeline
+                build_music_timeline_package, timeline
             )
         except MusicPackageError as err:
             raise ValidationError(str(err)) from err
@@ -606,29 +605,35 @@ class TripFilmExporter:
         the ordinary path still matches whatever was sent against the
         folder listing before anything is opened.
 
-        The generated score is read through a callable that can only
-        report what already exists. The exporter is deliberately not
-        given the music service: rendering a film must have no route to
-        a paid call, not even an accidental one, and the strongest form
-        of that rule is not having the method in reach.
+        The generated score never travels in the package at all: choosing
+        it means the film renders silent and the score is muxed onto the
+        finished MP4 by ``async_add_music``. The exporter is deliberately
+        not given the music service: rendering a film must have no route
+        to a paid call, not even an accidental one, and the strongest
+        form of that rule is not having the method in reach.
         """
         if str(music or "") != GENERATED_MUSIC:
             return await self._hass.async_add_executor_job(build_music_package, music)
-        if self._music_timeline is None:
-            _LOGGER.info("KI-Musik angefragt, aber kein Musikdienst verdrahtet")
-            return None, {}
-        seconds, scene_plan = await self.async_estimate_plan(trip_id)
-        timeline = await self._music_timeline(trip_id, seconds, scene_plan)
-        if not timeline:
-            # Nothing was generated for this film yet. A film without
-            # music is a complete film; a render that fails because
-            # somebody has not paid for a soundtrack is not.
-            _LOGGER.info("Für diese Reise ist noch keine KI-Musik erzeugt worden")
-            return None, {}
-        return await self._hass.async_add_executor_job(
-            build_music_timeline_package,
-    build_music_variant_package, timeline
+        # "Music comes last." The generated score is deliberately NOT put
+        # into the render package: the film renders silent, and the score
+        # is muxed onto the finished MP4 afterwards - fitted to the
+        # MEASURED length instead of the estimate, loudness-matched, with
+        # the video stream copied, so a second attempt costs a mux and
+        # not a ninety-minute render.
+        #
+        # This branch used to build a timeline package here anyway, which
+        # quietly undid that decision - and the call had its arguments
+        # scrambled by a careless edit, so it had crashed on every attempt
+        # since ("'function' object is not iterable", live report). That
+        # it stayed broken for a week is the proof nothing depended on it.
+        # The panel submits the mux the moment the render completes; the
+        # "Musik auflegen" button on the finished film covers a browser
+        # that was closed in between.
+        _LOGGER.info(
+            "KI-Musik gewählt: Der Film wird stumm gerendert, die Musik "
+            "kommt nach dem Render auf den fertigen Film"
         )
+        return None, {}
 
     async def _async_crew(self) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
         """Names and locally stored portraits, prepared for the film.

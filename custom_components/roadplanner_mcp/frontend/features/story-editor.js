@@ -479,7 +479,74 @@ export const storyEditorMixin = {
     this._storyFilmSourceHasAudio = found.has_audio;
   },
 
+  /**
+   * "Film erstellen", with the music orchestrated around it.
+   *
+   * The user made two decisions; this turns them into the right sequence
+   * without asking anything the status block has not already answered:
+   *
+   * - Ohne Musik, or an own file: one render, as always.
+   * - KI-Musik, already generated: the film renders SILENT, and the
+   *   score is muxed onto the finished MP4 as soon as the render
+   *   completes. Music comes last - fitted to the measured length,
+   *   loudness-matched, video stream copied. Baking it into the render
+   *   package is the architecture this project already left once.
+   * - KI-Musik, not generated yet: one confirmation naming the price
+   *   and the number of provider calls, then generate, then the same
+   *   silent-render-plus-mux. Cancelling starts nothing at all.
+   *
+   * If the panel is closed during the render, the mux flag dies with
+   * it - that is the one gap, and the finished film then carries the
+   * "Musik auflegen" button as the manual fallback.
+   */
   async _storyFilmRender() {
+    const wantsGenerated = this._storyFilmTrack === GENERATED_MUSIC;
+    if (!wantsGenerated) {
+      await this._storyFilmRenderSubmit();
+      return;
+    }
+    if (!this._storyFilmMusicOfferData) await this._storyFilmMusicOffer();
+    const offer = this._storyFilmMusicOfferData;
+    if (!offer) return;
+    const missing = Number(offer.new_generations || 0);
+    if (missing > 0) {
+      if (offer.available === false) {
+        this._showToast(
+          String(offer.unavailable_reason || "KI-Musik ist nicht verfügbar."),
+          "error",
+          9000,
+        );
+        return;
+      }
+      const cost = (Number(offer.estimated_cost) || 0).toFixed(2);
+      const currency = String(offer.currency || "USD");
+      this._confirm(
+        "Musik zuerst erzeugen?",
+        `${missing} Musikabschnitt${missing === 1 ? "" : "e"} für diesen Film `
+          + `${missing === 1 ? "ist" : "sind"} noch nicht erzeugt - das sind `
+          + `${missing} Aufruf${missing === 1 ? "" : "e"} bei ${String(offer.model || "Lyria")}, `
+          + `geschätzt ${cost} ${currency}. Danach startet der Film automatisch; `
+          + "die Musik wird nach dem Render aufgelegt und für weitere "
+          + "Rendergrößen wiederverwendet.",
+        `Erzeugen und rendern (${cost} ${currency})`,
+        async () => {
+          await this._storyFilmMusicGenerate();
+          // Only if the generation actually delivered. A refusal or a
+          // provider error leaves sections missing, and rendering past
+          // that would quietly produce the silent film the user just
+          // paid to avoid.
+          const after = this._storyFilmMusicOfferData;
+          if (after && Number(after.new_generations || 0) === 0) {
+            await this._storyFilmRenderSubmit();
+          }
+        },
+      );
+      return;
+    }
+    await this._storyFilmRenderSubmit();
+  },
+
+  async _storyFilmRenderSubmit() {
     this._storyFilmStartError = "";
     // Said before anything is fetched, because between this click and
     // the first progress number lies the whole package build: a couple
@@ -522,6 +589,10 @@ export const storyEditorMixin = {
       return;
     }
     this._rendererAppKind = "trip_film";
+    // Decided AT SUBMIT, because that is when the choice was made. The
+    // mux fires when this render completes - changing the picker while
+    // the render runs does not retract a decision already paid for.
+    this._storyFilmMuxAfterRender = this._storyFilmTrack === GENERATED_MUSIC;
     // The film this render will produce, and therefore the only thing a
     // review copy may later be made from.
     this._storyFilmSetSource(result.renderer_app_job.job_id, { isExcerpt: false });
@@ -1098,6 +1169,29 @@ export const storyEditorMixin = {
    * The film keeps its own length here - measured by ffprobe rather than
    * estimated - which is the whole reason the music goes on last.
    */
+  /**
+   * The second half of "Film erstellen mit KI-Musik".
+   *
+   * Called by the job poll on every terminal transition. One shot,
+   * whatever the outcome: the flag is cleared before anything else, so
+   * a failed or cancelled render can never leave a primed mux behind to
+   * fire on some later, unrelated completion.
+   *
+   * Deferred one tick on purpose. The poll that noticed the completion
+   * still holds its own guard when this runs; the mux submits a new job
+   * and starts a new poll, which needs that guard released first.
+   */
+  _storyFilmMaybeAutoMux(job) {
+    if (!this._storyFilmMuxAfterRender) return;
+    if (!job || !job.terminal) return;
+    this._storyFilmMuxAfterRender = false;
+    if (this._rendererAppKind !== "trip_film") return;
+    if (job.state !== "completed") return;
+    window.setTimeout(() => {
+      void this._storyFilmAddMusic();
+    }, 0);
+  },
+
   async _storyFilmAddMusic() {
     const sourceId = this._storyFilmSourceJobId || "";
     if (!sourceId) return;
