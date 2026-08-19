@@ -265,6 +265,11 @@ export const rendererAppMixin = {
       // is right, but the panel offered the button anyway and the
       // refusal read as a fault in the comparison. `undefined` stays
       // undefined: not knowing is not the same as knowing it is silent.
+      //
+      // Assigned unconditionally, including the undefined case. Leaving
+      // the old value standing when this film cannot be measured is how
+      // the answer came to describe a film that was no longer the
+      // source at all.
       this._storyFilmSourceHasAudio =
         typeof film.has_audio === "boolean" ? film.has_audio : undefined;
     }
@@ -320,6 +325,12 @@ export const rendererAppMixin = {
         const before = this._rendererAppJob;
         this._rendererAppJob = result.renderer_app_job;
         if (result.renderer_app_result) this._rendererAppResult = result.renderer_app_result;
+        // A finished film answers the soundtrack question about itself.
+        // Read here rather than waited for, because the next thing the
+        // user does is press a button whose availability depends on the
+        // answer - and until this ran, that answer was whatever the
+        // PREVIOUS film had said.
+        this._storyFilmSourceMeasured?.(jobId, result.renderer_app_result);
         // A percentage that ticked up is not a reason to rebuild the page.
         // The whole shadow DOM is replaced on render, and the scroll
         // offset is restored against a document that has not finished
