@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.114.0] - 2026-08-19
+
 ### Fixed
 
 - **Der Musikvergleich konnte gar nicht funktionieren: „Tonspur vorhanden" wurde mit „Musik vorhanden" verwechselt.** Ein Remotion-Render schreibt **immer** eine AAC-Spur, auch für einen Film ohne Musik — eine leere misst rund −91 dBFS. Der Mux fragte ffprobe aber nur, *ob* eine Audiospur existiert, und lehnte damit jeden Film ab, den dieser Renderer je erzeugt hat: „Dieser Film hat bereits eine Tonspur (PACKAGE_INVALID)".
