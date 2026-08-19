@@ -6,6 +6,18 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **„Film erstellen" mit KI-Musik stürzte ab — und „Musik auflegen" war seit einer Woche kaputt.** Beim A/B/C-Umbau hatte eine unachtsame Ersetzung an **zwei** Stellen eine *Funktion* als Datenargument in den Paketbau geschoben (`'function' object is not iterable`). Betroffen war nicht nur der neue Renderweg, sondern auch das Auflegen des vollen Soundtracks auf einen fertigen Film — jeder Versuch seit 4.113.0 scheiterte mit diesem Fehler.
+
+  Der Mux-Pfad ist repariert. Der Renderweg dagegen ist nicht repariert, sondern **entfernt**: Er hätte die Musik wieder ins Renderpaket eingebacken, was die Architekturentscheidung „Musik kommt zuletzt" rückgängig gemacht hätte — ohne Lautheitsangleichung, ohne Anpassung an die gemessene Filmlänge, und jede neue Größe hätte den Ton neu codiert. Dass der Pfad eine Woche lang bei jedem Aufruf abstürzte, ohne dass es jemand bemerkte, ist der Beleg, dass nichts von ihm abhing.
+
+  **„Mit KI-Musik" heißt jetzt: stumm rendern, danach automatisch auflegen.** Sobald der Render fertig ist, legt das Panel die Musik auf — angepasst an die gemessene Länge, mit kopiertem Videostream, in Sekunden. Fehlt die Musik noch, fragt „Film erstellen" zuerst mit Preis und Aufrufzahl; erst nach der Zustimmung wird erzeugt und dann gerendert. Ein Abbruch startet nichts. Wird das Panel während des Renders geschlossen, bleibt am fertigen Film der Knopf „Musik auflegen".
+
+  Eine adversariale Prüfung des Fixes fand drei tiefere Fehler, alle behoben: **Das Auflegen suchte die Abschnitte falsch** — ohne Szenenplan und mit der gemessenen statt der geschätzten Länge, während Angebot und Erzeugung die Cache-Schlüssel aus Schätzung plus Plan bildeten. Gemini-geplante Abschnitte hätten *nie* gefunden werden können; bezahlte Musik wäre dauerhaft als „nie erzeugt" gemeldet worden. Der Mux fragt jetzt exakt so wie das Angebot und nutzt die gemessene Länge nur zum Einpassen. **Die Auto-Mux-Absicht** ist an ihren Auftrag und ihre Reise gebunden statt an „was auch immer als Nächstes fertig wird" — ein Reisewechsel während des Renders vertont nicht mehr die falsche Reise. Und **ein Reisewechsel** räumt jetzt den Filmblock auf: Das Musikangebot einer Reise kann den Render der nächsten weder freischalten noch bepreisen.
+
+  Ein neuer Test verallgemeinert die Fehlerform auf das ganze Repository: Kein `async_add_executor_job`-Aufruf darf eine Funktion als Datenargument führen — eine Funktion an dieser Stelle scheitert nicht am Aufrufort, sondern später im Aufgerufenen, mit einer Meldung, die beides nicht nennt. Der Test, der den alten Einback-Pfad festgeschrieben hatte, verlangt jetzt das Gegenteil.
+
 ## [4.115.0] - 2026-08-19
 
 ### Added

@@ -193,12 +193,35 @@ def verify_the_music_planner_is_actually_reached() -> None:
     for block in (offer, generate):
         assert "film_seconds=seconds" in block, block
 
-    # The render path asks the same question, so the score the film gets
-    # is the score that was planned and paid for.
+    # The RENDER path no longer reads the timeline at all: the generated
+    # score never travels in the package. This assertion used to demand
+    # the opposite - and the call it demanded had its arguments scrambled
+    # and crashed on every attempt, which is how the render-time branch
+    # was found to have no users. The question "does the film get the
+    # score that was planned and paid for?" is answered by the mux, which
+    # fits the timeline to the film's MEASURED length.
     music_body = export.split("async def _async_music(", 1)[1]
     music_body = music_body.split("\n    async def ", 1)[0]
-    assert "async_estimate_plan(" in music_body, music_body
-    assert "self._music_timeline(trip_id, seconds, scene_plan)" in music_body, music_body
+    assert "async_estimate_plan(" not in music_body, (
+        "der Renderpfad plant wieder Musik ins Paket - Musik kommt zuletzt"
+    )
+    add_body = export.split("async def async_add_music(", 1)[1]
+    add_body = add_body.split("\n    async def ", 1)[0]
+    # Looked up the way the OFFER looked: estimated length plus the same
+    # scene plan. The sections on disk are keyed by that plan; asking
+    # with the measured length or without the plan reproduces a different
+    # plan and reports paid music as never generated. The measured length
+    # is used for FITTING - sections starting after the real film end are
+    # dropped, not sent to a renderer that would refuse the whole mux.
+    assert "self._music_timeline(trip_id, estimated, scene_plan)" in add_body, (
+        "der Mux fragt die Timeline nicht mehr so ab, wie das Angebot "
+        "gefragt hat - bezahlte Abschnitte würden als nie erzeugt gemeldet"
+    )
+    assert "async_estimate_plan(trip_id)" in add_body, add_body[:0]
+    assert '< seconds' in add_body, (
+        "Abschnitte hinter dem gemessenen Filmende werden nicht mehr "
+        "aussortiert - der Renderer verweigert dann den ganzen Mux"
+    )
 
 
 def verify_the_film_export_still_has_no_path_to_a_paid_call() -> None:
