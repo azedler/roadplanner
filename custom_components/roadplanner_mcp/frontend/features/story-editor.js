@@ -422,6 +422,52 @@ export const storyEditorMixin = {
     }
   },
 
+  /**
+   * Which finished film the next step works from - all of it at once.
+   *
+   * Three facts belong to one film: which job made it, whether it is an
+   * excerpt, and whether it carries a soundtrack. They used to be set
+   * separately, and the third one was set in exactly one place - the
+   * restore-after-reload path. So every render started in this session
+   * moved the first two on and left the third describing the PREVIOUS
+   * film. Somebody who had mixed onto a silent excerpt and then rendered
+   * a new one with music selected was still told the source was silent:
+   * the three fassung buttons stayed up, and the mux refused what the
+   * panel had just offered (live report).
+   *
+   * That is this project's most repeated mistake in a new costume - a
+   * value that keeps answering after the thing it described is gone. So
+   * the source is set as a unit, and the soundtrack starts out UNKNOWN
+   * rather than inherited. Unknown is a third value on purpose: the film
+   * has not been measured yet, and "not measured" must not be spoken as
+   * "silent" - that guess is what would offer a mix that cannot work.
+   * `_storyFilmSourceMeasured` fills it in once the job ends.
+   */
+  _storyFilmSetSource(jobId, { isExcerpt }) {
+    this._storyFilmSourceJobId = jobId;
+    this._storyFilmSourceIsExcerpt = isExcerpt;
+    this._storyFilmSourceHasAudio = undefined;
+  },
+
+  /**
+   * The soundtrack question answered by measurement, not by intention.
+   *
+   * `has_audio` comes from ffprobe on the finished file. Deriving it from
+   * "a track was selected before the render" would be a guess wearing the
+   * costume of a fact, and it would be wrong for every film whose render
+   * dropped the music for a reason nobody saw.
+   *
+   * Only a real boolean is taken. A missing field leaves the answer
+   * unknown, which is the honest state and the one the buttons already
+   * know how to treat.
+   */
+  _storyFilmSourceMeasured(jobId, result) {
+    if (!jobId || jobId !== this._storyFilmSourceJobId) return;
+    const found = (result || {}).video;
+    if (!found || typeof found.has_audio !== "boolean") return;
+    this._storyFilmSourceHasAudio = found.has_audio;
+  },
+
   async _storyFilmRender() {
     this._storyFilmStartError = "";
     // Said before anything is fetched, because between this click and
@@ -467,8 +513,7 @@ export const storyEditorMixin = {
     this._rendererAppKind = "trip_film";
     // The film this render will produce, and therefore the only thing a
     // review copy may later be made from.
-    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
-    this._storyFilmSourceIsExcerpt = false;
+    this._storyFilmSetSource(result.renderer_app_job.job_id, { isExcerpt: false });
     this._rendererAppPackage = {
       package_bytes: result.renderer_app_job.package_bytes,
       image_count: result.renderer_app_job.image_count,
@@ -734,11 +779,12 @@ export const storyEditorMixin = {
     // look like a ninety-minute one, and the job already carries what it
     // needs to say otherwise.
     this._rendererAppKind = "film_excerpt";
-    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
-    // Marked, because an excerpt is a source for nothing: a score laid
-    // out for twelve minutes does not go onto ninety seconds, and a
-    // review copy of a piece answers a question nobody asked.
-    this._storyFilmSourceIsExcerpt = true;
+    // Marked as an excerpt, because an excerpt is a source for nothing:
+    // a score laid out for twelve minutes does not go onto ninety
+    // seconds, and a review copy of a piece answers a question nobody
+    // asked. The comparison fassungen are the one exception, and they
+    // need it silent - which is measured, not assumed.
+    this._storyFilmSetSource(result.renderer_app_job.job_id, { isExcerpt: true });
     this._storyFilmExcerpt = result.renderer_app_job.excerpt || null;
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
@@ -840,8 +886,7 @@ export const storyEditorMixin = {
     // from here carries the soundtrack, and that is the version somebody
     // sends out. Copying the silent cut would answer the one question a
     // review of a finished film cannot answer.
-    this._storyFilmSourceJobId = result.renderer_app_job.job_id;
-    this._storyFilmSourceIsExcerpt = false;
+    this._storyFilmSetSource(result.renderer_app_job.job_id, { isExcerpt: false });
     this._rendererAppKind = "film_music";
     this._rendererAppJob = result.renderer_app_job;
     this._rendererAppResult = null;
