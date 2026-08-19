@@ -41,7 +41,34 @@ jobs:
           fi
 
       - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        # A hung apt is not a slow apt. This step stood at 43 minutes
+        # without printing a line and blocked a release, then took 8
+        # minutes on the retry and 31 on the next run - three times in
+        # one day, on a step that normally takes seconds. Left as one
+        # unbounded command it fails by never finishing, which is the
+        # failure mode nobody can see.
+        #
+        # So: a deadline per attempt, a few attempts, and a backstop on
+        # the step. A bad mirror now costs a minute and a retry instead
+        # of an afternoon, and a genuinely broken one says so.
+        timeout-minutes: 12
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -u
+          for attempt in 1 2 3; do
+            if sudo -E timeout 150 apt-get update -o Acquire::Retries=3 \
+                 -o Acquire::http::Timeout=20 \
+               && sudo -E timeout 240 apt-get install -y --no-install-recommends \
+                 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 ffmpeg; then
+              ffmpeg -version | head -n 1
+              exit 0
+            fi
+            echo "apt-Versuch ${attempt} gescheitert oder abgelaufen" >&2
+            sleep $((attempt * 15))
+          done
+          echo "ffmpeg liess sich in drei Versuchen nicht installieren." >&2
+          exit 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
