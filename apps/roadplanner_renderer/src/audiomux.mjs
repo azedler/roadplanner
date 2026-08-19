@@ -315,13 +315,81 @@ export function parseLoudness(text) {
   };
 }
 
+/**
+ * Above this peak, a track is carrying something somebody can hear.
+ *
+ * A Remotion render ALWAYS writes an AAC stream, whether or not the film
+ * has music - an empty one measures around -91 dBFS. So "this file has
+ * an audio stream" and "this film has a soundtrack" are two different
+ * statements, and treating the first as the second is what refused every
+ * silent excerpt as "already scored" (live report, measured: mean and
+ * max both -91.0 dB).
+ *
+ * -60 dBFS sits far above any digital-silence floor and far below
+ * anything a person would call quiet music, so nothing real lands near
+ * the line.
+ */
+export const AUDIBLE_PEAK_DBFS = -60;
+
+/** The ffmpeg call that measures how loud a file's audio actually is. */
+export function volumeArgs(media) {
+  if (!media) throw new Error("Ohne Datei gibt es nichts zu messen.");
+  return [
+    "-hide_banner",
+    "-nostats",
+    "-i",
+    media,
+    "-map",
+    "0:a:0",
+    "-filter_complex",
+    "volumedetect",
+    "-f",
+    "null",
+    "-",
+  ];
+}
+
+/**
+ * Mean and peak level out of that call, or nulls.
+ *
+ * Nulls rather than zeros, for the reason `parseLoudness` gives: 0 dBFS
+ * is full scale, so an unmeasured file reported as zero would read as
+ * the loudest possible signal.
+ */
+export function parseVolume(text) {
+  const source = String(text || "");
+  const pick = (label) => {
+    const found = new RegExp(`${label}:\\s*(-?\\d+(?:\\.\\d+)?) dB`).exec(source);
+    return found ? Number(found[1]) : null;
+  };
+  return { meanDbfs: pick("mean_volume"), maxDbfs: pick("max_volume") };
+}
+
+/**
+ * Whether a measured track carries anything audible - or nothing known.
+ *
+ * Three values on purpose. `null` means the meter did not run, and that
+ * must not be spoken as either answer: calling an unmeasured film silent
+ * would mux music onto a film that already has some, and calling it
+ * audible would refuse a film that is perfectly empty.
+ */
+export function isAudible(measured) {
+  const peak = measured?.maxDbfs;
+  if (typeof peak !== "number" || !Number.isFinite(peak)) return null;
+  return peak > AUDIBLE_PEAK_DBFS;
+}
+
 export default {
   analyseArgs,
+  AUDIBLE_PEAK_DBFS,
   buildFilterGraph,
   gainForTarget,
+  isAudible,
   loudnessArgs,
   muxArgs,
   parseLoudness,
+  parseVolume,
   sectionFilter,
   sectionsEnd,
+  volumeArgs,
 };

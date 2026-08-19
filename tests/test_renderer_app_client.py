@@ -387,20 +387,35 @@ def verify_a_film_says_whether_it_already_has_a_soundtrack() -> None:
     listing says it, and `None` when nobody could read it: reporting "no
     audio" for a film that was never measured is the guess that produces
     exactly that button.
+
+    Read from `has_audible_audio`. The earlier version of this test used
+    `has_audio` - the presence of a stream - and so agreed with a client
+    that called every film scored: a Remotion render always writes an
+    AAC track, and an empty one measures about -91 dBFS. A film carrying
+    only that field, written before anything was measured, stays unknown.
     """
     with tempfile.TemporaryDirectory() as tmp:
         client = make_client(tmp)
         asyncio.run(client.async_environment())
-        cases = {"05:10": True, "05:11": False, "05:12": None}
+        # The last case is the one that mattered in the field: a film
+        # with an audio STREAM and nothing audible on it. It must not be
+        # reported as scored.
+        cases = {
+            "05:10": ({"has_audible_audio": True}, True),
+            "05:11": ({"has_audible_audio": False}, False),
+            "05:12": ({}, None),
+            "05:13": ({"has_audio": True}, None),
+            "05:14": ({"has_audio": True, "has_audible_audio": False}, False),
+        }
         wanted = {}
-        for stamp, audio in cases.items():
+        for stamp, (video, audio) in cases.items():
             job_id = protocol.new_job_id()
             wanted[job_id] = audio
             _write_status(client, job_id, "completed", f"2026-08-13T{stamp}:00Z")
             folder = client.exchange_dir / "results" / job_id
             folder.mkdir(parents=True, exist_ok=True)
             (folder / protocol.ARTIFACT_TRIP_FILM_VIDEO).write_bytes(b"ein Film")
-            payload = {} if audio is None else {"video": {"has_audio": audio}}
+            payload = {} if not video else {"video": video}
             (folder / "result.json").write_text(json.dumps(payload), encoding="utf-8")
         found = asyncio.run(client.async_recent_jobs())
     for entry in found:

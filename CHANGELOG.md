@@ -6,6 +6,22 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.114.0] - 2026-08-19
+
+### Fixed
+
+- **Der Musikvergleich konnte gar nicht funktionieren: „Tonspur vorhanden" wurde mit „Musik vorhanden" verwechselt.** Ein Remotion-Render schreibt **immer** eine AAC-Spur, auch für einen Film ohne Musik — eine leere misst rund −91 dBFS. Der Mux fragte ffprobe aber nur, *ob* eine Audiospur existiert, und lehnte damit jeden Film ab, den dieser Renderer je erzeugt hat: „Dieser Film hat bereits eine Tonspur (PACKAGE_INVALID)".
+
+  Schlimmer als die Ablehnung war der Rat danach. „Stell die Musik auf ‚Ohne Musik' und rendere neu" verlangte eine Datei **ohne Audiostream** — die kann hier nicht entstehen. Der Weg war also nicht umständlich, sondern zu. Die drei bezahlten Vergleichsfassungen ließen sich auf nichts auflegen, und was heruntergeladen wurde, war der stumme Ausschnitt selbst.
+
+  Gefragt wird jetzt der Pegel statt der Streamliste. Nur eine **gemessen hörbare** Tonspur verweigert den Mux; eine leere stört ihn nicht, denn übernommen wurde sie ohnehin nie — gemuxt werden Bild (`-c:v copy`) und die gemischte Musik, sonst nichts. Ungemessen bleibt ungemessen und blockiert nicht: Von zwei Vermutungen ist die blockierende die teurere.
+
+  Nach dem Mischen wird das Ergebnis abgehört, bevor es als fertig gilt. Eine stumm gebliebene Mischung ist in jeder prüfbaren Hinsicht in Ordnung — richtige Länge, richtige Größe, Tonspur vorhanden — und genau so eine Datei wurde hochgeladen und angehört, bevor jemand nachgemessen hat.
+
+  Der Film meldet außerdem selbst, ob er hörbar ist (`has_audible_audio`, gemessen), statt dass das Panel aus der Existenz eines Streams rät. Ältere Aufträge tragen das Feld nicht und bleiben „unbekannt" — das ist für sie die ehrliche Antwort.
+
+  Der Test, der die falsche Annahme absicherte, hat sie mitgetragen: Er verlangte wörtlich „bereits eine Tonspur" neben einer Prüfung auf `has_audio`. Er prüft jetzt die Messung. Ein neuer Test erzeugt mit ffmpeg eine echte stumme Spur und einen echten Ton, misst beide und lässt die Produktionsfunktionen urteilen — keine ausgedachten Zahlen.
+
 ## [4.113.9] - 2026-08-19
 
 ### Fixed

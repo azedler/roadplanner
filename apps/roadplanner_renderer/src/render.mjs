@@ -32,9 +32,12 @@ import {
   DEFAULT_VOLUME as MUSIC_VOLUME,
   analyseArgs,
   gainForTarget,
+  isAudible,
   loudnessArgs,
   muxArgs,
   parseLoudness,
+  parseVolume,
+  volumeArgs,
 } from "./audiomux.mjs";
 import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
 import {
@@ -180,9 +183,17 @@ export async function probe(file) {
   }
   const [num, den] = String(video.r_frame_rate || "0/1").split("/");
   return {
-    // Whether there IS a soundtrack, asked of the file rather than of
-    // whoever passed it in. A review copy has to reproduce this exactly,
-    // and a film with no music genuinely carries no audio stream.
+    // Whether there IS an audio STREAM - which is not the same question
+    // as whether the film has a soundtrack, and the comment that used to
+    // stand here claimed it was ("a film with no music genuinely carries
+    // no audio stream"). It does not: a Remotion render always writes an
+    // AAC track, and an empty one measures about -91 dBFS. That single
+    // wrong sentence refused every silent excerpt as "already scored"
+    // and sent the user off to render a silent film that cannot exist.
+    //
+    // This value is still worth having - a review copy has to reproduce
+    // the stream layout exactly - but the audible question is answered
+    // by `measureVolume`, which listens instead of counting streams.
     has_audio: (parsed.streams || []).some((s) => s.codec_type === "audio"),
     codec: String(video.codec_name || ""),
     container: String(parsed.format?.format_name || ""),
@@ -779,14 +790,30 @@ export async function muxFilmMusic({
   if (source.duration_seconds <= 0) {
     throw new RenderError("PACKAGE_INVALID", "Die Quelldatei hat keine lesbare Länge.");
   }
+  // Muxing onto a film that already has MUSIC would put a second score
+  // under the first. But "has an audio stream" is not that question: a
+  // Remotion render always writes one, empty films included, so asking
+  // ffprobe for a stream refused every silent excerpt there is - and the
+  // advice that followed ("render it silently") asked for a file this
+  // renderer cannot produce. The stream is listened to instead.
+  //
+  // An empty track needs no removing: the mux maps `0:v:0` and the mixed
+  // audio, so whatever the source carried was never going to be copied.
   if (source.has_audio) {
-    // Muxing onto a film that already has music would leave two
-    // soundtracks in one file, and the second one would be inaudible
-    // rather than obviously wrong. The silent film is the master.
-    throw new RenderError(
-      "PACKAGE_INVALID",
-      "Dieser Film hat bereits eine Tonspur - die Musik gehört auf den stummen Film.",
-    );
+    const level = await measureVolume(sourcePath);
+    timings.source_volume = level.maxDbfs ?? null;
+    const audible = isAudible(level);
+    // Only a MEASURED soundtrack refuses the mux. Unknown does not:
+    // an unmeasurable film is the one case where both answers are
+    // guesses, and the harmful guess is the one that blocks work the
+    // user has already paid for.
+    if (audible === true) {
+      throw new RenderError(
+        "PACKAGE_INVALID",
+        `Dieser Film hat bereits eine hörbare Tonspur (${level.maxDbfs} dBFS Spitze) - `
+          + "die Musik gehört auf den stummen Film.",
+      );
+    }
   }
 
   const list = (sections || []).filter((entry) => entry && entry.path);
@@ -920,6 +947,16 @@ export async function muxFilmMusic({
   // is a quality loss nobody would look for.
   const problems = [];
   if (!facts.has_audio) problems.push("keine Tonspur");
+  // A stream is not a soundtrack. The whole point of this job is that
+  // something is audible afterwards, and a mux that wrote a silent track
+  // succeeds in every other respect - the file is the right size, the
+  // right length, and carries audio. It was uploaded, listened to, and
+  // measured at -91 dB before anybody knew (live report). So the file
+  // is asked whether it can be heard before it is called finished.
+  const heard = await measureVolume(partial);
+  if (isAudible(heard) === false) {
+    problems.push(`stumme Tonspur (${heard.maxDbfs} dBFS Spitze)`);
+  }
   if (facts.width !== source.width || facts.height !== source.height) {
     problems.push(`Bildgröße ${facts.width}x${facts.height} statt ${source.width}x${source.height}`);
   }
@@ -1016,6 +1053,42 @@ async function measure(args) {
       child.on("close", (code) => {
         clearTimeout(timer);
         resolve(code === 0 ? parseLoudness(stderr) : empty);
+      });
+    });
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * How loud a finished file's audio actually is, or nothing.
+ *
+ * Same contract as `measure`: never fatal, nulls when the meter did not
+ * run. The caller decides what an unanswered question means, because
+ * here it means two different things - refusing to mux and refusing to
+ * publish are not the same refusal.
+ */
+async function measureVolume(file) {
+  const empty = { meanDbfs: null, maxDbfs: null };
+  try {
+    return await new Promise((resolve) => {
+      const child = spawn(FFMPEG, volumeArgs(file), { stdio: ["ignore", "ignore", "pipe"] });
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve(empty);
+      }, LOUDNESS_TIMEOUT_MS);
+      // volumedetect prints its summary at the end, like ebur128.
+      child.stderr.on("data", (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-4000);
+      });
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve(empty);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve(code === 0 ? parseVolume(stderr) : empty);
       });
     });
   } catch {
@@ -1248,6 +1321,18 @@ async function renderComposition({
 
   const probeStarted = Date.now();
   const facts = assertExpected(await probe(partial), finalExpected);
+  // Whether this film can be HEARD, not whether it has a stream. Both
+  // are reported, because they answer different questions and the panel
+  // was reading the wrong one: every render carries an AAC track, so
+  // "has_audio" was true for every silent film ever made here.
+  //
+  // Absent when the meter did not run. An unmeasured film must not be
+  // published as silent - that is the guess this file has already been
+  // burned by twice.
+  const level = await measureVolume(partial);
+  const audible = isAudible(level);
+  if (audible !== null) facts.has_audible_audio = audible;
+  if (typeof level.maxDbfs === "number") facts.audio_peak_dbfs = level.maxDbfs;
   timings.probe = (Date.now() - probeStarted) / 1000;
 
   await fs.rename(partial, outputPath);

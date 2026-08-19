@@ -105,7 +105,14 @@ assert "Pillow" not in requirement_names, (
 
 for workflow in ("release.yml", "roadplanner-validation.yml"):
     workflow_source = (Path(".github/workflows") / workflow).read_text(encoding="utf-8")
-    assert "install -y --no-install-recommends ffmpeg" in workflow_source, (
+    # THAT ffmpeg is installed, not the exact spelling of the command.
+    # The one-line version of this step used to hang without a deadline
+    # and blocked a release for three quarters of an hour, so it was
+    # given retries and timeouts - and this check, which pinned the
+    # literal text, then failed the repair rather than the problem.
+    # tests/test_workflow_apt_is_bounded.py owns the shape of the step;
+    # this one only insists the binary arrives.
+    assert "apt-get install" in workflow_source and "ffmpeg" in workflow_source, (
         f"{workflow} must install the ffmpeg binary before running tests - "
         "test_ffmpeg_runner.py and test_trip_video_export.py genuinely "
         "invoke it, and it cannot be declared as a manifest.json requirement "

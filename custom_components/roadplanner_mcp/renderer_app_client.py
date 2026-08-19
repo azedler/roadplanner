@@ -756,17 +756,26 @@ class RendererAppClient:
         return found[: max(1, limit)]
 
     def _film_has_audio(self, job_id: str) -> bool | None:
-        """Whether a finished film has a soundtrack, or nothing.
+        """Whether a finished film can be HEARD, or nothing.
 
         `None` when it could not be read - deliberately a third value.
         Reporting "no audio" for a film nobody could measure would be a
         guess wearing the costume of a fact, and it is the guess that
         would make the panel offer a mix that cannot work.
+
+        Read from `has_audible_audio`, never from `has_audio`. The second
+        one says a stream exists, and a Remotion render always writes one
+        - an empty track measures about -91 dBFS. Reading it here told
+        the panel that every silent excerpt was already scored, hid the
+        comparison buttons, and printed advice for rendering a film
+        without an audio stream, which this renderer cannot produce.
+        Films rendered before the measurement existed carry neither
+        field and stay unknown, which is the honest answer for them.
         """
         found = self._result_facts(job_id)
         if found is None:
             return None
-        value = found.get("has_audio")
+        value = found.get("has_audible_audio")
         return bool(value) if isinstance(value, bool) else None
 
     def _result_facts(self, job_id: str) -> dict[str, Any] | None:

@@ -113,9 +113,20 @@ def verify_the_soundtrack_answer_uses_the_real_field_names() -> None:
         "die gemessenen Fakten stehen nicht mehr unter video im Ergebnis"
     )
 
+    # The measured one, written beside it. `has_audio` says a stream
+    # exists, which is true of every Remotion render including the empty
+    # ones - reading it as "this film has music" refused every silent
+    # excerpt there is. The audible answer comes from a meter.
+    assert "has_audible_audio" in render, (
+        "der Renderer misst nicht mehr, ob der fertige Film hörbar ist"
+    )
+    assert "measureVolume" in render, render[:0] or "die Pegelmessung ist weg"
+
     # And what the integration reads back out of that same block.
     client = CLIENT.read_text(encoding="utf-8")
-    assert 'found.get("has_audio")' in client, "der Client liest has_audio nicht mehr"
+    assert 'found.get("has_audible_audio")' in client, (
+        "der Client liest wieder die blosse Existenz eines Streams"
+    )
     assert '.get("video")' in client, "der Client liest den video-Block nicht mehr"
 
     # Only now: what the browser looks for.
