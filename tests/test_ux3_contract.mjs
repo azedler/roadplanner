@@ -57,7 +57,13 @@ panel._selectedDayId = day.id;
 
 const navigation = panel._renderTabs();
 assert.match(navigation, />Reise</);
-assert.match(navigation, />Heute</);
+// "Heute" became "Tage": the view has always shown the trip day by day,
+// and the old name promised a single day. "Reisegeschichte" is now one of
+// the four permanent seats; "Erinnerungen" moved into the drawer, so it
+// still exists here but no longer as a primary tab. The precise
+// arrangement is checked in test_navigation_and_player.py.
+assert.match(navigation, />Tage</);
+assert.match(navigation, />Reisegeschichte</);
 assert.match(navigation, />Erinnerungen</);
 assert.match(navigation, />Reisebegleiter</);
 assert.match(navigation, />Mehr</);
