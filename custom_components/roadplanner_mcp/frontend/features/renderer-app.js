@@ -272,6 +272,12 @@ export const rendererAppMixin = {
       // source at all.
       this._storyFilmSourceHasAudio =
         typeof film.has_audio === "boolean" ? film.has_audio : undefined;
+      // The reload gap: a film that finished SILENT while nobody was
+      // watching should offer its "Musik auflegen" button, and that
+      // button only appears once the offer says the sections exist. A
+      // page that adopts such a film asks now instead of waiting for
+      // somebody to re-open the music picker.
+      if (film.has_audio === false) void this._storyFilmMusicOffer?.();
     }
 
     // And the comparison fassungen that were already mixed. The browser

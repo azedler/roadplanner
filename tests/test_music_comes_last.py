@@ -157,8 +157,12 @@ def verify_the_panel_muxes_after_the_render() -> None:
     app = (INTEGRATION / "frontend" / "features" / "renderer-app.js").read_text(
         encoding="utf-8"
     )
-    assert "_storyFilmMuxAfterRender = this._storyFilmTrack === GENERATED_MUSIC" in story, (
-        "die Mux-Absicht wird beim Einreichen nicht mehr festgehalten"
+    assert "this._storyFilmMuxAfterJobId =" in story and "GENERATED_MUSIC ? result.renderer_app_job.job_id" in story, (
+        "die Mux-Absicht wird beim Einreichen nicht mehr an den Auftrag gebunden"
+    )
+    assert "this._storyFilmMuxAfterTripId = this._selectedTripId" in story, (
+        "die Mux-Absicht merkt sich die Reise nicht mehr - ein Reisewechsel "
+        "während des Renders würde die falsche Reise vertonen"
     )
     assert "_storyFilmMaybeAutoMux" in app, (
         "der Job-Poll löst den Mux nach dem Render nicht mehr aus"
@@ -168,7 +172,7 @@ def verify_the_panel_muxes_after_the_render() -> None:
     marker = "_storyFilmMaybeAutoMux(job) {"
     assert marker in story, "der Auto-Mux-Haken fehlt"
     body = story.split(marker, 1)[1].split("\n  },", 1)[0]
-    cleared = body.index("this._storyFilmMuxAfterRender = false")
+    cleared = body.index('this._storyFilmMuxAfterJobId = ""')
     checked = body.index('job.state !== "completed"')
     assert cleared < checked, (
         "die Mux-Absicht wird erst nach der Erfolgsprüfung gelöscht - ein "

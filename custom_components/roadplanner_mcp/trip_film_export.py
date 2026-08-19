@@ -319,10 +319,41 @@ class TripFilmExporter:
             raise ValidationError(
                 "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
             )
-        timeline = await self._music_timeline(trip_id, seconds)
+        # Looked up EXACTLY the way the offer and the generation looked:
+        # the estimated length and the same scene plan. The sections on
+        # disk are keyed by that plan - asking with the measured length,
+        # or without the plan, reproduces a DIFFERENT plan (arithmetic
+        # boundaries instead of the planned ones) and reports music that
+        # was paid for as never generated. Found in review before anyone
+        # hit it: the crash above had masked it for a week.
+        estimated, scene_plan = await self.async_estimate_plan(trip_id)
+        timeline = await self._music_timeline(trip_id, estimated, scene_plan)
         if not timeline:
             raise ValidationError(
                 "Für diesen Film ist noch keine Musik erzeugt worden."
+            )
+        # Fitted to the film that EXISTS. The plan was laid out against
+        # an estimate, and photographs that could not be fetched shorten
+        # the real film - a section starting after its last frame would
+        # make the renderer refuse the whole mux. Dropped and SAID, not
+        # silent: that section was paid for.
+        fitted = [
+            entry
+            for entry in timeline
+            if float(entry.get("start_seconds") or 0.0) < seconds
+        ]
+        if len(fitted) < len(timeline):
+            _LOGGER.info(
+                "%s Musikabschnitt(e) beginnen nach dem gemessenen Filmende "
+                "(%.1f s) und entfallen",
+                len(timeline) - len(fitted),
+                seconds,
+            )
+        timeline = fitted
+        if not timeline:
+            raise ValidationError(
+                "Die erzeugte Musik passt nicht zu diesem Film - alle "
+                "Abschnitte beginnen nach seinem Ende."
             )
         try:
             music, files = await self._hass.async_add_executor_job(

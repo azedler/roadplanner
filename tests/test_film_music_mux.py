@@ -207,8 +207,20 @@ def verify_the_music_planner_is_actually_reached() -> None:
     )
     add_body = export.split("async def async_add_music(", 1)[1]
     add_body = add_body.split("\n    async def ", 1)[0]
-    assert "self._music_timeline(trip_id, seconds)" in add_body, (
-        "der Mux liest die Timeline nicht mehr gegen die gemessene Länge"
+    # Looked up the way the OFFER looked: estimated length plus the same
+    # scene plan. The sections on disk are keyed by that plan; asking
+    # with the measured length or without the plan reproduces a different
+    # plan and reports paid music as never generated. The measured length
+    # is used for FITTING - sections starting after the real film end are
+    # dropped, not sent to a renderer that would refuse the whole mux.
+    assert "self._music_timeline(trip_id, estimated, scene_plan)" in add_body, (
+        "der Mux fragt die Timeline nicht mehr so ab, wie das Angebot "
+        "gefragt hat - bezahlte Abschnitte würden als nie erzeugt gemeldet"
+    )
+    assert "async_estimate_plan(trip_id)" in add_body, add_body[:0]
+    assert '< seconds' in add_body, (
+        "Abschnitte hinter dem gemessenen Filmende werden nicht mehr "
+        "aussortiert - der Renderer verweigert dann den ganzen Mux"
     )
 
 

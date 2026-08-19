@@ -278,45 +278,62 @@ console.log("Diagnosis view tests passed.");
 // here with stubs, because the real ones need a renderer and an hour.
 
 let muxCalls = 0;
-panel._storyFilmAddMusic = async () => { muxCalls += 1; };
+let muxArgs = null;
+panel._storyFilmAddMusic = async (jobId, tripId) => { muxCalls += 1; muxArgs = [jobId, tripId]; };
 
-// Completed film with the intent set: exactly one mux, flag cleared.
-panel._storyFilmMuxAfterRender = true;
-panel._rendererAppKind = "trip_film";
-panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
-await new Promise((resolve) => setTimeout(resolve, 5));
+// The armed job completes: exactly one mux, addressed to the job and the
+// trip that were captured AT SUBMIT - not to whatever is on screen when
+// the render finally ends.
+panel._storyFilmMuxAfterJobId = "job-a";
+panel._storyFilmMuxAfterTripId = "reise-a";
+panel._selectedTripId = "reise-b";
+panel._storyFilmMaybeAutoMux({ job_id: "job-a", terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(muxCalls, 1, "der fertige Film bekommt seine Musik nicht");
-assert.equal(panel._storyFilmMuxAfterRender, false, "die Absicht bleibt scharf");
+assert.deepEqual(muxArgs, ["job-a", "reise-a"], "der Mux zielt auf den falschen Auftrag oder die falsche Reise");
+assert.equal(panel._storyFilmMuxAfterJobId, "", "die Absicht bleibt scharf");
+panel._selectedTripId = "trip";
 
-// A failed render clears the intent and muxes nothing - a primed flag
-// surviving a failure would fire on some later, unrelated completion.
+// SOME OTHER job completing - an adopted older render, a review copy -
+// is not a match: nothing fires, and the intent stays armed for its job.
 muxCalls = 0;
-panel._storyFilmMuxAfterRender = true;
-panel._storyFilmMaybeAutoMux({ terminal: true, state: "failed" });
-await new Promise((resolve) => setTimeout(resolve, 5));
+panel._storyFilmMuxAfterJobId = "job-a";
+panel._storyFilmMaybeAutoMux({ job_id: "job-fremd", terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 10));
+assert.equal(muxCalls, 0, "ein fremder Auftrag löst den Mux aus");
+assert.equal(panel._storyFilmMuxAfterJobId, "job-a", "die Absicht stirbt am falschen Auftrag");
+
+// The armed render FAILS: intent cleared, nothing muxed - a primed
+// intent surviving a failure would fire on some later completion.
+panel._storyFilmMaybeAutoMux({ job_id: "job-a", terminal: true, state: "failed" });
+await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(muxCalls, 0, "ein gescheiterter Render legt Musik auf");
-assert.equal(panel._storyFilmMuxAfterRender, false, "die Absicht überlebt das Scheitern");
+assert.equal(panel._storyFilmMuxAfterJobId, "", "die Absicht überlebt das Scheitern");
 
 // A progress tick is not a completion.
-panel._storyFilmMuxAfterRender = true;
-panel._storyFilmMaybeAutoMux({ terminal: false, state: "running" });
-await new Promise((resolve) => setTimeout(resolve, 5));
+panel._storyFilmMuxAfterJobId = "job-a";
+panel._storyFilmMaybeAutoMux({ job_id: "job-a", terminal: false, state: "running" });
+await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(muxCalls, 0, "ein laufender Render löst den Mux aus");
-assert.equal(panel._storyFilmMuxAfterRender, true, "die Absicht fällt vor dem Ende");
+assert.equal(panel._storyFilmMuxAfterJobId, "job-a", "die Absicht fällt vor dem Ende");
+panel._storyFilmMuxAfterJobId = "";
 
 // Without the intent - Ohne Musik, or an own file - nothing fires.
-panel._storyFilmMuxAfterRender = false;
-panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
-await new Promise((resolve) => setTimeout(resolve, 5));
+panel._storyFilmMaybeAutoMux({ job_id: "job-a", terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(muxCalls, 0, "ein Film ohne Musikwunsch wird gemuxt");
 
-// A quality excerpt never gets the full score muxed on: its sections
-// would start after its last frame.
-panel._storyFilmMuxAfterRender = true;
-panel._rendererAppKind = "film_excerpt";
-panel._storyFilmMaybeAutoMux({ terminal: true, state: "completed" });
-await new Promise((resolve) => setTimeout(resolve, 5));
-assert.equal(muxCalls, 0, "der Prüfausschnitt bekommt den ganzen Soundtrack");
+// The handoff waits for the poll guard instead of racing it.
+panel._rendererAppPolling = true;
+panel._storyFilmMuxAfterJobId = "job-a";
+panel._storyFilmMaybeAutoMux({ job_id: "job-a", terminal: true, state: "completed" });
+await new Promise((resolve) => setTimeout(resolve, 30));
+assert.equal(muxCalls, 0, "der Mux startet, während der alte Poll noch läuft");
+panel._rendererAppPolling = false;
+await new Promise((resolve) => setTimeout(resolve, 300));
+assert.equal(muxCalls, 1, "der Mux kommt nach Freigabe des Polls nicht");
+muxCalls = 0;
+
 panel._rendererAppKind = "trip_film";
 
 // --- the submit records the intent, and only for the generated score ---
@@ -332,13 +349,14 @@ panel._runAction = async (action, payload) => {
 panel._pollRendererAppJob = () => {};
 
 panel._storyFilmTrack = "__generated__";
-panel._storyFilmMuxAfterRender = false;
+panel._storyFilmMuxAfterJobId = "";
 await panel._storyFilmRenderSubmit();
-assert.equal(panel._storyFilmMuxAfterRender, true, "die Mux-Absicht wird beim Einreichen nicht gesetzt");
+assert.equal(panel._storyFilmMuxAfterJobId, "job-neu", "die Mux-Absicht nennt nicht den eingereichten Auftrag");
+assert.equal(panel._storyFilmMuxAfterTripId, "trip", "die Mux-Absicht nennt nicht die Reise von jetzt");
 
 panel._storyFilmTrack = "";
 await panel._storyFilmRenderSubmit();
-assert.equal(panel._storyFilmMuxAfterRender, false, "ein Film ohne Musik trägt eine Mux-Absicht");
+assert.equal(panel._storyFilmMuxAfterJobId, "", "ein Film ohne Musik trägt eine Mux-Absicht");
 
 // --- missing music asks first, with the price, and starts nothing ------
 
@@ -383,5 +401,21 @@ assert.equal(
   1,
   "mit vorhandener Musik startet der Render nicht",
 );
+
+// --- trip switch clears the film block's trip-scoped state --------------
+panel._storyFilmTrack = "__generated__";
+panel._storyFilmMusicOfferData = { sections: 5, new_generations: 0 };
+panel._storyFilm = { chapter_count: 3 };
+panel._storyLatestFilm = { url: "/x" };
+panel._storyFilmMuxAfterJobId = "job-armiert";
+panel._storyResetForTrip();
+assert.equal(panel._storyFilmTrack, "", "die Musikwahl überlebt den Reisewechsel");
+assert.equal(panel._storyFilmMusicOfferData, null, "das Angebot der alten Reise preist die neue");
+assert.equal(panel._storyFilm, null, "die Filmvorschau der alten Reise bleibt stehen");
+assert.equal(panel._storyLatestFilm, undefined, "der letzte Film der alten Reise bleibt stehen");
+// The armed mux intent SURVIVES on purpose: it carries its own trip and
+// job, and browsing away must not cancel paid orchestration.
+assert.equal(panel._storyFilmMuxAfterJobId, "job-armiert", "der Reisewechsel entwaffnet den bezahlten Mux");
+panel._storyFilmMuxAfterJobId = "";
 
 console.log("Silent-render-then-mux tests passed.");
