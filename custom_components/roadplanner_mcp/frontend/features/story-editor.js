@@ -133,6 +133,16 @@ export const storyEditorMixin = {
     this._storyDirector = null;
     this._storyLoadTriedFor = null;
     this._storyLoadFailed = false;
+    // The film block is trip state too. The offer prices ONE trip's
+    // sections; carried across a switch it gated the next trip's render
+    // with the previous trip's answer - skipping the price dialog, or
+    // asking money for music that exists (found in review). The armed
+    // mux intent deliberately survives: it carries its own trip and job.
+    this._storyFilm = null;
+    this._storyFilmTrack = "";
+    this._storyFilmMusicOfferData = null;
+    this._storyLatestFilm = undefined;
+    this._storyLatestFilmAsked = false;
   },
 
   async _storyLoad({ force = false, quiet = false } = {}) {
@@ -479,7 +489,87 @@ export const storyEditorMixin = {
     this._storyFilmSourceHasAudio = found.has_audio;
   },
 
+  /**
+   * "Film erstellen", with the music orchestrated around it.
+   *
+   * The user made two decisions; this turns them into the right sequence
+   * without asking anything the status block has not already answered:
+   *
+   * - Ohne Musik, or an own file: one render, as always.
+   * - KI-Musik, already generated: the film renders SILENT, and the
+   *   score is muxed onto the finished MP4 as soon as the render
+   *   completes. Music comes last - fitted to the measured length,
+   *   loudness-matched, video stream copied. Baking it into the render
+   *   package is the architecture this project already left once.
+   * - KI-Musik, not generated yet: one confirmation naming the price
+   *   and the number of provider calls, then generate, then the same
+   *   silent-render-plus-mux. Cancelling starts nothing at all.
+   *
+   * If the panel is closed during the render, the mux flag dies with
+   * it - that is the one gap, and the finished film then carries the
+   * "Musik auflegen" button as the manual fallback.
+   */
   async _storyFilmRender() {
+    // One in flight. The button stays visible while music generates and
+    // the package builds; without this a second press starts a second
+    // orchestration over the same state.
+    if (this._storyFilmPreparing) return;
+    const wantsGenerated = this._storyFilmTrack === GENERATED_MUSIC;
+    if (!wantsGenerated) {
+      await this._storyFilmRenderSubmit();
+      return;
+    }
+    if (!this._storyFilmMusicOfferData) await this._storyFilmMusicOffer();
+    const offer = this._storyFilmMusicOfferData;
+    if (!offer) return;
+    const missing = Number(offer.new_generations || 0);
+    if (missing > 0) {
+      if (offer.available === false) {
+        this._showToast(
+          String(offer.unavailable_reason || "KI-Musik ist nicht verfügbar."),
+          "error",
+          9000,
+        );
+        return;
+      }
+      const cost = (Number(offer.estimated_cost) || 0).toFixed(2);
+      const currency = String(offer.currency || "USD");
+      this._confirm(
+        "Musik zuerst erzeugen?",
+        `${missing} Musikabschnitt${missing === 1 ? "" : "e"} für diesen Film `
+          + `${missing === 1 ? "ist" : "sind"} noch nicht erzeugt - das sind `
+          + `${missing} Aufruf${missing === 1 ? "" : "e"} bei ${String(offer.model || "Lyria")}, `
+          + `geschätzt ${cost} ${currency}. Danach startet der Film automatisch; `
+          + "die Musik wird nach dem Render aufgelegt und für weitere "
+          + "Rendergrößen wiederverwendet.",
+        `Erzeugen und rendern (${cost} ${currency})`,
+        async () => {
+          // Busy from the first paid second. The generation takes one
+          // provider call per section, and a button that looks idle
+          // while money is being spent invites a second press.
+          this._storyFilmPreparing = true;
+          this._render({ preserveScroll: true });
+          const made = await this._storyFilmMusicGenerate();
+          // Decided on the GENERATION, not on the offer refresh that
+          // follows it: async_generate returns only after every section
+          // is stored, while a failed refresh would leave the stale
+          // "still missing" offer standing - and swallowing the render
+          // after a successful, paid generation breaks the sentence the
+          // dialog just promised.
+          if (made) {
+            await this._storyFilmRenderSubmit();
+          } else {
+            this._storyFilmPreparing = false;
+            this._render({ preserveScroll: true });
+          }
+        },
+      );
+      return;
+    }
+    await this._storyFilmRenderSubmit();
+  },
+
+  async _storyFilmRenderSubmit() {
     this._storyFilmStartError = "";
     // Said before anything is fetched, because between this click and
     // the first progress number lies the whole package build: a couple
@@ -522,6 +612,15 @@ export const storyEditorMixin = {
       return;
     }
     this._rendererAppKind = "trip_film";
+    // Decided AT SUBMIT, because that is when the choice was made - and
+    // tied to THIS job and THIS trip. The poll sees other jobs finish
+    // too, and the user may browse another trip while the render runs;
+    // neither retracts nor redirects a decision already paid for. A bare
+    // boolean here fired the mux on whatever completed next and billed
+    // it to whatever trip was on screen (found in review).
+    this._storyFilmMuxAfterJobId =
+      this._storyFilmTrack === GENERATED_MUSIC ? result.renderer_app_job.job_id : "";
+    this._storyFilmMuxAfterTripId = this._selectedTripId;
     // The film this render will produce, and therefore the only thing a
     // review copy may later be made from.
     this._storyFilmSetSource(result.renderer_app_job.job_id, { isExcerpt: false });
@@ -549,7 +648,12 @@ export const storyEditorMixin = {
     const status = this._rendererAppStatus;
     const online = Boolean(status?.online);
     const job = this._rendererAppJob;
-    const running = this._rendererAppKind === "trip_film" && job && !job.terminal && job.state;
+    // A running MUX blocks the button too: it works on the film that
+    // was just rendered, and starting a second render under it tangles
+    // two jobs' state in one card.
+    const running =
+      ["trip_film", "film_music"].includes(this._rendererAppKind)
+      && job && !job.terminal && job.state;
     const startError = running ? "" : String(this._storyFilmStartError || "");
     const preparing = Boolean(this._storyFilmPreparing) && !running;
     return `<div class="notice neutral"><div>
@@ -681,6 +785,11 @@ export const storyEditorMixin = {
       <summary><span><ha-icon icon="mdi:export-variant"></ha-icon>Weitere Exportoptionen</span><small>Prüfausschnitt, Review-Kopie, eigene Musikdatei</small></summary>
       <div class="assistant-technical-content">
         <small class="hint">Review-Fassungen sind kleine Abnahmekopien zum Anschauen und Verschicken – nicht der eigentliche Film.</small>
+        ${
+          this._storyFilmTrack === GENERATED_MUSIC
+            ? `<small class="hint">Der Prüfausschnitt wird ohne KI-Musik gerendert – die Musik kommt erst auf den fertigen ganzen Film.</small>`
+            : ""
+        }
         <div class="button-row">
           ${canEdit ? `<button class="secondary-button" type="button" data-action="story-film-qa-render"${blocked ? " disabled" : ""}><ha-icon icon="mdi:magnify-scan"></ha-icon> Prüfausschnitt (60–90 s)</button>` : ""}
         </div>
@@ -1098,12 +1207,54 @@ export const storyEditorMixin = {
    * The film keeps its own length here - measured by ffprobe rather than
    * estimated - which is the whole reason the music goes on last.
    */
-  async _storyFilmAddMusic() {
-    const sourceId = this._storyFilmSourceJobId || "";
+  /**
+   * The second half of "Film erstellen mit KI-Musik".
+   *
+   * Called by the job poll on every terminal transition. The intent
+   * names the ONE job it was armed for; any other job completing - an
+   * older render adopted after a reload, a review copy, the mux itself -
+   * is not a match and changes nothing. One shot on the named job,
+   * whatever its outcome: the intent is cleared before the success
+   * check, so a failed or cancelled render can never leave a primed mux
+   * behind.
+   *
+   * The handoff waits for the poll guard rather than hoping. The poll
+   * that noticed the completion still holds `_rendererAppPolling` while
+   * it finishes its status read; a mux started under that guard would
+   * submit fine but its own poll would be silently dropped. So this
+   * retries until the guard falls, bounded - and past the bound it runs
+   * anyway, because a submitted-but-unwatched mux is recoverable from
+   * the job list while an unsubmitted one is simply missing music.
+   */
+  _storyFilmMaybeAutoMux(job) {
+    const wanted = this._storyFilmMuxAfterJobId || "";
+    if (!wanted || !job || !job.terminal) return;
+    if (job.job_id !== wanted) return;
+    this._storyFilmMuxAfterJobId = "";
+    if (job.state !== "completed") return;
+    const tripId = this._storyFilmMuxAfterTripId || this._selectedTripId;
+    let tries = 0;
+    const start = () => {
+      if (this._rendererAppPolling && tries < 120) {
+        tries += 1;
+        window.setTimeout(start, 250);
+        return;
+      }
+      void this._storyFilmAddMusic(wanted, tripId);
+    };
+    window.setTimeout(start, 0);
+  },
+
+  async _storyFilmAddMusic(jobId = "", tripId = "") {
+    // Explicit for the auto path: it fires up to an hour after submit,
+    // and both the selected trip and the source job may have moved on by
+    // then. The manual button passes nothing and means "what is on
+    // screen", which is what a button means.
+    const sourceId = jobId || this._storyFilmSourceJobId || "";
     if (!sourceId) return;
     const result = await this._runAction(
       "story_film_add_music",
-      { trip_id: this._selectedTripId, job_id: sourceId },
+      { trip_id: tripId || this._selectedTripId, job_id: sourceId },
       "Musik wird aufgelegt",
       {
         refresh: false,
@@ -1481,7 +1632,7 @@ export const storyEditorMixin = {
         errorTitle: "Die Musik konnte nicht erzeugt werden",
       },
     );
-    if (!result?.film_music_generated) return;
+    if (!result?.film_music_generated) return null;
     const made = result.film_music_generated;
     this._showToast(
       `${made.generated} Abschnitt${made.generated === 1 ? "" : "e"} erzeugt` +
@@ -1493,6 +1644,7 @@ export const storyEditorMixin = {
     // now stale in the same way.
     await this._storyFilmMusicLoad();
     await this._storyFilmMusicOffer();
+    return made;
   },
 
   /**
