@@ -474,6 +474,7 @@ class TripFilmMusicService:
         *,
         film_seconds: float = 0.0,
         scene_plan: dict[str, Any] | None = None,
+        force: bool = False,
     ) -> dict[str, Any]:
         """Order the sections that are missing. The only paid method here.
 
@@ -482,9 +483,23 @@ class TripFilmMusicService:
         makes two films of the same trip sound the same - and it is per
         section, so a film that grew by a minute regenerates the section
         whose length changed rather than the whole score.
+
+        `force` is the deliberate exception: somebody asking for a
+        different take of the same plan. It re-orders every section and
+        writes over the files that were there, because the name is
+        derived from the plan and a second file for the same section
+        would be a second soundtrack nobody chose between. It costs the
+        full price again, which is why nothing reaches it except a
+        request that says so - a re-render, a resolution change, a review
+        copy and a page reload all take the cached path.
         """
         plan = await self._async_plan(trip_id, film_seconds, scene_plan=scene_plan)
         state = await self._async_section_state(plan)
+        if force:
+            # Forgetting the cached names is the whole mechanism: the
+            # loop below orders whatever has none.
+            for entry in state:
+                entry["cached_name"] = ""
         missing = [entry for entry in state if not entry["cached_name"]]
         if missing:
             # Asked of the route this generation would actually take.

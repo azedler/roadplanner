@@ -104,7 +104,16 @@ RENDER_PROFILES: dict[str, dict[str, Any]] = {
 
 # What a job means when it says nothing: the size rendered until now, so
 # an old client that never learned about profiles gets what it always got.
+# This is a COMPATIBILITY default and deliberately not the one the panel
+# offers - changing it would silently resize films for clients that never
+# asked for a change.
 DEFAULT_RENDER_PROFILE = "review_720"
+
+# What the panel pre-selects. A film somebody makes of their own trip is
+# for keeping and for watching on a television; a review size is a proof
+# to send somebody. Offering the small one first produced archives full
+# of 720p, which is a decision nobody made on purpose.
+PANEL_DEFAULT_RENDER_PROFILE = "high_quality"
 
 # What a review copy is, when nobody says otherwise.
 DEFAULT_REVIEW_PROFILE = "review_720"

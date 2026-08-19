@@ -69,9 +69,17 @@ def verify_the_poc_is_reachable_from_the_panel() -> None:
         assert f'action === "{click}"' in frontend, f"{click} muss verteilt werden"
         assert f'data-action="{click}"' in feature, f"{click} braucht einen Knopf"
     assert "rendererAppMixin" in frontend, "das Mixin muss registriert sein"
-    assert "_renderRendererApp()" in (
-        INTEGRATION / "frontend" / "features" / "trip-day-stop.js"
-    ).read_text(encoding="utf-8"), "die Karte muss auch gerendert werden"
+    # Rendered SOMEWHERE, not in one named file. The card moved from the
+    # trip overview into the diagnosis view - it is an instrument, and it
+    # sat beside the trip itself. Pinning the file made this check fail
+    # the tidy-up instead of the thing it cares about, which is that a
+    # card nobody renders is a card nobody can reach.
+    rendered = any(
+        "_renderRendererApp()" in path.read_text(encoding="utf-8")
+        for path in (INTEGRATION / "frontend" / "features").glob("*.js")
+        if path.name != "renderer-app.js"
+    )
+    assert rendered, "die Karte muss auch gerendert werden"
 
 
 def verify_submitting_a_job_needs_edit_rights() -> None:

@@ -6,6 +6,30 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **Player-Modus für das montierte Tablet.** Roadplanner hat jetzt zwei Nutzungssituationen statt einer: den **Editor**, in dem die Reise geplant, gepflegt und als Film erzeugt wird, und den **Player**, in dem sie angesehen wird. Der Player ist kein abgespeckter Editor — er zeigt den Reisefilm groß auf dunklem Grund, in **Endlosschleife**, mit vier Knöpfen, die nach kurzer Ruhe verschwinden. Kein Renderknopf, keine Kosten, keine Diagnose, keine IDs.
+
+  Die Endlosschleife ist die des Videoelements selbst (`loop`), kein Timer, der auf das Filmende wartet — ein Timer müsste einen gesperrten Bildschirm, einen schlafenden Tab und einen angehaltenen Prozess überleben. **Autoplay** wird versucht, aber nie erzwungen: Ein Film mit Musik ist ein Film mit Ton, und jeder Browser darf sich weigern, ihn ungefragt zu starten. Diese Weigerung wird zu einem großen „Film starten" — eine Berührung, danach läuft die Schleife. Stummschalten, um die Sperre zu umgehen, wäre schlechter als fragen.
+
+  Der **Modus ist eine Geräteeinstellung**, kein Reisedatum: Das Küchentablet bleibt im Player, der Rechner gleichzeitig im Editor, an derselben Reise. Ebenso die zuletzt gewählte Reise.
+
+- **Der letzte erfolgreiche Film ist ein eigener Zustand.** Nicht „der zuletzt gestartete Render", sondern der zuletzt **fertig gewordene**. Ein Export, der nach vierzig Minuten scheitert, nimmt den Film der letzten Woche nicht von der Wand — auf dem Tablet schaut ihn womöglich gerade jemand an. Ein Prüfausschnitt wird nie zum Reisefilm: Beide sind dieselbe Art Auftrag mit demselben Dateinamen, deshalb wird beim Einreichen festgehalten, was gemeint war, statt es hinterher aus der Länge zu raten.
+
+  Der Film erscheint jetzt außerdem oben in der **Reisegeschichte** — als Ergebnis, nicht als Beleg dafür, dass ein Render funktioniert hat.
+
+### Changed
+
+- **Hauptnavigation aufgeräumt:** Reise · **Tage** · **Reisegeschichte** · Reisebegleiter · Mehr. „Heute" heißt **Tage** — die Ansicht zeigt die Reise seit jeher tageweise, der alte Name versprach einen einzelnen Tag. **Reisegeschichte** rückt aus dem Werkzeugfach nach vorn, weil dort die Reise ankommt. **Erinnerungen** rückt nach hinten: Es ist ein Medieneingang, und ein Eingang braucht keinen der vier festen Plätze. Nichts wurde entfernt, alle Tab-IDs bleiben gleich, Deep Links funktionieren weiter.
+
+- **„Mehr" ist gruppiert** statt neun gleich große Kacheln: *Reise verwalten*, *Medien & Personen*, *Daten & Verwaltung*, *Technik*.
+
+- **Filmerstellung auf zwei Entscheidungen reduziert: Qualität und Musik ja/nein.** Danach eine Zusammenfassung — Dauer, Qualität, Medien, Musik, Zusatzkosten — und ein Knopf: **Film erstellen**. Voreingestellt ist **Hohe Qualität · 1440p**; Review-Größen bleiben, sind aber als kleine Abnahmefassungen benannt und nicht mehr der Vorschlag. Prüfausschnitt, Review-Kopie und die eigene Musikdatei liegen unter *Weitere Exportoptionen*.
+
+- **Musikkosten werden verständlich gezeigt.** Ist noch keine Musik da: geplante Abschnitte und geschätzte Zusatzkosten aus dem echten Plan, plus der Hinweis, dass die Musik einmal erzeugt und danach wiederverwendet wird. Ist sie da: „vorhandener Soundtrack · 0,00 USD". Ein Größenwechsel, ein Neurender, eine Review-Kopie, ein Reload oder ein HA-Neustart erzeugen **nie** neue Musik. Eine neue Variante gibt es nur über **„Neue Musikvariante erzeugen"** — mit Anzahl der Provideraufrufe, Kosten und ausdrücklicher Bestätigung.
+
+- **Technische Werkzeuge liegen unter „Mehr → Diagnose"**, gruppiert nach Film, Musik, Video und Renderer: Szenenplan-Prüfung, Bildzuteilungssimulation, Musikplan mit Abschnitten und Providerkosten, der A/B/C-Musikprototyp, die Videoanalyse-Kostenprüfung, Renderer-Umgebung und Testrender. Nichts davon ist entfernt — es ist nur nicht mehr gleichrangig neben der Reise.
+
 ## [4.114.0] - 2026-08-19
 
 ### Fixed

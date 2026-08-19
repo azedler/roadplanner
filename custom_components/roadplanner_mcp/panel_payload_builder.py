@@ -21,7 +21,11 @@ from .experience_store import ExperienceStore, resolve_decision_media_references
 from .geocoding import GeocodingProvider
 from .google_photo_token_service import GooglePhotoTokenService
 from .manager import RoadplannerManager
-from .render_profiles import profile_choices, review_choices
+from .render_profiles import (
+    PANEL_DEFAULT_RENDER_PROFILE,
+    profile_choices,
+    review_choices,
+)
 from .media_curation_manager import MediaCurationManager
 from .media_intelligence import TRANSIT_ONLY_STOP_TYPES, build_media_presentation
 from .media_library_manager import MediaLibraryManager
@@ -205,7 +209,7 @@ class PanelPayloadBuilder:
             # appears after pressing an unrelated button is a choice
             # nobody knows they have - and the film would quietly come
             # out in the default size forever.
-            "render_profiles": profile_choices(),
+            "render_profiles": profile_choices(PANEL_DEFAULT_RENDER_PROFILE),
             "review_profiles": review_choices(),
             "place_providers": self._place_provider_status(),
             "vision": {
