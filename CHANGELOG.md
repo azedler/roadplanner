@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.115.1] - 2026-08-19
+
 ### Fixed
 
 - **„Film erstellen" mit KI-Musik stürzte ab — und „Musik auflegen" war seit einer Woche kaputt.** Beim A/B/C-Umbau hatte eine unachtsame Ersetzung an **zwei** Stellen eine *Funktion* als Datenargument in den Paketbau geschoben (`'function' object is not iterable`). Betroffen war nicht nur der neue Renderweg, sondern auch das Auflegen des vollen Soundtracks auf einen fertigen Film — jeder Versuch seit 4.113.0 scheiterte mit diesem Fehler.
