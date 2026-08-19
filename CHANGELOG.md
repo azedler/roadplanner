@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.115.0] - 2026-08-19
+
 ### Added
 
 - **Player-Modus für das montierte Tablet.** Roadplanner hat jetzt zwei Nutzungssituationen statt einer: den **Editor**, in dem die Reise geplant, gepflegt und als Film erzeugt wird, und den **Player**, in dem sie angesehen wird. Der Player ist kein abgespeckter Editor — er zeigt den Reisefilm groß auf dunklem Grund, in **Endlosschleife**, mit vier Knöpfen, die nach kurzer Ruhe verschwinden. Kein Renderknopf, keine Kosten, keine Diagnose, keine IDs.
