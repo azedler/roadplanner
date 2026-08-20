@@ -10,7 +10,9 @@ The project follows Semantic Versioning for public releases.
 
 - **RP-410: Reisen lassen sich jetzt im Panel anlegen.** Der Tab Reisen hat einen Knopf „Neue Reise": Titel (Pflicht), optional Status, Start-/Enddatum und Notizen — und für die Freigaberolle die Wahl, die Reise direkt zu aktivieren. Bisher entstand eine zweite Reise nur durch Handarbeit im Dateisystem, obwohl Liste, Ansehen und Aktivieren sie längst voraussetzten.
 
-  Die Reise-ID wird serverseitig aus dem Titel abgeleitet (Umlaute transliteriert, `ß` wird `ss`, alles andere wird `-`), bei Kollision mit Suffix `-2`, `-3` …; ein Titel ohne lateinische Zeichen bekommt eine zufällige ID, der Titel selbst bleibt in jedem Fall wörtlich erhalten. Anlegen ohne Aktivieren lässt die aktive Reise und ihre Revision unangetastet; schlägt ein Schritt fehl, bleibt kein halber Reiseordner zurück. Der neue HA-Service `roadplanner_mcp.create_trip` leistet dasselbe für Automationen.
+  Die Reise-ID wird serverseitig aus dem Titel abgeleitet (Umlaute transliteriert, `ß` und `ẞ` werden `ss`, alles andere wird `-`), bei Kollision mit Suffix `-2`, `-3` …; ein Titel ohne lateinische Zeichen bekommt eine zufällige ID, der Titel selbst bleibt in jedem Fall wörtlich erhalten. Anlegen ohne Aktivieren lässt die aktive Reise und ihre Revision unangetastet; schlägt ein Schritt fehl, bleibt kein halber Reiseordner zurück. Der neue HA-Service `roadplanner_mcp.create_trip` leistet dasselbe für Automationen.
+
+  Die adversariale Prüfung des Features fand zwei echte Fehler vor der Auslieferung, beide behoben: Nach „Reise direkt aktivieren" hätten Home-Assistant-Entitäten und das Panel weiter die alte Reise gezeigt — der Manager schiebt den neuen Zustand nur bei „changed" an, und das Panel folgte seiner eigenen Auswahl statt der frisch aktivierten Reise. Beides verhält sich jetzt exakt wie „Aktivieren" im Reisen-Tab. Dazu: die Freigabe-Schranke fürs direkte Aktivieren ist jetzt selbst getestet (nicht nur die versteckte Checkbox), und der Draht-Test prüft durch den echten Sendepfad, dass `create_trip` keinen Reise-Kontext der gerade angeschauten Reise untergeschoben bekommt.
 
 ## [4.115.1] - 2026-08-19
 

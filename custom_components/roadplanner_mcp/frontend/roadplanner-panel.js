@@ -2422,8 +2422,18 @@ class RoadplannerPanel extends HTMLElement {
         // Only meaningful when activating: guards the pointer switch
         // against a concurrent activation, exactly like set_active_trip.
         ...(activate && activeTrip?.id ? { expected_active_trip: activeTrip.id } : {}),
-      }, "Reise angelegt");
-      if (result) this._closeDialog({ flushRefresh: false });
+      }, "Reise angelegt", { refresh: false });
+      if (result) {
+        this._closeDialog({ flushRefresh: false });
+        if (result.activated && result.trip_id) {
+          // Follow the activate-trip flow: the panel must LOOK at the
+          // trip it just made active, or every edit button disappears
+          // while the toast claims success.
+          this._selectedTripId = result.trip_id;
+          this._storyResetForTrip();
+        }
+        await this._loadData({ silent: true, force: true });
+      }
       return;
     }
 

@@ -3,9 +3,12 @@
  *
  * Pinned here because every half of this pair has failed alone before: a
  * backend action nobody can reach, and a button whose handler quietly does
- * nothing. The submit test also pins §11 (UI truthfulness): the dialog
- * closes and the success toast appears only AFTER the server confirmed -
- * a create that failed must leave the form open with the typed values.
+ * nothing. The submit tests pin §11 (UI truthfulness) in two layers: the
+ * dialog-close half against a stubbed _runAction (a failed create leaves
+ * the form open), and the wire half through the REAL _runActionNow - the
+ * toast fires only after the send resolved, and create_trip is NOT in
+ * tripScopedActions, so no expected_trip_id of some unrelated selected
+ * trip is smuggled into the payload.
  */
 import assert from "node:assert/strict";
 
@@ -145,5 +148,51 @@ actionResult = null;
 closed = 0;
 await submit([["title", "Scheitert"]]);
 assert.equal(closed, 0, "a failed create closed the dialog anyway");
+
+// --- activation adopts the new trip ------------------------------------
+// Without this, the pointer switches server-side while the panel keeps
+// showing the old trip: every edit button gone, the toast claiming
+// success. The submit must follow the activate-trip pattern.
+actionResult = { trip_id: "sofort-los", activated: true };
+let loads = [];
+panel._loadData = async (options) => { loads.push(options); };
+let storyResets = 0;
+panel._storyResetForTrip = () => { storyResets += 1; };
+panel._selectedTripId = "new-trip";
+await submit([["title", "Sofort los"], ["activate", "on"]]);
+assert.equal(panel._selectedTripId, "sofort-los", "the panel must look at the trip it just activated");
+assert.equal(storyResets, 1, "trip-scoped story state must reset on the switch");
+assert.equal(loads.length, 1);
+assert.equal(loads[0].force, true);
+
+// A plain create refreshes too (the list must show the new trip), but
+// keeps the selection.
+actionResult = { trip_id: "nur-liste", activated: false };
+loads = [];
+storyResets = 0;
+await submit([["title", "Nur Liste"]]);
+assert.equal(panel._selectedTripId, "sofort-los", "creating without activating must not steal the selection");
+assert.equal(storyResets, 0);
+assert.equal(loads.length, 1, "the trips list must refresh to show the new trip");
+
+// --- the wire itself, through the REAL _runActionNow --------------------
+// The stub above proves what _handleSubmit sends; this proves what goes
+// over the WebSocket: no expected_trip_id injection (create_trip must
+// not be trip-scoped), and the toast only after the send resolved.
+delete panel._runAction; // back to the prototype implementation
+const events = [];
+let sent = null;
+panel._send = async (message) => { events.push("send"); sent = message; return { trip_id: "x", activated: false }; };
+panel._showToast = (message, kind) => { events.push(`toast:${kind}`); };
+panel._loadData = async () => { events.push("load"); };
+panel._setBusy = () => {};
+const wireResult = await panel._runActionNow("create_trip", { title: "Draht" }, "Reise angelegt");
+assert.equal(sent.action, "create_trip");
+assert.equal(
+  "expected_trip_id" in sent.data, false,
+  "create_trip landed in tripScopedActions - the new trip would be guarded against the WRONG trip",
+);
+assert.deepEqual(events, ["send", "toast:success", "load"], "the toast may only follow a confirmed send");
+assert.equal(wireResult.trip_id, "x");
 
 console.log("Create trip UI tests passed.");

@@ -17,6 +17,7 @@ export const operationLabels = {
 };
 
 export const statusLabels = {
+  planning: "In Planung",
   planned: "Geplant",
   tentative: "Vorläufig",
   confirmed: "Bestätigt",

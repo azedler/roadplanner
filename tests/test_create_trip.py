@@ -48,6 +48,9 @@ def verify_the_slug_table() -> None:
         "Nordkap 2027": "nordkap-2027",
         "Reise nach Österreich": "reise-nach-oesterreich",
         "Straße & Meer": "strasse-meer",
+        # The CAPITAL sharp s: translate runs before lower(), so without
+        # its own table entry it would sneak through as ß and be dropped.
+        "STRAẞE": "strasse",
         "2027 Nordkap": "2027-nordkap",
         "  Ostsee   —   Rundfahrt!  ": "ostsee-rundfahrt",
         "ÄÖÜ": "aeoeue",
@@ -78,6 +81,11 @@ def verify_create_without_activation_changes_nothing_active() -> None:
         assert result["title"] == "Nordkap 2027"
         assert result["activated"] is False
         assert result["revision"] == 1
+        # The manager only pushes the coordinator payload for "changed"
+        # results. An inactive creation changes nothing an entity shows -
+        # and an activation MUST say changed, or Home Assistant keeps
+        # showing the previous trip until an unrelated refresh.
+        assert result["changed"] is False
 
         trip_dir = Path(base) / "roadbook" / "trips" / "nordkap-2027"
         assert (trip_dir / "days").is_dir()
@@ -124,6 +132,11 @@ def verify_activate_true_switches_the_pointer() -> None:
             expected_active_trip="new-trip",
         )
         assert result["activated"] is True
+        assert result["changed"] is True, (
+            "ohne 'changed' schiebt der Manager den neuen Zustand nie an "
+            "Home Assistant - Entitäten und andere Panels blieben auf der "
+            "alten Reise stehen"
+        )
         assert _pointer(store) == "sofort-los"
         assert store.load_trip()["trip"]["title"] == "Sofort los"
         check_invariants(store)
@@ -195,29 +208,42 @@ def verify_a_nonlatin_title_gets_the_uuid_fallback() -> None:
 
 
 def verify_a_failed_write_leaves_no_fragment() -> None:
-    with tempfile.TemporaryDirectory() as base:
-        store = make_store(Path(base))
-        original = trip_repository._write_json_atomic
+    """Every failure point after the mkdir shares one cleanup - test two.
 
-        def explode(path, payload):
-            raise json_io.StorageError("Platte voll (simuliert)")
+    The json write and the directory fsync both fail inside the same
+    try; each must remove the fragment AND leave pointer and revision of
+    the active trip exactly as they were.
+    """
+    def explode(*_args, **_kwargs):
+        raise json_io.StorageError("Platte voll (simuliert)")
 
-        trip_repository._write_json_atomic = explode
-        try:
+    for attribute in ("_write_json_atomic", "_fsync_dir"):
+        with tempfile.TemporaryDirectory() as base:
+            store = make_store(Path(base))
+            before_pointer = _pointer(store)
+            before_revision = revision(store)
+            original = getattr(trip_repository, attribute)
+            setattr(trip_repository, attribute, explode)
             try:
-                store.create_trip(title="Bruchpilot", actor="test")
-            except json_io.StorageError:
-                pass
-            else:
-                raise AssertionError("der simulierte Schreibfehler kam nicht an")
-        finally:
-            trip_repository._write_json_atomic = original
-        assert not (Path(base) / "roadbook" / "trips" / "bruchpilot").exists(), (
-            "das Verzeichnisfragment der gescheiterten Reise blieb liegen"
-        )
-        # And the store still works afterwards.
-        store.create_trip(title="Bruchpilot", actor="test")
-        assert "bruchpilot" in _trip_ids(store)
+                try:
+                    store.create_trip(title="Bruchpilot", actor="test")
+                except json_io.StorageError:
+                    pass
+                else:
+                    raise AssertionError(
+                        f"der simulierte Fehler in {attribute} kam nicht an"
+                    )
+            finally:
+                setattr(trip_repository, attribute, original)
+            assert not (Path(base) / "roadbook" / "trips" / "bruchpilot").exists(), (
+                f"{attribute}: das Verzeichnisfragment der gescheiterten "
+                "Reise blieb liegen"
+            )
+            assert _pointer(store) == before_pointer
+            assert revision(store) == before_revision
+            # And the store still works afterwards.
+            store.create_trip(title="Bruchpilot", actor="test")
+            assert "bruchpilot" in _trip_ids(store)
 
 
 def verify_the_roundtrip_into_normal_editing() -> None:
@@ -242,6 +268,69 @@ def verify_the_roundtrip_into_normal_editing() -> None:
         document = store.load_trip()
         assert document["trip"]["notes"] == "Endlich unterwegs."
         assert len(document["days"]) == 1
+
+
+def verify_the_panel_gates_activation_behind_the_approver_role() -> None:
+    """The backend half of the permission, not the hidden checkbox.
+
+    Hiding the checkbox without can_activate is a courtesy; the GATE is
+    the PanelPermissionError in panel.py. Deleting that block would let
+    any editor hijack the active pointer through create_trip while every
+    other test stayed green - so this one reads the real dispatcher.
+    """
+    import ast
+
+    panel_path = (
+        Path(__file__).resolve().parents[1]
+        / "custom_components" / "roadplanner_mcp" / "panel.py"
+    )
+    tree = ast.parse(panel_path.read_text(encoding="utf-8"))
+
+    def names(node) -> set[str]:
+        return {
+            inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name)
+        } | {
+            inner.value
+            for inner in ast.walk(node)
+            if isinstance(inner, ast.Constant) and isinstance(inner.value, str)
+        }
+
+    # The action is reachable and edit-gated.
+    tables: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in (
+                    "_ACTIONS", "_EDIT_ACTIONS", "_APPROVAL_ACTIONS",
+                ):
+                    tables[target.id] = {
+                        el.value
+                        for el in ast.walk(node.value)
+                        if isinstance(el, ast.Constant) and isinstance(el.value, str)
+                    }
+    assert "create_trip" in tables["_ACTIONS"], "create_trip ist nicht erreichbar"
+    assert "create_trip" in tables["_EDIT_ACTIONS"], "create_trip ist kein Edit"
+    assert "create_trip" not in tables["_APPROVAL_ACTIONS"], (
+        "create_trip pauschal hinter die Freigaberolle zu legen würde "
+        "Editoren das blosse Anlegen nehmen"
+    )
+
+    # Inside the dispatcher: the create_trip branch raises
+    # PanelPermissionError on a can_approve check before calling the
+    # manager.
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)):
+            continue
+        comparators = names(node.test)
+        if "action" not in comparators or "create_trip" not in comparators:
+            continue
+        branch = names(node)
+        assert "PanelPermissionError" in branch and "can_approve" in branch, (
+            "der create_trip-Zweig prüft can_approve nicht mehr - jeder "
+            "Editor könnte über activate=true den aktiven Zeiger kapern"
+        )
+        return
+    raise AssertionError("kein create_trip-Zweig im Panel-Dispatcher gefunden")
 
 
 def main() -> None:

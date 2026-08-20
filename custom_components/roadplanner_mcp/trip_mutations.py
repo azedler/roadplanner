@@ -258,6 +258,11 @@ class TripMutations:
             "trip_id": trip_id,
             "title": document["trip"]["title"],
             "activated": activated,
+            # The manager pushes the coordinator payload only for results
+            # that say "changed". Creating an INACTIVE trip changes nothing
+            # any entity shows; an activation must push, or Home Assistant
+            # and every other open panel keep showing the previous trip.
+            "changed": activated,
             "revision": document["metadata"]["revision"],
         }
 

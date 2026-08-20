@@ -49,7 +49,7 @@ from .trip_state import TripState
 #: has already lost a matcher to exactly that. Here the mapping is the
 #: point, so it is written down where it can be read.
 _UMLAUT_MAP = str.maketrans(
-    {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "ae", "Ö": "oe", "Ü": "ue"}
+    {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "ae", "Ö": "oe", "Ü": "ue", "ẞ": "ss"}
 )
 _SLUG_JUNK = re.compile(r"[^a-z0-9]+")
 
