@@ -361,6 +361,40 @@
         }
       }
     },
+    "create_trip": {
+      "name": "Create trip",
+      "description": "Create a new trip; optionally activate it immediately.",
+      "fields": {
+        "title": {
+          "name": "Title",
+          "description": "Human-readable trip title; the trip ID is derived from it server-side."
+        },
+        "status": {
+          "name": "Status",
+          "description": "Initial trip status (default: planning)."
+        },
+        "start_date": {
+          "name": "Start date",
+          "description": "Optional first travel day."
+        },
+        "end_date": {
+          "name": "End date",
+          "description": "Optional last travel day."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "Optional free-form notes."
+        },
+        "activate": {
+          "name": "Activate immediately",
+          "description": "Switch the active pointer to the new trip (requires the approver role in the panel)."
+        },
+        "expected_active_trip": {
+          "name": "Expected active trip",
+          "description": "Optional guard against concurrent pointer changes when activating."
+        }
+      }
+    },
     "update_trip": {
       "name": "Update trip",
       "description": "Update selected trip fields with revision protection.",

@@ -73,6 +73,10 @@
 - Google setup, privacy, attribution and provider-neutral architecture documentation.
 - Live acceptance remains required for destination discovery, access-point routing, stop deletion and media-cover behavior.
 
+## Completed in Roadplanner 4.116.0
+
+- RP-410: Trips can be created from the panel (title-derived server-side id, optional immediate activation, `roadplanner_mcp.create_trip` service). Deleting a trip is deliberately out of scope (would be RP-411; currently not needed).
+
 ## Next — correctness
 
 ## Next — planning UX

@@ -385,6 +385,40 @@
         }
       }
     },
+    "create_trip": {
+      "name": "Reise anlegen",
+      "description": "Eine neue Reise anlegen; optional sofort aktivieren.",
+      "fields": {
+        "title": {
+          "name": "Titel",
+          "description": "Lesbarer Reisetitel; die Reise-ID wird serverseitig daraus abgeleitet."
+        },
+        "status": {
+          "name": "Status",
+          "description": "Anfangsstatus der Reise (Standard: planning)."
+        },
+        "start_date": {
+          "name": "Startdatum",
+          "description": "Optionaler erster Reisetag."
+        },
+        "end_date": {
+          "name": "Enddatum",
+          "description": "Optionaler letzter Reisetag."
+        },
+        "notes": {
+          "name": "Notizen",
+          "description": "Optionale Freitextnotizen."
+        },
+        "activate": {
+          "name": "Sofort aktivieren",
+          "description": "Den aktiven Zeiger auf die neue Reise umstellen (erfordert im Panel die Freigaberolle)."
+        },
+        "expected_active_trip": {
+          "name": "Erwartete aktive Reise",
+          "description": "Optionaler Schutz vor parallelen Zeigeränderungen beim Aktivieren."
+        }
+      }
+    },
     "update_trip": {
       "name": "Reise aktualisieren",
       "description": "Ausgewählte Reisefelder revisionsgeschützt ändern.",
