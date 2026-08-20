@@ -6,6 +6,12 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Added
+
+- **RP-410: Reisen lassen sich jetzt im Panel anlegen.** Der Tab Reisen hat einen Knopf „Neue Reise": Titel (Pflicht), optional Status, Start-/Enddatum und Notizen — und für die Freigaberolle die Wahl, die Reise direkt zu aktivieren. Bisher entstand eine zweite Reise nur durch Handarbeit im Dateisystem, obwohl Liste, Ansehen und Aktivieren sie längst voraussetzten.
+
+  Die Reise-ID wird serverseitig aus dem Titel abgeleitet (Umlaute transliteriert, `ß` wird `ss`, alles andere wird `-`), bei Kollision mit Suffix `-2`, `-3` …; ein Titel ohne lateinische Zeichen bekommt eine zufällige ID, der Titel selbst bleibt in jedem Fall wörtlich erhalten. Anlegen ohne Aktivieren lässt die aktive Reise und ihre Revision unangetastet; schlägt ein Schritt fehl, bleibt kein halber Reiseordner zurück. Der neue HA-Service `roadplanner_mcp.create_trip` leistet dasselbe für Automationen.
+
 ## [4.115.1] - 2026-08-19
 
 ### Fixed

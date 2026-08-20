@@ -1631,6 +1631,9 @@ class RoadplannerPanel extends HTMLElement {
       this._selectedDayId = dayId;
       this._activeTab = "day-route";
       this._render();
+    } else if (action === "create-trip" && this._data?.capabilities?.can_edit) {
+      this._dialog = { type: "trip-create" };
+      this._render({ preserveScroll: true });
     } else if (action === "edit-trip" && this._canEdit()) {
       this._dialog = {
         type: "trip",
@@ -2401,6 +2404,29 @@ class RoadplannerPanel extends HTMLElement {
       return;
     }
 
+    if (formType === "trip-create") {
+      const title = cleanText(values.title);
+      if (!title) {
+        this._showToast("Bitte einen Titel für die neue Reise angeben.", "error");
+        return;
+      }
+      const activate = Boolean(values.activate);
+      const activeTrip = (this._data?.trips?.trips || []).find((trip) => trip.active);
+      const result = await this._runAction("create_trip", {
+        title,
+        status: cleanText(values.status) || "planning",
+        start_date: cleanText(values.start_date) || "",
+        end_date: cleanText(values.end_date) || "",
+        notes: String(values.notes || ""),
+        activate,
+        // Only meaningful when activating: guards the pointer switch
+        // against a concurrent activation, exactly like set_active_trip.
+        ...(activate && activeTrip?.id ? { expected_active_trip: activeTrip.id } : {}),
+      }, "Reise angelegt");
+      if (result) this._closeDialog({ flushRefresh: false });
+      return;
+    }
+
     const expectedRevision = Number.parseInt(form.dataset.revision || "", 10);
     if (!Number.isInteger(expectedRevision)) {
       this._showToast("Die Bearbeitungsrevision fehlt. Bitte Dialog neu öffnen.", "error");
@@ -2904,6 +2930,7 @@ class RoadplannerPanel extends HTMLElement {
   _renderDialog() {
     let body = "";
     if (this._dialog.type === "trip") body = this._renderTripForm(this._dialog);
+    if (this._dialog.type === "trip-create") body = this._renderTripCreateForm();
     else if (this._dialog.type === "day") body = this._renderDayForm(this._dialog);
     else if (this._dialog.type === "stop") body = this._renderStopForm(this._dialog);
     else if (this._dialog.type === "stop-order") body = this._renderStopOrderDialog(this._dialog);

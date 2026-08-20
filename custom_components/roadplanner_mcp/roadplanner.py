@@ -190,6 +190,29 @@ class RoadplannerStore:
             expected_active_trip=expected_active_trip,
         )
 
+    def create_trip(
+        self,
+        *,
+        title: str,
+        actor: str,
+        status: str = "planning",
+        start_date: str | None = None,
+        end_date: str | None = None,
+        notes: str = "",
+        activate: bool = False,
+        expected_active_trip: str | None = None,
+    ) -> dict[str, Any]:
+        return self._mutations.create_trip(
+            title=title,
+            actor=actor,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            notes=notes,
+            activate=activate,
+            expected_active_trip=expected_active_trip,
+        )
+
     def update_trip(
         self,
         *,
