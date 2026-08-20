@@ -11,6 +11,7 @@ one directional.
 from __future__ import annotations
 
 from copy import deepcopy
+import shutil
 from typing import Any, Callable
 
 from .bounded_json import _bounded_json_value
@@ -210,6 +211,59 @@ class TripMutations:
             "changed": True,
             "active_trip": trip_id,
             "trip": verified.coordinator_payload(),
+        }
+
+    def create_trip(
+        self,
+        *,
+        title: str,
+        actor: str,
+        status: str = "planning",
+        start_date: str | None = None,
+        end_date: str | None = None,
+        notes: str = "",
+        activate: bool = False,
+        expected_active_trip: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new trip; optionally make it the active one.
+
+        Activation goes through the production ``set_active_trip`` - the
+        pointer switch, its snapshot and its rollback live in exactly one
+        place. If that switch fails, the just-created (still empty) trip
+        directory is removed again so the system is exactly as before.
+        """
+        document = self._repository.create_trip_documents(
+            title=title,
+            actor=actor,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            notes=notes,
+        )
+        trip_id = document["trip"]["id"]
+        activated = False
+        if activate:
+            try:
+                self.set_active_trip(
+                    trip_id=trip_id,
+                    expected_active_trip=expected_active_trip,
+                )
+            except Exception:
+                shutil.rmtree(
+                    self._repository.trips_dir / trip_id, ignore_errors=True
+                )
+                raise
+            activated = True
+        return {
+            "trip_id": trip_id,
+            "title": document["trip"]["title"],
+            "activated": activated,
+            # The manager pushes the coordinator payload only for results
+            # that say "changed". Creating an INACTIVE trip changes nothing
+            # any entity shows; an activation must push, or Home Assistant
+            # and every other open panel keep showing the previous trip.
+            "changed": activated,
+            "revision": document["metadata"]["revision"],
         }
 
     def update_trip(

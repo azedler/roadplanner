@@ -765,6 +765,9 @@ class RoadplannerManager:
     async def async_set_active_trip(self, **kwargs: Any) -> dict[str, Any]:
         return await self._async_mutate(self.store.set_active_trip, **kwargs)
 
+    async def async_create_trip(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._async_mutate(self.store.create_trip, **kwargs)
+
     async def async_update_trip(self, **kwargs: Any) -> dict[str, Any]:
         return await self._async_mutate(self.store.update_trip, **kwargs)
 

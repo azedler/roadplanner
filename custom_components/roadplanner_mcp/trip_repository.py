@@ -44,6 +44,33 @@ from .trip_documents import (
 )
 from .trip_state import TripState
 
+#: Explicit transliteration table. NOT ``str.casefold()``: casefold turns
+#: "ß" into "ss" as a side effect nobody sees in review, and this project
+#: has already lost a matcher to exactly that. Here the mapping is the
+#: point, so it is written down where it can be read.
+_UMLAUT_MAP = str.maketrans(
+    {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "ae", "Ö": "oe", "Ü": "ue", "ẞ": "ss"}
+)
+_SLUG_JUNK = re.compile(r"[^a-z0-9]+")
+
+
+def _slug_from_title(title: str) -> str:
+    """Filesystem-safe trip id from a human title; '' when nothing survives.
+
+    Lowercase after transliterating (so Ä→ae, not Ä→ä→ae twice), every
+    other non-alphanumeric run becomes one '-', and the result is capped
+    well below ``validate_identifier``'s 128 so a collision suffix still
+    fits. '..', '/', '\\' and NUL cannot survive: nothing outside
+    ``[a-z0-9-]`` does.
+    """
+    slug = _SLUG_JUNK.sub("-", str(title).translate(_UMLAUT_MAP).lower())
+    return slug.strip("-")[:100].strip("-")
+
+
+def _new_trip_fallback_id() -> str:
+    """For titles with no latin letters at all (e.g. fully cyrillic)."""
+    return f"trip-{uuid.uuid4().hex[:12]}"
+
 
 @dataclass(slots=True)
 class TripRepository:
@@ -242,6 +269,87 @@ class TripRepository:
                 "last_operation": "initialization",
             },
         }
+
+    def create_trip_documents(
+        self,
+        *,
+        title: str,
+        actor: str,
+        status: str = "planning",
+        start_date: str | None = None,
+        end_date: str | None = None,
+        notes: str = "",
+    ) -> dict[str, Any]:
+        """Create a new, inactive trip on disk and return its document.
+
+        Deliberately NOT built on ``_commit``: that path is a transaction
+        over the ACTIVE trip (snapshot, marker, recovery, all keyed by
+        ``previous.trip_id``) and creating a different, inactive trip
+        through it would entangle two trips' state. This primitive writes
+        exactly one new directory and removes it again if anything fails -
+        a half-created trip folder would show up in ``list_trips`` and
+        break ``set_active_trip`` with ``TripNotFoundError``.
+        """
+        if not isinstance(title, str) or not title.strip():
+            raise ValidationError("Die neue Reise braucht einen Titel")
+        title = title.strip()
+        now = utc_now_iso()
+
+        slug = _slug_from_title(title)
+        base = slug or _new_trip_fallback_id()
+        trip_id = base
+        suffix = 2
+        while (self.trips_dir / trip_id).exists():
+            trip_id = f"{base}-{suffix}"
+            suffix += 1
+        # The slug generator is the first line of defence; this is the
+        # last. An id that fails here must never touch the filesystem.
+        trip_id = validate_identifier(trip_id, "trip_id")
+
+        document = self._default_trip_document(trip_id, [], now)
+        document["trip"]["title"] = title
+        if status:
+            document["trip"]["status"] = status
+        document["trip"]["start_date"] = start_date
+        document["trip"]["end_date"] = end_date
+        document["trip"]["notes"] = notes or ""
+        document["metadata"].update(
+            {
+                "updated_by": (actor or "unknown")[:200],
+                "last_operation": "create_trip",
+            }
+        )
+        # Normalize BEFORE anything exists on disk: a title or date the
+        # schema rejects must fail without leaving a directory behind.
+        document = normalize_trip_document(
+            document,
+            expected_trip_id=trip_id,
+            fallback_timestamp=now,
+        )
+        pointer = self._load_pointer()
+        state = TripState(pointer, document, {}, [])
+        state.trip_document["metadata"]["content_hash"] = state.content_hash()
+
+        trip_dir = self.trips_dir / trip_id
+        created = False
+        try:
+            # exist_ok=False so a directory that appeared between the
+            # collision check and here fails the mkdir - and the cleanup
+            # below only ever removes a directory THIS call created.
+            trip_dir.mkdir(parents=True, exist_ok=False)
+            created = True
+            (trip_dir / "days").mkdir()
+            _write_json_atomic(trip_dir / "trip.json", state.trip_document)
+            _fsync_dir(trip_dir)
+        except Exception as err:
+            if created:
+                shutil.rmtree(trip_dir, ignore_errors=True)
+            if isinstance(err, RoadplannerError):
+                raise
+            raise StorageError(
+                f"Die neue Reise konnte nicht angelegt werden: {err}"
+            ) from err
+        return deepcopy(state.trip_document)
 
     def _load_pointer(self) -> dict[str, Any]:
         raw = _read_json(self.pointer_path)

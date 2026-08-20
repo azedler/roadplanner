@@ -30,6 +30,7 @@ from .const import (
     SERVICE_CALCULATE_DAY_ROUTE,
     SERVICE_CALCULATE_TRIP_ROUTES,
     SERVICE_ARCHIVE_HANDOFF,
+    SERVICE_CREATE_TRIP,
     SERVICE_CREATE_BACKUP,
     SERVICE_CREATE_EXPENSE,
     SERVICE_CREATE_TODO,
@@ -144,6 +145,20 @@ def async_register_services(hass: HomeAssistant) -> None:
         return await _service_call(
             _runtime(hass).manager.async_set_active_trip(
                 trip_id=call.data["trip_id"],
+                expected_active_trip=call.data.get("expected_active_trip"),
+            )
+        )
+
+    async def create_trip(call: ServiceCall) -> ServiceResponse:
+        return await _service_call(
+            _runtime(hass).manager.async_create_trip(
+                title=call.data["title"],
+                actor=_actor(call),
+                status=call.data.get("status", "planning"),
+                start_date=call.data.get("start_date"),
+                end_date=call.data.get("end_date"),
+                notes=call.data.get("notes", ""),
+                activate=call.data.get("activate", False),
                 expected_active_trip=call.data.get("expected_active_trip"),
             )
         )
@@ -524,6 +539,21 @@ def async_register_services(hass: HomeAssistant) -> None:
             vol.Schema(
                 {
                     vol.Required("trip_id"): str,
+                    vol.Optional("expected_active_trip"): str,
+                }
+            ),
+        ),
+        (
+            SERVICE_CREATE_TRIP,
+            create_trip,
+            vol.Schema(
+                {
+                    vol.Required("title"): str,
+                    vol.Optional("status"): str,
+                    vol.Optional("start_date"): str,
+                    vol.Optional("end_date"): str,
+                    vol.Optional("notes"): str,
+                    vol.Optional("activate", default=False): bool,
                     vol.Optional("expected_active_trip"): str,
                 }
             ),

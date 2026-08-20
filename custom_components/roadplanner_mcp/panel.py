@@ -61,6 +61,7 @@ WS_ACTION = f"{DOMAIN}/panel/action"
 _ACTIONS = {
     "refresh",
     "set_active_trip",
+    "create_trip",
     "update_trip",
     "add_day",
     "update_day",
@@ -247,6 +248,7 @@ _EDIT_ACTIONS = {
     "story_music_prototype_mix",
     # Writes into the shared directory, and ends work somebody started.
     "renderer_app_cancel",
+    "create_trip",
     "update_trip",
     "add_day",
     "update_day",
@@ -1286,6 +1288,28 @@ async def _execute_action(
             eur_total(totals, rates["rates"]) if isinstance(totals, dict) else None
         )
         return {"rates": rates, "eur_total": summary}
+
+    if action == "create_trip":
+        activate = bool(data.get("activate"))
+        if activate and not _capabilities(connection, runtime)["can_approve"]:
+            # The action itself is an ordinary edit; only the immediate
+            # pointer switch is an approval, same as set_active_trip.
+            raise PanelPermissionError(
+                "Das direkte Aktivieren einer neuen Reise erfordert die "
+                "Roadplanner-Freigaberolle"
+            )
+        return await manager.async_create_trip(
+            title=str(data.get("title") or ""),
+            actor=actor,
+            status=str(data.get("status") or "planning"),
+            start_date=_none_if_blank(data.get("start_date")),
+            end_date=_none_if_blank(data.get("end_date")),
+            notes=str(data.get("notes") or ""),
+            activate=activate,
+            expected_active_trip=(
+                data.get("expected_active_trip") if activate else None
+            ),
+        )
 
     if action == "update_trip":
         patch = dict(data.get("patch") or {})

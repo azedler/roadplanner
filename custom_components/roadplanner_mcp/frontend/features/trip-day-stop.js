@@ -639,8 +639,25 @@ export const tripDayStopMixin = {
 
   _renderTrips() {
     const trips = this._data.trips?.trips || [];
-    return `<section class="toolbar-card"><div><span class="eyebrow">Roadbook</span><h2>Alle Reisen</h2><p>Andere Reisen lassen sich ansehen, ohne die aktive Reise zu wechseln.</p></div></section>
+    return `<section class="toolbar-card"><div><span class="eyebrow">Roadbook</span><h2>Alle Reisen</h2><p>Andere Reisen lassen sich ansehen, ohne die aktive Reise zu wechseln.</p></div>${
+      // The capability, not _canEdit(): that helper also requires the
+      // SELECTED trip to be the active one, and creating a new trip has
+      // nothing to do with which trip is being looked at.
+      this._data?.capabilities?.can_edit
+        ? `<div class="button-row"><button class="primary-button" type="button" data-action="create-trip"><ha-icon icon="mdi:map-plus"></ha-icon> Neue Reise</button></div>`
+        : ""
+    }</section>
       <section class="trip-grid">${trips.map((trip) => this._renderTripCard(trip)).join("")}</section>`;
+  },
+
+  _renderTripCreateForm() {
+    // No revision on this form: nothing that exists is being edited, so
+    // there is nothing a concurrent edit could conflict with.
+    return `${this._renderModalHeader("Neue Reise", "Die Reise-ID entsteht aus dem Titel")}<form data-form="trip-create" class="form-grid">${this._field("title", "Titel", "", "text", true, "full")}${this._selectField("status", "Status", "planning", ["planning", "planned", "tentative", "confirmed"])}${this._field("start_date", "Startdatum", "", "date")}${this._field("end_date", "Enddatum", "", "date")}${this._textarea("notes", "Notizen", "", "full")}${
+      this._canActivate()
+        ? this._archiveCheckbox("activate", "Reise direkt aktivieren", false, "Die neue Reise wird sofort zur aktiven Reise.", "full")
+        : ""
+    }${this._formActions("Reise anlegen")}</form>`;
   },
 
   _renderTripCard(trip) {
