@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.116.0] - 2026-08-20
+
 ### Added
 
 - **RP-410: Reisen lassen sich jetzt im Panel anlegen.** Der Tab Reisen hat einen Knopf „Neue Reise": Titel (Pflicht), optional Status, Start-/Enddatum und Notizen — und für die Freigaberolle die Wahl, die Reise direkt zu aktivieren. Bisher entstand eine zweite Reise nur durch Handarbeit im Dateisystem, obwohl Liste, Ansehen und Aktivieren sie längst voraussetzten.
