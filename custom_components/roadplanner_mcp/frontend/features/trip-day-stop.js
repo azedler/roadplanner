@@ -250,7 +250,7 @@ export const tripDayStopMixin = {
             ${this._settingRow("Externe Google-Drive-Bridge", settings.handoff_webhook_enabled)}
             ${this._settingRow("Automatische Planungsbilder", settings.destination_image_auto_fill)}
           </div>
-          <div class="button-row"><button class="secondary-button" type="button" data-action="run-system-check"${this._systemCheckRunning ? " disabled" : ""}><ha-icon icon="mdi:stethoscope"></ha-icon> ${this._systemCheckRunning ? "Systemcheck läuft…" : "Systemcheck"}</button>${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
+          <div class="button-row">${actionButton(this._actionCosts(), "run-system-check", "Systemcheck", { busy: this._systemCheckRunning, busyLabel: "Systemcheck läuft…" })}${this._canAdmin() ? `<button class="secondary-button" type="button" data-action="backup"><ha-icon icon="mdi:backup-restore"></ha-icon> Sicherung erstellen</button>` : ""}${this._data.capabilities?.can_approve ? `<button class="secondary-button" type="button" data-action="scan-handoffs"><ha-icon icon="mdi:folder-refresh-outline"></ha-icon> Übergaben prüfen</button>` : ""}</div>
           ${this._renderSystemCheck()}
           <div class="button-row">
             <button class="secondary-button" type="button" data-tab="diagnostics"><ha-icon icon="mdi:stethoscope"></ha-icon> Diagnose öffnen</button>

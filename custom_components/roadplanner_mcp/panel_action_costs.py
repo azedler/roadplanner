@@ -133,6 +133,78 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
             "der Soundtrack des ganzen Films wird hier nicht erzeugt."
         ),
     },
+    # The live audit found a dozen paid buttons that LOOKED free because
+    # nobody had written their line here. Every action below reaches
+    # Gemini (or another paid provider) when pressed - the one thing a
+    # user cannot see from the button's own wording.
+    "assistant_chat": {
+        "cost": COST_MODEL,
+        "effect": "Schickt die Nachricht an den Reisebegleiter (Gemini).",
+        "note": "Verbraucht Kontingent je Nachricht.",
+    },
+    "assistant_prepare": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini Vorschläge für die Reise ausarbeiten.",
+        "note": "Verbraucht Kontingent.",
+    },
+    "assistant_briefing": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini das Tagesbriefing schreiben.",
+        "note": "Verbraucht Kontingent je Briefing.",
+    },
+    "assistant_test": {
+        "cost": COST_MODEL,
+        "effect": "Prüft die Verbindung zum Reisebegleiter mit einer echten Testanfrage.",
+        "note": "Verbraucht ein kleines Stück Kontingent - es ist ein echter Aufruf.",
+    },
+    "assistant_prepare_locations": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini fehlende GPS-Punkte dieses Tages vorschlagen.",
+        "note": "Verbraucht Kontingent. Die Vorschläge landen im Korb, nicht direkt in der Reise.",
+    },
+    "assistant_prepare_trip_locations": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini fehlende GPS-Punkte der ganzen Reise vorschlagen.",
+        "note": "Verbraucht Kontingent. Die Vorschläge landen im Korb, nicht direkt in der Reise.",
+    },
+    "park4night_lookup": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini die Park4Night-Seite dieses Stopps auslesen.",
+        "note": "Verbraucht Kontingent je Seite.",
+    },
+    "place_link_lookup": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini die verlinkte Seite auslesen.",
+        "note": "Verbraucht Kontingent - außer bei Google-Maps-Links, die ohne KI aufgelöst werden.",
+    },
+    "prepare_place_enrichment": {
+        "cost": COST_MODEL,
+        "effect": "Holt Ortsdaten aus den Kartendiensten und bereitet die Vorschau vor.",
+        "note": (
+            "Verbraucht Karten-Kontingent; die optionale KI-Bereinigung "
+            "zusätzlich Gemini-Kontingent. Übernommen wird erst nach deiner Auswahl."
+        ),
+    },
+    "media_video_analyze": {
+        "cost": COST_MODEL,
+        "effect": "Schickt die verkleinerte Prüfkopie des Videos zur Analyse an Gemini.",
+        "note": "Verbraucht Kontingent je Video. Das Original bleibt zu Hause.",
+    },
+    "export_trip_video": {
+        "cost": COST_MODEL,
+        "effect": "Baut das Reisevideo und lässt Gemini die Erzähltexte schreiben.",
+        "note": "Verbraucht Kontingent für die Texte; das Rendern selbst ist gratis, dauert aber Minuten.",
+    },
+    "export_trip_pdf": {
+        "cost": COST_MODEL,
+        "effect": "Baut das Reise-PDF - Personenzusammenfassungen und Crew-Fotoauswahl kommen von Gemini.",
+        "note": "Verbraucht Kontingent, wenn der Reisebegleiter konfiguriert ist; ohne ihn entsteht das PDF trotzdem, nur ohne diese Texte.",
+    },
+    "run_system_check": {
+        "cost": COST_MODEL,
+        "effect": "Prüft alle Dienste - inklusive einer echten Testanfrage an Gemini.",
+        "note": "Verbraucht ein kleines Stück Kontingent, wenn der Reisebegleiter konfiguriert ist.",
+    },
 }
 
 

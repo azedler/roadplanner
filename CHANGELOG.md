@@ -6,6 +6,14 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dreizehn bezahlte Knöpfe sahen gratis aus.** Der lesende Live-Durchlauf fand rund ein Dutzend Aktionen mit echten Gemini-Aufrufen ohne Kosten-Badge — darunter „Systemcheck", der nach Diagnose klingt und einen echten Testaufruf enthält, und „Als PDF", dessen Personen-Zusammenfassungen von Gemini kommen (den fand erst der neue Test). Alle sind jetzt in der Kostentabelle deklariert und werden über den gemeinsamen `actionButton` gezeichnet: Modell-Symbol, Kostenhinweis im Tooltip, einheitliche Optik. Ein neuer Contract-Test liest den Panel-Dispatcher und schlägt fehl, sobald eine Aktion einen bezahlten Provider-Einstiegspunkt erreicht, ohne als `COST_MODEL` deklariert zu sein — eine künftige bezahlte Funktion bekommt ihr Badge damit, bevor sie mergen kann.
+
+- **Die Reisekarte zeigte eine Webseite als Titelbild.** Die Titelbild-Projektion akzeptierte das `url`-Feld auch außerhalb eines `media`-Blocks — dort ist `url` aber ein gespeicherter Quelllink (die Platz-Seite eines Anbieters), kein Bild. Ergebnis live: „Bild nicht verfügbar" mit einer Campingplatz-Webseite im `<img src>`. Der `url`-Alias gilt jetzt nur noch im expliziten `media`-Block; ein Detailobjekt ohne Bild liefert kein Titelbild, und die Karte zeigt ihren Platzhalter. Die gespeicherten Reisedaten waren nie kaputt — der Link steht zu Recht da, er ist nur kein Bild; ins Renderpaket floss dieser Pfad nie ein.
+
+- **Diagnose-Akkordeons: Titel und Untertitel klebten aneinander** („FilmSzenenplan, …") — die Ausklapper hatten das Panel-Karten-Layout, aber nicht das Summary-Layout der Technik-Karte. Eigene `diagnostics-section`-Regeln trennen sie jetzt sauber.
+
 ## [4.116.0] - 2026-08-20
 
 ### Added

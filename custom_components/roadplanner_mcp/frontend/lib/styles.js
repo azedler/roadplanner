@@ -613,6 +613,12 @@ export const PANEL_STYLES = `<style>
       .assistant-technical > summary span { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
       .assistant-technical > summary small { color: var(--secondary-text-color); }
       .assistant-technical[open] > summary { border-bottom: 1px solid var(--divider-color); }
+      /* Diagnose-Akkordeons: same summary layout as the technical card,
+         otherwise title and subtitle render glued together ("FilmSzenenplan"). */
+      .diagnostics-section > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+      .diagnostics-section > summary::-webkit-details-marker { display: none; }
+      .diagnostics-section > summary span { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
+      .diagnostics-section > summary small { color: var(--secondary-text-color); }
       .assistant-technical-content { padding: 16px; display: grid; gap: 14px; }
       .assistant-technical-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
       .assistant-technical .assistant-status-grid { margin: 0; }

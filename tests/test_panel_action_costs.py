@@ -115,6 +115,75 @@ def verify_paid_buttons_go_through_the_shared_helper() -> None:
                 )
 
 
+def verify_every_paid_entry_point_has_a_declared_action() -> None:
+    """An undeclared paid action is a paid button that looks free.
+
+    The live audit found a dozen of them at once, so the rule is now
+    written at the level that cannot drift: the provider ENTRY POINTS.
+    Every `if action == ...` branch in the dispatcher whose body reaches
+    one of these methods must have its action declared with COST_MODEL.
+    A new paid feature then fails this test until its line exists in
+    panel_action_costs.py - which is the moment its button gets honest.
+    """
+    # Methods that bill a provider when awaited. `async_start` is NOT
+    # here although the video export uses it: remotion_test_render owns a
+    # free method of the same name, so the export is pinned by action
+    # name below instead.
+    paid_methods = {
+        "async_chat",
+        "async_prepare_review",
+        "async_briefing",
+        "async_test",
+        "async_add_location_drafts",
+        "async_add_trip_location_drafts",
+        "async_lookup",
+        "async_lookup_page",
+        "async_prepare_place_enrichment",
+        "async_analyze",
+        "async_run_system_check",
+        "async_generate",
+    }
+    paid_by_name = {"export_trip_video"}
+
+    tree = ast.parse((SOURCE / "panel.py").read_text(encoding="utf-8"))
+    dispatcher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute_action"
+    )
+    model_declared = {
+        action
+        for action, entry in costs.ACTION_COSTS.items()
+        if entry["cost"] == costs.COST_MODEL
+    }
+    problems = []
+    for node in ast.walk(dispatcher):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)):
+            continue
+        actions = {
+            constant.value
+            for constant in ast.walk(node.test)
+            if isinstance(constant, ast.Constant) and isinstance(constant.value, str)
+        }
+        if not actions:
+            continue
+        used = {
+            attr.attr for attr in ast.walk(node) if isinstance(attr, ast.Attribute)
+        } | {name.id for name in ast.walk(node) if isinstance(name, ast.Name)}
+        paid = bool(used & paid_methods) or bool(actions & paid_by_name)
+        if not paid:
+            continue
+        for action in actions:
+            if action not in model_declared:
+                problems.append(
+                    f"{action} erreicht einen bezahlten Provider "
+                    f"({sorted(used & paid_methods) or 'per Namensliste'}), "
+                    "ist aber nicht als COST_MODEL deklariert - der Knopf "
+                    "sieht gratis aus"
+                )
+    assert not problems, "\n".join(problems)
+
+
 def verify_the_free_rebuild_button_is_gone() -> None:
     """The story tab loads itself; a button asking again explains nothing.
 
@@ -136,6 +205,7 @@ for check in (
     verify_a_paid_action_names_its_price,
     verify_the_panel_sends_the_table,
     verify_paid_buttons_go_through_the_shared_helper,
+    verify_every_paid_entry_point_has_a_declared_action,
     verify_the_free_rebuild_button_is_gone,
 ):
     check()

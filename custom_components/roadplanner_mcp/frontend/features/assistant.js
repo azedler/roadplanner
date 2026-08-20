@@ -1,4 +1,5 @@
 import { escapeHtml, cleanText, newClientRequestId } from "../lib/core-helpers.js";
+import { actionButton } from "../lib/action-button.js";
 
 export const assistantMixin = {
   async _prepareDayLocations(dayId) {
@@ -538,7 +539,7 @@ export const assistantMixin = {
           <p>Der aktuelle Roadbook-Stand wird bei jeder Nachricht neu geladen. Die neuesten Antworten stehen direkt oben.</p>
         </div>
         <div class="assistant-toolbar-actions assistant-main-actions">
-          ${assistant.copilot_enabled ? `<button class="primary-button compact-button assistant-briefing-button" type="button" data-action="assistant-briefing"><ha-icon icon="mdi:weather-sunset-up"></ha-icon> Tagesbriefing</button>` : ""}
+          ${assistant.copilot_enabled ? actionButton(this._actionCosts(), "assistant-briefing", "Tagesbriefing") : ""}
           <button class="secondary-button compact-button" type="button" data-action="assistant-clear" ${messages.length || basket.length ? "" : "disabled"}><ha-icon icon="mdi:message-refresh-outline"></ha-icon> Neue Unterhaltung</button>
         </div>
       </section>
@@ -550,7 +551,12 @@ export const assistantMixin = {
       ${basketEnabled && basket.length ? `<section class="assistant-basket-quickbar panel-card">
         <span class="basket-quick-label"><ha-icon icon="mdi:playlist-check"></ha-icon><strong>Änderungskorb: ${basket.length} vorgemerkt</strong></span>
         <div class="button-row compact-row">
-          <button class="primary-button compact-button" type="button" data-action="assistant-prepare" aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}" ${this._data.selected_is_active && !this._assistantPrepareInFlight ? "" : "disabled"}><ha-icon icon="${this._assistantPrepareInFlight ? "mdi:loading mdi-spin" : "mdi:clipboard-text-search-outline"}"></ha-icon> ${this._assistantPrepareInFlight ? "Entwurf wird erstellt …" : "Änderungen prüfen"}</button>
+          ${actionButton(this._actionCosts(), "assistant-prepare", "Änderungen prüfen", {
+            busy: this._assistantPrepareInFlight,
+            busyLabel: "Entwurf wird erstellt …",
+            disabled: !this._data.selected_is_active,
+            extra: `aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}"`,
+          })}
           <button class="text-button" type="button" data-action="assistant-scroll-basket"><ha-icon icon="mdi:arrow-down"></ha-icon> Details ansehen</button>
         </div>
       </section>` : ""}
@@ -572,7 +578,12 @@ export const assistantMixin = {
           ${basketEnabled
             ? (basket.length ? `<div class="basket-list">${basket.map((item) => this._renderDraftItem(item)).join("")}</div>` : `<div class="basket-empty"><ha-icon icon="mdi:playlist-edit"></ha-icon><strong>Noch keine Änderung</strong><span>Fragen und Vorschläge bleiben unverbindlich. Klare Entscheidungen oder Planungsaufträge erscheinen hier.</span></div>`)
             : `<div class="basket-empty"><ha-icon icon="mdi:message-processing-outline"></ha-icon><strong>Keine Vormerkungen</strong><span>In diesem Modus beantwortet der Assistent Fragen${assistant.autonomy_level === "suggestions" ? " und macht Vorschläge" : ""}, sammelt aber keine Änderungen. Das kannst du in den Integrationsoptionen umstellen.</span></div>`}
-          <button class="primary-button full-width" type="button" data-action="assistant-prepare" aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}" ${basketEnabled && basket.length && this._data.selected_is_active && !this._assistantPrepareInFlight ? "" : "disabled"}><ha-icon icon="${this._assistantPrepareInFlight ? "mdi:loading mdi-spin" : "mdi:clipboard-text-search-outline"}"></ha-icon> ${this._assistantPrepareInFlight ? "Entwurf wird erstellt …" : "Änderungen prüfen"}</button>
+          ${actionButton(this._actionCosts(), "assistant-prepare", "Änderungen prüfen", {
+            busy: this._assistantPrepareInFlight,
+            busyLabel: "Entwurf wird erstellt …",
+            disabled: !(basketEnabled && basket.length && this._data.selected_is_active),
+            extra: `aria-busy="${this._assistantPrepareInFlight ? "true" : "false"}"`,
+          })}
           <p class="basket-footnote">Der Button erzeugt nur einen prüfbaren Entwurf. Das Reisegespräch läuft danach weiter; übernommen wird weiterhin separat in der Änderungsübersicht.</p>
         </aside>
       </section>
@@ -583,7 +594,7 @@ export const assistantMixin = {
           <div class="assistant-technical-actions">
             <span class="assistant-model"><ha-icon icon="mdi:creation-outline"></ha-icon>${escapeHtml(assistant.model || settings.assistant_model || "Gemini")}</span>
             <span class="assistant-health ${healthView.className}"><ha-icon icon="${healthView.icon}"></ha-icon>${escapeHtml(healthView.label)}</span>
-            <button class="secondary-button compact-button" type="button" data-action="assistant-test"><ha-icon icon="mdi:connection"></ha-icon> Verbindung testen</button>
+            ${actionButton(this._actionCosts(), "assistant-test", "Verbindung testen")}
             ${assistant.debug_enabled && this._canAdmin() ? `<button class="secondary-button compact-button" type="button" data-action="assistant-debug"><ha-icon icon="mdi:bug-outline"></ha-icon> Diagnose öffnen</button>` : ""}
           </div>
           <section class="assistant-status-grid">
