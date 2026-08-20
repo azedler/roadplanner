@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.116.1] - 2026-08-20
+
 ### Fixed
 
 - **Siebzehn bezahlte Knöpfe sahen gratis aus.** Der lesende Live-Durchlauf fand rund ein Dutzend Aktionen mit echten Gemini-Aufrufen ohne Kosten-Badge — darunter „Systemcheck", der nach Diagnose klingt und einen echten Testaufruf enthält, und „Als PDF", dessen Personen-Zusammenfassungen von Gemini kommen (den fand erst der neue Test). Alle sind jetzt in der Kostentabelle deklariert und werden über den gemeinsamen `actionButton` gezeichnet: Modell-Symbol, Kostenhinweis im Tooltip, einheitliche Optik. Ein neuer Contract-Test liest den Panel-Dispatcher und schlägt fehl, sobald eine Aktion einen bezahlten Provider-Einstiegspunkt erreicht, ohne als `COST_MODEL` deklariert zu sein — eine künftige bezahlte Funktion bekommt ihr Badge damit, bevor sie mergen kann.
