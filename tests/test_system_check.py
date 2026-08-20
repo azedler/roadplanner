@@ -271,7 +271,9 @@ def verify_wiring_and_read_only_contract() -> None:
         "the other provider actions"
     )
     ui_source = (PACKAGE_ROOT / "frontend/features/trip-day-stop.js").read_text(encoding="utf-8")
-    assert 'data-action="run-system-check"' in ui_source
+    # Drawn through the shared helper since the audit: the check calls
+    # Gemini, so its button must carry the paid marker, not look free.
+    assert 'actionButton(this._actionCosts(), "run-system-check"' in ui_source
     assert 'data-action="copy-system-check"' in ui_source, (
         "the whole point is pasting the result into a message"
     )
