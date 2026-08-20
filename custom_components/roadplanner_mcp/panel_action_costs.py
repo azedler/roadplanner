@@ -133,6 +133,93 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
             "der Soundtrack des ganzen Films wird hier nicht erzeugt."
         ),
     },
+    # The live audit found a dozen paid buttons that LOOKED free because
+    # nobody had written their line here. Every action below reaches
+    # Gemini (or another paid provider) when pressed - the one thing a
+    # user cannot see from the button's own wording.
+    "assistant_chat": {
+        "cost": COST_MODEL,
+        "effect": "Schickt die Nachricht an den Reisebegleiter (Gemini).",
+        "note": "Verbraucht Kontingent je Nachricht.",
+    },
+    "assistant_prepare": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini Vorschläge für die Reise ausarbeiten.",
+        "note": "Verbraucht Kontingent.",
+    },
+    "assistant_briefing": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini das Tagesbriefing schreiben.",
+        "note": "Verbraucht Kontingent je Briefing.",
+    },
+    "assistant_test": {
+        "cost": COST_MODEL,
+        "effect": "Prüft die Verbindung zum Reisebegleiter mit einer echten Testanfrage.",
+        "note": "Verbraucht ein kleines Stück Kontingent - es ist ein echter Aufruf.",
+    },
+    # assistant_prepare_locations / assistant_prepare_trip_locations are
+    # deliberately NOT here. They build the location drafts locally and
+    # let the geocoding plugin resolve them against OpenStreetMap - no
+    # provider, no quota. Declaring them paid would be the audit's own
+    # mistake mirrored: a free button dressed up as an expensive one.
+    "park4night_lookup": {
+        "cost": COST_MODEL,
+        "effect": "Liest die Park4Night-Seite dieses Stopps aus.",
+        "note": (
+            "Die Seite wird zuerst direkt gelesen - das ist gratis. "
+            "Erst wenn das misslingt, liest Gemini sie und verbraucht Kontingent."
+        ),
+    },
+    "place_link_lookup": {
+        "cost": COST_MODEL,
+        "effect": "Liest die verlinkte Seite aus und übernimmt die Ortsdaten zur Prüfung.",
+        "note": (
+            "Google-Maps-Links, Park4Night-Seiten und Seiten mit maschinenlesbaren "
+            "Ortsdaten werden direkt gelesen - gratis. Erst für alles Übrige liest "
+            "Gemini die Seite und verbraucht Kontingent."
+        ),
+    },
+    "archive_analyze_document": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini das hinterlegte Dokument oder den Beleg auswerten.",
+        "note": "Verbraucht Kontingent je Dokument. Ohne konfigurierten Reisebegleiter nicht möglich.",
+    },
+    "universal_import_analyze": {
+        "cost": COST_MODEL,
+        "effect": "Wertet die importierte Datei aus - Texte und Belege liest Gemini.",
+        "note": (
+            "Strukturierte Dateien werden ohne KI gelesen; alles Übrige "
+            "verbraucht Kontingent je Datei."
+        ),
+    },
+    "prepare_place_enrichment": {
+        "cost": COST_MODEL,
+        "effect": "Holt Ortsdaten aus den Kartendiensten und bereitet die Vorschau vor.",
+        "note": (
+            "Verbraucht Karten-Kontingent; die optionale KI-Bereinigung "
+            "zusätzlich Gemini-Kontingent. Übernommen wird erst nach deiner Auswahl."
+        ),
+    },
+    "media_video_analyze": {
+        "cost": COST_MODEL,
+        "effect": "Schickt die verkleinerte Prüfkopie des Videos zur Analyse an Gemini.",
+        "note": "Verbraucht Kontingent je Video. Das Original bleibt zu Hause.",
+    },
+    "export_trip_video": {
+        "cost": COST_MODEL,
+        "effect": "Baut das Reisevideo und lässt Gemini die Erzähltexte schreiben.",
+        "note": "Verbraucht Kontingent für die Texte; das Rendern selbst ist gratis, dauert aber Minuten.",
+    },
+    "export_trip_pdf": {
+        "cost": COST_MODEL,
+        "effect": "Baut das Reise-PDF - Personenzusammenfassungen und Crew-Fotoauswahl kommen von Gemini.",
+        "note": "Verbraucht Kontingent, wenn der Reisebegleiter konfiguriert ist; ohne ihn entsteht das PDF trotzdem, nur ohne diese Texte.",
+    },
+    "run_system_check": {
+        "cost": COST_MODEL,
+        "effect": "Prüft alle Dienste - inklusive einer echten Testanfrage an Gemini.",
+        "note": "Verbraucht ein kleines Stück Kontingent, wenn der Reisebegleiter konfiguriert ist.",
+    },
 }
 
 

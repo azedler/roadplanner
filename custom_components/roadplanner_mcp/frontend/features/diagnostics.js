@@ -40,7 +40,7 @@ export const diagnosticsMixin = {
         }
       </section>
 
-      <details data-section="diagnostics-film" class="panel-card">
+      <details data-section="diagnostics-film" class="panel-card diagnostics-section">
         <summary><span><ha-icon icon="mdi:movie-search-outline"></ha-icon>Film</span><small>Szenenplan, Bildzuteilung, Prüfausschnitt, Review-Kopie</small></summary>
         <div class="assistant-technical-content">
           ${this._renderStoryTripDiagnosis()}
@@ -50,7 +50,7 @@ export const diagnosticsMixin = {
         </div>
       </details>
 
-      <details data-section="diagnostics-music" class="panel-card">
+      <details data-section="diagnostics-music" class="panel-card diagnostics-section">
         <summary><span><ha-icon icon="mdi:music-clef-treble"></ha-icon>Musik</span><small>Musikplan, Abschnitte, Provider und Kosten, A/B/C-Prototyp</small></summary>
         <div class="assistant-technical-content">
           ${this._renderStoryFilmMusicPlan()}
@@ -58,14 +58,14 @@ export const diagnosticsMixin = {
         </div>
       </details>
 
-      <details data-section="diagnostics-video" class="panel-card">
+      <details data-section="diagnostics-video" class="panel-card diagnostics-section">
         <summary><span><ha-icon icon="mdi:video-check-outline"></ha-icon>Video</span><small>Analyse, Clips, Kosten einer KI-Prüfung</small></summary>
         <div class="assistant-technical-content">
           ${this._renderStoryVideoAnalysis()}
         </div>
       </details>
 
-      <details data-section="diagnostics-renderer" class="panel-card">
+      <details data-section="diagnostics-renderer" class="panel-card diagnostics-section">
         <summary><span><ha-icon icon="mdi:server-network-outline"></ha-icon>Renderer</span><small>Umgebung, Austauschordner, Testrender, Auftragsliste</small></summary>
         <div class="assistant-technical-content">
           ${this._renderRendererApp()}

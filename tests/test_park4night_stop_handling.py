@@ -248,7 +248,9 @@ def verify_stop_form_lookup_is_wired_for_add_and_edit() -> None:
     assert 'if action == "park4night_lookup":' in panel
     assert "runtime.experience.p4n_lookup" in panel
     stop_form = (PACKAGE_ROOT / "frontend/features/trip-day-stop.js").read_text(encoding="utf-8")
-    assert 'data-action="stop-p4n-lookup"' in stop_form, (
+    # Drawn by the shared helper since the audit - the AI reader is the
+    # fallback behind this button, so it carries the paid marker.
+    assert 'actionButton(this._actionCosts(), "stop-p4n-lookup"' in stop_form, (
         "the p4n page read must be available in the stop add/edit form, not "
         "only in the enrichment flow"
     )

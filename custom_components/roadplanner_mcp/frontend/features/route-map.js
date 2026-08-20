@@ -619,7 +619,7 @@ export const routeMapMixin = {
           <div class="action-group">
             <span class="action-group-label">Rückblick</span>
             <div class="action-group-row">
-              <button class="secondary-button" type="button" data-action="export-trip-pdf"${this._exportingTripPdf ? " disabled" : ""}><ha-icon icon="mdi:file-pdf-box"></ha-icon> ${this._exportingTripPdf ? "Erstelle PDF…" : "Als PDF"}</button>
+              ${actionButton(this._actionCosts(), "export-trip-pdf", "Als PDF", { busy: this._exportingTripPdf, busyLabel: "Erstelle PDF…" })}
               <button class="text-button" type="button" data-action="open-last-trip-pdf" title="Zuletzt erstelltes PDF herunterladen"><ha-icon icon="mdi:file-find-outline"></ha-icon> Letztes PDF${this._tripPdfStatus?.last_pdf ? ` (${escapeHtml(String(this._tripPdfStatus.last_pdf.size_mb))} MB)` : ""}</button>
             </div>
             ${this._canEdit() ? `
@@ -631,7 +631,10 @@ export const routeMapMixin = {
               </div>` : ""}
             ${this._data?.settings?.video_export_available ? `
               <div class="action-group-row">
-                <button class="secondary-button" type="button" data-action="export-trip-video"${this._exportingTripVideo || this._tripVideoStatus?.state === "running" ? " disabled" : ""}><ha-icon icon="mdi:movie-open-outline"></ha-icon> ${this._tripVideoStatus?.state === "running" ? "Video wird erstellt …" : "Als Video"}</button>
+                ${actionButton(this._actionCosts(), "export-trip-video", "Als Video", {
+                  busy: this._exportingTripVideo || this._tripVideoStatus?.state === "running",
+                  busyLabel: "Video wird erstellt …",
+                })}
                 <select data-action="select-video-style" aria-label="Videolänge" ${this._exportingTripVideo ? "disabled" : ""}>
                   <option value="highlight" ${(this._videoStyle || "highlight") === "highlight" ? "selected" : ""}>Kurzer Highlight-Reel</option>
                   <option value="full" ${this._videoStyle === "full" ? "selected" : ""}>Ausführlicher Rückblick</option>
