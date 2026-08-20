@@ -50,9 +50,33 @@ const ICONS = {
  * exists to enforce. Normalising here rather than at the call sites
  * means it cannot be forgotten by the next one.
  */
+/**
+ * DOM actions that RUN a declared action under a different name.
+ *
+ * A click handler is free to call whatever backend action it likes, and
+ * several do: "Stopps anreichern" runs `prepare_place_enrichment`,
+ * the stop form's Park4Night button runs `park4night_lookup`. Their cost
+ * is the cost of what they run - but a lookup by their own name finds
+ * nothing, so they were drawn as free buttons while billing a provider.
+ * This map is the missing half of the underscore/dash normalisation, and
+ * the cost test reads it too, so a new alias cannot be added silently.
+ */
+export const ACTION_ALIASES = {
+  "integrity-prepare-locations": "prepare_place_enrichment",
+  "stop-p4n-lookup": "park4night_lookup",
+  "assistant-send": "assistant_chat",
+  "story-video-analyze": "media_video_analyze",
+};
+
 const entryFor = (costs, action) => {
   const name = String(action || "");
-  return costs?.[name] || costs?.[name.replace(/-/g, "_")] || null;
+  const alias = ACTION_ALIASES[name];
+  return (
+    costs?.[name]
+    || costs?.[name.replace(/-/g, "_")]
+    || (alias ? costs?.[alias] : null)
+    || null
+  );
 };
 
 export const actionHint = (costs, action) => {

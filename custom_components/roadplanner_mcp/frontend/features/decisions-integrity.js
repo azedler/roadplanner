@@ -1,4 +1,5 @@
 import { escapeHtml, cleanText } from "../lib/core-helpers.js";
+import { actionButton } from "../lib/action-button.js";
 
 export const decisionsIntegrityMixin = {
   async _createDecisionFromMessage(messageId) {
@@ -156,7 +157,7 @@ export const decisionsIntegrityMixin = {
       </div>
       <div class="button-row">
         <button class="primary-button" type="button" data-action="integrity-open"><ha-icon icon="mdi:shield-check-outline"></ha-icon> Details prüfen</button>
-        ${repairable && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon> Stopps anreichern</button>` : ""}
+        ${repairable && this._canEdit() ? `${actionButton(this._actionCosts(), "integrity-prepare-locations", "Stopps anreichern")}` : ""}
       </div>
     </section>`;
   },
@@ -188,7 +189,7 @@ export const decisionsIntegrityMixin = {
         <div class="integrity-issue-list">${rows}</div>
       </div>
       <div class="modal-actions integrity-dialog-actions">
-        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-prepare-locations"><ha-icon icon="mdi:map-marker-plus-outline"></ha-icon>Stopps anreichern</button>` : ""}
+        ${Number(stats.repairable_location_count || 0) && this._canEdit() ? `${actionButton(this._actionCosts(), "integrity-prepare-locations", "Stopps anreichern")}` : ""}
         ${Number(stats.route_issue_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-recalculate-routes"><ha-icon icon="mdi:map-marker-path"></ha-icon>Routen neu berechnen</button>` : ""}
         ${Number(stats.visual_missing_count || 0) && this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-auto-images"><ha-icon icon="mdi:image-sync-outline"></ha-icon>Planungsbilder ergänzen</button>` : ""}
         ${this._canEdit() ? `<button class="secondary-button" type="button" data-action="integrity-repair-days"><ha-icon icon="mdi:calendar-check-outline"></ha-icon>Reisetage aufräumen</button>` : ""}

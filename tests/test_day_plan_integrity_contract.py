@@ -48,7 +48,9 @@ assert '"prepare_place_enrichment"' in panel
 assert '"submit_place_enrichment"' in panel
 assert 'data-action="complete-day-locations"' in frontend
 assert "Stopps anreichern" in frontend
-assert 'data-action="integrity-prepare-locations"' in frontend
+# Drawn by the shared helper since the audit: it runs the paid
+# prepare_place_enrichment, so the button must carry that cost marker.
+assert 'actionButton(this._actionCosts(), "integrity-prepare-locations"' in frontend
 assert 'data-action="complete-stop-place"' in frontend
 
 print("Canonical day plan integrity contract tests passed.")

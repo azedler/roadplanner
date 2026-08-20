@@ -2422,7 +2422,7 @@ export const storyEditorMixin = {
       <div class="button-row">
         ${
           canEdit && offer.enabled && offer.windows_new > 0 && !running
-            ? `<button class="secondary-button" type="button" data-action="story-video-analyze"><ha-icon icon="mdi:movie-open-play-outline"></ha-icon>KI-Videoanalyse starten (${price})</button>`
+            ? actionButton(this._actionCosts(), "story-video-analyze", `KI-Videoanalyse starten (${price})`)
             : ""
         }
         <button class="text-button" type="button" data-action="story-video-close">Schließen</button>

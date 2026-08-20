@@ -131,13 +131,23 @@ def _compact_stop(
 
 
 def _media_from_details(details: Any) -> dict[str, str] | None:
-    """Extract the optional media object used by the frontend."""
+    """Extract the optional media object used by the frontend.
+
+    The ``url`` alias is honoured ONLY inside an explicit ``media``
+    block. A bare details object also carries ``url`` fields - and there
+    they are source LINKS (a provider's place page), never images. The
+    live symptom was a trip card whose cover ``<img>`` pointed at a
+    campsite's web page: the stop had a stored lookup link and no photo,
+    and this function turned the one into the other.
+    """
     if not isinstance(details, dict):
         return None
-    media = details.get("media", details)
-    if not isinstance(media, dict):
-        return None
-    image_url = media.get("image_url") or media.get("url")
+    media = details.get("media")
+    if isinstance(media, dict):
+        image_url = media.get("image_url") or media.get("url")
+    else:
+        media = details
+        image_url = media.get("image_url")
     if not isinstance(image_url, str) or not image_url.strip():
         return None
     result = {"image_url": image_url.strip()}

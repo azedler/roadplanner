@@ -1,4 +1,5 @@
 import { escapeHtml, cleanText } from "../lib/core-helpers.js";
+import { actionButton } from "../lib/action-button.js";
 
 export const placeEnrichmentMixin = {
   async _preparePlaceEnrichment({ dayId = "", stopId = "", useAiCleanup = false } = {}) {
@@ -256,7 +257,7 @@ export const placeEnrichmentMixin = {
       </form>`;
       const linkLookup = `<div class="place-link-lookup form-grid compact-form-grid">
         <label class="form-field full"><span>Link zum Ort (Google Maps, Park4Night, Booking, Website …)</span><input type="url" data-place-link-input data-stop-id="${escapeHtml(stopId)}" value="${escapeHtml(linkInputs[stopId] || "")}" placeholder="https://…" autocomplete="off" inputmode="url"></label>
-        <div class="form-field full"><button class="secondary-button" type="button" data-action="place-link-lookup" data-stop-id="${escapeHtml(stopId)}"><ha-icon icon="mdi:link-variant"></ha-icon>Link lesen und übernehmen</button><small class="hint">Google-Maps-Links werden direkt aufgelöst, alle anderen Seiten liest der Reisebegleiter (KI). Die Werte landen zum Prüfen im manuellen Kartenpunkt - gespeichert wird erst nach deiner Bestätigung.</small></div>
+        <div class="form-field full">${actionButton(this._actionCosts(), "place-link-lookup", "Link lesen und übernehmen", { extra: `data-stop-id="${escapeHtml(stopId)}"` })}<small class="hint">Google-Maps-Links werden direkt aufgelöst, alle anderen Seiten liest der Reisebegleiter (KI). Die Werte landen zum Prüfen im manuellen Kartenpunkt - gespeichert wird erst nach deiner Bestätigung.</small></div>
       </div>`;
       return `<section class="place-enrichment-item">
         <header><div><span class="eyebrow">${escapeHtml([current.day_date, current.day_title].filter(Boolean).join(" · "))}</span><h3>${escapeHtml(current.stop_name || stopId || "Stopp")}</h3><p>${escapeHtml([intent.label ? `Erkannt: ${intent.label}` : "", currentSummary || "Noch kein bestätigtes Ortsprofil"].filter(Boolean).join(" · "))}</p></div><span class="status-pill status-${escapeHtml(item?.status || "missing")}">${escapeHtml(item?.status === "resolved" ? "Eindeutig" : item?.status === "ambiguous" ? "Auswahl nötig" : "Offen")}</span></header>

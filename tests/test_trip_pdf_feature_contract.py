@@ -39,7 +39,9 @@ assert any(
 )
 
 frontend_source = (ROOT / "frontend/features/route-map.js").read_text(encoding="utf-8")
-assert 'data-action="export-trip-pdf"' in frontend_source
+# Drawn through the shared actionButton helper since the audit: the PDF's
+# person summaries come from Gemini, so the button carries the paid marker.
+assert 'actionButton(this._actionCosts(), "export-trip-pdf"' in frontend_source
 
 panel_js_source = (ROOT / "frontend/roadplanner-panel.js").read_text(encoding="utf-8")
 assert 'action === "export-trip-pdf"' in panel_js_source

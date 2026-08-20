@@ -120,12 +120,14 @@ for workflow in ("release.yml", "roadplanner-validation.yml"):
     )
 
 frontend_source = (ROOT / "frontend/features/route-map.js").read_text(encoding="utf-8")
-assert 'data-action="export-trip-video"' in frontend_source
+# Drawn through the shared actionButton helper since the audit: the video
+# export calls Gemini for its narration, so the button carries the paid marker.
+assert 'actionButton(this._actionCosts(), "export-trip-video"' in frontend_source
 assert 'data-action="select-video-style"' in frontend_source
 # The video length belongs to the VIDEO row. In one flat button strip it
 # wrapped to sit right next to "Letztes PDF", which read like a PDF option
 # (live report: "Bisschen mehr Ordnung wär da schön").
-_video_row = frontend_source.split('data-action="export-trip-video"', 1)[1]
+_video_row = frontend_source.split('actionButton(this._actionCosts(), "export-trip-video"', 1)[1]
 _video_row = _video_row.split("</div>", 1)[0]
 assert 'data-action="select-video-style"' in _video_row, (
     "the length selector must live in the same row as the video button"
