@@ -157,25 +157,40 @@ ACTION_COSTS: dict[str, dict[str, Any]] = {
         "effect": "Prüft die Verbindung zum Reisebegleiter mit einer echten Testanfrage.",
         "note": "Verbraucht ein kleines Stück Kontingent - es ist ein echter Aufruf.",
     },
-    "assistant_prepare_locations": {
-        "cost": COST_MODEL,
-        "effect": "Lässt Gemini fehlende GPS-Punkte dieses Tages vorschlagen.",
-        "note": "Verbraucht Kontingent. Die Vorschläge landen im Korb, nicht direkt in der Reise.",
-    },
-    "assistant_prepare_trip_locations": {
-        "cost": COST_MODEL,
-        "effect": "Lässt Gemini fehlende GPS-Punkte der ganzen Reise vorschlagen.",
-        "note": "Verbraucht Kontingent. Die Vorschläge landen im Korb, nicht direkt in der Reise.",
-    },
+    # assistant_prepare_locations / assistant_prepare_trip_locations are
+    # deliberately NOT here. They build the location drafts locally and
+    # let the geocoding plugin resolve them against OpenStreetMap - no
+    # provider, no quota. Declaring them paid would be the audit's own
+    # mistake mirrored: a free button dressed up as an expensive one.
     "park4night_lookup": {
         "cost": COST_MODEL,
-        "effect": "Lässt Gemini die Park4Night-Seite dieses Stopps auslesen.",
-        "note": "Verbraucht Kontingent je Seite.",
+        "effect": "Liest die Park4Night-Seite dieses Stopps aus.",
+        "note": (
+            "Die Seite wird zuerst direkt gelesen - das ist gratis. "
+            "Erst wenn das misslingt, liest Gemini sie und verbraucht Kontingent."
+        ),
     },
     "place_link_lookup": {
         "cost": COST_MODEL,
-        "effect": "Lässt Gemini die verlinkte Seite auslesen.",
-        "note": "Verbraucht Kontingent - außer bei Google-Maps-Links, die ohne KI aufgelöst werden.",
+        "effect": "Liest die verlinkte Seite aus und übernimmt die Ortsdaten zur Prüfung.",
+        "note": (
+            "Google-Maps-Links, Park4Night-Seiten und Seiten mit maschinenlesbaren "
+            "Ortsdaten werden direkt gelesen - gratis. Erst für alles Übrige liest "
+            "Gemini die Seite und verbraucht Kontingent."
+        ),
+    },
+    "archive_analyze_document": {
+        "cost": COST_MODEL,
+        "effect": "Lässt Gemini das hinterlegte Dokument oder den Beleg auswerten.",
+        "note": "Verbraucht Kontingent je Dokument. Ohne konfigurierten Reisebegleiter nicht möglich.",
+    },
+    "universal_import_analyze": {
+        "cost": COST_MODEL,
+        "effect": "Wertet die importierte Datei aus - Texte und Belege liest Gemini.",
+        "note": (
+            "Strukturierte Dateien werden ohne KI gelesen; alles Übrige "
+            "verbraucht Kontingent je Datei."
+        ),
     },
     "prepare_place_enrichment": {
         "cost": COST_MODEL,

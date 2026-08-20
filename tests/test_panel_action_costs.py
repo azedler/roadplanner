@@ -105,12 +105,35 @@ def verify_paid_buttons_go_through_the_shared_helper() -> None:
         for action, entry in costs.ACTION_COSTS.items()
         if entry["cost"] == costs.COST_MODEL
     }
+    # A click handler may run a declared action under a different DOM
+    # name - "Stopps anreichern" runs prepare_place_enrichment. Those
+    # names are declared once in action-button.js so the helper can find
+    # their cost; read them here, or every alias would be a paid button
+    # this rule cannot see. Four of them were exactly that.
+    helper = (FRONTEND / "lib" / "action-button.js").read_text(encoding="utf-8")
+    alias_block = helper.split("export const ACTION_ALIASES = {", 1)[1].split("};", 1)[0]
+    aliases = dict(re.findall(r'"([^"]+)":\s*"([^"]+)"', alias_block))
+    assert aliases, "die Alias-Tabelle ist verschwunden"
+    for dom_name, action in aliases.items():
+        entry = costs.ACTION_COSTS.get(action)
+        assert entry, f"{dom_name} zeigt auf {action}, das es in der Tabelle nicht gibt"
+        if entry["cost"] == costs.COST_MODEL:
+            paid.add(dom_name)
+    # One exemption, and it has to earn itself: the chat composer's send
+    # arrow. Badging the primary control of a text field would shout
+    # louder than the message it sends - so it stays an arrow, and the
+    # composer prints the SAME declared sentence instead. The file has to
+    # prove that, or the exemption does not apply.
+    exempt = {"assistant-send": 'actionHint(this._actionCosts(), "assistant-send")'}
     for path in FRONTEND.rglob("*.js"):
         text = path.read_text(encoding="utf-8")
         for action in paid:
             for match in re.finditer(rf'data-action="{re.escape(action)}"', text):
                 window = text[max(0, match.start() - 200) : match.start()]
-                assert "actionButton(" in window or "action-button.js" in window, (
+                if "actionButton(" in window or "action-button.js" in window:
+                    continue
+                required = exempt.get(action)
+                assert required and required in text, (
                     f"{path.name}: {action} wird von Hand gezeichnet statt über actionButton"
                 )
 
@@ -129,17 +152,21 @@ def verify_every_paid_entry_point_has_a_declared_action() -> None:
     # here although the video export uses it: remotion_test_render owns a
     # free method of the same name, so the export is pinned by action
     # name below instead.
+    # Deliberately NOT here: async_add_location_drafts and
+    # async_add_trip_location_drafts. The GPS completion builds its
+    # drafts locally and resolves them against OpenStreetMap - the first
+    # version of this list called them paid, which would have dressed two
+    # free buttons up as expensive ones.
     paid_methods = {
         "async_chat",
         "async_prepare_review",
         "async_briefing",
         "async_test",
-        "async_add_location_drafts",
-        "async_add_trip_location_drafts",
         "async_lookup",
         "async_lookup_page",
         "async_prepare_place_enrichment",
         "async_analyze",
+        "async_analyze_document",
         "async_run_system_check",
         "async_generate",
     }

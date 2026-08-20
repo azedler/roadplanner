@@ -606,7 +606,10 @@ export const PANEL_STYLES = `<style>
       .assistant-composer-heading span { display: inline-flex; align-items: center; gap: 5px; color: var(--secondary-text-color); font-size: 10px; }
       .assistant-composer-heading ha-icon { --mdc-icon-size: 15px; }
       .assistant-toolbar-primary { margin-bottom: 14px; }
-      .assistant-main-actions .assistant-briefing-button { min-height: 44px; }
+      /* The touch target, kept where it belongs: the briefing button is
+         drawn by actionButton now and carries the paid class instead of
+         its own - the 44 px belong to the row, not to one button's name. */
+      .assistant-main-actions .action-model, .assistant-main-actions button { min-height: 44px; }
       .assistant-technical { margin-top: 18px; padding: 0; overflow: hidden; }
       .assistant-technical > summary { list-style: none; cursor: pointer; padding: 15px 18px; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
       .assistant-technical > summary::-webkit-details-marker { display: none; }

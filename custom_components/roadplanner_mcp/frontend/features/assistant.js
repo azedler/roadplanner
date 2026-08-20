@@ -1,5 +1,5 @@
 import { escapeHtml, cleanText, newClientRequestId } from "../lib/core-helpers.js";
-import { actionButton } from "../lib/action-button.js";
+import { actionButton, actionHint } from "../lib/action-button.js";
 
 export const assistantMixin = {
   async _prepareDayLocations(dayId) {
@@ -527,6 +527,11 @@ export const assistantMixin = {
         </div>
       </div>
       <div class="assistant-hint"><ha-icon icon="mdi:keyboard-return"></ha-icon>Enter erzeugt einen Zeilenumbruch · Senden über den Knopf oder Strg/Cmd+Enter.</div>
+      ${/* The send arrow stays an arrow - turning the composer's primary
+            control into a cost-badged button would be louder than the
+            message it sends. What it costs is said once, here, from the
+            same declaration every other paid button draws from. */""}
+      <div class="assistant-hint"><ha-icon icon="mdi:auto-awesome"></ha-icon>${escapeHtml(actionHint(this._actionCosts(), "assistant-send"))}</div>
       <div class="assistant-hint"><ha-icon icon="mdi:shield-check-outline"></ha-icon>Im Gespräch wird nichts automatisch gespeichert.${basketEnabled ? " Eindeutige Entscheidungen können vorgemerkt werden." : " Der Änderungskorb ist in diesem Autonomiemodus deaktiviert."}</div>
     </form>`;
 
