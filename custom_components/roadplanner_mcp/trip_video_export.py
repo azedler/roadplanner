@@ -26,7 +26,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
-from typing import Any
+from typing import Any, Callable
 import uuid
 
 from homeassistant.core import HomeAssistant
@@ -645,9 +645,60 @@ class TripVideoExporter:
         self._prune_library()
         return filename
 
+    def set_protected_filenames(
+        self, resolver: Callable[[], set[str]] | None
+    ) -> None:
+        """Name the files the cap may not touch, as a question asked later.
+
+        Injected rather than imported: this module knows about videos and
+        nothing about players or trips, and the record that knows which
+        file is whose is written elsewhere. Asked at prune time so the
+        answer is never stale.
+        """
+        self._protected_filenames = resolver
+
+    def _protected(self) -> set[str]:
+        resolver = getattr(self, "_protected_filenames", None)
+        if resolver is None:
+            return set()
+        try:
+            return {str(name) for name in resolver() or ()}
+        except Exception:  # noqa: BLE001 - never let a probe delete a film
+            # Not knowing which files are protected must mean "protect
+            # nothing new", never "delete anything": the failure mode of
+            # this whole function is losing somebody's holiday.
+            _LOGGER.debug("Geschützte Filmdateien nicht lesbar", exc_info=True)
+            raise
+
     def _prune_library(self) -> None:
+        """Keep the newest few - but never a trip's finished film.
+
+        The cap exists because each file is tens of megabytes. It used to
+        apply to every mp4 equally, in one folder shared by every trip,
+        so a run of test renders on a second trip silently deleted the
+        film of the first. The exchange folder holds a copy for a day;
+        after that the film was unrecoverable, and the panel could only
+        report that there was none.
+
+        Protected files still count towards nothing: they are simply not
+        candidates. Ten excerpts plus three films means thirteen files,
+        and that is the correct answer - a film is the result, the cap is
+        for the working material around it.
+        """
+        try:
+            protected = self._protected()
+        except Exception:  # noqa: BLE001
+            # The record could not be read. Deleting under that
+            # uncertainty is exactly the fault this is here to prevent,
+            # so nothing is pruned this round.
+            return
         videos = sorted(
-            self.library_dir.glob("*.mp4"), key=lambda path: path.stat().st_mtime
+            (
+                path
+                for path in self.library_dir.glob("*.mp4")
+                if path.name not in protected
+            ),
+            key=lambda path: path.stat().st_mtime,
         )
         for stale in videos[:-MAX_STORED_TRIP_VIDEOS] if len(videos) > MAX_STORED_TRIP_VIDEOS else []:
             stale.unlink(missing_ok=True)
