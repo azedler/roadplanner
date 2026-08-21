@@ -111,6 +111,33 @@ class PlayerFilmStore:
         trips = raw.get("trips") if isinstance(raw, dict) else None
         return trips if isinstance(trips, dict) else {}
 
+    def protected_filenames(self) -> set[str]:
+        """The library files that ARE a trip's film, and may never be pruned.
+
+        The video library is one folder for every trip, ten files deep,
+        emptied oldest-first. That is fine for excerpts and review copies
+        and wrong for the one thing it also held: rendering a handful of
+        test films on a second trip pushed a real journey's finished film
+        out of it, and once the renderer's exchange folder had aged past
+        its day, the film was gone for good. Testing must not delete
+        results.
+
+        Read straight off the record the player already keeps, so there
+        is no second list to fall out of step with it.
+        """
+        protected: set[str] = set()
+        for entry in self.load().values():
+            if not isinstance(entry, dict):
+                continue
+            latest = entry.get("latest")
+            if not isinstance(latest, dict):
+                continue
+            url = str(latest.get("url") or "")
+            name = url.rsplit("/", 1)[-1] if url else ""
+            if name:
+                protected.add(name)
+        return protected
+
     def save(self, trips: dict[str, Any]) -> None:
         self.root_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write(
