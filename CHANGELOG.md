@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.118.0] - 2026-08-21
+
 ### Fixed
 
 - **Die Anwendung kollidierte beim Umsortieren mit sich selbst.** Zwei Züge hintereinander im Dialog „Reihenfolge ändern" scheiterten am zweiten: „Die Reise wurde zwischenzeitlich geändert: erwartete Revision 15, aktuelle Revision 16." Geändert hatte niemand etwas — die automatische Routenneuberechnung schreibt wenige Sekunden nach jedem Zug ihre eigene Revision. Das Panel *bekam* diese Meldung auch, legte sie aber in die Warteschlange, solange ein Dialog offen war — und genau dann ist sie nötig. Die Revision wird jetzt aus der Meldung übernommen, ohne Neuzeichnen: getippte Eingaben bleiben unberührt, denn dafür gibt es die Warteschlange. Sie wandert nur vorwärts und nur, wenn die angezeigte Reise auch die aktive ist.
@@ -23,7 +25,6 @@ The project follows Semantic Versioning for public releases.
 - **Diagnose-Ausklapper: Kopfzeilen am Kartenrand.** Der Fix aus 4.116.1 war unvollständig — ich hatte den Ausklappern eine Klasse gegeben, die im Reisebegleiter bereits für etwas anderes vergeben war, sodass sie deren `padding: 16px 0` erbten und Titel und Untertitel an den Rand liefen. Eigene Klasse, im Browser gegengeprüft.
 
 - **Der Kandidaten-Textblock hat jetzt eine eigene Fläche.** Koordinaten, Vertrauen und Treffertyp waren auf den Fotos darüber schlecht lesbar, während die Pillen darunter sauber rendern — die hatten einen Hintergrund, dieser Block nicht. Die genaue Überlagerung ließ sich aus Markup und CSS nicht reproduzieren; der Block liegt jetzt unabhängig davon auf undurchsichtigem Grund und über dem Bildstreifen.
-
 
 ## [4.117.0] - 2026-08-21
 
