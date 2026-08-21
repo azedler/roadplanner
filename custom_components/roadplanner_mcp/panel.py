@@ -322,6 +322,21 @@ _APPROVAL_ACTIONS = {
     "archive_handoff",
     "rebase_handoff",
 }
+# Failures the panel points at the Home Assistant log for. Building a
+# film package is minutes of work over hundreds of photographs, and when
+# it refuses there is exactly one place to look afterwards - so these
+# write a warning line under `custom_components.roadplanner_mcp` instead
+# of only answering the browser that asked. Deliberately not every
+# action: a mistyped date is not a log entry.
+_LOGGED_FAILURE_ACTIONS = {
+    "story_film_render",
+    "story_film_qa_render",
+    "story_film_review_copy",
+    "story_film_add_music",
+    "story_music_prototype_mix",
+    "renderer_app_render",
+    "export_trip_video",
+}
 _ADMIN_ACTIONS = {"create_backup", "assistant_diagnostics", "onedrive_configure", "onedrive_start_auth", "onedrive_poll_auth", "onedrive_disconnect"}
 # These call an external AI provider and can run for a minute or more. A
 # mobile browser/app backgrounded mid-call drops its WebSocket connection,
@@ -2237,6 +2252,16 @@ async def websocket_get_panel_data(
             runtime.crew.async_panel_payload(),
         )
     except RoadplannerError as err:
+        if msg["action"] in _LOGGED_FAILURE_ACTIONS:
+            # The panel tells people the reason is in the log under
+            # "roadplanner". It was not: a film that could not be started
+            # sent its reason down the WebSocket and wrote nothing at all,
+            # so a full-text search of an untouched Home Assistant log
+            # found no single line about it (RP-415). A promise the log
+            # does not keep is worse than no promise.
+            _LOGGER.warning(
+                "Roadplanner-Aktion %s fehlgeschlagen: %s", msg["action"], err
+            )
         connection.send_error(msg["id"], "roadplanner_error", str(err))
         return
     except Exception:  # pragma: no cover - defensive Home Assistant boundary

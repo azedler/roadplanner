@@ -163,13 +163,53 @@ def verify_no_exception_when_the_motif_is_already_covered() -> None:
 def verify_pins_survive_the_daily_cap_and_push_out_automatics() -> None:
     """A cap reduces the automatic picks, never a decision by hand."""
     day = _day(9, STRONG, importance="transition")  # cap 6
+    day["pinned"] = ["m0", "m1", "m2", "m3"]
+    result = alloc.earned_for_day(**_solo(day), threshold=BAR)
+    assert len(result["pinned_kept"]) == 4, result["pinned_kept"]
+    assert len(result["media_ids"]) == 6, result["media_ids"]
+    # The two free places went to the strongest automatic picks; no pin
+    # was traded for one.
+    assert set(day["pinned"]) <= set(result["media_ids"]), result["media_ids"]
+
+
+def verify_even_pins_alone_cannot_exceed_the_daily_cap() -> None:
+    """The cap is a ceiling, and the film package has exactly these slots.
+
+    Seven pins on a day capped at six used to return seven, because the
+    reduction only ever shortened the automatic picks. That extra picture
+    had nowhere to go: `photo_filename` refuses the first slot past the
+    ceiling, so ONE over-full day made the entire film impossible to
+    start - "Bildposition liegt ausserhalb des erlaubten Bereichs", a
+    sentence naming neither the day nor the number. RP-415, three days
+    of it on a live system.
+    """
+    day = _day(9, STRONG, importance="transition")  # cap 6
     day["pinned"] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6"]
     result = alloc.earned_for_day(**_solo(day), threshold=BAR)
-    assert len(result["pinned_kept"]) == 7, result["pinned_kept"]
+    assert len(result["media_ids"]) == result["cap"] == 6, result["media_ids"]
+    # Pins keep their priority - the day is filled with pins alone, in
+    # the curation's own order - they simply stop at the ceiling.
     assert all(
         result["reasons"][media_id] == alloc.REASON_PINNED
         for media_id in result["media_ids"]
     ), result["reasons"]
+    assert result["media_ids"] == ["m0", "m1", "m2", "m3", "m4", "m5"], result["media_ids"]
+
+
+def verify_coverage_exceptions_cannot_exceed_the_daily_cap_either() -> None:
+    """The other unconditional survivor of the reduction.
+
+    A rescued motif is exempt from the score bar, not from the ceiling:
+    the package has no slot for it beyond the cap.
+    """
+    day = _day(9, WEAK, importance="transition")  # cap 6
+    day["pinned"] = ["m0", "m1", "m2", "m3"]
+    day["must_cover"] = ["elch", "rentier", "fjord", "bruecke"]
+    day["alternatives"] = {}
+    for index, motif in enumerate(day["must_cover"], start=4):
+        day["analyses"][f"m{index}"] = _analysis(story=2, quality=2, shows=[motif])
+    result = alloc.earned_for_day(**_solo(day), threshold=BAR)
+    assert len(result["media_ids"]) <= result["cap"] == 6, result["media_ids"]
 
 
 def verify_a_film_under_the_cap_is_not_padded() -> None:
@@ -235,7 +275,7 @@ def verify_visual_richness_never_edits_the_story() -> None:
     assert rich["cap"] == alloc.PHOTO_CAPS_BY_IMPORTANCE["transition"]
 
 
-for check in (
+_checks = (
     verify_the_scale_is_what_the_threshold_is_read_against,
     verify_a_mediocre_major_highlight_is_not_padded,
     verify_a_strong_normal_day_gets_more_than_the_old_six,
@@ -246,12 +286,29 @@ for check in (
     verify_a_coverage_exception_rescues_an_unmet_motif,
     verify_no_exception_when_the_motif_is_already_covered,
     verify_pins_survive_the_daily_cap_and_push_out_automatics,
+    verify_even_pins_alone_cannot_exceed_the_daily_cap,
+    verify_coverage_exceptions_cannot_exceed_the_daily_cap_either,
     verify_a_film_under_the_cap_is_not_padded,
     verify_a_film_over_the_cap_is_reduced_globally_by_merit,
     verify_the_global_reduction_protects_pins_and_coverage,
     verify_importance_never_becomes_a_fixed_allocation_again,
     verify_visual_richness_never_edits_the_story,
-):
+)
+for check in _checks:
     check()
+
+# A check that is written but never called is worse than a missing one:
+# it reads as covered. Both new RP-415 cases were added to this module
+# and silently not run - found only because a mutation of the production
+# code left the suite green.
+_registered = {check.__name__ for check in _checks}
+_written = {
+    name
+    for name, value in dict(globals()).items()
+    if name.startswith("verify_") and callable(value)
+}
+assert _written <= _registered, (
+    "nicht aufgerufene Prüfungen: " + ", ".join(sorted(_written - _registered))
+)
 
 print("Film photo allocation tests passed.")

@@ -569,6 +569,28 @@ export const storyEditorMixin = {
     await this._storyFilmRenderSubmit();
   },
 
+  /**
+   * Why the render did not start - the server's own words, when it said any.
+   *
+   * The card used to answer this question by GUESSING, and the guess was
+   * the same sentence every time: "die Renderer-App läuft nicht oder ist
+   * noch nicht bereit". On a live system that was false in the most
+   * expensive way possible - the app was running, its own diagnosis said
+   * ready, a test render worked, and the actual reason ("Bildposition
+   * liegt ausserhalb des erlaubten Bereichs") existed and was thrown
+   * away. Three days were spent on a service that had nothing wrong with
+   * it. An absent answer rendered as a state, again.
+   *
+   * The fallback stays for the one case it was written for: a failure
+   * with no message at all.
+   */
+  _storyFilmStartReason(action, fallback) {
+    const last = this._lastActionError;
+    const message = last && last.action === action ? String(last.message || "").trim() : "";
+    if (!message) return fallback;
+    return `${message} (gemeldet von Roadplanner, nicht von der Renderer-App)`;
+  },
+
   async _storyFilmRenderSubmit() {
     this._storyFilmStartError = "";
     // Said before anything is fetched, because between this click and
@@ -603,11 +625,13 @@ export const storyEditorMixin = {
       // that could not start looked exactly like a button that does
       // nothing - and the reasonable reaction to that is to press it
       // again. The card says it now, and keeps saying it.
-      this._storyFilmStartError =
+      this._storyFilmStartError = this._storyFilmStartReason(
+        "story_film_render",
         "Der Film konnte nicht gestartet werden. Häufigster Grund: Die "
         + "Renderer-App läuft nicht oder ist noch nicht bereit. Der "
         + "genaue Grund steht im Home-Assistant-Protokoll unter "
-        + "„roadplanner\u201c.";
+        + "„roadplanner\u201c.",
+      );
       this._render({ preserveScroll: true });
       return;
     }
@@ -1108,9 +1132,11 @@ export const storyEditorMixin = {
     );
     this._storyFilmPreparing = false;
     if (!result?.renderer_app_job?.job_id) {
-      this._storyFilmStartError =
+      this._storyFilmStartError = this._storyFilmStartReason(
+        "story_film_qa_render",
         "Der Prüfausschnitt konnte nicht gestartet werden. Der genaue Grund "
-        + "steht im Home-Assistant-Protokoll unter „roadplanner\u201c.";
+        + "steht im Home-Assistant-Protokoll unter „roadplanner\u201c.",
+      );
       this._render({ preserveScroll: true });
       return;
     }
