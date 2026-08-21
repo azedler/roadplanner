@@ -43,6 +43,7 @@ import logging
 from typing import Any
 
 from .character_assets import validate_characters
+from .film_photo_allocation import PHOTO_CAPS_BY_IMPORTANCE
 from .trip_film_crew import validate_crew
 from .trip_map_context import validate_map_context
 from .trip_film_plan import (
@@ -112,11 +113,17 @@ MAX_FILM_IMAGES = 260
 # total, so a long trip thins out instead of producing a huge package -
 # and the scene planner decides how they are SHOWN, grouping rather than
 # lengthening when a day has more than it has time for.
-# Fourteen, matching the richest day the scene planner will ask for.
-# Ten was the ceiling while the selection was content-blind; it is also
-# the number that would have quietly thinned a 25-day trip to seven per
-# day and made the whole curation rewrite invisible in the film.
-MAX_PHOTOS_PER_CHAPTER = 14
+# DERIVED, never typed. This was a hand-written 14 beside the selection's
+# own ceiling of 18, and the mismatch made every film of a rich trip
+# impossible to start: the manifest handed over fifteen pictures for a
+# chapter, `photo_filename` refused the fifteenth, and the whole render
+# died with "Bildposition liegt ausserhalb des erlaubten Bereichs" - a
+# message that names neither number. Three days of it on a live system.
+#
+# So the number now comes from the table that decides how many pictures
+# a day may earn. There is one ceiling, in one place, and a raise there
+# arrives here without anybody remembering to follow it.
+MAX_PHOTOS_PER_CHAPTER = max(PHOTO_CAPS_BY_IMPORTANCE.values())
 MAX_CHAPTERS = 45
 # A film frame shows a photo for well under two seconds at 720p. 900 px on
 # the long edge is already more than the frame can display.

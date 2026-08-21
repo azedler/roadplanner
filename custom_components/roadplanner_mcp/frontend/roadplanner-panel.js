@@ -547,11 +547,20 @@ class RoadplannerPanel extends HTMLElement {
     if (blockUi) this._setBusy(true);
     try {
       const result = await this._send({ type: WS_ACTION, action, data: payload });
+      this._lastActionError = null;
       if (successMessage) this._showToast(successMessage, "success");
       if (refresh) await this._loadData({ silent: true, force: true });
       return result;
     } catch (error) {
       const message = this._errorMessage(error);
+      // Kept for the caller, because `_runAction` reports failure by
+      // returning null and the reason then exists only inside a toast
+      // that is gone in seconds. A card that has to explain a failure in
+      // place was left guessing - and guessed wrong: the film card
+      // blamed the renderer app for "Bildposition liegt ausserhalb des
+      // erlaubten Bereichs" and sent somebody to check a service that
+      // was running perfectly (RP-415).
+      this._lastActionError = { action, message, code: String(error?.code || "") };
       if (this._isConnectionLostError(error) && SERVER_CONTINUING_ACTIONS.has(action)) {
         // Backgrounding the app kills the WebSocket, but these actions are
         // shielded server-side and run to completion anyway (the draft/
