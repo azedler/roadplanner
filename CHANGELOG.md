@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.117.0] - 2026-08-21
+
 ### Fixed
 
 - **RP-415: Der Reisefilm ließ sich überhaupt nicht mehr starten.** „Film erstellen" brach nach Sekunden ab, der Prüfausschnitt ebenso — drei Tage lang, auf dem Livesystem. Ursache waren zwei Obergrenzen für „Bilder je Kapitel", die sich widersprachen: Die Bildauswahl vergibt bis zu **18** (das Maximum ihrer eigenen Cap-Tabelle), der Paketbau trug daneben eine handgeschriebene **14**. Ein Kapitel mit fünfzehn Bildern ließ damit den *ganzen* Film scheitern — mit „Bildposition liegt außerhalb des erlaubten Bereichs", einer Meldung, die weder das Kapitel noch eine der beiden Zahlen nennt.
@@ -15,7 +17,6 @@ The project follows Semantic Versioning for public releases.
   **Die Obergrenze ist jetzt eine Decke, keine Vorliebe.** Gepinnte und Abdeckungs-Bilder überlebten die Kappung bedingungslos, sodass allein sie ein Kapitel über die Grenze heben konnten. Pins behalten ihren Vorrang — sie füllen den Tag zuerst — aber sie können ihn nicht mehr über das hinausschieben, was ein Film tragen kann.
 
 - **Der Filmstart erklärte sich falsch — und schwieg im Protokoll.** Scheiterte der Start, riet die Karte immer dasselbe: „Die Renderer-App läuft nicht oder ist noch nicht bereit. Der genaue Grund steht im Protokoll unter ‚roadplanner'." Live war jedes Wort davon falsch: Die App war bereit, ihr eigener Testrender lief, im unveränderten Protokoll stand zu „roadplanner" **keine einzige Zeile** — und der echte Grund war vorhanden und wurde weggeworfen. Die Servermeldung wird jetzt durchgereicht und angezeigt; der geratene Text bleibt nur für den Fall, für den er geschrieben wurde: ein Fehlschlag ganz ohne Meldung. Und jeder gescheiterte Film-, Ausschnitt-, Mux- oder Videostart schreibt eine Warnung unter `custom_components.roadplanner_mcp` — der Verweis aufs Protokoll stimmt jetzt.
-
 
 ## [4.116.1] - 2026-08-20
 
