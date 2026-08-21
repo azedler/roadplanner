@@ -462,7 +462,14 @@ export const PANEL_STYLES = `<style>
       .place-image-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .place-image-empty, .place-no-match { display: flex; align-items: center; gap: 10px; padding: 14px; color: var(--secondary-text-color); background: var(--secondary-background-color); }
       .place-image-empty ha-icon, .place-no-match ha-icon { --mdc-icon-size: 25px; }
-      .place-candidate-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 13px 4px; }
+      /* Its own backdrop and its own layer. Live report: coordinates,
+         confidence and match type were unreadable ON the photographs
+         above them, while the pill badges right below rendered fine -
+         those have a background, this had none. The exact overlap could
+         not be reproduced from this markup, so the fix is the one that
+         holds whatever causes it: the block a candidate is CHECKED
+         against always sits on an opaque surface, above the strip. */
+      .place-candidate-details { position: relative; z-index: 1; background: var(--secondary-background-color); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 13px 4px; }
       .place-candidate-details > div { min-width: 0; display: grid; gap: 2px; }
       .place-candidate-details span { color: var(--secondary-text-color); font-size: 11px; }
       .place-candidate-details strong, .place-candidate-details a { overflow-wrap: anywhere; font-size: 12px; }
@@ -618,10 +625,10 @@ export const PANEL_STYLES = `<style>
       .assistant-technical[open] > summary { border-bottom: 1px solid var(--divider-color); }
       /* Diagnose-Akkordeons: same summary layout as the technical card,
          otherwise title and subtitle render glued together ("FilmSzenenplan"). */
-      .diagnostics-section > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
-      .diagnostics-section > summary::-webkit-details-marker { display: none; }
-      .diagnostics-section > summary span { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
-      .diagnostics-section > summary small { color: var(--secondary-text-color); }
+      .diagnostics-accordion > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+      .diagnostics-accordion > summary::-webkit-details-marker { display: none; }
+      .diagnostics-accordion > summary span { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
+      .diagnostics-accordion > summary small { color: var(--secondary-text-color); }
       .assistant-technical-content { padding: 16px; display: grid; gap: 14px; }
       .assistant-technical-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
       .assistant-technical .assistant-status-grid { margin: 0; }

@@ -528,15 +528,35 @@ class DestinationGalleryManager:
                     raise
                 except RoadplannerError as err:
                     query = self._destination_query(day, stop)
+                    # A failed REFRESH must not delete what already
+                    # worked. This returned an empty list, and the empty
+                    # list was stored - so a stop that had planning
+                    # pictures lost them the moment a provider was
+                    # unreachable for a minute, and the day's cover went
+                    # with them. The dialog promises the opposite in the
+                    # same breath ("Die Stoppdaten bleiben vollständig
+                    # erhalten"), which is what made it look like data
+                    # loss rather than a failed fetch.
+                    #
+                    # The pictures stay, the error is reported beside
+                    # them, and "partial" is the status that already
+                    # means exactly that: something to show, and
+                    # something that did not answer.
+                    previous = existing.get(str(stop.get("id") or "")) or {}
+                    kept = previous.get("images") if isinstance(previous, dict) else None
+                    kept = kept if isinstance(kept, list) else []
                     return {
                         "stop_id": str(stop.get("id") or ""),
                         "day_id": str(day.get("id") or ""),
                         "query": query,
                         "query_fingerprint": self._destination_query_fingerprint(day, stop, query),
-                        "status": "error",
-                        "images": [],
-                        "primary_image_id": None,
+                        "status": "partial" if kept else "error",
+                        "images": deepcopy(kept),
+                        "primary_image_id": (
+                            previous.get("primary_image_id") if kept else None
+                        ),
                         "provider_errors": {"roadplanner": str(err)[:500]},
+                        "curation": deepcopy(previous.get("curation") or {}) if kept else {},
                         "attempted_at": utc_now_iso(),
                         "updated_at": utc_now_iso(),
                     }

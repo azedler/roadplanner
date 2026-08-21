@@ -453,7 +453,7 @@ export const mediaMixin = {
         ${this._mediaStat("mdi:star-four-points-outline", "Stopp-Highlights", experience.stats?.featured_stop_count || 0)}
         ${this._mediaStat("mdi:image-filter-center-focus-strong-outline", "Zurückgestellt", Number(experience.stats?.media_duplicate_count || 0) + Number(experience.stats?.media_burst_suppressed_count || 0))}
         ${this._mediaStat("mdi:help-circle-outline", "Zu prüfen", experience.stats?.suggested_count || 0)}
-        ${this._mediaStat("mdi:image-off-outline", "Ohne Tag", experience.stats?.unassigned_count || 0)}
+        ${this._mediaStat("mdi:image-off-outline", "Ohne Tag", counts.unassigned)}
       </section>
       ${media.length ? mediaControls : ""}
       ${latest.length ? `<section class="media-grid">${latest.map(({ item, absoluteIndex }) => this._renderMediaCard(item, absoluteIndex)).join("")}</section>` : media.length ? `<div class="empty-state compact-empty"><ha-icon icon="mdi:image-filter-none"></ha-icon><h2>Keine Bilder in dieser Auswahl</h2><p>Wähle oben einen anderen Filter.</p></div>` : `<div class="empty-state"><ha-icon icon="mdi:image-multiple-outline"></ha-icon><h2>Noch keine OneDrive-Fotos</h2><p>Verbinde OneDrive Personal und starte anschließend eine Synchronisierung. Bereits vorhandene Fotos im gewählten Kameraordner werden anhand von Datum und GPS zugeordnet.</p></div>`}
@@ -496,14 +496,25 @@ export const mediaMixin = {
   },
 
   /** How many suggestions are near enough to be accepted in one go. */
+  /**
+   * How many suggestions the server would actually accept.
+   *
+   * `Number(null)` is 0, and 0 is a fine distance - so every photograph
+   * whose distance is UNKNOWN counted as "standing on top of its stop"
+   * and was promised. The server asks for a real number and refused
+   * them, so the button offered 43 and confirmed 4, then offered 39 and
+   * confirmed nothing, three times over. An absent answer rendered as a
+   * value, which is the mistake this project makes most often.
+   *
+   * The rule is the server's rule (`confirm_suggestions`), written the
+   * way the server writes it: a distance has to BE a number.
+   */
   _confirmableSuggestions() {
-    return (this._experienceData().media || []).filter(
-      (item) =>
-        item.assignment_status === "suggested" &&
-        item.linked_day_id &&
-        Number.isFinite(Number(item.distance_m)) &&
-        Number(item.distance_m) <= 1500,
-    ).length;
+    return (this._experienceData().media || []).filter((item) => {
+      if (item.assignment_status !== "suggested" || !item.linked_day_id) return false;
+      const distance = item.distance_m;
+      return typeof distance === "number" && Number.isFinite(distance) && distance <= 1500;
+    }).length;
   },
 
   /** Accept the near suggestions, all of them, once.

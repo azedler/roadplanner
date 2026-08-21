@@ -68,8 +68,16 @@ if (!source.includes('class="google-maps-label" translate="no">Google Maps</span
 if (!source.includes('font-family: Roboto, Sans-Serif') || !source.includes('font-weight: 400')) {
   throw new Error("Google text attribution styling contract is missing");
 }
-if (!source.includes('an Änderungsübersicht übergeben')) {
-  throw new Error("The submit button no longer names the review handoff target");
+// The submit button names what it DOES. It used to be pinned here as
+// "an Änderungsübersicht übergeben" - which is what it said and not what
+// it did: the profiles were written straight into the trip, and the
+// overview it sent people to was empty. A test that writes the same
+// wrong assumption down again is why it survived that long.
+if (!source.includes('Ortsprofile"} übernehmen</button>')) {
+  throw new Error("The submit button must name the effect it actually has");
+}
+if (source.includes('an Änderungsübersicht übergeben</button>')) {
+  throw new Error("The submit button promises a handover it does not perform");
 }
 if (!source.includes('übernommen und angewendet')) {
   throw new Error("Direct apply of confirmed enrichments is missing");
