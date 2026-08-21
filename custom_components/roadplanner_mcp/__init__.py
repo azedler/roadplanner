@@ -913,6 +913,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     player_film_store = PlayerFilmStore(archive_root / "player")
     await hass.async_add_executor_job(player_film_store.initialize)
     player_film = PlayerFilmService(hass, renderer_app, trip_video, player_film_store)
+    # The video library is one folder for every trip with room for a few
+    # files, emptied oldest-first. Without this, rendering test films on
+    # one trip deleted the finished film of another - and once the
+    # renderer's exchange copy had aged out after a day, it was gone.
+    # The player's own record says which file is a trip's film; the cap
+    # now skips exactly those.
+    trip_video.set_protected_filenames(player_film_store.protected_filenames)
 
     runtime = RoadplannerRuntimeData(
         manager=manager,
