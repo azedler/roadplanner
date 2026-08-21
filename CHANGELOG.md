@@ -6,12 +6,13 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.118.1] - 2026-08-21
+
 ### Fixed
 
 - **Testrender einer Reise löschten den fertigen Film einer anderen.** Die Videobibliothek ist ein einziger Ordner für alle Reisen, begrenzt auf zehn Dateien und nach Alter geleert — und dort landen Prüfausschnitte, Review-Kopien und Musikfassungen neben den Filmen. Eine Handvoll Testrender auf einer zweiten Reise schob damit den Film der ersten hinaus; da der Austauschordner des Renderers seine Kopie nur einen Tag hält, war der Film danach endgültig weg, und der Panel konnte nur noch melden, dass es keinen gibt. Live gemeldet: „die Videoerstellung in der Testreise hat das Video aus der eigentlichen Reise verworfen."
 
   Der Deckel bleibt — die Dateien sind zig Megabyte groß —, aber er betrachtet nicht mehr alles gleich: Was laut Player-Aufzeichnung *der Film einer Reise ist*, wird nie zum Löschkandidaten. Ausschnitte und Zwischenstände räumt er weiterhin ab. Lässt sich die Aufzeichnung nicht lesen, wird in dieser Runde **gar nichts** gelöscht — unter Unsicherheit zu löschen ist genau der Fehler, um den es hier geht.
-
 
 ## [4.118.0] - 2026-08-21
 
