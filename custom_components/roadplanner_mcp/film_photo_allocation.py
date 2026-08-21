@@ -226,6 +226,24 @@ def earned_for_day(
         earned.sort(key=lambda media_id: -score_of(analyses, media_id))
         room = max(0, cap - len(keep_first))
         demand = keep_first + earned[:room]
+        # The cap is a CEILING, not a preference. `keep_first` alone can
+        # already exceed it - twenty pinned pictures on a transition day
+        # capped at six - and the line above then returned twenty. What
+        # followed was not "a day shows a little more": the render package
+        # has slots up to this same ceiling and refuses the first picture
+        # past it, so one over-full day made the whole film impossible to
+        # start, with a message that named neither the day nor the number.
+        #
+        # Pins keep their priority (they are at the front, in the order
+        # the day was curated in); what they lose is the ability to push
+        # the day past what a film can carry.
+        #
+        # `reasons` is deliberately NOT pruned here: the return builds the
+        # reported reasons from `demand` anyway, while `after_series_cap`
+        # counts over the pre-cap selection and would start lying if this
+        # trimmed the table underneath it.
+        if len(demand) > cap:
+            demand = demand[:cap]
 
     # Back into the curation's own order, which is the order a day reads
     # in: the selection decides WHICH pictures, not in which sequence.

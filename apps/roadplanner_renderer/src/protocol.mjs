@@ -422,7 +422,12 @@ export const MAX_FILM_CHAPTERS = 45;
 // eleven photographs for a chapter and the job died with "Kapitel mit
 // zu vielen Bildern". test_renderer_app_contract.py now compares these
 // numbers against the Python ones directly.
-export const MAX_FILM_PHOTOS_PER_CHAPTER = 14;
+// Eighteen: the integration's ceiling is the selection's own cap table
+// (max of PHOTO_CAPS_BY_IMPORTANCE), and it was fourteen here while the
+// selection already handed out up to eighteen. Fourth occurrence of one
+// number living in two deployables - this side moves with it, and the
+// contract test compares them.
+export const MAX_FILM_PHOTOS_PER_CHAPTER = 18;
 export const MAX_FILM_IMAGES = 260;
 // And a third time, caught before it shipped rather than after: a
 // picture is now prepared for the SLOT it lands in, so a landscape hero

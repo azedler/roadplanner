@@ -21,6 +21,33 @@ APP_FRONTEND = (
 )
 
 
+def _package_module():
+    """Import trip_film_package the way its own tests do.
+
+    Loaded inside a package module so its relative imports resolve, and
+    with bytecode writing off so no __pycache__ lands in the shipped
+    integration directory.
+    """
+    import importlib.util
+    import sys
+    import types
+
+    sys.dont_write_bytecode = True
+    root = Path("custom_components/roadplanner_mcp")
+    if "rp_contract_pkg" not in sys.modules:
+        package = types.ModuleType("rp_contract_pkg")
+        package.__path__ = [str(root)]
+        sys.modules["rp_contract_pkg"] = package
+    name = "rp_contract_pkg.trip_film_package"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, root / "trip_film_package.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _js_code(path: Path) -> str:
     """JavaScript or TypeScript without its comments.
 
@@ -344,10 +371,17 @@ def verify_the_two_sides_agree_on_how_many_photos_a_chapter_may_have() -> None:
         assert match, f"{name} fehlt im Renderer"
         return _value(match.group(1).strip())
 
+    # The Python side is IMPORTED, not pattern-matched. A ceiling that is
+    # derived rather than typed - MAX_PHOTOS_PER_CHAPTER now comes from
+    # the selection's own cap table - has no digits for a regex to find,
+    # and the reader failing to find its operand is the one outcome that
+    # makes a comparison test pass while the two deployables disagree.
     def _py(name: str) -> int:
-        match = re.search(rf"^{name} = ([\d_*\s]+)$", package_py, re.MULTILINE)
-        assert match, f"{name} fehlt in trip_film_package.py"
-        return _value(match.group(1).strip())
+        value = getattr(_package_module(), name)
+        assert isinstance(value, int) and not isinstance(value, bool), (
+            f"{name} ist keine Ganzzahl: {value!r}"
+        )
+        return value
 
     for name in ("MAX_FILM_IMAGES", "MAX_FILM_CHAPTERS"):
         js_name = name
