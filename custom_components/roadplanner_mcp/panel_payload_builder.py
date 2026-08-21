@@ -228,7 +228,18 @@ class PanelPayloadBuilder:
                 "media_count": len(media),
                 "automatic_count": sum(1 for item in media if item.get("assignment_status") == "automatic"),
                 "suggested_count": sum(1 for item in media if item.get("assignment_status") == "suggested"),
-                "unassigned_count": sum(1 for item in media if not item.get("linked_day_id")),
+                # The SAME question the "Ohne Tag" filter answers, so the
+                # tile and the chip beside it cannot disagree. They did:
+                # 112 against 163, because this counted "has no day" while
+                # the filter counted the assignment status - and only the
+                # status partitions the library (assigned + suggested +
+                # unassigned = all). Two numbers for one set, one of them
+                # unreachable by clicking, costs trust in every other
+                # number on the page.
+                "unassigned_count": sum(
+                    1 for item in media
+                    if str(item.get("assignment_status") or "unassigned") == "unassigned"
+                ),
                 "destination_gallery_count": sum(
                     1 for item in destination_galleries.values()
                     if isinstance(item, dict) and item.get("images")
