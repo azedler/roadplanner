@@ -418,6 +418,21 @@ class RoadplannerPanel extends HTMLElement {
     try {
       this._eventUnsubscribe = await connection.subscribeEvents((event) => {
         if (entryId && event?.data?.entry_id !== entryId) return;
+        // The revision is adopted even when the re-render has to wait.
+        //
+        // Reordering a day means moving several stops, and the automatic
+        // route recalculation writes its own revision a few seconds after
+        // each move. With the dialog open the whole refresh was queued,
+        // so the panel kept sending the revision it had before the
+        // recalculation - and the SECOND move failed with "Die Reise
+        // wurde zwischenzeitlich geändert", blaming the user for a
+        // collision the application had with itself.
+        //
+        // Only the number is taken, never a re-render: that is what the
+        // queue exists to prevent (a refresh mid-dialog rebuilds the
+        // shadow root and wipes typed input). The event carries it
+        // already, so nothing has to be fetched.
+        this._adoptPushedRevision(event?.data?.revision);
         if (this._busy || this._dialog) {
           this._refreshQueued = true;
           return;
@@ -744,6 +759,21 @@ class RoadplannerPanel extends HTMLElement {
 
   _currentRevision() {
     return this._data?.summary?.revision ?? 0;
+  }
+
+  /**
+   * Take the revision from a push, without touching anything else.
+   *
+   * Guarded by "is the trip on screen the active one": the event
+   * describes the ACTIVE trip, and somebody looking at a different trip
+   * would otherwise be handed a number that does not belong to what
+   * they see - which is the same fault in the other direction.
+   */
+  _adoptPushedRevision(revision) {
+    if (!Number.isInteger(revision) || revision < 0) return;
+    if (!this._data?.summary || !this._data?.selected_is_active) return;
+    if (revision <= (this._data.summary.revision ?? 0)) return;
+    this._data.summary.revision = revision;
   }
 
   /**

@@ -58,7 +58,7 @@ export const placeEnrichmentMixin = {
     }, "", {
       refresh: false,
       errorMode: "dialog",
-      errorTitle: "Ortsprofile konnten nicht übergeben werden",
+      errorTitle: "Ortsprofile konnten nicht übernommen werden",
       retry,
     });
     if (!result) return null;
@@ -274,7 +274,7 @@ export const placeEnrichmentMixin = {
         <div class="place-enrichment-toolbar"><div class="notice info"><ha-icon icon="mdi:shield-check-outline"></ha-icon><div><strong>Geodaten zuerst, Bilder danach</strong><span>Roadplanner erkennt den Zieltyp, sucht einen konkreten Kartenpunkt und verwendet das bestätigte Ortsprofil für kurze, passende Bildanfragen. Zeiten und Stopp-Reihenfolge bleiben unverändert.</span></div></div><div class="button-row compact-row">${providerSummary}${cleanupControl}</div><details data-section="place-enrichment" class="provider-ranking-info"><summary>Wie werden die Treffer sortiert?</summary><p>Jeder Provider liefert zunächst seine eigene Ergebnisreihenfolge. Roadplanner bewertet die Kandidaten anschließend providerübergreifend anhand von Namen, Zieltyp, Adresse, Land, vorhandener Standortnähe und Sicherheitsgrenzen. Ein schwacher Stadt- oder Ortsteiltreffer verdrängt dabei keinen konkreten POI. Google wird je nach Einrichtung bevorzugt oder nur als Fallback aufgerufen.</p></details></div>
         ${cards || `<div class="empty-state compact-empty"><ha-icon icon="mdi:map-marker-check-outline"></ha-icon><h2>Keine offenen Ortsprofile</h2></div>`}
       </div>
-      <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Stopp" : "Stopps"} an Änderungsübersicht übergeben</button></div>`;
+      <div class="modal-actions place-enrichment-actions"><button class="secondary-button" type="button" data-action="close-dialog">Abbrechen</button><button class="primary-button" type="button" data-action="place-enrichment-submit" ${selectedCount ? "" : "disabled"}><ha-icon icon="mdi:clipboard-check-outline"></ha-icon>${selectedCount} ${selectedCount === 1 ? "Ortsprofil" : "Ortsprofile"} übernehmen</button></div>`;
   },
 };
 

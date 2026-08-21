@@ -6,6 +6,25 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Die Anwendung kollidierte beim Umsortieren mit sich selbst.** Zwei Züge hintereinander im Dialog „Reihenfolge ändern" scheiterten am zweiten: „Die Reise wurde zwischenzeitlich geändert: erwartete Revision 15, aktuelle Revision 16." Geändert hatte niemand etwas — die automatische Routenneuberechnung schreibt wenige Sekunden nach jedem Zug ihre eigene Revision. Das Panel *bekam* diese Meldung auch, legte sie aber in die Warteschlange, solange ein Dialog offen war — und genau dann ist sie nötig. Die Revision wird jetzt aus der Meldung übernommen, ohne Neuzeichnen: getippte Eingaben bleiben unberührt, denn dafür gibt es die Warteschlange. Sie wandert nur vorwärts und nur, wenn die angezeigte Reise auch die aktive ist.
+
+- **„An Änderungsübersicht übergeben" wendete direkt an.** Der Knopf im Anreicherungsdialog schrieb die Ortsprofile sofort in die Reise und schickte den Nutzer anschließend in eine Übersicht, die leer war. Er heißt jetzt „… Ortsprofile übernehmen"; der Verweis auf die Übersicht erscheint weiterhin — aber nur dort, wo er stimmt: wenn die Direktübernahme scheitert.
+
+- **Der zweite Reisetag war im Tab *Tage* nicht anzulegen.** „Reisetag anlegen" gab es nur im Leerzustand; sobald ein Tag existierte, verschwand der Knopf, und der einzige Weg führte über Mehr → Gesamtroute. Die Tagesleiste hat ihn jetzt neben „Stopp".
+
+- **Zwei Zähler für dieselbe Menge.** Die Kachel „Ohne Tag" zählte Fotos ohne verknüpften Tag (112), der Filter daneben den Zuordnungsstatus (163) — und nur der Status teilt die Bibliothek vollständig auf. Beide lesen jetzt dieselbe Zahl.
+
+- **„43 nahe Vorschläge übernehmen" übernahm 4, danach nichts mehr.** `Number(null)` ist `0`, und 0 Meter ist eine gültige Entfernung — also galt jedes Foto, dessen Entfernung *unbekannt* ist, als „direkt am Stopp" und wurde versprochen. Der Server verlangt eine echte Zahl und lehnte sie ab. Die Oberfläche fragt jetzt genauso wie der Server; der Knopf nennt die tatsächlich bestätigbare Zahl und verschwindet, wenn sie null ist.
+
+- **Ein gescheiterter Bildabruf löschte die vorhandenen Bilder.** War ein Bildanbieter kurz nicht erreichbar, schrieb die Aktualisierung eine *leere* Galerie zurück — der Stopp verlor seine Planungsbilder, der Tag sein Titelbild, während derselbe Dialog zusagt, die Stoppdaten blieben vollständig erhalten. Die Bilder bleiben jetzt stehen, der Fehler wird daneben gemeldet.
+
+- **Diagnose-Ausklapper: Kopfzeilen am Kartenrand.** Der Fix aus 4.116.1 war unvollständig — ich hatte den Ausklappern eine Klasse gegeben, die im Reisebegleiter bereits für etwas anderes vergeben war, sodass sie deren `padding: 16px 0` erbten und Titel und Untertitel an den Rand liefen. Eigene Klasse, im Browser gegengeprüft.
+
+- **Der Kandidaten-Textblock hat jetzt eine eigene Fläche.** Koordinaten, Vertrauen und Treffertyp waren auf den Fotos darüber schlecht lesbar, während die Pillen darunter sauber rendern — die hatten einen Hintergrund, dieser Block nicht. Die genaue Überlagerung ließ sich aus Markup und CSS nicht reproduzieren; der Block liegt jetzt unabhängig davon auf undurchsichtigem Grund und über dem Bildstreifen.
+
+
 ## [4.117.0] - 2026-08-21
 
 ### Fixed
