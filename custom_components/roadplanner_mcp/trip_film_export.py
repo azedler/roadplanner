@@ -133,6 +133,77 @@ class TripFilmExporter:
         # this necessary: without it, every consumer guessed "the newest
         # one" and a test trip's film became the real trip's film.
         self._job_ledger = job_ledger
+        # How to find a finished film again after the exchange folder has
+        # aged out. Set from outside, so this module keeps knowing nothing
+        # about the player or the video library. See
+        # `set_film_source_resolver`.
+        self._film_source = None
+
+    def set_film_source_resolver(self, resolver: Any) -> None:
+        """Teach the exporter where a finished film is still kept.
+
+        `resolver(trip_id)` returns the trip's recorded film - a mapping
+        with `job_id`, `path` and `duration_seconds` - or an empty
+        mapping. Blocking, and called through the executor.
+
+        This exists because a film could only be scored inside a short
+        window. The renderer's result folder is cleaned within the hour
+        (and earlier when the disk is tight), and the mux reads its
+        source there. Afterwards the film still existed, still played in
+        the panel, and could never be given music again - the only way
+        out was a two-hour re-render, and the message said none of that.
+        """
+        self._film_source = resolver
+
+    async def _async_restore_film_source(
+        self, trip_id: str, job_id: str
+    ) -> dict[str, Any]:
+        """Put the recorded film back in the exchange, and report it.
+
+        Returns the recorded film when it is now in place, {} otherwise.
+        Ownership is not re-checked here: the caller has already proved
+        this job belongs to this trip, and the record is read for that
+        trip alone.
+        """
+        if self._film_source is None:
+            return {}
+        record = await self._hass.async_add_executor_job(self._film_source, trip_id)
+        if not isinstance(record, dict) or str(record.get("job_id") or "") != job_id:
+            return {}
+        path = Path(str(record.get("path") or ""))
+        if not str(path):
+            return {}
+        restored = await self._renderer_app.async_restore_film_video(job_id, path)
+        return dict(record) if restored else {}
+
+    async def _async_source_film_seconds(self, trip_id: str, job_id: str) -> float:
+        """The measured length of the film a mux is about to run on.
+
+        Measured, never estimated: the whole reason music comes last is
+        that by then the film's length is a fact. Two places hold that
+        fact - the renderer's result, and the player's record of the film
+        it adopted - and the second one outlives the first. Asking both
+        is what turns "kein Ergebnis" back into a mux, because looking
+        the film up there also puts it back where the mux reads it.
+        """
+        result = await self._renderer_app.async_result(job_id)
+        seconds = float(((result or {}).get("video") or {}).get("duration_seconds") or 0.0)
+        if result and seconds > 0:
+            return seconds
+        record = await self._async_restore_film_source(trip_id, job_id)
+        recorded = float((record or {}).get("duration_seconds") or 0.0)
+        if record and recorded > 0:
+            return recorded
+        if not result and not record:
+            raise ValidationError(
+                "Dieser Film liegt nicht mehr im Austauschordner des Renderers, "
+                "und es ist keine abgelegte Kopie zu ihm auffindbar. Musik kann "
+                "nur auf einen vorhandenen Film gelegt werden - dafür müsste er "
+                "neu gerendert werden."
+            )
+        raise ValidationError(
+            "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
+        )
 
     async def _async_record_job(self, job_id: str, trip_id: str, kind: str) -> None:
         if self._job_ledger is None or not job_id:
@@ -264,14 +335,7 @@ class TripFilmExporter:
         await self._async_assert_job_belongs_to(job_id, trip_id)
         if self._music_variant is None:
             raise ValidationError("Für diese Installation gibt es keinen Musikvergleich.")
-        result = await self._renderer_app.async_result(job_id)
-        if not result:
-            raise ValidationError("Zu diesem Auftrag gibt es kein Ergebnis.")
-        seconds = float((result.get("video") or {}).get("duration_seconds") or 0.0)
-        if seconds <= 0:
-            raise ValidationError(
-                "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
-            )
+        seconds = await self._async_source_film_seconds(trip_id, job_id)
         # From the same planner run the excerpt itself was cut from, so
         # the fassung is laid out over the film that was rendered rather
         # than over a second plan that happens to be similar.
@@ -354,17 +418,9 @@ class TripFilmExporter:
         await self._async_assert_job_belongs_to(job_id, trip_id)
         if self._music_timeline is None:
             raise ValidationError("Für diese Installation gibt es keine erzeugte Musik.")
-        result = await self._renderer_app.async_result(job_id)
-        if not result:
-            raise ValidationError("Zu diesem Auftrag gibt es kein Ergebnis.")
-        seconds = float((result.get("video") or {}).get("duration_seconds") or 0.0)
-        if seconds <= 0:
-            # Named rather than defaulted: falling back to the estimate
-            # here would fit the score to a length nobody measured, and
-            # the mismatch would only be audible at the end of the film.
-            raise ValidationError(
-                "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
-            )
+        # Measured, never defaulted: fitting the score to a length nobody
+        # measured would only become audible at the end of the film.
+        seconds = await self._async_source_film_seconds(trip_id, job_id)
         # Looked up EXACTLY the way the offer and the generation looked:
         # the estimated length and the same scene plan. The sections on
         # disk are keyed by that plan - asking with the measured length,

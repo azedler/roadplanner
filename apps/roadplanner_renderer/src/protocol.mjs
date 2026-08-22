@@ -470,7 +470,7 @@ export const FILM_SCENE_TYPES = new Set([
 // thousand sequences.
 const MAX_FILM_SCENES = 400;
 const MAX_FILM_SCENE_FRAMES = 900;
-const MAX_FILM_TOTAL_FRAMES = 30 * 900;
+export const MAX_FILM_TOTAL_FRAMES = 30 * 900;
 
 /**
  * The one place a film photo path is accepted.
@@ -591,6 +591,21 @@ export function parseFilmPackage(raw) {
     throw new ProtocolError(ERROR_INVALID_JOB, "Filmpaket enthält zu viele Bilder.");
   }
   const trip = payload.trip ?? {};
+  const scenes = parseScenePlan(payload.scene_plan, parsed.length);
+  // Whether a chapter's text already runs as a page of its own is not a
+  // second decision - it is READ OFF the plan the planner wrote. The
+  // planner gives a long caption its own scene INSTEAD of the overlay
+  // ("so it gets a scene of its own, before the pictures"), but nothing
+  // told the pictures, so the same sentence ran twice: once full screen,
+  // then again across the first photograph, the collage and the clip.
+  const chapterHasTextScene = new Set(
+    scenes
+      .filter((scene) => scene.type === "text" && scene.chapterIndex >= 0)
+      .map((scene) => scene.chapterIndex),
+  );
+  for (const chapter of parsed) {
+    chapter.storyHasOwnScene = chapterHasTextScene.has(chapter.index);
+  }
   return {
     manifestContentHash: cleanText(payload.manifest_content_hash, 64),
     trip: {
@@ -608,7 +623,7 @@ export function parseFilmPackage(raw) {
     clips: parseClips(payload.clips),
     music: parseMusic(payload.music),
     mapContext: parseMapContext(payload.map_context),
-    scenes: parseScenePlan(payload.scene_plan, parsed.length),
+    scenes,
   };
 }
 

@@ -251,13 +251,21 @@ def verify_the_score_is_fitted_to_the_measured_film() -> None:
     """
     body = EXPORT_SOURCE.split("async def async_add_music(", 1)[1]
     body = body.split("\n    async def ", 1)[0]
-    assert "async_result(" in body, "die gemessene Länge wird nicht gelesen"
-    assert "duration_seconds" in body, body
+    assert "_async_source_film_seconds(" in body, "die gemessene Länge wird nicht gelesen"
     assert "async_estimate_seconds" not in body, (
         "die Vertonung benutzt wieder die Schätzung statt der Messung"
     )
+    # Where that measurement comes from: the renderer's own result, and -
+    # once the exchange folder has aged out - the record of the film that
+    # was adopted for the player. Both are measurements of the finished
+    # file; neither is the estimate.
+    measured = EXPORT_SOURCE.split("async def _async_source_film_seconds(", 1)[1]
+    measured = measured.split("\n    async def ", 1)[0]
+    assert "async_result(" in measured, measured
+    assert "duration_seconds" in measured, measured
+    assert "async_estimate_seconds" not in measured, measured
     # A missing measurement is named, not replaced by the estimate.
-    assert "keine gemessene Filmlänge" in body, body
+    assert "keine gemessene Filmlänge" in measured, measured
 
 
 def verify_the_pictures_are_copied_and_not_re_encoded() -> None:

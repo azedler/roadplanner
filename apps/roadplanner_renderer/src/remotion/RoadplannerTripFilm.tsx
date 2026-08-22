@@ -95,6 +95,8 @@ export type FilmChapter = {
   title: string;
   story: string;
   storySource: string;
+  /** The plan already gives this chapter's text a page of its own. */
+  storyHasOwnScene?: boolean;
   importance: string;
   storyRole: string;
   dayNumber: number;
@@ -276,6 +278,19 @@ const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPho
   );
 };
 
+/**
+ * The chapter's sentence over a picture - unless it already had its page.
+ *
+ * The planner gives a long text a scene of its own INSTEAD of the
+ * overlay. Nothing carried that decision across, so on a measured trip
+ * up to 22 of 23 chapters read the same sentence twice: first as a full
+ * page, then again over the first photograph, the collage and the clip.
+ * The flag is derived from the plan itself, so there is one decision and
+ * one place that makes it.
+ */
+const StoryCaption: React.FC<{ chapter: FilmChapter }> = ({ chapter }) =>
+  chapter.storyHasOwnScene ? null : <Caption text={chapter.story} overPhoto />;
+
 const IntroScene: React.FC<{
   trip: FilmTrip;
   narrative: FilmNarrative | null;
@@ -432,7 +447,7 @@ const PhotoScene: React.FC<{
           sentence over the second and third picture of a day was never
           read twice - it only covered them. */}
       {hero || (scene.photos[0] ?? 0) !== 0 ? null : (
-        <Caption text={chapter.story} overPhoto />
+        <StoryCaption chapter={chapter} />
       )}
     </AbsoluteFill>
   );
@@ -608,7 +623,7 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
           </div>
         );
       })}
-      <Caption text={chapter.story} overPhoto />
+      <StoryCaption chapter={chapter} />
     </AbsoluteFill>
   );
 };
@@ -1133,7 +1148,7 @@ const ClipScene: React.FC<{
         muted
         style={{ width: "100%", height: "100%", objectFit: "contain" }}
       />
-      <Caption text={chapter.story} overPhoto />
+      <StoryCaption chapter={chapter} />
     </AbsoluteFill>
   );
 };

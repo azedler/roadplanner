@@ -138,6 +138,19 @@ class PlayerFilmStore:
                 protected.add(name)
         return protected
 
+    def recorded_film(self, trip_id: str) -> dict[str, Any]:
+        """What this trip's finished film is, as far as the record knows.
+
+        The record outlives the renderer's exchange folder, which is
+        exactly why it is asked: an hour after a render the exchange has
+        forgotten the job, and everything that still needs the finished
+        film - putting music on it, copying it for review - had nothing
+        left to point at.
+        """
+        entry = self.load().get(str(trip_id or ""))
+        latest = entry.get("latest") if isinstance(entry, dict) else None
+        return dict(latest) if isinstance(latest, dict) else {}
+
     def save(self, trips: dict[str, Any]) -> None:
         self.root_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write(

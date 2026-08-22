@@ -27,6 +27,8 @@
  * filesystems, bind mounts), and a 1 s poll on a directory with a handful
  * of entries costs nothing measurable.
  */
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -54,7 +56,10 @@ import {
   isJobId,
   parseJob,
   sha256,
+  MAX_FILM_TOTAL_FRAMES,
 } from "./protocol.mjs";
+import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
+import { pixelFactor, renderProfile } from "./render_profiles.mjs";
 
 const APP_VERSION = process.env.ROADPLANNER_APP_VERSION || "0.0.0-dev";
 const EXCHANGE_DIR =
@@ -84,16 +89,47 @@ const MAX_JOB_FILE_BYTES = 64 * 1024;
 const MAX_CONCURRENT_JOBS = 1;
 // A whole job, not just its render: claim, parse, render, probe, hash.
 const MAX_JOB_DURATION_MS = Number(process.env.ROADPLANNER_MAX_JOB_MS || 420_000);
-// A whole-trip film is minutes of video and therefore many minutes of
-// render. It gets its own ceiling rather than raising everyone's: a
-// fifteen-second clip that runs for half an hour is still broken.
-const MAX_FILM_JOB_DURATION_MS = Number(
-  process.env.ROADPLANNER_MAX_FILM_JOB_MS || 1_800_000,
-);
-// Anything left in results/ beyond this is from a run nobody came back
-// for; the shared folder must not grow without bound.
+
+/**
+ * How long a FILM job may take before something is clearly wrong.
+ *
+ * Derived, not chosen. It was a flat half hour beside a render whose own
+ * ceiling follows the film - and every real film tripped it: the live log
+ * shows "Auftrag überschreitet die Gesamtdauer" on two renders that then
+ * went on to finish successfully after 6 765 s and 6 776 s. A limit that
+ * breaks on every legitimate run teaches everyone to ignore it, which is
+ * worse than having none.
+ *
+ * So it reads the same source the render does, for the longest film the
+ * protocol permits at the size this job is actually drawn at, plus the
+ * time everything around the render costs. What still catches a wedged
+ * browser is `FILM_LIMITS.stallTimeoutMs` - no progress at all - because
+ * a wall clock cannot tell "slow" from "stuck" and never could.
+ */
+const filmJobLimitMs = (profileId) =>
+  renderCeilingMs(
+    FILM_LIMITS,
+    MAX_FILM_TOTAL_FRAMES,
+    pixelFactor(renderProfile(profileId)),
+  ) + MAX_JOB_DURATION_MS;
+
+/**
+ * How much the results folder may hold.
+ *
+ * Also derived, and for a reason the live log spelled out: at 512 MB the
+ * budget was smaller than ONE film. A 1440p journey lands at 584 MB, so
+ * the moment it was written the folder was over budget and the oldest
+ * results were dropped - three of them in one second, including films
+ * somebody still wanted. That is what left a finished film impossible to
+ * score afterwards: the mux reads its source from exactly this folder.
+ *
+ * The floor is therefore "a film and its scored version, side by side" -
+ * that pairing MUST be able to coexist, because producing the second one
+ * reads the first. Two of the largest film the renderer will produce,
+ * which keeps this number honest when the size limit moves again.
+ */
 const MAX_RESULT_BYTES = Number(
-  process.env.ROADPLANNER_MAX_RESULT_BYTES || 512 * 1024 * 1024,
+  process.env.ROADPLANNER_MAX_RESULT_BYTES || FILM_LIMITS.maxOutputBytes * 2,
 );
 
 let activeJobs = 0;
@@ -224,6 +260,37 @@ async function produceArtifacts(jobId, message) {
  * into memory beyond that: it is megabytes of binary that nothing on the
  * Home Assistant side displays.
  */
+/**
+ * A finished video's size and digest, without ever holding it in memory.
+ *
+ * This used to be `fs.readFile(target)` followed by `sha256(bytes)`, and
+ * it was by far the largest allocation this process ever made: the
+ * moment a render finished, a 584 MB journey became a 584 MB buffer.
+ * The live log shows what that cost - "Reisefilm abgeschlossen", then
+ * "Auftrag abgeschlossen", then `Killed`, the signature of an
+ * out-of-memory kill. The watchdog was off, so the add-on stayed down,
+ * and the automatic scoring that should have followed the render never
+ * ran: the film came out silent although music had been chosen.
+ *
+ * Nothing ever needed those bytes. The result manifest wants a length
+ * and a digest, and both can be had a chunk at a time - so a two-hour
+ * film now costs the same handful of megabytes as a ten-second one.
+ */
+async function describeVideoArtifact(file, filename) {
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })) {
+    size += chunk.length;
+    hash.update(chunk);
+  }
+  return {
+    kind: "video",
+    filename,
+    size_bytes: size,
+    sha256: hash.digest("hex"),
+  };
+}
+
 async function produceRemotionVideo(jobId, message, onProgress) {
   // Loaded only when a render is actually asked for. The plain test job
   // must keep working - and keep answering the deployment question - even
@@ -239,15 +306,7 @@ async function produceRemotionVideo(jobId, message, onProgress) {
     onProgress,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -280,15 +339,7 @@ async function produceTripDayVideo(jobId, onProgress) {
     onProgress,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_TRIP_DAY_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_TRIP_DAY_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -369,15 +420,7 @@ async function produceTripFilm(jobId, profileId, onProgress, isCancelled, frameR
     frameRange,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_TRIP_FILM_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_TRIP_FILM_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -431,15 +474,7 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress, isCa
     isCancelled,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_REVIEW_COPY,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_REVIEW_COPY)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -511,15 +546,7 @@ async function produceFilmMusic(jobId, sourceJobId, onProgress, isCancelled) {
     isCancelled,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_FILM_WITH_MUSIC,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_FILM_WITH_MUSIC)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -612,7 +639,7 @@ async function handleJob(name) {
     // and the clip's ceiling was never meant for either.
     if (job.action === "render_trip_film" || job.action === "create_review_copy") {
       clearTimeout(jobDeadline);
-      jobLimitMs = MAX_FILM_JOB_DURATION_MS;
+      jobLimitMs = filmJobLimitMs(job.renderProfile);
       jobDeadline = setTimeout(() => {
         log("error", "Auftrag überschreitet die Gesamtdauer", { job_id: jobId });
       }, jobLimitMs);

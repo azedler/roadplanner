@@ -94,4 +94,42 @@ const source = await (await import("node:fs/promises")).readFile(
 assert.match(source, /this\._lastActionError = \{ action, message/, "_runActionNow must keep the reason");
 assert.match(source, /this\._lastActionError = null;/, "and must forget it after a success");
 
+// --- and the app's absence is explained by the thing that made it absent -
+// RP-420: the card printed "Die Renderer-App ist nicht erreichbar (ready)"
+// - the state a dead app last claimed for itself, beside the statement
+// that contradicts it. What makes it unreachable is the heartbeat going
+// quiet, so that is what the sentence has to say.
+const reasons = new Panel();
+assert.equal(
+  reasons._rendererOfflineReason({ state: "ready", fresh: false, age_seconds: 1107 }),
+  "letztes Lebenszeichen vor 18 Minuten",
+  "the silence is the reason, not the last thing it said before it",
+);
+assert.equal(
+  reasons._rendererOfflineReason({ state: "ready", fresh: false, age_seconds: 42 }),
+  "letztes Lebenszeichen vor 42 Sekunden",
+);
+assert.equal(
+  reasons._rendererOfflineReason({ state: "ready", fresh: false, age_seconds: 7200 }),
+  "letztes Lebenszeichen vor 2 Stunden",
+);
+assert.equal(
+  reasons._rendererOfflineReason({
+    state: null,
+    reason: "Kein Heartbeat gefunden - App vermutlich nicht installiert.",
+  }),
+  "Kein Heartbeat gefunden - App vermutlich nicht installiert.",
+  "a real explanation is never overwritten by a derived one",
+);
+assert.equal(
+  reasons._rendererOfflineReason({ state: "stopping", fresh: true }),
+  "Zustand: stopping",
+  "a beating app that says it is stopping HAS explained itself",
+);
+assert.equal(reasons._rendererOfflineReason({}), "kein Lebenszeichen");
+assert.ok(
+  !reasons._rendererOfflineReason({ state: "ready", fresh: false, age_seconds: 1107 }).includes("ready"),
+  "the contradiction must not come back",
+);
+
 console.log("Film start failure explanation tests passed.");
