@@ -171,6 +171,82 @@ async function verify_a_mux_of_another_film_does_not_count() {
   assert.equal(panel._offerAsked, true, "so this film still gets its offer");
 }
 
+// --- #377 M-2 reopened: the flag was set and the button never read it ---
+//
+// Measured live on 4.120.0: `_storyFilmSourceHasAudio` came back `true`
+// after a reload, and "Film mit Musik herunterladen" still stood beside
+// "Musik auflegen". One press laid the already paid-for score onto the
+// same silent film a second time. So these check the BUTTON, not the
+// field - a test on the field passed while the symptom was untouched.
+
+const READY_OFFER = {
+  section_state: [{ cached_name: "a.wav" }, { cached_name: "b.wav" }],
+};
+
+async function verify_a_scored_film_shows_no_offer_to_score_it_again() {
+  const mux = "33333333-2222-4333-8444-555555555555";
+  const panel = panelWithJobs([
+    { ...filmJob({ job_id: mux, kind: "film_music", source_job_id: JOB }), has_audio: true },
+    filmJob({ job_id: JOB, has_audio: false }),
+  ]);
+  panel._storyFilmMusicOfferData = READY_OFFER;
+  await panel._rendererAppAdoptRunningJob();
+  assert.equal(panel._storyFilmSourceHasAudio, true, "the detection still works");
+  assert.equal(
+    panel._renderStoryFilmAddMusic(),
+    "",
+    "and now the button reads it: no second helping of the same music",
+  );
+}
+
+async function verify_a_silent_film_still_gets_its_offer() {
+  const panel = panelWithJobs([filmJob({ job_id: JOB, has_audio: false })]);
+  panel._storyFilmMusicOfferData = READY_OFFER;
+  await panel._rendererAppAdoptRunningJob();
+  assert.equal(panel._storyFilmSourceHasAudio, false);
+  assert.match(panel._renderStoryFilmAddMusic(), /Musik auflegen/);
+}
+
+async function verify_an_unmeasured_film_keeps_its_offer() {
+  // The third value. `undefined` means nobody metered the file, and
+  // hiding the button there would take the offer away on every film
+  // rendered before the measurement existed.
+  const panel = panelWithJobs([]);
+  panel._storyFilmSetSource(JOB, { isExcerpt: false });
+  panel._storyFilmSourceHasAudio = undefined;
+  panel._storyFilmMusicOfferData = READY_OFFER;
+  assert.match(panel._renderStoryFilmAddMusic(), /Musik auflegen/);
+}
+
+// --- #378 M-1 reopened: "ohne Musik" is a claim, not a default ---
+
+function panelWithFilm(film) {
+  const panel = new Panel();
+  panel._render = () => {};
+  panel._storyLatestFilm = film;
+  panel._storyLatestFilmAsked = true;
+  return panel;
+}
+
+async function verify_the_card_says_nothing_about_music_it_never_measured() {
+  const card = panelWithFilm({
+    url: "/x.mp4",
+    duration_seconds: 154,
+    width: 2560,
+    height: 1440,
+  })._renderStoryLatestFilm();
+  assert.ok(!card.includes("ohne Musik"), "an unmeasured film is not a silent one");
+  assert.ok(!card.includes("mit Musik"));
+  assert.ok(card.includes("2560×1440"), "the rest of the line is unchanged");
+}
+
+async function verify_a_measured_film_still_says_which_it_is() {
+  const scored = panelWithFilm({ url: "/x.mp4", has_music: true })._renderStoryLatestFilm();
+  assert.ok(scored.includes("mit Musik"), scored);
+  const silent = panelWithFilm({ url: "/x.mp4", has_music: false })._renderStoryLatestFilm();
+  assert.ok(silent.includes("ohne Musik"), silent);
+}
+
 const checks = Object.entries({
   verify_the_recorded_film_becomes_the_source,
   verify_a_silent_film_asks_for_its_music_offer,
@@ -182,6 +258,11 @@ const checks = Object.entries({
   verify_the_whole_film_beside_an_excerpt_is_the_one_adopted,
   verify_a_film_that_was_already_scored_is_not_offered_music_again,
   verify_a_mux_of_another_film_does_not_count,
+  verify_a_scored_film_shows_no_offer_to_score_it_again,
+  verify_a_silent_film_still_gets_its_offer,
+  verify_an_unmeasured_film_keeps_its_offer,
+  verify_the_card_says_nothing_about_music_it_never_measured,
+  verify_a_measured_film_still_says_which_it_is,
 });
 
 for (const [name, check] of checks) {
