@@ -207,6 +207,7 @@ from .trip_day_mini_export import TripDayMiniExporter
 from .character_asset_service import CharacterAssetService
 from .player_film import PlayerFilmService, PlayerFilmStore
 from .character_asset_store import CharacterAssetStore
+from .renderer_job_ledger import RendererJobLedger
 from .trip_film_export import TripFilmExporter
 from .trip_film_music_service import TripFilmMusicService
 from .trip_summary_service import TripSummaryService
@@ -269,6 +270,7 @@ class RoadplannerRuntimeData:
     # worked" are different films, and only the second one belongs on a
     # tablet in the kitchen.
     player_film: PlayerFilmService
+    job_ledger: RendererJobLedger
 
 
 def resolve_gemini_models(options: dict[str, Any]) -> dict[str, str]:
@@ -871,12 +873,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # stop a render is not worth having.
         plan_director=_plan_music if getattr(manager, "provider", None) else None,
     )
+    # Which trip a renderer job belongs to. Jobs themselves are
+    # trip-blind; this ledger is written at submission and asked before
+    # anything connects a finished job back to a trip (mux, adoption,
+    # the player's film record). See renderer_job_ledger.py.
+    job_ledger = RendererJobLedger(archive_root / "renderer_jobs.json")
     trip_film = TripFilmExporter(
         hass,
         manager,
         experience,
         story_context,
         renderer_app,
+        job_ledger=job_ledger,
         media_cache=media_cache,
         crew=crew,
         crew_portraits=crew_portraits,
@@ -912,7 +920,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # render would be a tablet on a wall spending money.
     player_film_store = PlayerFilmStore(archive_root / "player")
     await hass.async_add_executor_job(player_film_store.initialize)
-    player_film = PlayerFilmService(hass, renderer_app, trip_video, player_film_store)
+    player_film = PlayerFilmService(
+        hass, renderer_app, trip_video, player_film_store, job_ledger=job_ledger
+    )
     # The video library is one folder for every trip with room for a few
     # files, emptied oldest-first. Without this, rendering test films on
     # one trip deleted the finished film of another - and once the
@@ -962,6 +972,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         character_asset_service=character_asset_service,
         character_assets=character_assets,
         player_film=player_film,
+        job_ledger=job_ledger,
     )
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime

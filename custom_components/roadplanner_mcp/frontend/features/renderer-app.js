@@ -240,8 +240,20 @@ export const rendererAppMixin = {
       this._rendererAppRedraw();
       return;
     }
-    const adopted = active || recent[0];
-    if (!adopted?.job_id) return;
+    // Only work that belongs HERE. Every job now says which trip it was
+    // submitted for; adopting "the newest one" regardless showed another
+    // trip's render as this one's - the job line, the film source and
+    // the mix buttons then all operated on a stranger's film (audited
+    // live: the test trip's video became muxable and recordable under
+    // the real journey). A job without a trip ("" - a test render, or
+    // one submitted before the ledger existed) is deliberately NOT
+    // adopted as anything trip-scoped.
+    const mine = (job) => job?.trip_id && job.trip_id === this._selectedTripId;
+    const adopted = (active && mine(active)) ? active : recent.find(mine);
+    if (!adopted?.job_id) {
+      this._rendererAppRedraw();
+      return;
+    }
     this._rendererAppJob = adopted;
     this._rendererAppKind = adopted.kind || "";
     // Which finished FILM a review copy could be made from. Remembered
@@ -255,7 +267,9 @@ export const rendererAppMixin = {
     // only at the first one reported that no film existed at all - while
     // the film sat two entries further down, finished, on disk.
     const film = recent.find(
-      (job) => job?.kind === "trip_film" && job?.state === "completed" && job?.job_id,
+      (job) =>
+        job?.kind === "trip_film" && job?.state === "completed" && job?.job_id
+        && mine(job),
     );
     if (film) {
       this._storyFilmSourceJobId = film.job_id;
@@ -287,6 +301,7 @@ export const rendererAppMixin = {
     const mixes = {};
     for (const job of recent) {
       if (job?.kind !== "film_music" || job?.state !== "completed") continue;
+      if (!mine(job)) continue;
       const variant = String(job.music_variant || "");
       // Newest first, so the first one seen for a fassung is the one to
       // keep: re-mixing a fassung should reach the newer mix.
@@ -298,9 +313,9 @@ export const rendererAppMixin = {
     // The package facts were only ever in the browser that submitted the
     // job. Rather than invent them, the card shows the job without them.
     this._rendererAppPackage = null;
-    this._rendererAppResult = active ? null : result?.renderer_app_result || null;
+    this._rendererAppResult = active && mine(active) ? null : result?.renderer_app_result || null;
     this._rendererAppRedraw();
-    if (active) this._pollRendererAppJob(active.job_id);
+    if (active && mine(active)) this._pollRendererAppJob(active.job_id);
   },
 
   /**

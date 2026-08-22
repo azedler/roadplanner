@@ -97,11 +97,25 @@ def _film_result(job_id: str, *, seconds: float = 912.0, audible: bool = True):
     }
 
 
-def _service(tmp: Path, renderer):
+class _Ledger:
+    """The submission ledger's two questions, answered from a dict."""
+
+    def __init__(self, owners):
+        self._owners = dict(owners)
+
+    def trip_for(self, job_id):
+        return self._owners.get(str(job_id or ""))
+
+
+def _service(tmp: Path, renderer, owners=None):
     store = PlayerFilmStore(tmp / "player")
     store.initialize()
     video = FakeTripVideo(tmp / "library")
-    return PlayerFilmService(FakeHass(), renderer, video, store), video
+    ledger = _Ledger(owners) if owners is not None else None
+    return (
+        PlayerFilmService(FakeHass(), renderer, video, store, job_ledger=ledger),
+        video,
+    )
 
 
 def verify_a_finished_render_becomes_the_film() -> None:
@@ -201,27 +215,49 @@ def verify_a_pruned_copy_is_fetched_again() -> None:
         assert video.adoptions == 2, video.adoptions
 
 
-def verify_no_record_falls_back_to_the_newest_finished_film() -> None:
-    """Installations whose films predate this bookkeeping."""
+def verify_no_record_falls_back_only_to_a_provably_own_film() -> None:
+    """The rescue scan is for lost records, not for other trips' films.
+
+    This test used to assert the opposite - "no record: take the newest
+    finished film, whoever made it" - and that written-down assumption
+    was the live bug: a fresh test trip adopted the real journey's film
+    as its own, permanently. Now the submission ledger has to vouch, and
+    the excerpt/length rule still applies on top.
+    """
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         renderer = FakeRendererApp(
             results={
                 "old-excerpt": _film_result("old-excerpt", seconds=70.0),
+                "fremd-film": _film_result("fremd-film", seconds=900.0),
                 "old-film": _film_result("old-film", seconds=900.0),
             },
             recent=[
                 {"job_id": "old-excerpt", "state": "completed", "kind": "trip_film"},
+                {"job_id": "fremd-film", "state": "completed", "kind": "trip_film"},
                 {"job_id": "old-film", "state": "completed", "kind": "trip_film"},
             ],
         )
-        service, _video = _service(tmp, renderer)
+        owners = {
+            "old-excerpt": "trip",
+            "old-film": "trip",
+            "fremd-film": "andere-reise",
+        }
+        service, _video = _service(tmp, renderer, owners=owners)
         found = asyncio.run(service.async_latest("trip"))
-        assert found, "ohne Aufzeichnung findet der Player keinen Film"
+        assert found, "der eigene Film wurde trotz Beleg nicht gefunden"
         assert found["job_id"] == "old-film", (
-            "der Rückfall hält einen 70-Sekunden-Ausschnitt für den Reisefilm"
+            "der Rückfall nahm einen fremden Film oder einen Ausschnitt: "
+            + str(found)
         )
         assert 70.0 < FULL_FILM_MIN_SECONDS <= 900.0
+        # A trip nothing vouches for gets nothing - not the newest film.
+        assert asyncio.run(service.async_latest("dritte-reise")) is None
+        # And without a ledger at all, the scan adopts nothing: films from
+        # before this bookkeeping have unprovable ownership, and showing
+        # none is better than showing a stranger's.
+        blind, _video2 = _service(tmp / "blind", renderer)
+        assert asyncio.run(blind.async_latest("trip")) is None
 
 
 def verify_an_unknown_trip_is_no_film_and_no_error() -> None:
@@ -232,16 +268,19 @@ def verify_an_unknown_trip_is_no_film_and_no_error() -> None:
 
 
 def verify_a_damaged_record_does_not_break_the_player() -> None:
+    """films.json is damaged: rebuilt from the ledger, never from a guess."""
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         renderer = FakeRendererApp(
             results={"old-film": _film_result("old-film")},
             recent=[{"job_id": "old-film", "state": "completed", "kind": "trip_film"}],
         )
-        service, _video = _service(tmp, renderer)
+        service, _video = _service(tmp, renderer, owners={"old-film": "trip"})
         (tmp / "player" / "films.json").write_text("{kaputt", encoding="utf-8")
         found = asyncio.run(service.async_latest("trip"))
         assert found and found["job_id"] == "old-film", found
+        # The damaged record must not hand the film to somebody else.
+        assert asyncio.run(service.async_latest("andere-reise")) is None
 
 
 def main() -> None:
