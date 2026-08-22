@@ -2681,6 +2681,10 @@ class RoadplannerPanel extends HTMLElement {
     // thing - and on a wall-mounted tablet every control that is on
     // screen is a control somebody can press by leaning on it.
     if (this._playerModeActive()) {
+      // Asked again whenever the answer on screen is about another trip:
+      // the player follows the selected trip rather than keeping the one
+      // it happened to load first.
+      if (this._playerFilmTripId !== this._playerTripId()) this._playerLoaded = false;
       if (!this._playerLoaded && !this._playerLoading) {
         this._playerLoading = true;
         void this._playerLoadFilm().finally(() => {

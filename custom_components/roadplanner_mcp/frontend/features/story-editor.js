@@ -157,6 +157,12 @@ export const storyEditorMixin = {
     this._rendererAppAdoptTried = false;
     this._storyFilmSetSource("", { isExcerpt: false });
     this._storyMusicPrototypeJobs = {};
+    // The player is trip state as well, and it did not reset either: on a
+    // wall-mounted tablet the previous trip's film - or the previous
+    // trip's "no film" - stayed on screen under the new trip's name.
+    // Reset here rather than at the five places that switch trips, so
+    // "the trip changed" keeps meaning one thing.
+    this._playerTripChanged();
   },
 
   async _storyLoad({ force = false, quiet = false } = {}) {
