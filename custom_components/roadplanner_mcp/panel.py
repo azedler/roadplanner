@@ -13,6 +13,7 @@ import voluptuous as vol
 from homeassistant.components import frontend, panel_custom, websocket_api
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.util import dt as dt_util
 
 import uuid
 
@@ -29,7 +30,7 @@ from .const import (
     ROLE_EDITOR,
     ROLE_VIEWER,
 )
-from .currency_rates import EcbRateService, eur_total
+from .currency_rates import EcbRateService, eur_total, trip_finished_reason
 from .destination_intelligence import _PARK4NIGHT_ID_RE, _google_maps_host
 from .ffmpeg_runner import ffmpeg_available
 from .google_maps_link import async_resolve_google_maps_place
@@ -1287,22 +1288,61 @@ async def _execute_action(
         )
 
     if action == "get_exchange_rates":
-        rates_key = f"{DOMAIN}_ecb_rates"
-        service = hass.data.get(rates_key)
-        if not isinstance(service, EcbRateService):
-            service = EcbRateService(hass)
-            hass.data[rates_key] = service
-        rates = await service.async_get_rates()
-        if rates is None:
-            raise ValidationError(
-                "Die EZB-Referenzkurse sind gerade nicht abrufbar - die "
-                "Summen je Währung bleiben unverändert verfügbar."
-            )
+        trip_id = str(data.get("trip_id") or "").strip()
+        # A finished trip keeps the rates it was frozen with. Reading them
+        # is also the cheaper path: no ECB request happens at all.
+        snapshot = (
+            await runtime.travel_archive.async_rate_snapshot(trip_id)
+            if trip_id
+            else {}
+        )
+        rates: dict[str, Any] | None = None
+        if not snapshot:
+            rates_key = f"{DOMAIN}_ecb_rates"
+            service = hass.data.get(rates_key)
+            if not isinstance(service, EcbRateService):
+                service = EcbRateService(hass)
+                hass.data[rates_key] = service
+            live = await service.async_get_rates()
+            if live is None:
+                raise ValidationError(
+                    "Die EZB-Referenzkurse sind gerade nicht abrufbar - die "
+                    "Summen je Währung bleiben unverändert verfügbar."
+                )
+            reason = ""
+            if trip_id:
+                catalog = await manager.async_list_trips()
+                trip = next(
+                    (
+                        item
+                        for item in catalog.get("trips", [])
+                        if item.get("id") == trip_id and item.get("valid")
+                    ),
+                    None,
+                )
+                reason = trip_finished_reason(trip or {}, dt_util.now().date())
+            if reason:
+                snapshot = await runtime.travel_archive.async_freeze_rate_snapshot(
+                    trip_id=trip_id, rates=live, reason=reason
+                )
+            rates = live
+        if snapshot:
+            rates = {
+                "base": "EUR",
+                "date": snapshot["date"],
+                "rates": snapshot["rates"],
+            }
         totals = data.get("totals_by_currency")
         summary = (
             eur_total(totals, rates["rates"]) if isinstance(totals, dict) else None
         )
-        return {"rates": rates, "eur_total": summary}
+        return {
+            "rates": rates,
+            "eur_total": summary,
+            "frozen": bool(snapshot),
+            "frozen_at": snapshot.get("frozen_at", "") if snapshot else "",
+            "frozen_reason": snapshot.get("reason", "") if snapshot else "",
+        }
 
     if action == "create_trip":
         activate = bool(data.get("activate"))

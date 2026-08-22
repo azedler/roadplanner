@@ -687,6 +687,39 @@ export const PANEL_STYLES = `<style>
       .archive-toolbar-actions { justify-content: flex-end; }
       .archive-stats { margin-top: 0; }
       .archive-summary-card { border-left: 4px solid var(--primary-color); }
+      .due-todo-card { border-left: 4px solid var(--warning-color); }
+      /* The cost split. The slice colours are fixed hexes, not theme
+         variables: they are a validated categorical palette whose
+         colour-blind separation only holds for these exact steps, and
+         they were picked to clear the contrast gate on a light AND a
+         dark card - a panel inside a shadow root cannot reliably tell
+         which Home Assistant theme is active. Every slice repeats its
+         label and value in the legend, so no value is ever carried by
+         colour alone. */
+      .cost-split { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+      .cost-donut { position: relative; flex: 0 0 auto; width: 168px; height: 168px; }
+      .cost-donut svg { width: 100%; height: 100%; display: block; }
+      .cost-donut-track { stroke: var(--divider-color); opacity: 0.5; }
+      .cost-donut-arc { transition: opacity 120ms ease; }
+      .cost-donut:hover .cost-donut-arc { opacity: 0.55; }
+      .cost-donut .cost-donut-arc:hover { opacity: 1; }
+      .cost-donut-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; padding: 0 24px; }
+      .cost-donut-total { display: block; font-size: 1rem; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+      .cost-donut-total.compact { font-size: 0.85rem; }
+      .cost-donut-caption { display: block; margin-top: 2px; color: var(--secondary-text-color); font-size: 0.78rem; }
+      .cost-legend { flex: 1 1 240px; min-width: 220px; margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+      .cost-legend-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; font-size: 0.92rem; }
+      .cost-swatch { width: 12px; height: 12px; border-radius: 4px; }
+      .cost-legend-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .cost-legend-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+      .cost-legend-share { min-width: 52px; text-align: right; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+      .cost-legend-folded { padding-left: 22px; font-size: 0.85rem; color: var(--secondary-text-color); }
+      .cost-legend-folded .cost-legend-value { font-weight: 600; }
+      .cost-split-note { margin-top: 10px; }
+      @media (max-width: 460px) {
+        .cost-split { gap: 14px; justify-content: center; }
+        .cost-donut { width: 148px; height: 148px; }
+      }
       .section-count { min-width: 36px; height: 36px; display: grid; place-items: center; border-radius: 12px; background: var(--secondary-background-color); color: var(--secondary-text-color); font-weight: 800; }
       .archive-paste-zone { min-height: 128px; border: 2px dashed var(--divider-color); border-radius: 18px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px; padding: 20px; background: var(--secondary-background-color); cursor: text; outline: none; }
       .archive-paste-zone:focus, .archive-paste-zone.drag-active { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 7%, var(--secondary-background-color)); }

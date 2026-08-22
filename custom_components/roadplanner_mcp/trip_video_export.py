@@ -136,6 +136,18 @@ def _stop_coordinate(stop: dict[str, Any]) -> tuple[float, float] | None:
         return None
 
 
+
+#: The one place a library URL is built, and the one place that decides
+#: whether it is meant to be SAVED. The same route serves the player's
+#: `<video src>`, and an `attachment` disposition on that is meaningless
+#: at best - so the download says so, and playback says nothing.
+LIBRARY_URL_BASE = "/api/roadplanner/trip_video_library"
+
+
+def library_url(filename: str, *, download: bool = False) -> str:
+    return f"{LIBRARY_URL_BASE}/{filename}{'?download=1' if download else ''}"
+
+
 class TripVideoExporter:
     """Build a trip-summary video, store it in a durable library, and notify."""
 
@@ -262,7 +274,8 @@ class TripVideoExporter:
             return None
         stat = videos[0].stat()
         return {
-            "url": f"/api/roadplanner/trip_video_library/{videos[0].name}",
+            # The "letztes Video" button saves it; the player has its own.
+            "url": library_url(videos[0].name, download=True),
             "created_at": datetime.fromtimestamp(
                 stat.st_mtime, tz=timezone.utc
             ).isoformat(),
@@ -287,7 +300,7 @@ class TripVideoExporter:
         filename = await self.hass.async_add_executor_job(
             self._save_to_library, video_bytes
         )
-        download_url = f"/api/roadplanner/trip_video_library/{filename}"
+        download_url = library_url(filename, download=True)
         await self._async_notify_ready(trip_title, download_url)
         return download_url
 
@@ -616,7 +629,9 @@ class TripVideoExporter:
         result there is what lets the panel still report what was made.
         """
         filename = await self.hass.async_add_executor_job(self._adopt_file, source)
-        return f"/api/roadplanner/trip_video_library/{filename}"
+        # Playback, not a download: this is what the player plays and
+        # what the story card embeds.
+        return library_url(filename)
 
     def _adopt_file(self, source: Path) -> str:
         """Blocking copy - executor only."""

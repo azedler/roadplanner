@@ -204,6 +204,15 @@ def build_music_timeline_package(
                 "fade_out_seconds": round(
                     max(0.0, float(section.get("fade_out_seconds") or 0)), 2
                 ),
+                # Whether this section may repeat its own audio to fill
+                # the time it was given. Only the last one ever asks:
+                # the plan is laid out against an ESTIMATED film length
+                # and the finished film is longer, so the score used to
+                # stop where the estimate had - 3,7 s early on a short
+                # film, 20,6 s on a long one - and the film ran out in
+                # silence. Repeating what was already generated costs
+                # nothing and buys nothing new.
+                "loop": bool(section.get("loop")),
             }
         )
     if not entries:

@@ -205,10 +205,21 @@ MAX_VIDEO_ARTIFACT_BYTES = 64 * 1024 * 1024
 # so it would render for an hour and a half and then be refused for
 # being exactly the size it was asked to be.
 MAX_FILM_ARTIFACT_BYTES = 2048 * 1024 * 1024
-# A whole trip takes minutes to render on a home box, not seconds. This is
-# the job TTL the film is submitted with; the app has its own matching
-# ceilings.
-FILM_JOB_TTL_SECONDS = 3600
+# A whole trip takes HOURS to render on a home box, not minutes. This TTL
+# answers one question only - "did anybody claim this job in time?" - and
+# it was set to exactly the hour that a real film needs to render.
+#
+# One worker takes one job at a time, so a film submitted while another
+# film is rendering waits for that whole render before it is claimed. The
+# measured render of a three-week journey is 6 776 s; a film queued
+# behind one therefore waits about two hours before it is even looked at,
+# and at 3 600 s it expired unclaimed. Six hours covers a film waiting
+# behind another with room to spare, and still expires a job the app was
+# never running for.
+#
+# `test_renderer_job_limits.mjs` compares this against the renderer's own
+# film ceiling, so the two cannot drift apart again.
+FILM_JOB_TTL_SECONDS = 6 * 3600
 MAX_MESSAGE_LENGTH = 120
 MAX_ERROR_LENGTH = 300
 
@@ -375,7 +386,10 @@ def build_job(
     text = clean_text(message)
     if not text:
         raise RendererProtocolError("message darf nicht leer sein")
-    if not 1 <= int(ttl_seconds) <= 3600:
+    # A day. The ceiling used to be one hour, which is why the film TTL
+    # was one hour: the constant had been fitted to the validator rather
+    # than to the work. A film legitimately needs several.
+    if not 1 <= int(ttl_seconds) <= 24 * 3600:
         raise RendererProtocolError("ttl_seconds liegt außerhalb des erlaubten Bereichs")
     payload_input: dict[str, Any] = {"message": text}
     if render_profile:

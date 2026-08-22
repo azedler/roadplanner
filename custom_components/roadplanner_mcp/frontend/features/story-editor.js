@@ -157,6 +157,12 @@ export const storyEditorMixin = {
     this._rendererAppAdoptTried = false;
     this._storyFilmSetSource("", { isExcerpt: false });
     this._storyMusicPrototypeJobs = {};
+    // The player is trip state as well, and it did not reset either: on a
+    // wall-mounted tablet the previous trip's film - or the previous
+    // trip's "no film" - stayed on screen under the new trip's name.
+    // Reset here rather than at the five places that switch trips, so
+    // "the trip changed" keeps meaning one thing.
+    this._playerTripChanged();
   },
 
   async _storyLoad({ force = false, quiet = false } = {}) {
@@ -721,7 +727,7 @@ export const storyEditorMixin = {
         online
           ? ""
           : status
-            ? `<small>Die Renderer-App ist nicht erreichbar (${escapeHtml(String(status.reason || status.state || "kein Lebenszeichen"))}) - der Film braucht sie.</small>`
+            ? `<small>Die Renderer-App ist nicht erreichbar (${escapeHtml(this._rendererOfflineReason(status))}) - der Film braucht sie.</small>`
             : "<small>Der Zustand der Renderer-App ist noch nicht bekannt.</small>"
       }
       <div class="film-choices">
@@ -872,6 +878,32 @@ export const storyEditorMixin = {
     </div>`;
   },
 
+  /**
+   * Why the renderer counts as unreachable, in words that agree with it.
+   *
+   * This used to print `status.state`, and the result contradicted
+   * itself: "Die Renderer-App ist nicht erreichbar (ready)". The state
+   * was the last thing a dead app said about itself; what made it
+   * unreachable was the heartbeat going quiet minutes ago. The state is
+   * only named when the app IS beating and says something other than
+   * ready - which is the one case where it explains anything.
+   */
+  _rendererOfflineReason(status) {
+    const reason = cleanText(status?.reason);
+    if (reason) return reason;
+    const age = Number(status?.age_seconds);
+    if (status?.fresh === false && Number.isFinite(age)) {
+      const seconds = Math.max(0, Math.round(Math.abs(age)));
+      if (seconds < 90) return `letztes Lebenszeichen vor ${seconds} Sekunden`;
+      const minutes = Math.round(seconds / 60);
+      if (minutes < 90) return `letztes Lebenszeichen vor ${minutes} Minuten`;
+      return `letztes Lebenszeichen vor ${Math.round(minutes / 60)} Stunden`;
+    }
+    const state = cleanText(status?.state);
+    if (status?.fresh && state) return `Zustand: ${state}`;
+    return "kein Lebenszeichen";
+  },
+
   async _storyLoadLatestFilm() {
     const result = await this._runAction(
       "player_latest_film",
@@ -883,7 +915,33 @@ export const storyEditorMixin = {
     // null rather than left undefined so the question is not asked again
     // on every render.
     this._storyLatestFilm = result?.player_latest_film || null;
+    this._storyFilmAdoptRecordedSource();
     this._render({ preserveScroll: true });
+  },
+
+  /**
+   * Take the source job from the stored film when the browser has none.
+   *
+   * The source job id was only ever set during a render session. The
+   * exchange folder ages out within a day, so after a reload the recent
+   * job list no longer held the film either - and "Musik auflegen" and
+   * "Review-Kopie" simply disappeared, with no explanation, while the
+   * finished film sat on the card above them (live report). The player's
+   * own record knew the job id the whole time.
+   *
+   * Only when nothing is set: a live render session knows better than a
+   * record, and the record is never an excerpt - an excerpt is recorded
+   * as one and never becomes the trip's film.
+   */
+  _storyFilmAdoptRecordedSource() {
+    const film = this._storyLatestFilm;
+    if (!film?.job_id || this._storyFilmSourceJobId) return;
+    this._storyFilmSetSource(String(film.job_id), { isExcerpt: false });
+    // Measured on the finished file, same as everywhere else. A record
+    // without the field leaves the answer unknown rather than "silent".
+    this._storyFilmSourceHasAudio =
+      typeof film.has_music === "boolean" ? film.has_music : undefined;
+    if (film.has_music === false) void this._storyFilmMusicOffer?.();
   },
 
   /** Seconds as mm:ss, because "912 s" is not a film length. */

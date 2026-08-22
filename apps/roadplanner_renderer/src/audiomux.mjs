@@ -190,11 +190,27 @@ export function gainForTarget(
  * not the measurement of their sum. Nothing is written, so this costs a
  * decode and no disk.
  */
+/**
+ * A section's input arguments, looping it when it was asked to.
+ *
+ * `-stream_loop -1` is an INPUT option, so it has to be pushed before
+ * the `-i` it belongs to. It repeats the decoded file endlessly; the
+ * `atrim` in the filter graph is what bounds it, so nothing runs away.
+ *
+ * Only the closing section ever carries the flag, and only because the
+ * film turned out longer than the estimate its music was planned
+ * against - the alternative was ending the soundtrack where the estimate
+ * had and letting the film run out in silence.
+ */
+function sectionInputArgs(section) {
+  return section?.loop ? ["-stream_loop", "-1", "-i", section.path] : ["-i", section.path];
+}
+
 export function analyseArgs({ sections, volume = DEFAULT_VOLUME }) {
   const list = (sections || []).filter((entry) => entry && entry.path);
   if (!list.length) throw new Error("Ohne Musikabschnitte gibt es nichts zu messen.");
   const args = ["-hide_banner", "-nostats"];
-  for (const section of list) args.push("-i", section.path);
+  for (const section of list) args.push(...sectionInputArgs(section));
   args.push(
     "-filter_complex",
     `${buildFilterGraph(list, { volume, inputOffset: 0 })};[music]ebur128=peak=true`,
@@ -227,7 +243,7 @@ export function muxArgs({
   const length = seconds(filmSeconds);
   if (!length) throw new Error("Die gemessene Filmlänge fehlt.");
   const args = ["-hide_banner", "-loglevel", "error", "-y", "-i", video];
-  for (const section of list) args.push("-i", section.path);
+  for (const section of list) args.push(...sectionInputArgs(section));
   args.push(
     "-filter_complex",
     buildFilterGraph(list, { volume, gainDb }),

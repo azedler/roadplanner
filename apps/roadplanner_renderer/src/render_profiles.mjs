@@ -137,6 +137,27 @@ export function renderProfile(id) {
  * the real duration, against 2.49x at 720p - thinnest exactly on the
  * profile meant for fast rounds, which is the wrong way round.
  */
+/**
+ * Which profile a finished film was rendered at, read off its size.
+ *
+ * Not a guess: a profile IS its dimensions, and this table is where they
+ * are defined. It exists because a scored film carried no profile at all
+ * - the mux never had one to pass on - and the download route had
+ * started reconstructing it from the picture dimensions on its own. One
+ * reconstruction, in the file that owns the table.
+ *
+ * An unknown size answers with "", which is the honest answer and the
+ * one every reader already handles.
+ */
+export function profileForSize(width, height) {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  for (const [id, entry] of Object.entries(RENDER_PROFILES)) {
+    if (entry.width === w && entry.height === h) return id;
+  }
+  return "";
+}
+
 export function pixelFactor(profile) {
   const entry = profile ?? RENDER_PROFILES[DEFAULT_RENDER_PROFILE];
   const base = DESIGN_WIDTH * DESIGN_HEIGHT;

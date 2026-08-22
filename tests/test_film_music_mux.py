@@ -251,13 +251,21 @@ def verify_the_score_is_fitted_to_the_measured_film() -> None:
     """
     body = EXPORT_SOURCE.split("async def async_add_music(", 1)[1]
     body = body.split("\n    async def ", 1)[0]
-    assert "async_result(" in body, "die gemessene Länge wird nicht gelesen"
-    assert "duration_seconds" in body, body
+    assert "_async_source_film_seconds(" in body, "die gemessene Länge wird nicht gelesen"
     assert "async_estimate_seconds" not in body, (
         "die Vertonung benutzt wieder die Schätzung statt der Messung"
     )
+    # Where that measurement comes from: the renderer's own result, and -
+    # once the exchange folder has aged out - the record of the film that
+    # was adopted for the player. Both are measurements of the finished
+    # file; neither is the estimate.
+    measured = EXPORT_SOURCE.split("async def _async_source_film_seconds(", 1)[1]
+    measured = measured.split("\n    async def ", 1)[0]
+    assert "async_result(" in measured, measured
+    assert "duration_seconds" in measured, measured
+    assert "async_estimate_seconds" not in measured, measured
     # A missing measurement is named, not replaced by the estimate.
-    assert "keine gemessene Filmlänge" in body, body
+    assert "keine gemessene Filmlänge" in measured, measured
 
 
 def verify_the_pictures_are_copied_and_not_re_encoded() -> None:
@@ -369,6 +377,55 @@ def verify_no_place_or_brand_name_reached_the_new_code() -> None:
             words = set(re.findall(r"[a-zä-ü]+", node.value.lower()))
             found = words & forbidden
             assert not found, f"{found} steht in einer Regel"
+
+
+def verify_the_scored_film_says_it_has_music() -> None:
+    """M-1 (#378): the mux measures the level and used to throw it away.
+
+    `player_film` reads exactly one field - `has_audible_audio` - and
+    only the RENDER ever set it. So a film with a -7,4 dBFS soundtrack
+    came back as `bool(None)` and the card announced "ohne Musik" over a
+    file that had just been measured at practically its own target. The
+    mux knew, it measured, and it did not say.
+    """
+    body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
+    body = body.split("\n/**", 1)[0]
+    facts = body.split("return {", 1)[1]
+    assert "has_audible_audio: isAudible(heard) === true" in facts, facts[:600]
+    assert "audio_peak_dbfs" in facts, "the number behind the answer travels too"
+    # From the measurement this job already makes, not a second one.
+    assert body.count("measureVolume(partial)") == 1, body.count("measureVolume(partial)")
+    # And the reader still reads that one field, so the two agree.
+    player = (PACKAGE_ROOT / "player_film.py").read_text(encoding="utf-8")
+    assert 'facts.get("has_audible_audio")' in player, "the reader and the writer must name the same field"
+
+
+def verify_the_scored_film_carries_the_profile_it_was_rendered_at() -> None:
+    body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
+    body = body.split("\n/**", 1)[0]
+    assert "profileForSize(facts.width, facts.height)" in body, (
+        "the mux result had an empty render profile and the download route "
+        "reconstructed it on its own"
+    )
+    profiles = (APP / "src" / "render_profiles.mjs").read_text(encoding="utf-8")
+    assert "export function profileForSize(" in profiles, (
+        "the reconstruction belongs in the file that owns the table"
+    )
+
+
+def verify_a_section_may_repeat_itself_to_reach_the_films_end() -> None:
+    """M-3 (#378): the plan is built against an estimate, the film is longer."""
+    audiomux = AUDIOMUX
+    assert "function sectionInputArgs(" in audiomux
+    assert '"-stream_loop", "-1"' in audiomux, (
+        "looping has to be an INPUT option, before the -i it belongs to"
+    )
+    # Bounded by the trim that was already there, so an endless input
+    # cannot run away.
+    assert "atrim=0:" in audiomux
+    assert audiomux.count('args.push(...sectionInputArgs(section))') == 2, (
+        "both the mux and the measurement build their inputs the same way"
+    )
 
 
 def main() -> None:

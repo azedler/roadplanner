@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   FRAME_HEIGHT,
   MAX_TEXT_WIDTH,
@@ -21,6 +22,42 @@ import {
   fitText,
   lineCount,
 } from "../apps/roadplanner_renderer/src/textfit.mjs";
+
+/**
+ * V7 (#375): the darkening behind the caption reaches the frame's edges.
+ *
+ * The gradient and the text's own width limit sat on ONE element, so the
+ * scrim stopped at MAX_TEXT_WIDTH - 1088 of 1280 - and the remaining
+ * 192 px stayed bright. On screen that is a hard vertical edge running
+ * down through the photograph; it was measured in the rendered film at
+ * exactly 85% of the frame width, which is 1088/1280.
+ */
+function verifyTheScrimIsAsWideAsTheFrame() {
+  const composition = readFileSync(
+    new URL("../apps/roadplanner_renderer/src/remotion/RoadplannerTripFilm.tsx", import.meta.url),
+    "utf-8",
+  );
+  const caption = composition
+    .split("const Caption: React.FC")[1]
+    .split("const StoryCaption")[0];
+  const scrim = caption.split("linear-gradient")[0];
+  assert.match(scrim, /width: "100%"/, "the scrim element has to span the whole frame");
+  assert.match(scrim, /boxSizing: "border-box"/, "or its padding would push it wider than the frame");
+  // And the width limit has moved off it, onto the text inside.
+  assert.ok(
+    !/maxWidth: MAX_TEXT_WIDTH[\s\S]{0,200}linear-gradient/.test(caption),
+    "the text width limit must not sit on the element that carries the gradient",
+  );
+  const afterGradient = caption.split("linear-gradient")[1];
+  assert.match(
+    afterGradient,
+    /maxWidth: MAX_TEXT_WIDTH/,
+    "the text still keeps the width it was fitted against",
+  );
+  // 1088 of 1280 - the number the edge was measured at, stated so the
+  // relationship that caused it cannot come back unnoticed.
+  assert.equal(MAX_TEXT_WIDTH, 1088);
+}
 
 const SHORT = "Erster Halt am See.";
 const NORMAL =
@@ -121,6 +158,7 @@ for (const check of [
   verifyAnUnbreakableWordIsCountedHonestly,
   verifyEmptyTextIsNotAScene,
   verifyTheEstimateErrsTowardsTooWide,
+  verifyTheScrimIsAsWideAsTheFrame,
 ]) {
   check();
 }

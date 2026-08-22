@@ -56,58 +56,88 @@ function writePreference(key, value) {
 }
 
 export const playerMixin = {
-  /** Whether this device wants the player. Read once per render. */
+  /**
+   * Whether this device wants the player - ONE source, in memory.
+   *
+   * It used to be read straight out of localStorage on every render, and
+   * a live diagnostic that asked the panel for `_playerMode` got
+   * `undefined` back while the player was plainly on screen. Two answers
+   * to one question, one of which was a field nobody had ever created.
+   * The preference is now loaded once and kept here; storage is where it
+   * survives a reload, not where it is looked up.
+   */
   _playerModeActive() {
-    return readPreference(MODE_KEY) === MODE_PLAYER;
+    if (this._playerMode === undefined) {
+      this._playerMode = readPreference(MODE_KEY) === MODE_PLAYER;
+    }
+    return this._playerMode;
   },
 
   _playerSetMode(mode) {
-    writePreference(MODE_KEY, mode === MODE_PLAYER ? MODE_PLAYER : MODE_EDITOR);
+    this._playerMode = mode === MODE_PLAYER;
+    writePreference(MODE_KEY, this._playerMode ? MODE_PLAYER : MODE_EDITOR);
     // A mode switch is not a data change: nothing is saved, nothing is
     // refreshed from the server, the same trip stays selected.
     this._playerAutoplayBlocked = false;
     this._playerControlsVisible = true;
     this._render();
-    if (mode === MODE_PLAYER) void this._playerLoadFilm();
+    if (this._playerMode) void this._playerLoadFilm();
   },
 
   /**
-   * Which trip the player shows.
+   * Which trip the player shows: the selected one, always.
    *
-   * The last one somebody chose on THIS device, so a tablet left on the
-   * Norway trip comes back to the Norway trip. Deliberately not a global
-   * default: two people looking at two trips must not overwrite each
-   * other's screen.
+   * It used to be "the last trip chosen on THIS device", kept in
+   * localStorage, and honoured whenever that trip still existed. The
+   * result on a live system: after a reload the player stood there with
+   * a TEST trip's title over the sentence "Für diese Reise wurde noch
+   * kein Reisefilm erstellt", while the real journey - whose film had
+   * just been rendered - was the selected one. Read on a wall-mounted
+   * tablet, that reads as "the film is gone".
+   *
+   * A remembered trip that is not the selected one is not a preference,
+   * it is a second answer to a question that already has one.
    */
   _playerTripId() {
-    const remembered = readPreference(TRIP_KEY);
-    // `_data.trips` is the payload SECTION, and the list is inside it.
-    // Reading the wrapper as a list is how this threw on the first
-    // render - the same shape the rest of the panel already unwraps.
-    const trips = this._data?.trips?.trips || [];
-    if (remembered && trips.some((trip) => trip?.id === remembered)) return remembered;
     return this._selectedTripId || "";
   },
 
-  _playerRememberTrip(tripId) {
-    if (tripId) writePreference(TRIP_KEY, tripId);
+  /**
+   * Drop a remembered player trip left behind by an older version.
+   *
+   * Called once when the panel has trips: the key is gone from the code,
+   * so it must also go from the browsers that still carry it - otherwise
+   * it sits there forever as a thing that looks like state.
+   */
+  _playerForgetStoredTrip() {
+    if (this._playerTripForgotten) return;
+    this._playerTripForgotten = true;
+    if (readPreference(TRIP_KEY)) writePreference(TRIP_KEY, "");
   },
 
   async _playerLoadFilm() {
+    this._playerForgetStoredTrip();
     const tripId = this._playerTripId();
+    // Which trip the answer is ABOUT. Without it, "no film for this trip"
+    // was printed under whatever title the next render happened to
+    // compute - the exact sentence that sent somebody looking for a film
+    // that was never missing.
+    this._playerFilmTripId = tripId;
     if (!tripId) {
       this._playerFilm = null;
       this._playerLoaded = true;
       this._render();
       return;
     }
-    this._playerRememberTrip(tripId);
     const result = await this._runAction(
       "player_latest_film",
       { trip_id: tripId },
       "",
       { refresh: false, blockUi: false, errorTitle: "" },
     ).catch(() => null);
+    // A trip switch while the request was in flight: the answer belongs
+    // to the trip it was asked for, and that is no longer this screen.
+    if (tripId !== this._playerTripId()) return;
     // `null` means "no film", which is a state and not a failure. The
     // difference from "we have not looked yet" is what `_playerLoaded`
     // carries: a spinner that never resolves is the worst of the three.
@@ -115,6 +145,14 @@ export const playerMixin = {
     this._playerLoaded = true;
     this._render();
     if (this._playerFilm) this._playerTryAutoplay();
+  },
+
+  /** The player follows the selected trip, or shows nothing at all. */
+  _playerTripChanged() {
+    this._playerFilm = null;
+    this._playerFilmTripId = "";
+    this._playerLoaded = false;
+    this._playerAutoplayBlocked = false;
   },
 
   /**
@@ -218,11 +256,15 @@ export const playerMixin = {
 
   _renderPlayer() {
     const film = this._playerFilm;
-    const loaded = Boolean(this._playerLoaded);
+    // Loaded means: loaded FOR THE TRIP ON SCREEN. The old flag only said
+    // that some answer had once arrived, so a trip switch left the
+    // previous trip's answer standing under the new trip's name.
+    const loaded =
+      Boolean(this._playerLoaded) && this._playerFilmTripId === this._playerTripId();
     const trips = this._data?.trips?.trips || [];
     const tripId = this._playerTripId();
     const trip = trips.find((entry) => entry?.id === tripId);
-    const title = trip?.title || "Reisefilm";
+    const title = trip?.title || this._data?.summary?.trip?.title || "Reisefilm";
     return `<div class="player-shell${this._playerControlsVisible === false ? " idle" : ""}" data-player-stage>
       <div class="player-chrome">
         <div class="player-title">

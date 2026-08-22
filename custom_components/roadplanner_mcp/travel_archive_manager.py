@@ -740,3 +740,17 @@ class TravelArchiveManager:
             return await self.hass.async_add_executor_job(
                 lambda: self.store.delete_todo(trip_id=trip_id, todo_id=todo_id)
             )
+
+    async def async_rate_snapshot(self, trip_id: str) -> dict[str, Any]:
+        async with self._lock:
+            return await self.hass.async_add_executor_job(self.store.rate_snapshot, trip_id)
+
+    async def async_freeze_rate_snapshot(
+        self, *, trip_id: str, rates: dict[str, Any], reason: str = ""
+    ) -> dict[str, Any]:
+        async with self._lock:
+            return await self.hass.async_add_executor_job(
+                lambda: self.store.freeze_rate_snapshot(
+                    trip_id=trip_id, rates=rates, reason=reason
+                )
+            )

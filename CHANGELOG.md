@@ -6,6 +6,46 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.120.0] - 2026-08-22
+
+### Added
+
+- **Kostenverteilung am Ende der Reise.** Das Kostenbuch zeigt jetzt ein Kreisdiagramm mit Legende: pro Kategorie Betrag und Anteil, größte zuerst. Mehr als acht Kategorien werden zu einem grauen „Weitere" zusammengefasst, das die Legende darunter wieder einzeln aufschlüsselt — es verschwindet also nichts. Bei mehreren Währungen wird in Euro umgerechnet und als Näherung ausgewiesen; fehlt zu einer Währung ein Kurs, wird sie benannt statt weggelassen, und ohne Kurse wird gar kein Kreis gezeichnet statt eines falschen. Die Farben halten ihren Kontrast auf hellem *und* dunklem Kartenhintergrund, weil das Panel nicht zuverlässig erkennen kann, welches Theme gerade aktiv ist.
+
+- **Maut ist eine eigene Ausgabenkategorie.** Sie fehlte: Mautgebühren landeten unter „Sonstiges" und tauchten in der Aufschlüsselung nicht auf. Deutsche und englische Schreibweisen sowie „Vignette" werden darauf abgebildet; alle bisherigen Kategorien bleiben, wo sie waren.
+
+- **Fällige Aufgaben stehen oben.** Die Tagesaufgaben waren die letzte Sektion des Unterlagen-Tabs, unter Dokumenten und Kostenbuch. Sie stehen jetzt ganz oben, und das Reise-Dashboard bekommt eine Karte über den Planungszahlen — aber nur, solange wirklich etwas überfällig, heute fällig oder innerhalb eines Tages fällig ist. Eine Karte, die immer da ist, wird nicht mehr gelesen.
+
+### Changed
+
+- **Der EZB-Kurs einer abgeschlossenen Reise wird eingefroren.** Die ungefähre Euro-Summe wurde bei jedem Aufruf neu aus der aktuellen EZB-Veröffentlichung gerechnet, sodass dieselbe beendete Reise von Woche zu Woche eine andere Gesamtsumme zeigte. Sobald eine Reise vorbei ist — sie ist als erledigt markiert oder ihr letzter Tag liegt in der Vergangenheit —, werden die geltenden Kurse einmal festgeschrieben und bewegen sich nie wieder. Der letzte Reisetag zählt noch dazu, es wird also nicht eingefroren, solange ihr unterwegs seid. Eine eingefrorene Reise ruft die EZB gar nicht mehr ab, und das Panel schreibt dazu, welcher Kurs benutzt wurde und dass er eingefroren ist.
+
+### Fixed
+
+- **Das Renderer-Add-on starb am Ende jedes großen Films.** Nach dem Rendern wurde die fertige Datei komplett in den Arbeitsspeicher gelesen, nur um ihre Prüfsumme zu bilden — bei einer dreiwöchigen Reise 584 MB auf einen Schlag, genau in dem Moment, in dem der Film fertig war. Das Protokoll zeigt es wörtlich: „Reisefilm abgeschlossen", „Auftrag abgeschlossen", `Killed`. Weil der Watchdog aus war, blieb die App unten, und die automatische Vertonung lief nie an: Der Film wurde stumm, obwohl „Mit KI-Musik" gewählt war. Prüfsumme und Größe werden jetzt häppchenweise gebildet — ein Zweistundenfilm kostet dabei so wenig Speicher wie ein Zehnsekünder.
+
+- **Ein fertiger Film ließ sich nur eine Stunde lang vertonen.** Der Mux liest seine Quelle aus dem Ergebnisordner des Renderers, und dessen Platzgrenze lag bei 512 MB — kleiner als ein einziger 1440p-Film. Der Film wurde also Sekunden nach seiner Entstehung weggeräumt, und „Musik auflegen" antwortete danach für immer „Zu diesem Auftrag gibt es kein Ergebnis". Die Grenze leitet sich jetzt aus der erlaubten Filmgröße ab, die drei neuesten Ergebnisse sind vom Aufräumen ausgenommen (ein Film, seine vertonte Fassung und eine Review-Kopie müssen nebeneinander Platz haben), und ist die Austauschkopie doch weg, wird der Film aus der Bibliothekskopie zurückgeholt. Ist wirklich nichts mehr da, sagt die Meldung, dass aus Platzgründen aufgeräumt wurde — statt zu klingen, als hätte der Auftrag nie etwas produziert. Die Platzgrenze lässt sich außerdem in den Add-on-Einstellungen setzen.
+
+- **Der Tagestext lief bis zu fünfmal pro Kapitel.** Der Planer gibt einem langen Text eine eigene Seite *statt* der Einblendung — nur wusste der Renderer davon nichts und zeichnete denselben Satz zusätzlich über das erste Foto, über *jede* Collage und über jeden Videoclip. An der Testreise nachgezählt: eine Textseite plus vier Collagen, also fünf Auftritte desselben Satzes je Kapitel. Auf den Collagen lief er zudem unten aus dem Bild und verdeckte ein Foto vollständig. Alle drei Stellen fragen jetzt dieselbe Regel, und die Regel wird aus dem Szenenplan selbst abgelesen statt danebengeschrieben.
+
+- **Der Schatten hinter der Bildunterschrift endete mitten im Bild.** Farbverlauf und Textbreite saßen auf demselben Element, also hörte die Abdunklung bei 1088 von 1280 Bildpunkten auf — sichtbar als harte senkrechte Kante quer durch jedes Foto mit Text. Der Verlauf reicht jetzt über die volle Breite, der Text behält seine.
+
+- **„Tag 2: Tag 2 — Ostsee".** Jede Eröffnungsformel nennt die Tagesnummer selbst, und ein Tagestitel beginnt fast immer mit derselben Nummer — also stand sie zweimal in einem Satz und ein drittes Mal auf der Kapitelkarte darüber. Betraf Reisen ohne selbst geschriebenen Text.
+
+- **Der Reisefilm ließ sich nicht spulen.** Der Endpunkt, der jeden fertigen Film ausliefert, las die ganze Datei in den Speicher von Home Assistant, beantwortete keine Bereichsanfragen und verbot jedes Zwischenspeichern. Ein Sprung in der Zeitleiste blieb deshalb wirkungslos, bis die Datei vollständig geladen war — beim großen Film 584 MB, bevor man an Minute acht kommt. Genau die Ansicht, für die der Player gebaut ist, hatte also keine Zeitleiste. Jetzt wird gestreamt, gesprungen und zwischengespeichert; die Download-Kennzeichnung setzt nur noch der Download, nicht die Wiedergabe.
+
+- **Der Player zeigte nach dem Neuladen eine fremde Reise.** Die im Browser gemerkte Reise gewann gegen die ausgewählte, sodass nach einem Neuladen der Titel einer Testreise über dem Satz „Für diese Reise wurde noch kein Reisefilm erstellt" stand, während die echte Reise ausgewählt war — auf einem Wandtablet liest sich das, als wäre der Film verloren. Der Player folgt jetzt der Auswahl, merkt sich, für welche Reise eine Antwort galt, und eine Antwort, die nach einem Reisewechsel eintrifft, wird verworfen.
+
+- **Ein Prüfausschnitt wurde für den ganzen Film gehalten.** Ein 65-Sekunden-Ausschnitt ist dieselbe Art Auftrag mit demselben Ergebnis, also übernahm ihn das Panel nach einem Neuladen als „den Film" — und eine Vertonung hätte den Ausschnitt zum offiziellen Reisefilm gemacht. Bei der Einreichung ist der Unterschied bekannt; er wird jetzt dort festgehalten, und der Server verweigert die Vertonung eines Ausschnitts, statt sich auf das Panel zu verlassen. Ein Film, der bereits vertont wurde, wird außerdem nicht mehr ein zweites Mal zur Vertonung angeboten.
+
+- **Der vertonte Film meldete „ohne Musik".** Der Mux misst den Pegel, um eine stumme Mischung abzulehnen — und warf die Messung danach weg. Für jeden vertonten Film fehlte damit die Angabe, und die Karte behauptete „ohne Musik" über einer Datei mit −7,4 dBFS Spitzenpegel. Die Messung wird jetzt behalten, zusammen mit dem Spitzenpegel und dem Renderprofil des Quellfilms.
+
+- **Die Musik endete vor dem Film.** Der Musikplan wird gegen die *geschätzte* Filmlänge gebaut, der fertige Film ist länger — gemessen 150,0 s Musik unter einem 153,7 s langen Film und 713,3 s unter 733,9 s, also bis zu zwanzig Sekunden Stille am Schluss. Der letzte Abschnitt trägt jetzt bis zum gemessenen Ende und wiederholt dafür, was ohnehin schon erzeugt wurde; neue Musik wird dafür nicht bestellt.
+
+- **Eine Grenze, die bei jedem echten Film riss.** „Auftrag überschreitet die Gesamtdauer" erschien bei jedem großen Render — beide Läufe liefen anschließend erfolgreich durch. Die Grenze lag bei einer halben Stunde neben einem Render, dessen eigene Grenze der Filmlänge folgt; sie liest jetzt dieselbe Quelle. Ebenso die Gültigkeitsdauer eines Filmauftrags, die bei einer Stunde lag, während ein Film knapp zwei braucht — ein Auftrag hinter einem anderen lief ab, bevor er überhaupt drankam.
+
+- **„Die Renderer-App ist nicht erreichbar (ready)".** Die Meldung widersprach sich selbst: In der Klammer stand der Zustand, den die App zuletzt über sich behauptet hatte, während sie längst tot war. Jetzt steht dort, was sie unerreichbar macht — „letztes Lebenszeichen vor 18 Minuten".
+
 ## [4.119.0] - 2026-08-22
 
 ### Fixed

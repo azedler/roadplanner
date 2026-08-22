@@ -85,6 +85,7 @@ EXPENSE_CATEGORIES = frozenset(
         "snack",
         "groceries",
         "ferry",
+        "toll",
         "transport",
         "other",
     }
@@ -106,6 +107,7 @@ _LEGACY_EXPENSE_CATEGORY_MAP = {
     "groceries": "groceries",
     "shopping": "groceries",
     "ferry": "ferry",
+    "toll": "toll",
     "transport": "transport",
     "admission": "other",
     "fishing": "other",
@@ -131,6 +133,13 @@ def normalize_expense_category(value: Any) -> str:
         "fast_food": "snack",
         "food_stand": "snack",
         "transportmittel": "transport",
+        "maut": "toll",
+        "mautgebuehr": "toll",
+        "mautgebühr": "toll",
+        "tolls": "toll",
+        "toll_road": "toll",
+        "road_toll": "toll",
+        "vignette": "toll",
     }.get(source, source)
     category = _LEGACY_EXPENSE_CATEGORY_MAP.get(source, source)
     return category if category in EXPENSE_CATEGORIES else "other"
@@ -152,6 +161,9 @@ _TODO_PRIORITY = frozenset({"low", "normal", "high"})
 _CLASSIFICATIONS = frozenset({"document", "expense", "document_expense"})
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ -]+")
 
+#: Enough for every currency the ECB publishes, with room to spare.
+MAX_FROZEN_RATES = 100
+
 
 def utc_now_iso() -> str:
     """Return an ISO UTC timestamp without microseconds."""
@@ -165,6 +177,39 @@ def utc_now_iso() -> str:
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:16]}"
+
+
+def normalize_rate_snapshot(raw: Any) -> dict[str, Any]:
+    """Return a stored exchange-rate snapshot, or {} when there is none.
+
+    A snapshot without a usable rate is no snapshot: it would freeze a
+    finished trip on nothing and answer every later conversion with
+    "no rate", which reads as "this currency does not convert" rather
+    than "the freeze went wrong".
+    """
+    if not isinstance(raw, dict):
+        return {}
+    rates: dict[str, float] = {}
+    for currency, value in (raw.get("rates") or {}).items():
+        code = str(currency or "").upper()
+        if len(code) != 3 or not code.isalpha():
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if value > 0:
+            rates[code] = float(value)
+        if len(rates) >= MAX_FROZEN_RATES:
+            break
+    date = _clean_text(raw.get("date"), maximum=32)
+    if not date or not rates:
+        return {}
+    return {
+        "base": "EUR",
+        "date": date,
+        "rates": rates,
+        "frozen_at": _clean_text(raw.get("frozen_at"), maximum=100) or utc_now_iso(),
+        "reason": _clean_text(raw.get("reason"), maximum=200),
+    }
 
 
 def _clean_text(value: Any, *, maximum: int = 4_000) -> str:
@@ -556,6 +601,7 @@ class TravelArchiveStore:
             "documents": [],
             "expenses": [],
             "todos": [],
+            "rate_snapshot": {},
         }
 
     def load_trip(self, trip_id: str) -> dict[str, Any]:
@@ -578,6 +624,7 @@ class TravelArchiveStore:
             "documents": documents[:MAX_DOCUMENTS_PER_TRIP],
             "expenses": expenses[:MAX_EXPENSES_PER_TRIP],
             "todos": todos[:MAX_TODOS_PER_TRIP],
+            "rate_snapshot": normalize_rate_snapshot(raw.get("rate_snapshot")),
         }
 
     def _write_trip(self, value: dict[str, Any]) -> None:
@@ -585,6 +632,43 @@ class TravelArchiveStore:
         value["schema_version"] = ARCHIVE_SCHEMA_VERSION
         value["updated_at"] = utc_now_iso()
         _atomic_write_json(self._trip_index_path(value["trip_id"]), value)
+
+    def rate_snapshot(self, trip_id: str) -> dict[str, Any]:
+        """The exchange rates frozen for this trip, or {} while it runs."""
+        return deepcopy(self.load_trip(trip_id).get("rate_snapshot") or {})
+
+    def freeze_rate_snapshot(
+        self,
+        *,
+        trip_id: str,
+        rates: dict[str, Any],
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """Write the trip's rate snapshot ONCE and return the effective one.
+
+        Freezing is a one-way door on purpose. A finished trip's cost
+        overview must keep showing the same EUR total tomorrow as today,
+        so an existing snapshot is never overwritten - not by a later
+        freeze, not by a newer ECB publication. The caller gets whatever
+        is now in force, which may be the older snapshot it just lost to.
+        """
+        state = self.load_trip(trip_id)
+        existing = normalize_rate_snapshot(state.get("rate_snapshot"))
+        if existing:
+            return deepcopy(existing)
+        snapshot = normalize_rate_snapshot(
+            {
+                "date": (rates or {}).get("date"),
+                "rates": (rates or {}).get("rates"),
+                "frozen_at": utc_now_iso(),
+                "reason": reason,
+            }
+        )
+        if not snapshot:
+            return {}
+        state["rate_snapshot"] = snapshot
+        self._write_trip(state)
+        return deepcopy(snapshot)
 
     @staticmethod
     def _find(items: list[dict[str, Any]], item_id: str, label: str) -> dict[str, Any]:
@@ -1029,6 +1113,7 @@ class TravelArchiveStore:
 
     def panel_payload(self, trip_id: str) -> dict[str, Any]:
         state = self.load_trip(trip_id)
+        snapshot = normalize_rate_snapshot(state.get("rate_snapshot"))
         documents = sorted(state["documents"], key=lambda item: item.get("updated_at") or "", reverse=True)
         expenses = sorted(state["expenses"], key=lambda item: (item.get("date") or "", item.get("created_at") or ""), reverse=True)
         todos = sorted(
@@ -1093,6 +1178,14 @@ class TravelArchiveStore:
                 "storage_bytes": sum(int(item.get("size_bytes") or 0) for item in documents if item.get("file_retained")),
                 "totals_by_currency": totals,
                 "category_totals": category_totals,
+                # Only the label, never the rate table: the panel asks the
+                # rate action for the numbers and gets the frozen ones back.
+                "rate_snapshot": {
+                    "date": snapshot.get("date", ""),
+                    "frozen_at": snapshot.get("frozen_at", ""),
+                }
+                if snapshot
+                else {},
             },
         }
 
