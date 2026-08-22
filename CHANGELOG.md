@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.120.0] - 2026-08-22
+
 ### Added
 
 - **Kostenverteilung am Ende der Reise.** Das Kostenbuch zeigt jetzt ein Kreisdiagramm mit Legende: pro Kategorie Betrag und Anteil, größte zuerst. Mehr als acht Kategorien werden zu einem grauen „Weitere" zusammengefasst, das die Legende darunter wieder einzeln aufschlüsselt — es verschwindet also nichts. Bei mehreren Währungen wird in Euro umgerechnet und als Näherung ausgewiesen; fehlt zu einer Währung ein Kurs, wird sie benannt statt weggelassen, und ohne Kurse wird gar kein Kreis gezeichnet statt eines falschen. Die Farben halten ihren Kontrast auf hellem *und* dunklem Kartenhintergrund, weil das Panel nicht zuverlässig erkennen kann, welches Theme gerade aktiv ist.
