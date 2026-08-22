@@ -1705,12 +1705,25 @@ async def _execute_action(
         # job-id pattern before either side builds a path from it, which
         # is why there is nothing here to point somewhere else.
         try:
-            return {
-                "renderer_app_job": await runtime.renderer_app.async_submit_review_copy_job(
-                    source_job_id=str(data.get("job_id") or ""),
-                    profile_id=str(data.get("profile") or "") or DEFAULT_REVIEW_PROFILE,
+            source_job_id = str(data.get("job_id") or "")
+            review_job = await runtime.renderer_app.async_submit_review_copy_job(
+                source_job_id=source_job_id,
+                profile_id=str(data.get("profile") or "") or DEFAULT_REVIEW_PROFILE,
+            )
+            # The copy belongs to whoever the source belonged to. Written
+            # so a later question about the copy has the same provable
+            # answer as one about the film it was made from.
+            source_trip = await hass.async_add_executor_job(
+                runtime.job_ledger.trip_for, source_job_id
+            )
+            if source_trip:
+                await hass.async_add_executor_job(
+                    runtime.job_ledger.record,
+                    str(review_job.get("job_id") or ""),
+                    source_trip,
+                    "review_copy",
                 )
-            }
+            return {"renderer_app_job": review_job}
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
 
@@ -2072,6 +2085,12 @@ async def _execute_action(
             jobs = await runtime.renderer_app.async_recent_jobs()
         except RendererProtocolError as err:
             raise ValidationError(str(err)) from err
+        # Each job says which trip it was submitted for ("" = unknown,
+        # e.g. a test render or a job from before the ledger existed).
+        # The story tab needs this to adopt only its OWN trip's work -
+        # adopting "the newest one" showed another trip's render as this
+        # one's and made its film muxable under the wrong journey.
+        jobs = await hass.async_add_executor_job(runtime.job_ledger.annotate, jobs)
         active = next((job for job in jobs if not job.get("terminal")), None)
         result = None
         if active is None and jobs and jobs[0].get("state") == "completed":

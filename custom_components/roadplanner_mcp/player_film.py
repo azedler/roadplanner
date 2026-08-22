@@ -153,11 +153,18 @@ class PlayerFilmStore:
 class PlayerFilmService:
     """The player's answer to "what do I play, and from where?"."""
 
-    def __init__(self, hass, renderer_app, trip_video, store: PlayerFilmStore) -> None:
+    def __init__(
+        self, hass, renderer_app, trip_video, store: PlayerFilmStore, *, job_ledger=None
+    ) -> None:
         self._hass = hass
         self._renderer_app = renderer_app
         self._trip_video = trip_video
         self._store = store
+        # Job -> trip, written at submission. The rescue scan below used
+        # to take "the newest finished film, whoever made it" - which is
+        # how a fresh test trip's player showed the real journey's film,
+        # and vice versa. Provable ownership or nothing.
+        self._job_ledger = job_ledger
 
     # --- writing -------------------------------------------------------
 
@@ -201,7 +208,7 @@ class PlayerFilmService:
         changed = await self._async_promote_submission(entry)
         latest = entry.get("latest")
         if not isinstance(latest, dict):
-            found = await self._async_scan_for_film()
+            found = await self._async_scan_for_film(trip_id)
             if found:
                 entry["latest"] = found
                 latest = found
@@ -246,12 +253,17 @@ class PlayerFilmService:
             entry["latest"] = described
         return True
 
-    async def _async_scan_for_film(self) -> dict[str, Any] | None:
-        """No record yet: find the newest finished film on disk.
+    async def _async_scan_for_film(self, trip_id: str) -> dict[str, Any] | None:
+        """No record yet: find the newest finished film OF THIS TRIP.
 
-        For installations whose films predate this bookkeeping. Length is
-        the only thing left to tell a film from a quality excerpt once the
-        job file is gone, which is why submissions are recorded at all.
+        The scan exists for records that were lost, not for films that
+        were never this trip's. It used to take the newest finished film
+        regardless of who made it - the audited fault: a fresh test trip
+        adopted the real journey's film as its own, stored that, and
+        protected the wrong file from pruning. Now a job qualifies only
+        when the submission ledger says it was submitted for exactly this
+        trip. A job the ledger does not know is skipped: unprovable
+        ownership must never become an assignment.
         """
         try:
             jobs = await self._renderer_app.async_recent_jobs(limit=SCAN_LIMIT)
@@ -263,13 +275,28 @@ class PlayerFilmService:
                 continue
             if str(job.get("kind") or "") not in PLAYABLE_KINDS:
                 continue
-            described = await self._async_describe(str(job.get("job_id") or ""))
+            job_id = str(job.get("job_id") or "")
+            if not await self._async_job_belongs_to(job_id, trip_id):
+                continue
+            described = await self._async_describe(job_id)
             if not described:
                 continue
             if float(described.get("duration_seconds") or 0.0) < FULL_FILM_MIN_SECONDS:
                 continue
             return described
         return None
+
+    async def _async_job_belongs_to(self, job_id: str, trip_id: str) -> bool:
+        if self._job_ledger is None or not job_id:
+            return False
+        try:
+            owner = await self._hass.async_add_executor_job(
+                self._job_ledger.trip_for, job_id
+            )
+        except Exception:  # noqa: BLE001 - a probe must not break the player
+            _LOGGER.debug("Auftrags-Verzeichnis nicht lesbar", exc_info=True)
+            return False
+        return owner == str(trip_id or "")
 
     async def _async_describe(self, job_id: str) -> dict[str, Any] | None:
         """What a finished job produced, plus a URL a browser can use."""

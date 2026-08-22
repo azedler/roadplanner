@@ -143,6 +143,20 @@ export const storyEditorMixin = {
     this._storyFilmMusicOfferData = null;
     this._storyLatestFilm = undefined;
     this._storyLatestFilmAsked = false;
+    // The renderer block is trip state too, and it did NOT reset: the
+    // adopted job, the film source and the mix jobs of the previous
+    // trip survived the switch, so its render was shown - and muxable,
+    // and copyable - under the next trip (audited live). Cleared here,
+    // and the adoption flag reset so opening the story tab adopts anew
+    // for the trip that is actually on screen.
+    this._rendererAppJob = null;
+    this._rendererAppKind = "";
+    this._rendererAppResult = null;
+    this._rendererAppRecent = [];
+    this._rendererAppRecentAsked = false;
+    this._rendererAppAdoptTried = false;
+    this._storyFilmSetSource("", { isExcerpt: false });
+    this._storyMusicPrototypeJobs = {};
   },
 
   async _storyLoad({ force = false, quiet = false } = {}) {
