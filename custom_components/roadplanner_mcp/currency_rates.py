@@ -7,6 +7,11 @@ working day) so the panel can ADDITIONALLY show an approximate EUR total,
 clearly labeled with the rate date. Rates are cached in memory; on fetch
 failure the last known rates keep serving (stale is better than nothing
 for an explicitly approximate number).
+
+Once a trip is over its rates are FROZEN (see `trip_finished_reason` and
+`TravelArchiveStore.freeze_rate_snapshot`). A finished journey's cost
+overview is a closed record: it must show the same EUR total next month
+as today, instead of quietly moving with every ECB publication.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import date
 from typing import Any
 import xml.etree.ElementTree as ET
 
@@ -62,6 +68,33 @@ def parse_ecb_daily_rates(payload: bytes | str) -> dict[str, Any] | None:
     if not date or not rates:
         return None
     return {"base": "EUR", "date": date, "rates": rates}
+
+
+#: A trip in one of these states is done travelling, whatever its dates say.
+_FINISHED_TRIP_STATUS = {"completed", "archived"}
+
+
+def trip_finished_reason(trip: dict[str, Any], today: date) -> str:
+    """Why this trip counts as over, or "" while it is still running.
+
+    The reason is the return value rather than a bare True because it is
+    what the frozen snapshot records: "eingefroren" without saying what
+    ended the trip is exactly the missing answer that later reads as a
+    state of its own.
+    """
+    if not isinstance(trip, dict):
+        return ""
+    status = str(trip.get("status") or "").strip().lower()
+    if status in _FINISHED_TRIP_STATUS:
+        return f"trip_status:{status}"
+    raw_end = str(trip.get("end_date") or "").strip()
+    try:
+        end_date = date.fromisoformat(raw_end)
+    except ValueError:
+        return ""
+    # The last day still belongs to the trip - only the day AFTER it ends
+    # it, so a rate is never frozen while the crew is still spending.
+    return f"end_date:{raw_end}" if end_date < today else ""
 
 
 def eur_total(totals_by_currency: dict[str, Any], rates: dict[str, float]) -> dict[str, Any]:

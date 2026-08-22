@@ -110,7 +110,11 @@ function verifyTheImageShipsEveryModuleTheRendererImports() {
     new URL("../apps/roadplanner_renderer/Dockerfile", import.meta.url),
     "utf8",
   );
+  // Continuations first: the runtime COPY spans two lines with a trailing
+  // backslash, and reading only the first of them reported the modules on
+  // the second as missing - a false alarm about a file that is shipped.
   const copyLine = dockerfile
+    .replace(/\\\n\s*/g, " ")
     .split("\n")
     // The builder stage copies the whole tree ("COPY src/ ./src/"); the one
     // that matters is the runtime stage, which names files.

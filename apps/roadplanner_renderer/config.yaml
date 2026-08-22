@@ -7,7 +7,7 @@
 # plain container - a read/write mount of /share - because that shared
 # directory is the entire communication channel.
 name: Roadplanner Renderer (PoC)
-version: "0.29.0"
+version: "0.30.0"
 slug: roadplanner_renderer_poc
 description: >-
   Experimenteller Renderer. Enthaelt Remotion und Chromium und erzeugt auf
@@ -34,5 +34,14 @@ map:
 image: ghcr.io/azedler/roadplanner-renderer-poc-{arch}
 options:
   log_level: info
+  # How much room finished results may take in the shared folder, in GiB.
+  # Reachable here because it was not reachable anywhere: the environment
+  # variable existed, the app configuration did not offer it, and a user
+  # whose film was larger than the budget had no way to help themselves.
+  # The default matches two of the largest film the renderer will make -
+  # a film and its scored version have to fit side by side, because
+  # producing the second one reads the first.
+  max_result_gib: 4
 schema:
   log_level: list(debug|info|warning|error)
+  max_result_gib: float(1,64)

@@ -4,6 +4,7 @@ import {
   archiveStatusLabels,
 } from "../lib/constants.js";
 import { escapeHtml, cleanText } from "../lib/core-helpers.js";
+import { buildCostBreakdown, donutDashes } from "../lib/cost-breakdown.js";
 
 export const archiveMixin = {
   _archiveData() {
@@ -53,6 +54,50 @@ export const archiveMixin = {
     }
     summary.urgent = summary.overdue + summary.today;
     return summary;
+  },
+
+  /**
+   * The tasks that are actually due, most pressing first.
+   *
+   * Only overdue, today and the next 24 hours qualify. A task that is due
+   * next week is not "anstehend" - putting it on the dashboard would make
+   * the card permanent furniture, and permanent furniture is not read.
+   */
+  _dueTodos(limit = 4) {
+    const now = new Date();
+    const rank = { overdue: 0, today: 1, upcoming: 2 };
+    return (this._archiveData().todos || [])
+      .map((todo) => ({ todo, state: this._todoDueState(todo, now) }))
+      .filter((entry) => entry.state in rank)
+      .sort(
+        (a, b) =>
+          rank[a.state] - rank[b.state] ||
+          String(a.todo.due_at || "").localeCompare(String(b.todo.due_at || "")) ||
+          String(a.todo.id || "").localeCompare(String(b.todo.id || "")),
+      )
+      .slice(0, Math.max(0, limit))
+      .map((entry) => entry.todo);
+  },
+
+  /** The dashboard's top card - present only while something is due. */
+  _renderDueTodoCard() {
+    const due = this._dueTodos();
+    if (!due.length) return "";
+    const timing = this._todoTimingSummary();
+    const headline = timing.overdue
+      ? `${timing.overdue} überfällig${timing.today ? `, ${timing.today} heute` : ""}`
+      : timing.today
+        ? `${timing.today} heute fällig`
+        : "In den nächsten 24 Stunden";
+    const hidden = timing.urgent + timing.upcoming - due.length;
+    return `<section class="panel-card due-todo-card">
+        <div class="section-heading compact">
+          <div><span class="eyebrow">Jetzt dran</span><h2>${escapeHtml(headline)}</h2></div>
+          <button class="secondary-button compact-button" type="button" data-tab="archive"><ha-icon icon="mdi:checkbox-marked-circle-auto-outline"></ha-icon> Alle Aufgaben</button>
+        </div>
+        <div class="archive-list">${due.map((item) => this._renderArchiveTodoCard(item)).join("")}</div>
+        ${hidden > 0 ? `<p class="muted">und ${hidden} weitere fällige ${hidden === 1 ? "Aufgabe" : "Aufgaben"}</p>` : ""}
+      </section>`;
   },
 
   _todoDueLabel(todo) {
@@ -514,32 +559,67 @@ export const archiveMixin = {
 
   async _loadExchangeRates() {
     if (this._exchangeRatesLoading) return;
+    const tripId = this._selectedTripId || "";
     this._exchangeRatesLoading = true;
     const totals = this._archiveData().stats?.totals_by_currency || {};
-    const result = await this._runAction("get_exchange_rates", { totals_by_currency: totals }, "", {
-      refresh: false,
-      errorTitle: "EZB-Kurse nicht abrufbar",
-    });
+    const result = await this._runAction(
+      "get_exchange_rates",
+      { trip_id: tripId, totals_by_currency: totals },
+      "",
+      { refresh: false, errorTitle: "EZB-Kurse nicht abrufbar" },
+    );
     this._exchangeRatesLoading = false;
+    // The rates belong to the trip they were fetched for: a finished trip
+    // answers with ITS frozen rates, so carrying them over to the next
+    // trip would convert one journey's costs at another journey's rates.
+    this._exchangeRatesTripId = tripId;
     if (!result?.rates) {
       this._exchangeRatesFailed = true;
+      this._exchangeRates = null;
       this._render({ preserveScroll: true });
       return;
     }
     this._exchangeRates = result.rates;
+    this._exchangeRatesFrozen = Boolean(result.frozen);
     this._exchangeRatesFailed = false;
     this._render({ preserveScroll: true });
   },
 
+  /** The rates in force for the SELECTED trip, or null while unknown. */
+  _archiveRates() {
+    if (this._exchangeRatesTripId !== (this._selectedTripId || "")) return null;
+    return this._exchangeRates || null;
+  },
+
+  /** Ask for the rates once per trip, and only when they are needed. */
+  _archiveRequestRates() {
+    if (this._exchangeRatesTripId !== (this._selectedTripId || "")) {
+      this._exchangeRatesFailed = false;
+      void this._loadExchangeRates();
+      return "loading";
+    }
+    if (this._exchangeRates) return "ready";
+    if (this._exchangeRatesFailed) return "failed";
+    void this._loadExchangeRates();
+    return "loading";
+  },
+
+  _archiveRateSourceLabel() {
+    const rates = this._archiveRates();
+    const rateDate = cleanText(rates?.date);
+    if (!rateDate) return "";
+    const day = rateDate.split("-").reverse().join(".");
+    return this._exchangeRatesFrozen
+      ? `EZB-Kurse vom ${day}, für diese Reise eingefroren`
+      : `EZB-Kurse vom ${day}`;
+  },
+
   _archiveEurApproxLine() {
     if (!this._archiveNeedsConversion()) return "";
-    const rates = this._exchangeRates;
-    if (!rates) {
-      if (this._exchangeRatesFailed) return "";
-      // Lazy one-time fetch when the cost overview actually needs it.
-      void this._loadExchangeRates();
-      return `<p class="muted archive-eur-approx">≈ EUR-Gesamtsumme wird geladen …</p>`;
-    }
+    const state = this._archiveRequestRates();
+    if (state === "failed") return "";
+    if (state === "loading") return `<p class="muted archive-eur-approx">≈ EUR-Gesamtsumme wird geladen …</p>`;
+    const rates = this._archiveRates();
     const totals = this._archiveData().stats?.totals_by_currency || {};
     let total = 0;
     const missing = [];
@@ -552,10 +632,97 @@ export const archiveMixin = {
       if (Number.isFinite(rate) && rate > 0) total += value / rate;
       else missing.push(code);
     }
-    const rateDate = cleanText(rates.date);
-    const dateLabel = rateDate ? ` · EZB-Kurse vom ${rateDate.split("-").reverse().join(".")}` : "";
+    const source = this._archiveRateSourceLabel();
+    const dateLabel = source ? ` · ${source}` : "";
     const missingLabel = missing.length ? ` · ohne ${missing.join(", ")} (kein Kurs)` : "";
     return `<p class="muted archive-eur-approx"><strong>≈ ${this._formatMoney(Math.round(total * 100) / 100, "EUR")} gesamt</strong>${dateLabel}${missingLabel}</p>`;
+  },
+
+  _formatShare(share) {
+    const value = Number(share);
+    if (!Number.isFinite(value) || value <= 0) return "0 %";
+    const percent = value * 100;
+    return `${percent.toFixed(percent < 10 ? 1 : 0).replace(".", ",")} %`;
+  },
+
+  _archiveCostBreakdown() {
+    return buildCostBreakdown({
+      categoryTotals: this._archiveData().stats?.category_totals || {},
+      labels: archiveExpenseCategoryLabels,
+      rates: this._archiveRates()?.rates || null,
+    });
+  },
+
+  /**
+   * The cost split: one ring, and a legend that carries every number.
+   *
+   * The legend is not decoration around the chart, it IS the readable
+   * form - the ring only shows the proportions at a glance. That is also
+   * what keeps the lighter slice colours legible.
+   */
+  _renderArchiveCostSplit() {
+    const breakdown = this._archiveCostBreakdown();
+    if (!breakdown.ready) {
+      if (breakdown.reason === "no_expenses") return "";
+      // Several currencies and no rates to put them on one scale.
+      const state = this._archiveRequestRates();
+      if (state === "loading") return `<p class="muted">Kostenverteilung wird vorbereitet …</p>`;
+      return `<p class="muted">Die Kostenverteilung braucht einen Umrechnungskurs, um mehrere Währungen in einem Kreis zu zeigen. Die Summen je Währung stehen oben unverändert.</p>`;
+    }
+    const dashes = donutDashes(breakdown.segments);
+    const arcs = dashes
+      .map(
+        (segment) => `<circle class="cost-donut-arc" cx="21" cy="21" r="15.915" pathLength="100" fill="none"
+          stroke="${escapeHtml(segment.color)}" stroke-width="5"
+          stroke-dasharray="${segment.length} ${(100 - segment.length).toFixed(3)}"
+          stroke-dashoffset="${segment.dashOffset}"><title>${escapeHtml(segment.label)}: ${escapeHtml(this._formatMoney(segment.value, breakdown.currency))} (${escapeHtml(this._formatShare(segment.share))})</title></circle>`,
+      )
+      .join("");
+    const summary = breakdown.segments
+      .map((segment) => `${segment.label} ${this._formatShare(segment.share)}`)
+      .join(", ");
+    const legendRow = (item, extraClass = "") => `<li class="cost-legend-row${extraClass}">
+          <span class="cost-swatch" style="background:${escapeHtml(item.color)}"></span>
+          <span class="cost-legend-label">${escapeHtml(item.label)}</span>
+          <span class="cost-legend-value">${escapeHtml(this._formatMoney(item.value, breakdown.currency))}</span>
+          <span class="cost-legend-share">${escapeHtml(this._formatShare(item.share))}</span>
+        </li>`;
+    const byKey = new Map(breakdown.rows.map((row) => [row.key, row]));
+    // The legend follows the ring, so the grey wedge is a named entry and
+    // not an unexplained remainder - and the categories inside it are
+    // still listed, one indent further in, with their own numbers.
+    const legend = breakdown.segments
+      .map((segment) => {
+        const folded = (segment.folded || [])
+          .map((key) => byKey.get(key))
+          .filter(Boolean)
+          .map((row) => legendRow({ ...row, color: "transparent" }, " cost-legend-folded"))
+          .join("");
+        return legendRow(segment) + folded;
+      })
+      .join("");
+    // The hole in the ring has a fixed width, so a long sum is set
+    // smaller rather than allowed to run into the slices.
+    const totalText = this._formatMoney(breakdown.total, breakdown.currency);
+    const source = breakdown.approximate ? this._archiveRateSourceLabel() : "";
+    const notes = [
+      breakdown.approximate ? `Umgerechnet in Euro${source ? ` · ${source}` : ""}` : "",
+      breakdown.missing.length ? `ohne ${breakdown.missing.join(", ")} (kein Kurs)` : "",
+    ].filter(Boolean);
+    return `<div class="cost-split">
+        <div class="cost-donut">
+          <svg viewBox="0 0 42 42" role="img" aria-label="Kostenverteilung: ${escapeHtml(summary)}">
+            <circle class="cost-donut-track" cx="21" cy="21" r="15.915" pathLength="100" fill="none" stroke-width="5"></circle>
+            ${arcs}
+          </svg>
+          <div class="cost-donut-center">
+            <span class="cost-donut-total${totalText.length > 10 ? " compact" : ""}">${escapeHtml(totalText)}</span>
+            <span class="cost-donut-caption">${breakdown.approximate ? "≈ gesamt" : "gesamt"}</span>
+          </div>
+        </div>
+        <ul class="cost-legend">${legend}</ul>
+      </div>
+      ${notes.length ? `<p class="muted cost-split-note">${escapeHtml(notes.join(" · "))}</p>` : ""}`;
   },
 
   _renderArchive() {
@@ -577,6 +744,11 @@ export const archiveMixin = {
         </div>
       </section>
 
+      <section class="panel-card archive-section archive-todo-section">
+        <div class="section-heading"><div><span class="eyebrow">Durchführung</span><h2>Tagesaufgaben</h2></div>${this._canEdit() ? `<button class="secondary-button compact-button" type="button" data-action="archive-add-todo"><ha-icon icon="mdi:plus"></ha-icon> Aufgabe</button>` : ""}</div>
+        ${todos.length ? `<div class="archive-list">${todos.map((item) => this._renderArchiveTodoCard(item)).join("")}</div>` : `<p class="muted">Noch keine Aufgaben aus Buchungen oder manuell erfasst.</p>`}
+      </section>
+
       <section class="stat-grid archive-stats" aria-label="Dokumenten- und Kostenübersicht">
         ${this._statCard("mdi:file-document-multiple-outline", Number(stats.document_count || 0), "Dokumente")}
         ${this._statCard("mdi:cash-multiple", Number(stats.expense_count || 0), "Ausgaben")}
@@ -588,6 +760,7 @@ export const archiveMixin = {
         <div class="section-heading compact"><div><span class="eyebrow">Reisekosten</span><h2>${escapeHtml(this._archiveTotalText())}</h2></div>${this._canEdit() ? `<button class="secondary-button compact-button" type="button" data-action="archive-add-expense"><ha-icon icon="mdi:cash-plus"></ha-icon> Ausgabe</button>` : ""}</div>
         <p class="muted">Beträge werden je Währung getrennt summiert; die Originalbeträge bleiben unverändert.</p>
         ${this._archiveEurApproxLine()}
+        ${this._renderArchiveCostSplit()}
       </section>
 
       <section class="panel-card archive-section">
@@ -598,11 +771,6 @@ export const archiveMixin = {
       <section class="panel-card archive-section">
         <div class="section-heading"><div><span class="eyebrow">Kostenbuch</span><h2>Ausgaben</h2></div>${this._canEdit() ? `<button class="secondary-button compact-button" type="button" data-action="archive-add-expense"><ha-icon icon="mdi:plus"></ha-icon> Manuell</button>` : ""}</div>
         ${expenses.length ? `<div class="archive-list">${expenses.map((item) => this._renderArchiveExpenseCard(item)).join("")}</div>` : `<p class="muted">Noch keine Ausgaben erfasst.</p>`}
-      </section>
-
-      <section class="panel-card archive-section">
-        <div class="section-heading"><div><span class="eyebrow">Durchführung</span><h2>Tagesaufgaben</h2></div>${this._canEdit() ? `<button class="secondary-button compact-button" type="button" data-action="archive-add-todo"><ha-icon icon="mdi:plus"></ha-icon> Aufgabe</button>` : ""}</div>
-        ${todos.length ? `<div class="archive-list">${todos.map((item) => this._renderArchiveTodoCard(item)).join("")}</div>` : `<p class="muted">Noch keine Aufgaben aus Buchungen oder manuell erfasst.</p>`}
       </section>`;
   },
 

@@ -43,6 +43,7 @@ import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
 import {
   DEFAULT_RENDER_PROFILE,
   pixelFactor,
+  profileForSize,
   renderProfile,
 } from "./render_profiles.mjs";
 import {
@@ -984,6 +985,21 @@ export async function muxFilmMusic({
   return {
     facts: {
       ...facts,
+      // The measurement this job already made, KEPT. It was taken three
+      // lines up to refuse a silent mix, used for that, and then thrown
+      // away - so `has_audible_audio` was absent on every scored film,
+      // Roadplanner read `bool(None)`, and a film with a -7,4 dBFS
+      // soundtrack announced itself as "ohne Musik". The mux knew, it
+      // measured, and it did not say.
+      has_audible_audio: isAudible(heard) === true,
+      audio_peak_dbfs: typeof heard.maxDbfs === "number" ? heard.maxDbfs : null,
+      // And which size the film it was laid onto was rendered at. The
+      // download route used to guess this back out of the picture
+      // dimensions; the source knows it.
+      render_profile:
+        source.render_profile ||
+        facts.render_profile ||
+        profileForSize(facts.width, facts.height),
       music_sections: list.length,
       music_volume: volume,
       music_variant: variant || "",

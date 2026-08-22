@@ -58,8 +58,26 @@ class RendererJobLedger:
         jobs = raw.get("jobs") if isinstance(raw, dict) else None
         return jobs if isinstance(jobs, dict) else {}
 
-    def record(self, job_id: str, trip_id: str, kind: str = "") -> None:
-        """Remember that this job was submitted for this trip."""
+    def record(
+        self,
+        job_id: str,
+        trip_id: str,
+        kind: str = "",
+        excerpt: bool = False,
+        source_job_id: str = "",
+    ) -> None:
+        """Remember that this job was submitted for this trip.
+
+        `excerpt` and `source_job_id` are here for the same reason the
+        trip is: they are certain at submission and unknowable
+        afterwards. A quality excerpt is the same `kind` as a whole film
+        and produces the same artefact, so the finished job cannot be
+        told apart from a real film - and the panel, after a reload,
+        offered "Musik auflegen" on a 65-second excerpt, which would have
+        made that excerpt the trip's official film. `source_job_id` says
+        which silent film a mux was laid onto, so the panel can show the
+        scored film instead of offering to score it a second time.
+        """
         job_id = str(job_id or "")
         trip_id = str(trip_id or "")
         if not job_id or not trip_id:
@@ -68,6 +86,8 @@ class RendererJobLedger:
         jobs[job_id] = {
             "trip_id": trip_id,
             "kind": str(kind or ""),
+            "excerpt": bool(excerpt),
+            "source_job_id": str(source_job_id or ""),
             "recorded_at": utc_now_iso(),
         }
         if len(jobs) > MAX_ENTRIES:
@@ -96,14 +116,29 @@ class RendererJobLedger:
         trip_id = str(entry.get("trip_id") or "")
         return trip_id or None
 
+    def excerpt_for(self, job_id: str) -> bool:
+        """Whether this job was submitted as a quality excerpt."""
+        entry = self._load().get(str(job_id or ""))
+        return bool(entry.get("excerpt")) if isinstance(entry, dict) else False
+
     def annotate(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Return the job list with each job's trip_id attached (or "")."""
+        """Return the job list with what only submission knew attached."""
         known = self._load()
         annotated: list[dict[str, Any]] = []
         for job in jobs or []:
             if not isinstance(job, dict):
                 continue
             entry = known.get(str(job.get("job_id") or ""))
-            trip_id = str(entry.get("trip_id") or "") if isinstance(entry, dict) else ""
-            annotated.append({**job, "trip_id": trip_id})
+            entry = entry if isinstance(entry, dict) else {}
+            annotated.append(
+                {
+                    **job,
+                    "trip_id": str(entry.get("trip_id") or ""),
+                    # False for a job the ledger never saw, which is the
+                    # same answer the panel already gives such a job: it
+                    # is not adopted at all, so nothing reads this.
+                    "excerpt": bool(entry.get("excerpt")),
+                    "source_job_id": str(entry.get("source_job_id") or ""),
+                }
+            )
         return annotated

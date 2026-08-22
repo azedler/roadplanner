@@ -825,6 +825,80 @@ class RendererAppClient:
                 return kind
         return ""
 
+    async def async_restore_film_video(self, job_id: str, source: Path) -> bool:
+        """Put a finished film back where the mux job will look for it.
+
+        The exchange folder is short-lived on purpose: results age out
+        within a day and are dropped early when the disk runs low. But
+        putting music on a film reads the SOURCE JOB'S video file, so an
+        hour after the render the answer was "Zu diesem Auftrag gibt es
+        kein Ergebnis" and the only remedy was rendering the whole film
+        again - two hours for a soundtrack.
+
+        The library copy is that same film, kept for the player. Copying
+        it back into the job's result folder is what turns "gone" into
+        "a few seconds of work". Nothing else in the folder is written:
+        `result.json` stays absent, so nothing starts believing the job
+        is complete again.
+
+        Returns True when the file is in place afterwards.
+        """
+        validate_job_id(job_id)
+        return await self._hass.async_add_executor_job(
+            self._restore_film_video, job_id, source
+        )
+
+    def _restore_film_video(self, job_id: str, source: Path) -> bool:
+        """Blocking copy - executor only."""
+        target = self._dir / RESULTS_DIR / job_id / ARTIFACT_TRIP_FILM_VIDEO
+        if target.is_file():
+            return True
+        if not source.is_file():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Same folder for the temporary, so the rename is atomic: the
+        # worker must never pick up a half-copied film.
+        temporary = target.with_suffix(".mp4.part")
+        try:
+            shutil.copyfile(source, temporary)
+            os.replace(temporary, target)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            _LOGGER.warning(
+                "Der fertige Film konnte nicht in den Austauschordner "
+                "zurückgelegt werden (Auftrag %s)",
+                job_id,
+                exc_info=True,
+            )
+            return False
+        return True
+
+    async def async_pruned_for_space(self, job_id: str) -> bool:
+        """Whether this job's result was deleted to make room.
+
+        "Zu diesem Auftrag gibt es kein Ergebnis" is true and useless: it
+        reads as "this job produced nothing" when what happened is "your
+        film was deleted so a newer one would fit". The app writes the
+        difference down; this is where it is read.
+        """
+        validate_job_id(job_id)
+        return await self._hass.async_add_executor_job(self._pruned_for_space, job_id)
+
+    def _pruned_for_space(self, job_id: str) -> bool:
+        raw = self._read_bounded(self._dir / RESULTS_DIR / "pruned.json", MAX_JSON_BYTES)
+        if raw is None:
+            return False
+        try:
+            entries = decode_json(raw).get("pruned")
+        except RendererProtocolError:
+            return False
+        if not isinstance(entries, list):
+            return False
+        return any(
+            isinstance(entry, dict) and str(entry.get("job_id") or "") == job_id
+            for entry in entries
+        )
+
     async def async_result(self, job_id: str) -> dict[str, Any] | None:
         """Read and verify a finished job's artefacts, or None if absent."""
         validate_job_id(job_id)

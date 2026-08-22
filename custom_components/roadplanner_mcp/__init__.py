@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import secrets
 from typing import Any
 
@@ -205,7 +205,7 @@ from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
 from .character_asset_service import CharacterAssetService
-from .player_film import PlayerFilmService, PlayerFilmStore
+from .player_film import PlayerFilmService, PlayerFilmStore, library_filename
 from .character_asset_store import CharacterAssetStore
 from .renderer_job_ledger import RendererJobLedger
 from .trip_film_export import TripFilmExporter
@@ -930,6 +930,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # The player's own record says which file is a trip's film; the cap
     # now skips exactly those.
     trip_video.set_protected_filenames(player_film_store.protected_filenames)
+
+    def _recorded_film(trip_id: str) -> dict[str, Any]:
+        """This trip's finished film, as a job id, a path and a length.
+
+        The renderer's exchange folder forgets a result within the hour,
+        and putting music on a film reads its source there - so an hour
+        after a render the answer was "Zu diesem Auftrag gibt es kein
+        Ergebnis", and the film stayed silent forever unless somebody
+        rendered it again. The library copy is the same film; this is how
+        the exporter finds it without knowing anything about the player.
+        """
+        record = player_film_store.recorded_film(trip_id)
+        filename = library_filename(str(record.get("url") or ""))
+        path = trip_video.library_dir / filename if filename else None
+        if path is None or not path.is_file():
+            # The exchange copy is the fallback of the fallback: it is
+            # usually the thing that is gone, but when the library copy
+            # was pruned and this one survived, it is still the film.
+            source = Path(str(record.get("source_path") or ""))
+            path = source if str(source) and source.is_file() else None
+        if path is None:
+            return {}
+        return {**record, "path": path}
+
+    trip_film.set_film_source_resolver(_recorded_film)
 
     runtime = RoadplannerRuntimeData(
         manager=manager,

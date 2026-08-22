@@ -86,6 +86,7 @@ export const archiveExpenseCategoryLabels = {
   snack: "Imbiss",
   groceries: "Lebensmittel",
   ferry: "Fähre",
+  toll: "Maut",
   transport: "Transportmittel",
   other: "Sonstiges",
 };

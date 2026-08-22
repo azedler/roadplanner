@@ -202,6 +202,8 @@ export const tripDayStopMixin = {
         </div>
       </section>
 
+      ${this._renderDueTodoCard()}
+
       <section class="stat-grid planning-stats" aria-label="Reiseplanung">
         ${this._statCard("mdi:progress-check", `${planningProgress}%`, "Planungsstand")}
         ${this._statCard("mdi:road-variant", distance, summary.total_distance_km != null ? "berechnete Strecke" : "grobe Strecke offen")}

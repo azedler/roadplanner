@@ -95,6 +95,8 @@ export type FilmChapter = {
   title: string;
   story: string;
   storySource: string;
+  /** The plan already gives this chapter's text a page of its own. */
+  storyHasOwnScene?: boolean;
   importance: string;
   storyRole: string;
   dayNumber: number;
@@ -253,28 +255,57 @@ const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPho
         style={{
           // A scrim rather than a box: the picture stays visible and the
           // text stays readable over whatever happens to be underneath.
+          //
+          // Full width, and that is the whole point of the split. The
+          // gradient and the text's own width limit used to sit on ONE
+          // element, so the darkening stopped at MAX_TEXT_WIDTH - 1088
+          // of 1280 - and the remaining 192 px stayed bright. On screen
+          // that is a hard vertical edge running down through the
+          // photograph, measured at exactly 85% of the frame.
+          width: "100%",
+          boxSizing: "border-box",
           background: overPhoto
             ? "linear-gradient(transparent, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.78))"
             : "transparent",
           padding: overPhoto
             ? `150px ${SAFE_SIDE}px ${SAFE_BOTTOM}px`
             : `0 ${SAFE_SIDE + 14}px 0`,
-          fontFamily: "sans-serif",
-          color: INK,
-          fontSize: fitted.fontSize,
-          lineHeight: box.lineHeight,
-          maxWidth: MAX_TEXT_WIDTH,
-          // No clamp and no hidden overflow. A text that genuinely does
-          // not fit here never reaches this component - the planner
-          // gives it its own scene, which is the honest answer.
-          overflowWrap: "break-word",
         }}
       >
-        {fitted.text}
+        <div
+          style={{
+            fontFamily: "sans-serif",
+            color: INK,
+            fontSize: fitted.fontSize,
+            lineHeight: box.lineHeight,
+            // The text keeps the width it was fitted against; only the
+            // darkening behind it reaches the edges of the frame.
+            maxWidth: MAX_TEXT_WIDTH,
+            // No clamp and no hidden overflow. A text that genuinely does
+            // not fit here never reaches this component - the planner
+            // gives it its own scene, which is the honest answer.
+            overflowWrap: "break-word",
+          }}
+        >
+          {fitted.text}
+        </div>
       </div>
     </AbsoluteFill>
   );
 };
+
+/**
+ * The chapter's sentence over a picture - unless it already had its page.
+ *
+ * The planner gives a long text a scene of its own INSTEAD of the
+ * overlay. Nothing carried that decision across, so on a measured trip
+ * up to 22 of 23 chapters read the same sentence twice: first as a full
+ * page, then again over the first photograph, the collage and the clip.
+ * The flag is derived from the plan itself, so there is one decision and
+ * one place that makes it.
+ */
+const StoryCaption: React.FC<{ chapter: FilmChapter }> = ({ chapter }) =>
+  chapter.storyHasOwnScene ? null : <Caption text={chapter.story} overPhoto />;
 
 const IntroScene: React.FC<{
   trip: FilmTrip;
@@ -432,7 +463,7 @@ const PhotoScene: React.FC<{
           sentence over the second and third picture of a day was never
           read twice - it only covered them. */}
       {hero || (scene.photos[0] ?? 0) !== 0 ? null : (
-        <Caption text={chapter.story} overPhoto />
+        <StoryCaption chapter={chapter} />
       )}
     </AbsoluteFill>
   );
@@ -608,7 +639,7 @@ const CollageScene: React.FC<{ chapter: FilmChapter; scene: FilmScene }> = ({
           </div>
         );
       })}
-      <Caption text={chapter.story} overPhoto />
+      <StoryCaption chapter={chapter} />
     </AbsoluteFill>
   );
 };
@@ -1133,7 +1164,7 @@ const ClipScene: React.FC<{
         muted
         style={{ width: "100%", height: "100%", objectFit: "contain" }}
       />
-      <Caption text={chapter.story} overPhoto />
+      <StoryCaption chapter={chapter} />
     </AbsoluteFill>
   );
 };

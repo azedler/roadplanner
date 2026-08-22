@@ -27,6 +27,8 @@
  * filesystems, bind mounts), and a 1 s poll on a directory with a handful
  * of entries costs nothing measurable.
  */
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -54,7 +56,10 @@ import {
   isJobId,
   parseJob,
   sha256,
+  MAX_FILM_TOTAL_FRAMES,
 } from "./protocol.mjs";
+import { FILM_LIMITS, renderCeilingMs } from "./film_limits.mjs";
+import { pixelFactor, renderProfile } from "./render_profiles.mjs";
 
 const APP_VERSION = process.env.ROADPLANNER_APP_VERSION || "0.0.0-dev";
 const EXCHANGE_DIR =
@@ -84,17 +89,75 @@ const MAX_JOB_FILE_BYTES = 64 * 1024;
 const MAX_CONCURRENT_JOBS = 1;
 // A whole job, not just its render: claim, parse, render, probe, hash.
 const MAX_JOB_DURATION_MS = Number(process.env.ROADPLANNER_MAX_JOB_MS || 420_000);
-// A whole-trip film is minutes of video and therefore many minutes of
-// render. It gets its own ceiling rather than raising everyone's: a
-// fifteen-second clip that runs for half an hour is still broken.
-const MAX_FILM_JOB_DURATION_MS = Number(
-  process.env.ROADPLANNER_MAX_FILM_JOB_MS || 1_800_000,
+
+/**
+ * How long a FILM job may take before something is clearly wrong.
+ *
+ * Derived, not chosen. It was a flat half hour beside a render whose own
+ * ceiling follows the film - and every real film tripped it: the live log
+ * shows "Auftrag überschreitet die Gesamtdauer" on two renders that then
+ * went on to finish successfully after 6 765 s and 6 776 s. A limit that
+ * breaks on every legitimate run teaches everyone to ignore it, which is
+ * worse than having none.
+ *
+ * So it reads the same source the render does, for the longest film the
+ * protocol permits at the size this job is actually drawn at, plus the
+ * time everything around the render costs. What still catches a wedged
+ * browser is `FILM_LIMITS.stallTimeoutMs` - no progress at all - because
+ * a wall clock cannot tell "slow" from "stuck" and never could.
+ */
+const filmJobLimitMs = (profileId) =>
+  renderCeilingMs(
+    FILM_LIMITS,
+    MAX_FILM_TOTAL_FRAMES,
+    pixelFactor(renderProfile(profileId)),
+  ) + MAX_JOB_DURATION_MS;
+
+/**
+ * How much the results folder may hold.
+ *
+ * Also derived, and for a reason the live log spelled out: at 512 MB the
+ * budget was smaller than ONE film. A 1440p journey lands at 584 MB, so
+ * the moment it was written the folder was over budget and the oldest
+ * results were dropped - three of them in one second, including films
+ * somebody still wanted. That is what left a finished film impossible to
+ * score afterwards: the mux reads its source from exactly this folder.
+ *
+ * The floor is therefore "a film and its scored version, side by side" -
+ * that pairing MUST be able to coexist, because producing the second one
+ * reads the first. Two of the largest film the renderer will produce,
+ * which keeps this number honest when the size limit moves again.
+ */
+let maxResultBytes = Number(
+  process.env.ROADPLANNER_MAX_RESULT_BYTES || FILM_LIMITS.maxOutputBytes * 2,
 );
-// Anything left in results/ beyond this is from a run nobody came back
-// for; the shared folder must not grow without bound.
-const MAX_RESULT_BYTES = Number(
-  process.env.ROADPLANNER_MAX_RESULT_BYTES || 512 * 1024 * 1024,
-);
+
+/**
+ * How many of the newest results the space cleanup may never touch.
+ *
+ * The loop below evicts oldest-first while the folder is over budget, and
+ * `folders` contains EVERY surviving folder - including the one written
+ * seconds ago. When a single film is larger than the whole budget, that
+ * loop ran until it had deleted the film the worker had just finished.
+ * The live log caught it: three results dropped in one second, the
+ * newest among them, and putting music on that film was impossible ever
+ * after because the mux reads its source from exactly this folder.
+ *
+ * Three, because that is one journey: the film, the same film with its
+ * soundtrack, and a review copy. Everything older than those may go.
+ */
+const KEEP_RECENT_RESULTS = 3;
+
+/**
+ * Which results were dropped for space, so the reason survives them.
+ *
+ * "Zu diesem Auftrag gibt es kein Ergebnis" is true and useless - it
+ * reads as "this job never produced anything" when what happened is
+ * "your film was deleted to make room". Roadplanner reads this file to
+ * say the second thing.
+ */
+const PRUNED_LEDGER = "pruned.json";
+const MAX_PRUNED_ENTRIES = 200;
 
 let activeJobs = 0;
 
@@ -224,6 +287,37 @@ async function produceArtifacts(jobId, message) {
  * into memory beyond that: it is megabytes of binary that nothing on the
  * Home Assistant side displays.
  */
+/**
+ * A finished video's size and digest, without ever holding it in memory.
+ *
+ * This used to be `fs.readFile(target)` followed by `sha256(bytes)`, and
+ * it was by far the largest allocation this process ever made: the
+ * moment a render finished, a 584 MB journey became a 584 MB buffer.
+ * The live log shows what that cost - "Reisefilm abgeschlossen", then
+ * "Auftrag abgeschlossen", then `Killed`, the signature of an
+ * out-of-memory kill. The watchdog was off, so the add-on stayed down,
+ * and the automatic scoring that should have followed the render never
+ * ran: the film came out silent although music had been chosen.
+ *
+ * Nothing ever needed those bytes. The result manifest wants a length
+ * and a digest, and both can be had a chunk at a time - so a two-hour
+ * film now costs the same handful of megabytes as a ten-second one.
+ */
+async function describeVideoArtifact(file, filename) {
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })) {
+    size += chunk.length;
+    hash.update(chunk);
+  }
+  return {
+    kind: "video",
+    filename,
+    size_bytes: size,
+    sha256: hash.digest("hex"),
+  };
+}
+
 async function produceRemotionVideo(jobId, message, onProgress) {
   // Loaded only when a render is actually asked for. The plain test job
   // must keep working - and keep answering the deployment question - even
@@ -239,15 +333,7 @@ async function produceRemotionVideo(jobId, message, onProgress) {
     onProgress,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -280,15 +366,7 @@ async function produceTripDayVideo(jobId, onProgress) {
     onProgress,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_TRIP_DAY_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_TRIP_DAY_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -369,15 +447,7 @@ async function produceTripFilm(jobId, profileId, onProgress, isCancelled, frameR
     frameRange,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_TRIP_FILM_VIDEO,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_TRIP_FILM_VIDEO)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -431,15 +501,7 @@ async function produceReviewCopy(jobId, sourceJobId, profileId, onProgress, isCa
     isCancelled,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_REVIEW_COPY,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_REVIEW_COPY)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -511,15 +573,7 @@ async function produceFilmMusic(jobId, sourceJobId, onProgress, isCancelled) {
     isCancelled,
   });
 
-  const bytes = await fs.readFile(target);
-  const artifacts = [
-    {
-      kind: "video",
-      filename: ARTIFACT_FILM_WITH_MUSIC,
-      size_bytes: bytes.length,
-      sha256: sha256(bytes),
-    },
-  ];
+  const artifacts = [await describeVideoArtifact(target, ARTIFACT_FILM_WITH_MUSIC)];
   await writeAtomic(
     path.join(folder, "result.json"),
     `${JSON.stringify(
@@ -612,7 +666,7 @@ async function handleJob(name) {
     // and the clip's ceiling was never meant for either.
     if (job.action === "render_trip_film" || job.action === "create_review_copy") {
       clearTimeout(jobDeadline);
-      jobLimitMs = MAX_FILM_JOB_DURATION_MS;
+      jobLimitMs = filmJobLimitMs(job.renderProfile);
       jobDeadline = setTimeout(() => {
         log("error", "Auftrag überschreitet die Gesamtdauer", { job_id: jobId });
       }, jobLimitMs);
@@ -833,6 +887,38 @@ async function recoverInterrupted() {
   }
 }
 
+/**
+ * Remember that these results were dropped for space.
+ *
+ * Bounded and best-effort: the ledger exists so a later "where is my
+ * film?" can be answered with the truth instead of "there is no result",
+ * and a ledger that failed to write must never break the cleanup that
+ * was the actual job.
+ */
+async function recordPruned(jobIds) {
+  const file = path.join(DIRS.results, PRUNED_LEDGER);
+  let known = [];
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.pruned)) known = parsed.pruned;
+  } catch {
+    // No ledger yet, or an unreadable one. Either way it is rebuilt.
+  }
+  const at = formatTime(new Date());
+  const merged = [
+    ...known.filter((entry) => entry && typeof entry === "object" && isJobId(entry.job_id)),
+    ...jobIds.map((jobId) => ({ job_id: jobId, reason: "space", pruned_at: at })),
+  ].slice(-MAX_PRUNED_ENTRIES);
+  try {
+    await writeAtomic(file, `${JSON.stringify({ pruned: merged }, null, 2)}\n`);
+  } catch (err) {
+    log("warn", "Verzeichnis der aufgeräumten Ergebnisse nicht schreibbar", {
+      detail: String(err),
+    });
+  }
+}
+
 async function cleanupOldResults() {
   const cutoff = Date.now() - RESULT_RETENTION_MS;
   const names = (await fs.readdir(DIRS.results).catch(() => [])).filter(isJobId);
@@ -852,17 +938,35 @@ async function cleanupOldResults() {
   }
 
   // Age alone does not bound a folder that fills up faster than it ages.
-  // Oldest first until the total is back under the budget.
+  // Oldest first until the total is back under the budget - but the
+  // newest results are off limits whatever the arithmetic says. Without
+  // that, a single film larger than the whole budget made this loop run
+  // until it had deleted the film the worker had just produced.
   let total = await directorySize(DIRS.results);
   folders.sort((a, b) => a.mtime - b.mtime);
-  for (const entry of folders) {
-    if (total <= MAX_RESULT_BYTES) break;
+  const evictable =
+    folders.length > KEEP_RECENT_RESULTS ? folders.slice(0, -KEEP_RECENT_RESULTS) : [];
+  const pruned = [];
+  for (const entry of evictable) {
+    if (total <= maxResultBytes) break;
     const size = await directorySize(entry.folder);
     await fs.rm(entry.folder, { recursive: true, force: true }).catch(() => {});
     await fs.rm(path.join(DIRS.status, `${entry.name}.json`), { force: true }).catch(() => {});
     finished.delete(entry.name);
     total -= size;
+    pruned.push(entry.name);
     log("info", "Ergebnis wegen Platzgrenze aufgeräumt", { job_id: entry.name });
+  }
+  if (pruned.length) await recordPruned(pruned);
+  if (total > maxResultBytes) {
+    // Said out loud rather than solved by deleting something that is
+    // still wanted. A folder that stays over budget on its newest few
+    // results is a disk question, not a cleanup question.
+    log("warn", "Ergebnisordner bleibt über der Platzgrenze", {
+      bytes: total,
+      limit: maxResultBytes,
+      kept: Math.min(folders.length, KEEP_RECENT_RESULTS),
+    });
   }
 
   // An input package whose job never arrived - Roadplanner wrote it while
@@ -893,10 +997,44 @@ async function cleanupOldResults() {
   }
 }
 
+/**
+ * What the user set in the app's own configuration.
+ *
+ * Only one thing is readable here so far, and it is the one a user could
+ * not otherwise reach: how much room the results folder may take. The
+ * environment variable still wins, because that is the deliberate
+ * override; the option exists so somebody with a small disk - or a very
+ * large film - is not stuck with a number they cannot see.
+ */
+async function applyAddonOptions() {
+  let raw;
+  try {
+    raw = await fs.readFile("/data/options.json", "utf8");
+  } catch {
+    return; // Not running as a Home Assistant app. Defaults stand.
+  }
+  let options;
+  try {
+    options = JSON.parse(raw);
+  } catch {
+    log("warn", "Die App-Konfiguration ist kein gültiges JSON - Standardwerte gelten");
+    return;
+  }
+  const gib = Number(options?.max_result_gib);
+  if (process.env.ROADPLANNER_MAX_RESULT_BYTES) return;
+  if (Number.isFinite(gib) && gib > 0) {
+    maxResultBytes = Math.round(gib * 1024 * 1024 * 1024);
+    log("info", "Platzgrenze für Ergebnisse aus der Konfiguration", {
+      bytes: maxResultBytes,
+    });
+  }
+}
+
 async function main() {
   for (const dir of Object.values(DIRS)) {
     await fs.mkdir(dir, { recursive: true });
   }
+  await applyAddonOptions();
   log("info", "Renderer-App startet", { version: APP_VERSION, exchange_dir: EXCHANGE_DIR });
   await writeHeartbeat();
   await recoverInterrupted();

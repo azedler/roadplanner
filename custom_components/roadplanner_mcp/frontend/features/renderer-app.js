@@ -269,10 +269,22 @@ export const rendererAppMixin = {
     const film = recent.find(
       (job) =>
         job?.kind === "trip_film" && job?.state === "completed" && job?.job_id
-        && mine(job),
+        && mine(job)
+        // A quality excerpt is the SAME kind of job, produces the same
+        // artefact and finishes the same way - so "the newest finished
+        // trip_film" found a 65-second excerpt and called it the film.
+        // Muxing music onto that would have recorded the excerpt as the
+        // trip's official film, and the real one would have needed a
+        // two-hour re-render to come back. The ledger knows which was
+        // which, because submission knew.
+        && job?.excerpt !== true,
     );
     if (film) {
-      this._storyFilmSourceJobId = film.job_id;
+      // Through the setter, never by assignment. `isExcerpt` used to keep
+      // whatever value it already had - which after a reload was the
+      // initial `false` - so an excerpt adopted here announced itself as
+      // a whole film. The source is one decision and it is made here.
+      this._storyFilmSetSource(film.job_id, { isExcerpt: false });
       // Whether that film already carries a soundtrack. A comparison
       // fassung can only go onto a SILENT film, and an excerpt rendered
       // with a track selected is not silent - the mux refuses it, which
@@ -286,12 +298,27 @@ export const rendererAppMixin = {
       // source at all.
       this._storyFilmSourceHasAudio =
         typeof film.has_audio === "boolean" ? film.has_audio : undefined;
+      // And if that silent film has ALREADY been scored, the scored one
+      // is what exists now. Without this the card showed both at once:
+      // "Film mit Musik herunterladen" beside "Musik auflegen", and
+      // pressing the second laid the same paid music onto the same
+      // silent film a second time - another full-size result in a folder
+      // that is bounded by size.
+      const scored = recent.find(
+        (job) =>
+          job?.kind === "film_music"
+          && job?.state === "completed"
+          && job?.job_id
+          && mine(job)
+          && job?.source_job_id === film.job_id,
+      );
+      if (scored) this._storyFilmSourceHasAudio = true;
       // The reload gap: a film that finished SILENT while nobody was
       // watching should offer its "Musik auflegen" button, and that
       // button only appears once the offer says the sections exist. A
       // page that adopts such a film asks now instead of waiting for
       // somebody to re-open the music picker.
-      if (film.has_audio === false) void this._storyFilmMusicOffer?.();
+      if (!scored && film.has_audio === false) void this._storyFilmMusicOffer?.();
     }
 
     // And the comparison fassungen that were already mixed. The browser
