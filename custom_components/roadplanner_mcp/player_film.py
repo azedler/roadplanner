@@ -341,7 +341,7 @@ class PlayerFilmService:
         url = await self._async_adopt(Path(video_path))
         if not url:
             return None
-        return {
+        described = {
             "job_id": job_id,
             "url": url,
             "created_at": str((result or {}).get("completed_at") or "") or utc_now_iso(),
@@ -349,10 +349,19 @@ class PlayerFilmService:
             "width": int(facts.get("width") or 0),
             "height": int(facts.get("height") or 0),
             "duration_seconds": float(facts.get("duration_seconds") or 0.0),
-            # Measured, never inferred from whether music was requested.
-            "has_music": bool(facts.get("has_audible_audio")),
             "source_path": video_path,
         }
+        # Measured, never inferred from whether music was requested - and
+        # ABSENT when nobody measured. `bool(None)` is `False`, so an
+        # unmeasured film used to arrive as a positive claim of silence,
+        # and the card printed "ohne Musik" over an audible soundtrack.
+        # The browser already reads this as a three-valued field
+        # (`typeof film.has_music === "boolean"`); a missing key is the
+        # third value.
+        audible = facts.get("has_audible_audio")
+        if isinstance(audible, bool):
+            described["has_music"] = audible
+        return described
 
     async def _async_ensure_playable(self, latest: dict[str, Any]) -> bool:
         """Re-adopt if the library copy was pruned away. True if changed."""

@@ -590,6 +590,16 @@ def _video_facts(raw: Any) -> dict[str, Any] | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
         return float(value)
+    def flag(key: str) -> bool | None:
+        """A measured yes/no, or nothing. `None` is the third value.
+
+        Coercing an absent measurement to `False` here is what made a
+        -7,1 dBFS soundtrack announce itself as "ohne Musik": the reader
+        below wrote `bool(facts.get(...))` and could not tell "measured
+        as silent" from "this field never travelled".
+        """
+        value = raw.get(key)
+        return value if isinstance(value, bool) else None
     return {
         "codec": clean_text(raw.get("codec"), limit=40),
         "container": clean_text(raw.get("container"), limit=40),
@@ -616,6 +626,14 @@ def _video_facts(raw: Any) -> dict[str, Any] | None:
         "source_width": number("source_width"),
         "source_height": number("source_height"),
         "video_bitrate_bps": number("video_bitrate_bps"),
+        # Whether the finished file can be HEARD, measured on the file
+        # itself - and the peak behind that answer. The mux measures both
+        # to refuse a silent mix; this whitelist used to drop them on the
+        # way in, so the renderer half of the fix never reached the panel.
+        # `has_audio` deliberately does NOT travel: every Remotion render
+        # carries an AAC track, so it is true for every silent film.
+        "has_audible_audio": flag("has_audible_audio"),
+        "audio_peak_dbfs": number("audio_peak_dbfs"),
     }
 
 
