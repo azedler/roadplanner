@@ -865,7 +865,12 @@ export const storyEditorMixin = {
     const parts = [];
     if (Number(film.duration_seconds) > 0) parts.push(this._storyFilmClock(film.duration_seconds));
     if (film.width && film.height) parts.push(`${film.width}×${film.height}`);
-    parts.push(film.has_music ? "mit Musik" : "ohne Musik");
+    // Only when it was measured. "ohne Musik" is a claim about the file,
+    // and the field is deliberately three-valued - saying nothing is the
+    // honest line for a film nobody metered.
+    if (typeof film.has_music === "boolean") {
+      parts.push(film.has_music ? "mit Musik" : "ohne Musik");
+    }
     return `<div class="latest-film">
       <video src="${escapeHtml(String(film.url))}" controls preload="metadata" playsinline></video>
       <div class="latest-film-meta">
@@ -1871,6 +1876,14 @@ export const storyEditorMixin = {
   _renderStoryFilmAddMusic() {
     const offer = this._storyFilmMusicOfferData;
     if (!this._storyFilmSourceJobId || this._storyFilmSourceIsExcerpt) return "";
+    // Already scored. The adoption works out which silent render a
+    // finished mux belongs to and sets this - and then nothing read it,
+    // so "Film mit Musik herunterladen" and "Musik auflegen" stood side
+    // by side and one press laid the paid-for score on a second time.
+    //
+    // `=== true`, never truthy: `undefined` means nobody measured, and
+    // an unmeasured film must keep its offer.
+    if (this._storyFilmSourceHasAudio === true) return "";
     if (!offer) return "";
     // Every section already generated - anything less would put a score
     // on that goes quiet partway through.
