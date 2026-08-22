@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.120.1] - 2026-08-22
+
 ### Fixed
 
 - **Der vertonte Film meldete weiterhin „ohne Musik".** In 4.120.0 maß der Mux den Pegel korrekt und schrieb ihn in sein Ergebnis — nur kam er in Home Assistant nie an. Zwischen Renderer und Integration steht eine strikte Whitelist, die alles verwirft, was sie nicht namentlich kennt, und `has_audible_audio` stand nicht darin. Eine Tonspur mit -7,1 dBFS Spitze wurde so als `bool(None)`, also als „nein", gelesen. Beide Messwerte fahren jetzt mit — und sie behalten ihren dritten Wert: Wurde nicht gemessen, sagt die Karte gar nichts über die Musik, statt Stille zu behaupten. Ein neuer Vertragstest prüft die Grenze selbst: Jedes Feld, das der Renderer schreibt, muss entweder übertragen werden oder mit Begründung als bewusst verworfen eingetragen sein, und jedes Feld, das die Integration liest, muss die Whitelist auch tatsächlich passieren.
