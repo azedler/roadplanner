@@ -84,6 +84,20 @@ FULL_FILM_MIN_SECONDS = QA_MAX_SECONDS + 30.0
 SCAN_LIMIT = 24
 
 
+
+def library_filename(url: str) -> str:
+    """The stored filename a library URL points at.
+
+    Split off the query first: the same route now answers a download with
+    `?download=1`, and a filename that quietly carried that suffix would
+    match nothing on disk - so the file would read as "gone" and the
+    protection that keeps a trip's film from being pruned would protect
+    the wrong name.
+    """
+    text = str(url or "").split("?", 1)[0].split("#", 1)[0]
+    return text.rsplit("/", 1)[-1] if text else ""
+
+
 class PlayerFilmStore:
     """Per-trip record of what was submitted and what finished."""
 
@@ -133,7 +147,7 @@ class PlayerFilmStore:
             if not isinstance(latest, dict):
                 continue
             url = str(latest.get("url") or "")
-            name = url.rsplit("/", 1)[-1] if url else ""
+            name = library_filename(url)
             if name:
                 protected.add(name)
         return protected
@@ -343,7 +357,7 @@ class PlayerFilmService:
     async def _async_ensure_playable(self, latest: dict[str, Any]) -> bool:
         """Re-adopt if the library copy was pruned away. True if changed."""
         url = str(latest.get("url") or "")
-        filename = url.rsplit("/", 1)[-1] if url else ""
+        filename = library_filename(url)
         if filename and await self._hass.async_add_executor_job(
             self._library_has, filename
         ):

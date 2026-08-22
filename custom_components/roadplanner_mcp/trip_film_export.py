@@ -85,6 +85,49 @@ _LOGGER = logging.getLogger(__name__)
 GENERATED_MUSIC = "__generated__"
 
 
+def stretch_last_section(
+    timeline: list[dict[str, Any]], film_seconds: float
+) -> list[dict[str, Any]]:
+    """Let the closing section carry all the way to the film's end.
+
+    The plan is laid out against the ESTIMATED length, and the finished
+    film is longer - measured: 150,0 s of music under a 153,7 s film, and
+    713,3 s under a 733,9 s one. The score therefore stopped where the
+    estimate had and the film ran out in silence, 3,7 s on a short film
+    and 20,6 s on a long one.
+
+    The code already handled the opposite case (a section starting after
+    the measured end is dropped and said out loud); this is the missing
+    direction. Nothing new is generated - the last section repeats what
+    was already paid for, which is why it comes back with `loop` set -
+    and its fade-out moves to the real end so the music decays into the
+    last frame instead of stopping short of it.
+    """
+    if not timeline or not (film_seconds > 0):
+        return timeline
+    stretched = [dict(entry) for entry in timeline]
+    last = stretched[-1]
+    start = max(0.0, float(last.get("start_seconds") or 0.0))
+    length = max(0.0, float(last.get("seconds") or 0.0))
+    missing = film_seconds - (start + length)
+    # Under a frame is not a gap anybody hears, and stretching for it
+    # would loop a section for a few milliseconds of audio.
+    if missing <= 0.05:
+        return timeline
+    last["seconds"] = round(film_seconds - start, 2)
+    last["loop"] = True
+    fade_out = float(last.get("fade_out_seconds") or 0.0)
+    if fade_out > 0:
+        last["fade_out_seconds"] = round(min(fade_out, last["seconds"] / 2), 2)
+    _LOGGER.info(
+        "Der letzte Musikabschnitt wird um %.1f s bis zum gemessenen Filmende "
+        "(%.1f s) verlängert",
+        missing,
+        film_seconds,
+    )
+    return stretched
+
+
 class TripFilmExporter:
     """Assemble a whole-trip film package and hand it to the renderer app."""
 
@@ -195,6 +238,22 @@ class TripFilmExporter:
         if record and recorded > 0:
             return recorded
         if not result and not record:
+            # Why it is gone, not just that it is. "Zu diesem Auftrag gibt
+            # es kein Ergebnis" sent somebody looking for a job that had
+            # failed, when the job had succeeded and its film had been
+            # deleted to make room for a newer one.
+            pruned = False
+            try:
+                pruned = await self._renderer_app.async_pruned_for_space(job_id)
+            except Exception:  # noqa: BLE001 - a reason must not become the error
+                _LOGGER.debug("Verzeichnis aufgeräumter Ergebnisse nicht lesbar", exc_info=True)
+            if pruned:
+                raise ValidationError(
+                    "Der fertige Film wurde im Austauschordner aus Platzgründen "
+                    "aufgeräumt, und es ist keine abgelegte Kopie zu ihm "
+                    "auffindbar. Musik kann nur auf einen vorhandenen Film "
+                    "gelegt werden - dafür müsste er neu gerendert werden."
+                )
             raise ValidationError(
                 "Dieser Film liegt nicht mehr im Austauschordner des Renderers, "
                 "und es ist keine abgelegte Kopie zu ihm auffindbar. Musik kann "
@@ -205,12 +264,43 @@ class TripFilmExporter:
             "Dieser Auftrag hat keine gemessene Filmlänge - Musik braucht sie."
         )
 
-    async def _async_record_job(self, job_id: str, trip_id: str, kind: str) -> None:
+    async def _async_record_job(
+        self,
+        job_id: str,
+        trip_id: str,
+        kind: str,
+        *,
+        excerpt: bool = False,
+        source_job_id: str = "",
+    ) -> None:
         if self._job_ledger is None or not job_id:
             return
         await self._hass.async_add_executor_job(
-            self._job_ledger.record, job_id, trip_id, kind
+            self._job_ledger.record, job_id, trip_id, kind, excerpt, source_job_id
         )
+
+    async def _async_assert_not_an_excerpt(self, job_id: str) -> None:
+        """Refuse to treat a quality excerpt as the trip's film.
+
+        A 65-second excerpt is the same `kind` of job as a whole film and
+        produces the same artefact, so after a reload the panel offered
+        "Musik auflegen" on one - and this call records its result
+        unconditionally as the trip's film. The excerpt with music would
+        have become the film on the wall, and the real film would have
+        needed a two-hour re-render to come back. The panel now knows the
+        difference too; this is the side that must not depend on it.
+        """
+        if self._job_ledger is None:
+            return
+        is_excerpt = await self._hass.async_add_executor_job(
+            self._job_ledger.excerpt_for, job_id
+        )
+        if is_excerpt:
+            raise ValidationError(
+                "Dieser Auftrag ist ein Prüfausschnitt, nicht der Reisefilm. "
+                "Musik gehört auf den ganzen Film - bitte zuerst den Film "
+                "rendern und ihn dann vertonen."
+            )
 
     async def _async_assert_job_belongs_to(self, job_id: str, trip_id: str) -> None:
         """Refuse to connect a job to a trip it was not submitted for.
@@ -392,7 +482,7 @@ class TripFilmExporter:
             title=f"Musikvergleich {variant}",
         )
         await self._async_record_job(
-            str(submitted.get("job_id") or ""), trip_id, "film_music"
+            str(submitted.get("job_id") or ""), trip_id, "film_music", source_job_id=job_id
         )
         return {
             **submitted,
@@ -416,6 +506,7 @@ class TripFilmExporter:
         panel is where that is decided and paid for.
         """
         await self._async_assert_job_belongs_to(job_id, trip_id)
+        await self._async_assert_not_an_excerpt(job_id)
         if self._music_timeline is None:
             raise ValidationError("Für diese Installation gibt es keine erzeugte Musik.")
         # Measured, never defaulted: fitting the score to a length nobody
@@ -457,6 +548,7 @@ class TripFilmExporter:
                 "Die erzeugte Musik passt nicht zu diesem Film - alle "
                 "Abschnitte beginnen nach seinem Ende."
             )
+        timeline = stretch_last_section(timeline, seconds)
         try:
             music, files = await self._hass.async_add_executor_job(
                 build_music_timeline_package, timeline
@@ -473,7 +565,7 @@ class TripFilmExporter:
             files=files,
         )
         await self._async_record_job(
-            str(submitted.get("job_id") or ""), trip_id, "film_music"
+            str(submitted.get("job_id") or ""), trip_id, "film_music", source_job_id=job_id
         )
         _LOGGER.debug(
             "Musik für %s aufgelegt: %s Abschnitte auf %.1f s",
@@ -667,7 +759,7 @@ class TripFilmExporter:
             frame_range=window,
         )
         await self._async_record_job(
-            str(submitted.get("job_id") or ""), trip_id, "trip_film"
+            str(submitted.get("job_id") or ""), trip_id, "trip_film", excerpt=bool(excerpt)
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
         _LOGGER.debug(

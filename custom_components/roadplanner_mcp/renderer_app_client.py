@@ -873,6 +873,32 @@ class RendererAppClient:
             return False
         return True
 
+    async def async_pruned_for_space(self, job_id: str) -> bool:
+        """Whether this job's result was deleted to make room.
+
+        "Zu diesem Auftrag gibt es kein Ergebnis" is true and useless: it
+        reads as "this job produced nothing" when what happened is "your
+        film was deleted so a newer one would fit". The app writes the
+        difference down; this is where it is read.
+        """
+        validate_job_id(job_id)
+        return await self._hass.async_add_executor_job(self._pruned_for_space, job_id)
+
+    def _pruned_for_space(self, job_id: str) -> bool:
+        raw = self._read_bounded(self._dir / RESULTS_DIR / "pruned.json", MAX_JSON_BYTES)
+        if raw is None:
+            return False
+        try:
+            entries = decode_json(raw).get("pruned")
+        except RendererProtocolError:
+            return False
+        if not isinstance(entries, list):
+            return False
+        return any(
+            isinstance(entry, dict) and str(entry.get("job_id") or "") == job_id
+            for entry in entries
+        )
+
     async def async_result(self, job_id: str) -> dict[str, Any] | None:
         """Read and verify a finished job's artefacts, or None if absent."""
         validate_job_id(job_id)

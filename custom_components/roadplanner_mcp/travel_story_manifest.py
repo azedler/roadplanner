@@ -245,6 +245,25 @@ _OPENINGS_WITHOUT_TITLE = (
     "Tag {number} unterwegs.",
 )
 
+#: A title that already opens with its own day number, e.g. "Tag 2 - Ostsee".
+_DAY_NUMBER_PREFIX = re.compile(r"^\s*Tag\s+\d+\s*(?:[-\u2013\u2014:\u00b7.]+\s*)?", re.IGNORECASE)
+
+
+def title_without_day_prefix(title: str) -> str:
+    """The title with its leading "Tag N" stripped, if it carries one.
+
+    Every opening below states the day number itself, and day titles very
+    commonly start with that same number - so the composed text came out
+    as "Tag 2: Tag 2 - Ostsee", with the number a third time on the
+    chapter card above it. The number belongs to the facts, which is
+    where the opening takes it from; the title only has to say where the
+    day goes.
+
+    A title that is NOTHING but its day number leaves nothing behind,
+    and the caller then uses the opening that needs no title at all.
+    """
+    return _DAY_NUMBER_PREFIX.sub("", str(title or ""), count=1).strip()
+
 
 def compose_story(facts: dict[str, Any], *, index: int, title: str, stop_names: list[str]) -> str:
     """Assemble a short chapter text from the facts of that chapter.
@@ -256,7 +275,7 @@ def compose_story(facts: dict[str, Any], *, index: int, title: str, stop_names: 
     all this function is allowed to choose.
     """
     number = facts.get("day_number") or index + 1
-    clean_title = clean_line(title, limit=MAX_TITLE_LENGTH)
+    clean_title = title_without_day_prefix(clean_line(title, limit=MAX_TITLE_LENGTH))
     if clean_title:
         opening = _OPENINGS[index % len(_OPENINGS)].format(number=number, title=clean_title)
     else:

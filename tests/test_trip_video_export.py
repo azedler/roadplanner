@@ -380,7 +380,11 @@ def verify_async_generate_and_publish_saves_and_notifies() -> None:
                 export_module.async_run_ffmpeg = original_run
 
             assert download_url.startswith("/api/roadplanner/trip_video_library/")
-            filename = download_url.rsplit("/", 1)[-1]
+            # The link a NOTIFICATION carries is meant to be saved, so it
+            # asks for the download disposition. The same route without
+            # that marker is what the player plays - see #376.
+            assert download_url.endswith("?download=1"), download_url
+            filename = download_url.split("?", 1)[0].rsplit("/", 1)[-1]
             assert (Path(tmp) / filename).read_bytes() == b"fake-rendered-video"
             assert len(hass.services.calls) == 1
             assert download_url in hass.services.calls[0][2]["message"]

@@ -205,7 +205,7 @@ from .story_director_service import StoryDirectorService
 from .story_override_service import StoryOverrideService
 from .trip_day_mini_export import TripDayMiniExporter
 from .character_asset_service import CharacterAssetService
-from .player_film import PlayerFilmService, PlayerFilmStore
+from .player_film import PlayerFilmService, PlayerFilmStore, library_filename
 from .character_asset_store import CharacterAssetStore
 from .renderer_job_ledger import RendererJobLedger
 from .trip_film_export import TripFilmExporter
@@ -942,8 +942,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         the exporter finds it without knowing anything about the player.
         """
         record = player_film_store.recorded_film(trip_id)
-        url = str(record.get("url") or "")
-        filename = url.rsplit("/", 1)[-1] if url else ""
+        filename = library_filename(str(record.get("url") or ""))
         path = trip_video.library_dir / filename if filename else None
         if path is None or not path.is_file():
             # The exchange copy is the fallback of the fallback: it is

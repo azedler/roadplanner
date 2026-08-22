@@ -67,6 +67,7 @@ def load(name: str):
 
 
 player_film = load("player_film")
+ledger_module = load("renderer_job_ledger")
 trip_film_export = load("trip_film_export")
 roadplanner = load("roadplanner")
 
@@ -225,6 +226,99 @@ def verify_the_mux_still_refuses_a_job_from_another_trip() -> None:
     assert 'record.get("job_id")' in restore, "the record has to be about THIS job"
 
 
+def verify_a_quality_excerpt_is_never_muxed_into_the_trips_film() -> None:
+    """#377: an excerpt is the same kind of job as a whole film.
+
+    The panel offered "Musik auflegen" on a 65-second excerpt after a
+    reload, and `async_add_music` records its result unconditionally as
+    the trip's film - so the excerpt with music would have become the
+    film on the wall. The panel now knows the difference; this is the
+    side that must not depend on it.
+    """
+    with tempfile.TemporaryDirectory() as base:
+        ledger = ledger_module.RendererJobLedger(Path(base) / "jobs.json")
+        ledger.record(JOB, "trip-a", "trip_film", True, "")
+        assert ledger.excerpt_for(JOB) is True
+        made = trip_film_export.TripFilmExporter(
+            FakeHass(), None, None, None, FakeRendererApp(), job_ledger=ledger
+        )
+        try:
+            run(made._async_assert_not_an_excerpt(JOB))
+        except roadplanner.ValidationError as err:
+            assert "Prüfausschnitt" in str(err), str(err)
+        else:  # pragma: no cover - the refusal is the point
+            raise AssertionError("an excerpt was accepted as the trip's film")
+
+
+def verify_a_whole_film_passes_that_same_gate() -> None:
+    with tempfile.TemporaryDirectory() as base:
+        ledger = ledger_module.RendererJobLedger(Path(base) / "jobs.json")
+        ledger.record(JOB, "trip-a", "trip_film", False, "")
+        made = trip_film_export.TripFilmExporter(
+            FakeHass(), None, None, None, FakeRendererApp(), job_ledger=ledger
+        )
+        run(made._async_assert_not_an_excerpt(JOB))  # must not raise
+        assert ledger.excerpt_for("unknown-job") is False
+
+
+def verify_the_ledger_says_which_film_a_mux_was_laid_onto() -> None:
+    with tempfile.TemporaryDirectory() as base:
+        ledger = ledger_module.RendererJobLedger(Path(base) / "jobs.json")
+        ledger.record(JOB, "trip-a", "trip_film", False, "")
+        ledger.record(OTHER_JOB, "trip-a", "film_music", False, JOB)
+        annotated = ledger.annotate(
+            [{"job_id": JOB, "kind": "trip_film"}, {"job_id": OTHER_JOB, "kind": "film_music"}]
+        )
+        assert annotated[0]["excerpt"] is False
+        assert annotated[0]["source_job_id"] == ""
+        assert annotated[1]["source_job_id"] == JOB, annotated[1]
+        # A job the ledger never saw answers honestly rather than absently.
+        unknown = ledger.annotate([{"job_id": "nope", "kind": "trip_film"}])[0]
+        assert unknown["trip_id"] == ""
+        assert unknown["excerpt"] is False
+        assert unknown["source_job_id"] == ""
+
+
+def verify_the_last_music_section_carries_to_the_measured_end() -> None:
+    """M-3 (#378), against the two lengths the live test measured."""
+    stretch = trip_film_export.stretch_last_section
+    short = stretch(
+        [{"name": "a", "start_seconds": 0.0, "seconds": 150.0, "fade_out_seconds": 4.0}],
+        153.7,
+    )
+    assert short[-1]["seconds"] == 153.7, short
+    assert short[-1]["loop"] is True, "the section repeats what was already paid for"
+
+    long_film = stretch(
+        [
+            {"name": "a", "start_seconds": 0.0, "seconds": 300.0},
+            {"name": "b", "start_seconds": 300.0, "seconds": 413.3, "fade_out_seconds": 6.0},
+        ],
+        733.91,
+    )
+    assert long_film[-1]["seconds"] == 433.91, long_film[-1]
+    assert long_film[0]["seconds"] == 300.0, "only the closing section moves"
+
+
+def verify_a_plan_that_already_reaches_the_end_is_left_alone() -> None:
+    stretch = trip_film_export.stretch_last_section
+    timeline = [{"name": "a", "start_seconds": 0.0, "seconds": 150.0}]
+    assert stretch(timeline, 150.0) is timeline
+    assert stretch(timeline, 150.03) is timeline, "a sliver is not a gap anybody hears"
+    assert stretch(timeline, 149.0) is timeline, "a shorter film is the other case"
+    assert stretch([], 150.0) == []
+    assert stretch(timeline, 0.0) is timeline
+
+
+def verify_a_stretched_fade_still_fits_inside_its_section() -> None:
+    stretched = trip_film_export.stretch_last_section(
+        [{"name": "a", "start_seconds": 0.0, "seconds": 4.0, "fade_out_seconds": 3.0}],
+        10.0,
+    )
+    entry = stretched[-1]
+    assert entry["fade_out_seconds"] <= entry["seconds"] / 2, entry
+
+
 CHECKS = [
     verify_the_record_knows_the_film_after_the_exchange_forgot_it,
     verify_a_present_result_is_used_and_nothing_is_copied,
@@ -235,6 +329,12 @@ CHECKS = [
     verify_a_result_without_a_measured_length_falls_back_to_the_record,
     verify_no_length_anywhere_is_named_rather_than_guessed,
     verify_the_mux_still_refuses_a_job_from_another_trip,
+    verify_a_quality_excerpt_is_never_muxed_into_the_trips_film,
+    verify_a_whole_film_passes_that_same_gate,
+    verify_the_ledger_says_which_film_a_mux_was_laid_onto,
+    verify_the_last_music_section_carries_to_the_measured_end,
+    verify_a_plan_that_already_reaches_the_end_is_left_alone,
+    verify_a_stretched_fade_still_fits_inside_its_section,
 ]
 
 

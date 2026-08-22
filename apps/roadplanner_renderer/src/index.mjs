@@ -128,9 +128,36 @@ const filmJobLimitMs = (profileId) =>
  * reads the first. Two of the largest film the renderer will produce,
  * which keeps this number honest when the size limit moves again.
  */
-const MAX_RESULT_BYTES = Number(
+let maxResultBytes = Number(
   process.env.ROADPLANNER_MAX_RESULT_BYTES || FILM_LIMITS.maxOutputBytes * 2,
 );
+
+/**
+ * How many of the newest results the space cleanup may never touch.
+ *
+ * The loop below evicts oldest-first while the folder is over budget, and
+ * `folders` contains EVERY surviving folder - including the one written
+ * seconds ago. When a single film is larger than the whole budget, that
+ * loop ran until it had deleted the film the worker had just finished.
+ * The live log caught it: three results dropped in one second, the
+ * newest among them, and putting music on that film was impossible ever
+ * after because the mux reads its source from exactly this folder.
+ *
+ * Three, because that is one journey: the film, the same film with its
+ * soundtrack, and a review copy. Everything older than those may go.
+ */
+const KEEP_RECENT_RESULTS = 3;
+
+/**
+ * Which results were dropped for space, so the reason survives them.
+ *
+ * "Zu diesem Auftrag gibt es kein Ergebnis" is true and useless - it
+ * reads as "this job never produced anything" when what happened is
+ * "your film was deleted to make room". Roadplanner reads this file to
+ * say the second thing.
+ */
+const PRUNED_LEDGER = "pruned.json";
+const MAX_PRUNED_ENTRIES = 200;
 
 let activeJobs = 0;
 
@@ -860,6 +887,38 @@ async function recoverInterrupted() {
   }
 }
 
+/**
+ * Remember that these results were dropped for space.
+ *
+ * Bounded and best-effort: the ledger exists so a later "where is my
+ * film?" can be answered with the truth instead of "there is no result",
+ * and a ledger that failed to write must never break the cleanup that
+ * was the actual job.
+ */
+async function recordPruned(jobIds) {
+  const file = path.join(DIRS.results, PRUNED_LEDGER);
+  let known = [];
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.pruned)) known = parsed.pruned;
+  } catch {
+    // No ledger yet, or an unreadable one. Either way it is rebuilt.
+  }
+  const at = formatTime(new Date());
+  const merged = [
+    ...known.filter((entry) => entry && typeof entry === "object" && isJobId(entry.job_id)),
+    ...jobIds.map((jobId) => ({ job_id: jobId, reason: "space", pruned_at: at })),
+  ].slice(-MAX_PRUNED_ENTRIES);
+  try {
+    await writeAtomic(file, `${JSON.stringify({ pruned: merged }, null, 2)}\n`);
+  } catch (err) {
+    log("warn", "Verzeichnis der aufgeräumten Ergebnisse nicht schreibbar", {
+      detail: String(err),
+    });
+  }
+}
+
 async function cleanupOldResults() {
   const cutoff = Date.now() - RESULT_RETENTION_MS;
   const names = (await fs.readdir(DIRS.results).catch(() => [])).filter(isJobId);
@@ -879,17 +938,35 @@ async function cleanupOldResults() {
   }
 
   // Age alone does not bound a folder that fills up faster than it ages.
-  // Oldest first until the total is back under the budget.
+  // Oldest first until the total is back under the budget - but the
+  // newest results are off limits whatever the arithmetic says. Without
+  // that, a single film larger than the whole budget made this loop run
+  // until it had deleted the film the worker had just produced.
   let total = await directorySize(DIRS.results);
   folders.sort((a, b) => a.mtime - b.mtime);
-  for (const entry of folders) {
-    if (total <= MAX_RESULT_BYTES) break;
+  const evictable =
+    folders.length > KEEP_RECENT_RESULTS ? folders.slice(0, -KEEP_RECENT_RESULTS) : [];
+  const pruned = [];
+  for (const entry of evictable) {
+    if (total <= maxResultBytes) break;
     const size = await directorySize(entry.folder);
     await fs.rm(entry.folder, { recursive: true, force: true }).catch(() => {});
     await fs.rm(path.join(DIRS.status, `${entry.name}.json`), { force: true }).catch(() => {});
     finished.delete(entry.name);
     total -= size;
+    pruned.push(entry.name);
     log("info", "Ergebnis wegen Platzgrenze aufgeräumt", { job_id: entry.name });
+  }
+  if (pruned.length) await recordPruned(pruned);
+  if (total > maxResultBytes) {
+    // Said out loud rather than solved by deleting something that is
+    // still wanted. A folder that stays over budget on its newest few
+    // results is a disk question, not a cleanup question.
+    log("warn", "Ergebnisordner bleibt über der Platzgrenze", {
+      bytes: total,
+      limit: maxResultBytes,
+      kept: Math.min(folders.length, KEEP_RECENT_RESULTS),
+    });
   }
 
   // An input package whose job never arrived - Roadplanner wrote it while
@@ -920,10 +997,44 @@ async function cleanupOldResults() {
   }
 }
 
+/**
+ * What the user set in the app's own configuration.
+ *
+ * Only one thing is readable here so far, and it is the one a user could
+ * not otherwise reach: how much room the results folder may take. The
+ * environment variable still wins, because that is the deliberate
+ * override; the option exists so somebody with a small disk - or a very
+ * large film - is not stuck with a number they cannot see.
+ */
+async function applyAddonOptions() {
+  let raw;
+  try {
+    raw = await fs.readFile("/data/options.json", "utf8");
+  } catch {
+    return; // Not running as a Home Assistant app. Defaults stand.
+  }
+  let options;
+  try {
+    options = JSON.parse(raw);
+  } catch {
+    log("warn", "Die App-Konfiguration ist kein gültiges JSON - Standardwerte gelten");
+    return;
+  }
+  const gib = Number(options?.max_result_gib);
+  if (process.env.ROADPLANNER_MAX_RESULT_BYTES) return;
+  if (Number.isFinite(gib) && gib > 0) {
+    maxResultBytes = Math.round(gib * 1024 * 1024 * 1024);
+    log("info", "Platzgrenze für Ergebnisse aus der Konfiguration", {
+      bytes: maxResultBytes,
+    });
+  }
+}
+
 async function main() {
   for (const dir of Object.values(DIRS)) {
     await fs.mkdir(dir, { recursive: true });
   }
+  await applyAddonOptions();
   log("info", "Renderer-App startet", { version: APP_VERSION, exchange_dir: EXCHANGE_DIR });
   await writeHeartbeat();
   await recoverInterrupted();

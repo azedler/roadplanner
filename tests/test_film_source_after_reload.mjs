@@ -92,6 +92,85 @@ async function verify_a_trip_switch_drops_the_adopted_source() {
   assert.equal(panel._storyLatestFilm, undefined);
 }
 
+// --- #377: an excerpt is not the film, and a scored film is not silent ---
+
+function panelWithJobs(jobs) {
+  const panel = new Panel();
+  panel._render = () => {};
+  panel._rendererAppRedraw = () => {};
+  panel._selectedTripId = "trip-a";
+  panel._data = { capabilities: { can_edit: true }, selected_is_active: true };
+  panel._storyFilmMusicOffer = async () => { panel._offerAsked = true; };
+  panel._runAction = async (action) => {
+    if (action !== "renderer_app_recent_jobs") return null;
+    return {
+      renderer_app_recent_jobs: jobs,
+      renderer_app_active_job: null,
+      renderer_app_result: null,
+    };
+  };
+  return panel;
+}
+
+const filmJob = (overrides = {}) => ({
+  job_id: JOB,
+  kind: "trip_film",
+  state: "completed",
+  trip_id: "trip-a",
+  has_audio: false,
+  excerpt: false,
+  source_job_id: "",
+  ...overrides,
+});
+
+async function verify_a_quality_excerpt_is_not_adopted_as_the_film() {
+  const panel = panelWithJobs([filmJob({ excerpt: true })]);
+  await panel._rendererAppAdoptRunningJob();
+  assert.ok(
+    !panel._storyFilmSourceJobId,
+    "a 65-second excerpt must not become the film music is laid onto",
+  );
+}
+
+async function verify_the_whole_film_beside_an_excerpt_is_the_one_adopted() {
+  const whole = "22222222-2222-4333-8444-555555555555";
+  const panel = panelWithJobs([
+    filmJob({ job_id: JOB, excerpt: true }),
+    filmJob({ job_id: whole, excerpt: false }),
+  ]);
+  await panel._rendererAppAdoptRunningJob();
+  assert.equal(panel._storyFilmSourceJobId, whole);
+  assert.equal(panel._storyFilmSourceIsExcerpt, false, "set through the setter, not by assignment");
+}
+
+async function verify_a_film_that_was_already_scored_is_not_offered_music_again() {
+  const mux = "33333333-2222-4333-8444-555555555555";
+  const panel = panelWithJobs([
+    { ...filmJob({ job_id: mux, kind: "film_music", source_job_id: JOB }), has_audio: true },
+    filmJob({ job_id: JOB, has_audio: false }),
+  ]);
+  await panel._rendererAppAdoptRunningJob();
+  assert.equal(panel._storyFilmSourceJobId, JOB, "the silent render stays the mux source");
+  assert.equal(
+    panel._storyFilmSourceHasAudio,
+    true,
+    "a film with a finished mux behind it is not silent any more",
+  );
+  assert.ok(!panel._offerAsked, "and nothing asks for a second helping of the same music");
+}
+
+async function verify_a_mux_of_another_film_does_not_count() {
+  const mux = "33333333-2222-4333-8444-555555555555";
+  const other = "44444444-2222-4333-8444-555555555555";
+  const panel = panelWithJobs([
+    { ...filmJob({ job_id: mux, kind: "film_music", source_job_id: other }), has_audio: true },
+    filmJob({ job_id: JOB, has_audio: false }),
+  ]);
+  await panel._rendererAppAdoptRunningJob();
+  assert.equal(panel._storyFilmSourceHasAudio, false, "that mux belongs to a different render");
+  assert.equal(panel._offerAsked, true, "so this film still gets its offer");
+}
+
 const checks = Object.entries({
   verify_the_recorded_film_becomes_the_source,
   verify_a_silent_film_asks_for_its_music_offer,
@@ -99,6 +178,10 @@ const checks = Object.entries({
   verify_a_live_session_is_not_overwritten_by_the_record,
   verify_no_film_means_no_source,
   verify_a_trip_switch_drops_the_adopted_source,
+  verify_a_quality_excerpt_is_not_adopted_as_the_film,
+  verify_the_whole_film_beside_an_excerpt_is_the_one_adopted,
+  verify_a_film_that_was_already_scored_is_not_offered_music_again,
+  verify_a_mux_of_another_film_does_not_count,
 });
 
 for (const [name, check] of checks) {

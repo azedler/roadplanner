@@ -924,6 +924,10 @@ export function parseMusicSections(value) {
       seconds: number("seconds"),
       fadeInSeconds: number("fade_in_seconds"),
       fadeOutSeconds: number("fade_out_seconds"),
+      // May this section repeat its own audio to fill its length? Only
+      // the closing one ever does, and only because the film turned out
+      // longer than the estimate its music was planned against.
+      loop: entry.loop === true,
       // A layer's own level, and `undefined` when it has none so the
       // package's shared volume still applies. Layering needs it: an
       // atmosphere under a piece of music is not the same thing at the

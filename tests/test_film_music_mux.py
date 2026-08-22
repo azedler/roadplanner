@@ -379,6 +379,55 @@ def verify_no_place_or_brand_name_reached_the_new_code() -> None:
             assert not found, f"{found} steht in einer Regel"
 
 
+def verify_the_scored_film_says_it_has_music() -> None:
+    """M-1 (#378): the mux measures the level and used to throw it away.
+
+    `player_film` reads exactly one field - `has_audible_audio` - and
+    only the RENDER ever set it. So a film with a -7,4 dBFS soundtrack
+    came back as `bool(None)` and the card announced "ohne Musik" over a
+    file that had just been measured at practically its own target. The
+    mux knew, it measured, and it did not say.
+    """
+    body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
+    body = body.split("\n/**", 1)[0]
+    facts = body.split("return {", 1)[1]
+    assert "has_audible_audio: isAudible(heard) === true" in facts, facts[:600]
+    assert "audio_peak_dbfs" in facts, "the number behind the answer travels too"
+    # From the measurement this job already makes, not a second one.
+    assert body.count("measureVolume(partial)") == 1, body.count("measureVolume(partial)")
+    # And the reader still reads that one field, so the two agree.
+    player = (PACKAGE_ROOT / "player_film.py").read_text(encoding="utf-8")
+    assert 'facts.get("has_audible_audio")' in player, "the reader and the writer must name the same field"
+
+
+def verify_the_scored_film_carries_the_profile_it_was_rendered_at() -> None:
+    body = RENDER_SOURCE.split("export async function muxFilmMusic(", 1)[1]
+    body = body.split("\n/**", 1)[0]
+    assert "profileForSize(facts.width, facts.height)" in body, (
+        "the mux result had an empty render profile and the download route "
+        "reconstructed it on its own"
+    )
+    profiles = (APP / "src" / "render_profiles.mjs").read_text(encoding="utf-8")
+    assert "export function profileForSize(" in profiles, (
+        "the reconstruction belongs in the file that owns the table"
+    )
+
+
+def verify_a_section_may_repeat_itself_to_reach_the_films_end() -> None:
+    """M-3 (#378): the plan is built against an estimate, the film is longer."""
+    audiomux = AUDIOMUX
+    assert "function sectionInputArgs(" in audiomux
+    assert '"-stream_loop", "-1"' in audiomux, (
+        "looping has to be an INPUT option, before the -i it belongs to"
+    )
+    # Bounded by the trim that was already there, so an endless input
+    # cannot run away.
+    assert "atrim=0:" in audiomux
+    assert audiomux.count('args.push(...sectionInputArgs(section))') == 2, (
+        "both the mux and the measurement build their inputs the same way"
+    )
+
+
 def main() -> None:
     for name, function in sorted(globals().items()):
         if name.startswith("verify_") and callable(function):

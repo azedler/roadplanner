@@ -255,24 +255,40 @@ const Caption: React.FC<{ text: string; overPhoto: boolean }> = ({ text, overPho
         style={{
           // A scrim rather than a box: the picture stays visible and the
           // text stays readable over whatever happens to be underneath.
+          //
+          // Full width, and that is the whole point of the split. The
+          // gradient and the text's own width limit used to sit on ONE
+          // element, so the darkening stopped at MAX_TEXT_WIDTH - 1088
+          // of 1280 - and the remaining 192 px stayed bright. On screen
+          // that is a hard vertical edge running down through the
+          // photograph, measured at exactly 85% of the frame.
+          width: "100%",
+          boxSizing: "border-box",
           background: overPhoto
             ? "linear-gradient(transparent, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.78))"
             : "transparent",
           padding: overPhoto
             ? `150px ${SAFE_SIDE}px ${SAFE_BOTTOM}px`
             : `0 ${SAFE_SIDE + 14}px 0`,
-          fontFamily: "sans-serif",
-          color: INK,
-          fontSize: fitted.fontSize,
-          lineHeight: box.lineHeight,
-          maxWidth: MAX_TEXT_WIDTH,
-          // No clamp and no hidden overflow. A text that genuinely does
-          // not fit here never reaches this component - the planner
-          // gives it its own scene, which is the honest answer.
-          overflowWrap: "break-word",
         }}
       >
-        {fitted.text}
+        <div
+          style={{
+            fontFamily: "sans-serif",
+            color: INK,
+            fontSize: fitted.fontSize,
+            lineHeight: box.lineHeight,
+            // The text keeps the width it was fitted against; only the
+            // darkening behind it reaches the edges of the frame.
+            maxWidth: MAX_TEXT_WIDTH,
+            // No clamp and no hidden overflow. A text that genuinely does
+            // not fit here never reaches this component - the planner
+            // gives it its own scene, which is the honest answer.
+            overflowWrap: "break-word",
+          }}
+        >
+          {fitted.text}
+        </div>
       </div>
     </AbsoluteFill>
   );
