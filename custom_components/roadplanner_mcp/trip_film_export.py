@@ -102,6 +102,7 @@ class TripFilmExporter:
         characters: Any = None,
         music_timeline: Any = None,
         music_variant: Any = None,
+        job_ledger: Any = None,
     ) -> None:
         self._hass = hass
         self._manager = manager
@@ -126,6 +127,46 @@ class TripFilmExporter:
         # already been generated for one fassung and how loud each layer
         # plays. Also read-only, and also deliberately not the service.
         self._music_variant = music_variant
+        # Which trip a submitted job belongs to. Written at submission -
+        # the one moment ownership is certain - and asked before anything
+        # connects a finished job back to a trip. See the audit that made
+        # this necessary: without it, every consumer guessed "the newest
+        # one" and a test trip's film became the real trip's film.
+        self._job_ledger = job_ledger
+
+    async def _async_record_job(self, job_id: str, trip_id: str, kind: str) -> None:
+        if self._job_ledger is None or not job_id:
+            return
+        await self._hass.async_add_executor_job(
+            self._job_ledger.record, job_id, trip_id, kind
+        )
+
+    async def _async_assert_job_belongs_to(self, job_id: str, trip_id: str) -> None:
+        """Refuse to connect a job to a trip it was not submitted for.
+
+        Unknown is refused too, and that is the point: a job the ledger
+        never saw has unprovable ownership, and acting on "probably" is
+        exactly how one trip's soundtrack ended up on another trip's
+        video. The message says what to do instead of what went wrong
+        internally.
+        """
+        if self._job_ledger is None:
+            return
+        owner = await self._hass.async_add_executor_job(
+            self._job_ledger.trip_for, job_id
+        )
+        if owner == trip_id:
+            return
+        if owner is None:
+            raise ValidationError(
+                "Für diesen Film ist nicht mehr feststellbar, zu welcher "
+                "Reise er gehört. Bitte den Film neu rendern - danach ist "
+                "die Zuordnung wieder bekannt."
+            )
+        raise ValidationError(
+            "Dieser Film gehört zu einer anderen Reise. Bitte zuerst den "
+            "Film dieser Reise rendern."
+        )
 
     async def async_preview(self, trip_id: str) -> dict[str, Any]:
         """What a film of this trip would contain, without building it.
@@ -220,6 +261,7 @@ class TripFilmExporter:
         and a listener asked to compare them would answer the volume
         rather than the architecture.
         """
+        await self._async_assert_job_belongs_to(job_id, trip_id)
         if self._music_variant is None:
             raise ValidationError("Für diese Installation gibt es keinen Musikvergleich.")
         result = await self._renderer_app.async_result(job_id)
@@ -285,6 +327,9 @@ class TripFilmExporter:
             files=files,
             title=f"Musikvergleich {variant}",
         )
+        await self._async_record_job(
+            str(submitted.get("job_id") or ""), trip_id, "film_music"
+        )
         return {
             **submitted,
             "variant": variant,
@@ -306,6 +351,7 @@ class TripFilmExporter:
         generated is simply not in the timeline, and the offer in the
         panel is where that is decided and paid for.
         """
+        await self._async_assert_job_belongs_to(job_id, trip_id)
         if self._music_timeline is None:
             raise ValidationError("Für diese Installation gibt es keine erzeugte Musik.")
         result = await self._renderer_app.async_result(job_id)
@@ -369,6 +415,9 @@ class TripFilmExporter:
             source_job_id=job_id,
             music=music,
             files=files,
+        )
+        await self._async_record_job(
+            str(submitted.get("job_id") or ""), trip_id, "film_music"
         )
         _LOGGER.debug(
             "Musik für %s aufgelegt: %s Abschnitte auf %.1f s",
@@ -560,6 +609,9 @@ class TripFilmExporter:
             title=(manifest.get("trip") or {}).get("title") or "Reisefilm",
             profile_id=profile_id,
             frame_range=window,
+        )
+        await self._async_record_job(
+            str(submitted.get("job_id") or ""), trip_id, "trip_film"
         )
         empty_chapters = sum(1 for value in photos_by_chapter.values() if not value)
         _LOGGER.debug(
