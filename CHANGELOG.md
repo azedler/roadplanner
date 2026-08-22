@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.119.0] - 2026-08-22
+
 ### Fixed
 
 - **Reisen besitzen jetzt ihre Filme.** Der Livetest-Verdacht — „ich wollte in einer Reise rendern und bekam ein Video mit der anderen Geschichte" — führte zu einem Audit mit neun bestätigten Befunden und **einer** gemeinsamen Wurzel: Renderer-Aufträge trugen keinerlei Reise-Identität. Alles, was einen fertigen Auftrag einer Reise zuordnete, riet deshalb „der neueste" — und so wurde der Film der Testreise nach einem Reload als Film der echten Reise angezeigt, „Musik auflegen" konnte die Musik der einen Reise auf das Video der anderen legen und das Ergebnis als offiziellen Reisefilm der falschen Reise verbuchen, und der Player wies einer Reise ohne eigene Aufzeichnung den neuesten Film *irgendeiner* Reise dauerhaft zu.
@@ -13,7 +15,6 @@ The project follows Semantic Versioning for public releases.
   Der Render selbst war nie falsch: Paketbau, Kapitel und Bilder kamen immer aus der angefragten Reise. Falsch war jede Verbindung *danach*.
 
   Jetzt schreibt jede Einreichung in ein **Auftrags-Verzeichnis** (Auftrag → Reise), und jede Stelle, die einen Auftrag mit einer Reise verbindet, fragt es statt zu raten: Der Reisegeschichte-Tab adoptiert nur noch Aufträge der ausgewählten Reise (fremde laufende Render erscheinen nicht mehr als eigene); „Musik auflegen" und der A/B/C-Mix **verweigern** einen Film, der einer anderen Reise gehört oder dessen Zugehörigkeit nicht mehr belegbar ist („bitte neu rendern"); der Rettungs-Scan des Players adoptiert nur noch beweisbar eigene Filme — lieber keiner als der falsche; Review-Kopien erben die Reise ihres Quellfilms; und der Reisewechsel räumt den kompletten Renderer-Block auf (adoptierter Auftrag, Filmquelle, Mixe), statt ihn der nächsten Reise zu vererben. Die Reisegeschichten selbst waren durchgehend sauber getrennt.
-
 
 ## [4.118.1] - 2026-08-21
 
