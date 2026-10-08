@@ -6,6 +6,8 @@ The project follows Semantic Versioning for public releases.
 
 ## [Unreleased]
 
+## [4.121.0] - 2026-10-08
+
 ### Changed
 
 - **Die fertigen Filme liegen nicht mehr im Home-Assistant-Backup.** Die Bibliothek der erzeugten Exporte lag unter `/config/.roadplanner_trip_videos` — und `/config` ist genau das, was jedes Home-Assistant-Backup einpackt und nach OneDrive schiebt. Siebzehn Filme waren 2,8 GB eines 4,1-GB-Uploads, jede Nacht, für Daten, die schon auf der Platte liegen und jederzeit neu gerendert werden können. Der Standard ist jetzt `/media/roadplanner_trip_videos`: ein Home-Assistant-Login ist weiter nötig, ein Backup erfasst den Ordner nicht. Die Pfadoption nimmt dafür erstmals ein Verzeichnis außerhalb von `/config` an — aber nur eines der von Home Assistant konfigurierten Medienverzeichnisse, nicht irgendeinen Pfad; ein Verzeichnis innerhalb von `/config` bleibt genauso gültig wie vorher, und das Verbot von `www` gilt unverändert. Wer den alten Standard nie geändert hat, wird beim Update mitgenommen; ein selbst gewählter Pfad bleibt unangetastet. **Die Dateien verschiebt das Update nicht** — 2,8 GB wandern nicht hinter dem Rücken des Besitzers, und eine leere Bibliothek füllt sich mit dem nächsten Render wieder.
