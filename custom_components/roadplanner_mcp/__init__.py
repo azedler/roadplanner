@@ -161,6 +161,7 @@ from .const import (
     DEFAULT_ROADBOOK_PATH,
     DOMAIN,
     EVENT_ROADPLANNER_UPDATED,
+    LEGACY_TRIP_VIDEO_LIBRARY_PATH,
 )
 from .coordinator import RoadplannerCoordinator
 from .crew_manager import CrewManager
@@ -185,7 +186,7 @@ from .panel import (
     async_remove_frontend_panel,
     async_setup_panel_support,
 )
-from .path_utils import resolve_config_path
+from .path_utils import resolve_config_path, resolve_library_path
 from .place_providers import CompositePlaceProvider
 from .roadplanner import RoadplannerStore
 from .routing import OSRMRoutingClient
@@ -327,10 +328,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     backup_relative = options.get(CONF_BACKUP_PATH, DEFAULT_BACKUP_PATH)
     handoff_relative = options.get(CONF_HANDOFF_PATH, DEFAULT_HANDOFF_PATH)
     archive_relative = options.get(CONF_ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH)
-    trip_video_library_relative = options.get(
+    trip_video_library_option = options.get(
         CONF_TRIP_VIDEO_LIBRARY_PATH, DEFAULT_TRIP_VIDEO_LIBRARY_PATH
     )
     config_dir = hass.config.config_dir
+    # May point outside /config - into one of Home Assistant's media
+    # directories - so that finished films stay off the backup. Resolved
+    # once here; both exporters share the one folder.
+    trip_export_library_dir = resolve_library_path(
+        config_dir,
+        trip_video_library_option,
+        media_dirs=hass.config.media_dirs,
+    )
 
     store = RoadplannerStore(
         roadbook_dir=resolve_config_path(config_dir, roadbook_relative),
@@ -720,7 +729,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         media_cache=media_cache,
         # Same folder as the videos: one library for generated trip exports,
         # so a PDF stays retrievable after its five-minute ticket expires.
-        library_dir=resolve_config_path(config_dir, trip_video_library_relative),
+        library_dir=trip_export_library_dir,
         portrait_store=CrewPortraitStore(archive_root / "crew_portraits"),
     )
     trip_video = TripVideoExporter(
@@ -733,7 +742,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DEFAULT_MAP_SNAPSHOT_PROVIDER,
         ),
         google_maps_api_key=options.get(CONF_GOOGLE_PLACES_API_KEY),
-        library_dir=resolve_config_path(config_dir, trip_video_library_relative),
+        library_dir=trip_export_library_dir,
         media_cache=media_cache,
     )
 
@@ -1090,6 +1099,25 @@ def _migrate_gemini_model_options(effective: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _migrate_trip_video_library_path(effective: dict[str, Any]) -> None:
+    """Follow the library out of /config when it was never customised.
+
+    The default moved from `.roadplanner_trip_videos` to
+    `/media/roadplanner_trip_videos` so that finished films stop riding
+    along in every Home Assistant backup. An install that still carries
+    the old default carries it because nobody ever chose it, so it
+    follows the move. A path the user picked themselves is left exactly
+    as it is - including the old default typed in deliberately, which is
+    indistinguishable from never having touched it and therefore treated
+    the same way. Nothing moves the files: Home Assistant is not where
+    2.8 GB gets shuffled around behind someone's back, and a library
+    pointing at an empty folder repopulates with the next render.
+    """
+    current = str(effective.get(CONF_TRIP_VIDEO_LIBRARY_PATH) or "").strip()
+    if current in {"", LEGACY_TRIP_VIDEO_LIBRARY_PATH}:
+        effective[CONF_TRIP_VIDEO_LIBRARY_PATH] = DEFAULT_TRIP_VIDEO_LIBRARY_PATH
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate legacy single-file config entries to the split-roadbook model."""
     if entry.version > CONFIG_ENTRY_VERSION:
@@ -1098,6 +1126,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
 
     effective = {**entry.data, **entry.options}
+    _migrate_trip_video_library_path(effective)
     roadbook_relative = effective.get(CONF_ROADBOOK_PATH)
     if not roadbook_relative:
         old_storage = effective.get(
