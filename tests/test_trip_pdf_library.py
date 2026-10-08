@@ -109,7 +109,7 @@ def verify_wiring() -> None:
     )
     init_source = (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8")
     assert "async_register_trip_pdf_library_view(hass)" in init_source
-    assert "library_dir=resolve_config_path(config_dir, trip_video_library_relative)" in init_source
+    assert "library_dir=trip_export_library_dir," in init_source
     view_source = (PACKAGE_ROOT / "trip_pdf_library_http.py").read_text(encoding="utf-8")
     assert "requires_auth = False" in view_source, (
         "the companion app downloads via a plain link - session auth would "

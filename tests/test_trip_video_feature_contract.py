@@ -55,7 +55,12 @@ assert "trip_video=trip_video," in init_source
 assert "async_register_trip_video_library_view(hass)" in init_source
 assert "CONF_MAP_SNAPSHOT_PROVIDER" in init_source
 assert "CONF_TRIP_VIDEO_LIBRARY_PATH" in init_source
-assert "library_dir=resolve_config_path(config_dir, trip_video_library_relative)" in init_source
+assert "library_dir=trip_export_library_dir," in init_source
+assert "resolve_library_path(" in init_source, (
+    "the export library may live in a media directory, outside /config, so "
+    "finished films stay out of the Home Assistant backup - resolving it with "
+    "resolve_config_path would reject the configured /media path"
+)
 
 http_source = (ROOT / "trip_video_library_http.py").read_text(encoding="utf-8")
 assert 'DOWNLOAD_URL = "/api/roadplanner/trip_video_library/{filename}"' in http_source
