@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -186,6 +187,7 @@ from .routing import (
 from .path_utils import (
     PathValidationError,
     normalize_config_relative_path,
+    normalize_library_path,
     normalize_paths,
 )
 
@@ -672,6 +674,7 @@ def _normalize_input(
     user_input: dict[str, Any],
     *,
     current: dict[str, Any] | None = None,
+    media_dirs: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     result = dict(user_input)
     submitted_key = str(result.get(CONF_GEMINI_API_KEY, "")).strip()
@@ -781,22 +784,29 @@ def _normalize_input(
             "Archivverzeichnis darf nicht in einem anderen Roadplanner-Verzeichnis liegen"
         )
     result[CONF_ARCHIVE_PATH] = archive
-    trip_video_library = normalize_config_relative_path(
+    # The export library is the one directory allowed outside /config -
+    # in a media directory, so films stay out of the backup. An absolute
+    # result means it landed there, and then it cannot collide with the
+    # config-relative directories below, so those checks do not apply.
+    trip_video_library = normalize_library_path(
         config_dir,
         user_input[CONF_TRIP_VIDEO_LIBRARY_PATH],
-        disallow_www=True,
+        media_dirs=media_dirs,
     )
     trip_video_library_path = PurePosixPath(trip_video_library)
-    other_paths_with_archive = other_paths + (archive_path,)
-    if trip_video_library_path in other_paths_with_archive:
-        raise PathValidationError("Videoverzeichnis muss getrennt sein")
-    if any(
-        trip_video_library_path in other.parents or other in trip_video_library_path.parents
-        for other in other_paths_with_archive
-    ):
-        raise PathValidationError(
-            "Videoverzeichnis darf nicht in einem anderen Roadplanner-Verzeichnis liegen"
-        )
+    if not trip_video_library_path.is_absolute():
+        other_paths_with_archive = other_paths + (archive_path,)
+        if trip_video_library_path in other_paths_with_archive:
+            raise PathValidationError("Videoverzeichnis muss getrennt sein")
+        if any(
+            trip_video_library_path in other.parents
+            or other in trip_video_library_path.parents
+            for other in other_paths_with_archive
+        ):
+            raise PathValidationError(
+                "Videoverzeichnis darf nicht in einem anderen "
+                "Roadplanner-Verzeichnis liegen"
+            )
     result[CONF_TRIP_VIDEO_LIBRARY_PATH] = trip_video_library
     currency = str(
         result.get(CONF_DEFAULT_CURRENCY) or DEFAULT_DEFAULT_CURRENCY
@@ -826,7 +836,11 @@ class RoadplannerConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                data = _normalize_input(self.hass.config.config_dir, user_input)
+                data = _normalize_input(
+                    self.hass.config.config_dir,
+                    user_input,
+                    media_dirs=self.hass.config.media_dirs,
+                )
             except PathValidationError:
                 errors["base"] = "invalid_path"
             except GeocodingUrlValidationError:
@@ -869,6 +883,7 @@ class RoadplannerOptionsFlow(OptionsFlow):
                     self.hass.config.config_dir,
                     user_input,
                     current=current,
+                    media_dirs=self.hass.config.media_dirs,
                 )
             except PathValidationError:
                 errors["base"] = "invalid_path"

@@ -9,7 +9,7 @@ INTEGRATION_VERSION = "4.120.1"
 LLM_API_ID = "roadplanner"
 LLM_API_NAME = "Roadplanner"
 
-CONFIG_ENTRY_VERSION = 14
+CONFIG_ENTRY_VERSION = 15
 
 EVENT_ROADPLANNER_UPDATED = "roadplanner_mcp_updated"
 EVENT_HANDOFF_RECEIVED = f"{DOMAIN}_handoff_received"
@@ -194,7 +194,17 @@ DEFAULT_ROUTING_PROFILE = "driving"
 DEFAULT_ROUTING_REQUEST_TIMEOUT = 45
 DEFAULT_ROUTING_MIN_REQUEST_INTERVAL = 1.1
 DEFAULT_ARCHIVE_PATH = ".roadplanner_archive"
-DEFAULT_TRIP_VIDEO_LIBRARY_PATH = ".roadplanner_trip_videos"
+# Outside /config on purpose. Home Assistant backs up /config and the
+# backup goes to OneDrive; a handful of finished films were 2.8 of the
+# 4.1 GB being uploaded every night, for data that is already on disk and
+# can be rendered again. /media needs a Home Assistant login but is not
+# part of a backup, which is the whole reason this default moved.
+DEFAULT_TRIP_VIDEO_LIBRARY_PATH = "/media/roadplanner_trip_videos"
+#: Where the library used to live, config-relative. Still accepted (the
+#: path option takes anything inside /config), and recognised by the
+#: config-entry migration so an install that never customised it follows
+#: the move instead of keeping a folder inside the backup.
+LEGACY_TRIP_VIDEO_LIBRARY_PATH = ".roadplanner_trip_videos"
 # Kept small - each stored file is tens of MB; this is a durable "last few
 # exports survive an app restart" library, not a full archive.
 MAX_STORED_TRIP_VIDEOS = 10
